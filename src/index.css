@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    color: #0f172a;
+    background-color: #f8fafc;
+  }
+}
+
+/* Custom sleek scrollbar for timeline and kanban */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Blocked Task: Gray background with subtle 45-degree hatch (szrafura) without strike-through */
+.task-blocked-style {
+  background-color: #e2e8f0 !important;
+  color: #475569 !important;
+  border-color: #cbd5e1 !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.task-blocked-style::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(239, 68, 68, 0.22),
+    rgba(239, 68, 68, 0.22) 3px,
+    transparent 3px,
+    transparent 12px
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Official Deadline Blinking (Termin urzędowy zbliżający się w <= 3 dni robocze) */
+@keyframes officialDeadlinePulse {
+  0%, 100% {
+    opacity: 1;
+    outline: 2.5px solid #dc2626;
+    outline-offset: -1px;
+    box-shadow: 0 0 12px rgba(220, 38, 38, 0.5);
+  }
+  50% {
+    opacity: 0.65;
+    outline: 1.5px solid #f87171;
+    outline-offset: -1px;
+    box-shadow: 0 0 3px rgba(220, 38, 38, 0.2);
+  }
+}
+
+.animate-official-deadline {
+  animation: officialDeadlinePulse 1.25s ease-in-out infinite !important;
+}
