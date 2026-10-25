@@ -77,3 +77,29 @@ export interface Comment {
   content: string;
   createdAt: string;
 }
+
+export interface TemplateTaskBlueprint {
+  title: string;
+  description: string;
+  type: TaskType;
+  priority: Priority;
+  durationDays: number;
+  offsetDays: number;
+  isOfficialDeadline?: boolean;
+  estimatedHours?: number;
+  tags?: string[];
+  blockerIndices?: number[];
+}
+
+export interface ProjectTemplate {
+  id: string;
+  name: string;
+  category: 'kubaturowe' | 'mieszkaniowe' | 'przemyslowe' | 'infrastruktura' | 'przebudowa' | 'ogolne';
+  description: string;
+  defaultDurationDays: number;
+  defaultPriority: Priority;
+  defaultBudget?: string;
+  tasks: TemplateTaskBlueprint[];
+  isCustom?: boolean;
+  createdAt?: string;
+}

@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Project, Task, User, Priority } from '../types';
+import { Project, Task, User, Priority, ProjectTemplate } from '../types';
 import { downloadIcsFile } from '../utils/calendar';
 import { getNextProjectCode, isProjectCodeAvailable, isValidProjectCodeFormat } from '../utils/projectCode';
+import { loadAllProjectTemplates } from '../utils/projectTemplates';
+import { AdminTemplateManagerModal } from './AdminTemplateManagerModal';
 import { 
   FolderPlus, 
   Calendar, 
@@ -15,15 +17,18 @@ import {
   Users,
   Edit3,
   X,
-  Check
+  Check,
+  Sparkles,
+  Building2
 } from 'lucide-react';
 
 interface ProjectsOverviewProps {
   projects: Project[];
   tasks: Task[];
   users: User[];
+  currentUser: User;
   onSelectProject: (projectId: string) => void;
-  onAddProject: (newProject: Omit<Project, 'id'>) => void;
+  onAddProject: (newProject: Omit<Project, 'id'>, selectedTemplate?: ProjectTemplate) => void;
   onUpdateProject?: (updatedProject: Project) => void;
 }
 
@@ -31,12 +36,16 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   projects,
   tasks,
   users,
+  currentUser,
   onSelectProject,
   onAddProject,
   onUpdateProject,
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
+  const [availableTemplates, setAvailableTemplates] = useState<ProjectTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('none');
 
   // Form fields
   const [projectCode, setProjectCode] = useState('');
@@ -49,6 +58,10 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   const [dueDate, setDueDate] = useState('2026-12-23');
   const [budget, setBudget] = useState('100 000 PLN');
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>(['usr-1', 'usr-2']);
+
+  useEffect(() => {
+    setAvailableTemplates(loadAllProjectTemplates());
+  }, [isModalOpen, isTemplateManagerOpen]);
 
   // Check code availability
   const isCodeAvailable = isProjectCodeAvailable(projectCode, projects, editingProject?.id);
@@ -95,20 +108,50 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setDurationDays(calculateDays(startDate, newEnd));
   };
 
-  const openCreateModal = () => {
+  const openCreateModal = (preselectedTemplate?: ProjectTemplate) => {
     setEditingProject(null);
     const nextCode = getNextProjectCode(projects);
     setProjectCode(nextCode);
-    setName('');
-    setDescription('');
-    setPriority('normal');
-    setStatus('active');
-    setStartDate('2026-10-24');
-    setDurationDays(60);
-    setDueDate('2026-12-23');
-    setBudget('100 000 PLN');
+    const templates = loadAllProjectTemplates();
+    setAvailableTemplates(templates);
+
+    if (preselectedTemplate) {
+      setSelectedTemplateId(preselectedTemplate.id);
+      setName(preselectedTemplate.name);
+      setDescription(preselectedTemplate.description);
+      setPriority(preselectedTemplate.defaultPriority);
+      setStatus('active');
+      setStartDate('2026-10-24');
+      setDurationDays(preselectedTemplate.defaultDurationDays);
+      setDueDate(calculateDueDate('2026-10-24', preselectedTemplate.defaultDurationDays));
+      setBudget(preselectedTemplate.defaultBudget || '180 000 PLN');
+    } else {
+      setSelectedTemplateId('none');
+      setName('');
+      setDescription('');
+      setPriority('normal');
+      setStatus('active');
+      setStartDate('2026-10-24');
+      setDurationDays(60);
+      setDueDate('2026-12-23');
+      setBudget('150 000 PLN');
+    }
     setSelectedMemberIds(['usr-1', 'usr-2']);
     setIsModalOpen(true);
+  };
+
+  const handleTemplateChange = (templateId: string) => {
+    setSelectedTemplateId(templateId);
+    if (templateId === 'none') return;
+    const tpl = availableTemplates.find((t) => t.id === templateId);
+    if (tpl) {
+      setName(tpl.name);
+      setDescription(tpl.description);
+      setPriority(tpl.defaultPriority);
+      setDurationDays(tpl.defaultDurationDays);
+      setDueDate(calculateDueDate(startDate, tpl.defaultDurationDays));
+      if (tpl.defaultBudget) setBudget(tpl.defaultBudget);
+    }
   };
 
   const openEditModal = (project: Project) => {
@@ -131,6 +174,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     if (!isFormValid) return;
 
     const cleanKey = projectCode.trim().toUpperCase();
+    const chosenTemplate = selectedTemplateId !== 'none'
+      ? availableTemplates.find((t) => t.id === selectedTemplateId)
+      : undefined;
 
     if (editingProject && onUpdateProject) {
       onUpdateProject({
@@ -147,21 +193,24 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         memberIds: selectedMemberIds,
       });
     } else {
-      onAddProject({
-        key: cleanKey,
-        name: name.trim(),
-        description,
-        priority,
-        status,
-        startDate,
-        dueDate,
-        durationDays: Number(durationDays) || 30,
-        progress: 0,
-        budget,
-        spentHours: 0,
-        memberIds: selectedMemberIds,
-        color: '#0284c7',
-      });
+      onAddProject(
+        {
+          key: cleanKey,
+          name: name.trim(),
+          description,
+          priority,
+          status,
+          startDate,
+          dueDate,
+          durationDays: Number(durationDays) || 30,
+          progress: 0,
+          budget,
+          spentHours: 0,
+          memberIds: selectedMemberIds,
+          color: '#0284c7',
+        },
+        chosenTemplate
+      );
     }
 
     setIsModalOpen(false);
@@ -186,13 +235,26 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={openCreateModal}
-          className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold px-4 py-2 rounded transition-colors shadow-xs"
-        >
-          <FolderPlus className="w-4 h-4" />
-          <span>Zarejestruj nowy projekt</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {currentUser.role === 'admin' && (
+            <button
+              onClick={() => setIsTemplateManagerOpen(true)}
+              className="flex items-center gap-1.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 text-xs font-semibold px-3 py-2 rounded transition-colors shadow-xs"
+              title="Zarządzaj szablonami projektów budowlanych pracowni"
+            >
+              <Layers className="w-4 h-4 text-purple-600" />
+              <span>Szablony projektów (Admin)</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => openCreateModal()}
+            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold px-4 py-2 rounded transition-colors shadow-xs"
+          >
+            <FolderPlus className="w-4 h-4" />
+            <span>Zarejestruj nowy projekt</span>
+          </button>
+        </div>
       </div>
 
       {/* Projects Grid */}
@@ -317,7 +379,17 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
+                  {currentUser.role === 'admin' && (
+                    <button
+                      onClick={() => setIsTemplateManagerOpen(true)}
+                      className="p-1 text-slate-500 hover:text-purple-700 hover:bg-purple-50 rounded transition-colors"
+                      title="Zapisz projekt jako szablon pracowni (Admin)"
+                    >
+                      <Layers className="w-3.5 h-3.5 text-purple-600" />
+                    </button>
+                  )}
+
                   <button
                     onClick={() => openEditModal(project)}
                     className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded transition-colors"
@@ -371,6 +443,63 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+              {/* TEMPLATE PICKER - only when creating new project */}
+              {!editingProject && (
+                <div className="p-3 bg-purple-50/70 border border-purple-200 rounded-lg space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="font-bold text-purple-950 flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5 text-purple-700" />
+                      <span>Stwórz projekt z szablonu (Opcjonalnie):</span>
+                    </label>
+                    {currentUser.role === 'admin' && (
+                      <button
+                        type="button"
+                        onClick={() => setIsTemplateManagerOpen(true)}
+                        className="text-[11px] text-purple-700 hover:underline font-semibold"
+                      >
+                        Kreator szablonów →
+                      </button>
+                    )}
+                  </div>
+
+                  <select
+                    value={selectedTemplateId}
+                    onChange={(e) => handleTemplateChange(e.target.value)}
+                    className="w-full bg-white border border-purple-300 rounded px-2.5 py-1.5 text-xs text-slate-900 font-medium focus:outline-none focus:ring-1 focus:ring-purple-500"
+                  >
+                    <option value="none">-- Czysty projekt (wprowadź własne etapy) --</option>
+                    {availableTemplates.map((tpl) => (
+                      <option key={tpl.id} value={tpl.id}>
+                        {tpl.name} ({tpl.tasks.length} zadań, {tpl.defaultDurationDays} dni) {tpl.isCustom ? '[Własny]' : ''}
+                      </option>
+                    ))}
+                  </select>
+
+                  {selectedTemplateId !== 'none' && (() => {
+                    const chosen = availableTemplates.find((t) => t.id === selectedTemplateId);
+                    if (!chosen) return null;
+                    const officialCount = chosen.tasks.filter((t) => t.isOfficialDeadline).length;
+                    return (
+                      <div className="bg-white/90 p-2 rounded border border-purple-200 text-[11px] space-y-1">
+                        <div className="text-purple-900 font-bold flex items-center justify-between">
+                          <span>✓ Szablon: {chosen.name}</span>
+                          <span className="text-[10px] bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded font-mono font-bold">
+                            {chosen.defaultDurationDays} dni roboczych
+                          </span>
+                        </div>
+                        <p className="text-slate-600 line-clamp-2">{chosen.description}</p>
+                        <div className="text-emerald-700 font-medium pt-0.5 flex items-center gap-2">
+                          <span>• Automatycznie utworzy {chosen.tasks.length} etapów</span>
+                          {officialCount > 0 && (
+                            <span className="text-rose-700 font-bold">• {officialCount} terminów urzędowych KPA</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
               {/* PROJECT CODE FIELD WITH AVAILABILITY CHECK */}
               <div className="p-3 bg-sky-50/70 border border-sky-200 rounded-lg space-y-1.5">
                 <div className="flex items-center justify-between">
@@ -583,6 +712,16 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Admin Template Manager Modal */}
+      <AdminTemplateManagerModal
+        isOpen={isTemplateManagerOpen}
+        onClose={() => setIsTemplateManagerOpen(false)}
+        projects={projects}
+        tasks={tasks}
+        currentUser={currentUser}
+        onSelectTemplateToCreate={(tpl) => openCreateModal(tpl)}
+      />
     </div>
   );
 };
