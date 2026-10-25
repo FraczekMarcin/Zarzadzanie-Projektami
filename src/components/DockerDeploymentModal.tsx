@@ -73,7 +73,10 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
   };
 
   const oneLinerCurl = `curl -fsSL ${RAW_INSTALL_SCRIPT_URL} | sudo bash`;
-  const oneLinerWget = `wget -qO- ${RAW_INSTALL_SCRIPT_URL} | sudo bash`;
+  const oneLinerGit = `git clone ${GITHUB_REPO_URL}.git ${INSTALL_TARGET_DIR} && cd ${INSTALL_TARGET_DIR} && sudo bash install.sh`;
+  const directAppUrl = typeof window !== 'undefined' ? `${window.location.origin}/install.sh` : '';
+  const oneLinerDirect = `curl -fsSL ${directAppUrl} | sudo bash`;
+  const gitPushCommand = `git add .\ngit commit -m "Wydanie 2026-10-25 v 0.2: install.sh, README.md, docker-compose"\ngit branch -M main\ngit push -u origin main`;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -138,7 +141,7 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
             }`}
           >
             <FileCode className="w-4 h-4" />
-            <span>Pliki konfiguracyjne (Docker / SQL)</span>
+            <span>Pliki wdrożenia ({DOCKER_FILES.length})</span>
           </button>
 
           <button
@@ -193,7 +196,7 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
                     Zainstaluj Zarządzanie Projektami jednym poleceniem w terminalu
                   </h4>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    Wklej poniższe polecenie w terminalu swojego serwera Linux (Ubuntu, Debian, CentOS, RHEL, Rocky, AlmaLinux lub serwer VPS/NAS). Skrypt automatycznie pobiera repozytorium z GitHub, konfiguruje PostgreSQL 16 oraz uruchamia automatyczny harmonogram kopii zapasowych (Cron).
+                    Wklej wybrane polecenie w terminalu swojego serwera Linux (Ubuntu, Debian, CentOS, RHEL, Rocky, AlmaLinux lub VPS/NAS). Skrypt automatycznie instaluje środowisko, pobiera kod z GitHub do <code className="font-mono text-emerald-300 font-bold">{INSTALL_TARGET_DIR}</code>, konfiguruje bazę PostgreSQL 16 i uruchamia automatyczne kopie zapasowe (Cron).
                   </p>
                 </div>
                 <div className="hidden sm:flex flex-col items-end gap-2">
@@ -208,67 +211,131 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
                 </div>
               </div>
 
-              {/* 1-Liner Box - CURL */}
-              <div className="mt-5 space-y-3">
-                <div className="flex items-center justify-between text-xs text-slate-300 font-medium">
-                  <span className="flex items-center gap-2">
-                    <Terminal className="w-4 h-4 text-sky-400" />
-                    <span>Wariant zalecany (cURL):</span>
-                  </span>
-                  <span className="text-[11px] text-slate-400">Wymaga dostępu root / sudo</span>
+              {/* 3 Installation Variants */}
+              <div className="mt-5 space-y-4">
+                {/* Wariant 1: Git Clone (100% niezawodny) */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs text-slate-300 font-medium">
+                    <span className="flex items-center gap-2">
+                      <Terminal className="w-4 h-4 text-emerald-400" />
+                      <strong className="text-emerald-300">Wariant 1 (Zalecany & 100% niezawodny na każdym serwerze Linux):</strong>
+                    </span>
+                    <span className="text-[11px] text-emerald-400 font-mono">Git Clone & Auto-Setup</span>
+                  </div>
+                  <div className="relative group bg-black/60 backdrop-blur-xs rounded-lg border border-slate-700/80 p-3.5 flex items-center justify-between gap-4">
+                    <code className="text-xs font-mono text-emerald-300 break-all select-all">
+                      {oneLinerGit}
+                    </code>
+                    <button
+                      onClick={() => handleCopyCmd(oneLinerGit, 'git')}
+                      className="shrink-0 flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium px-3.5 py-1.5 rounded transition-all shadow-xs"
+                    >
+                      {copiedCmd === 'git' ? (
+                        <>
+                          <Check className="w-4 h-4 text-white" />
+                          <span>Skopiowano!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-4 h-4" />
+                          <span>Kopiuj</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
-                <div className="relative group bg-black/60 backdrop-blur-xs rounded-lg border border-slate-700/80 p-3.5 flex items-center justify-between gap-4">
-                  <code className="text-xs font-mono text-emerald-300 break-all select-all">
-                    {oneLinerCurl}
-                  </code>
-                  <button
-                    onClick={() => handleCopyCmd(oneLinerCurl, 'curl')}
-                    className="shrink-0 flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium px-3.5 py-1.5 rounded transition-all shadow-xs"
-                  >
-                    {copiedCmd === 'curl' ? (
-                      <>
-                        <Check className="w-4 h-4 text-white" />
-                        <span>Skopiowano!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-4 h-4" />
-                        <span>Kopiuj</span>
-                      </>
-                    )}
-                  </button>
+                {/* Wariant 2: Bezpośrednie pobranie curl z GitHub */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs text-slate-300 font-medium">
+                    <span className="flex items-center gap-2">
+                      <Terminal className="w-4 h-4 text-sky-400" />
+                      <span>Wariant 2: Bezpośredni cURL z GitHub (gałąź main/master):</span>
+                    </span>
+                    <span className="text-[11px] text-slate-400">Wymaga wcześniejszego git push na GitHub</span>
+                  </div>
+                  <div className="relative group bg-black/60 backdrop-blur-xs rounded-lg border border-slate-700/80 p-3 flex items-center justify-between gap-4">
+                    <code className="text-xs font-mono text-sky-200 break-all select-all">
+                      {oneLinerCurl}
+                    </code>
+                    <button
+                      onClick={() => handleCopyCmd(oneLinerCurl, 'curl')}
+                      className="shrink-0 flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium px-3 py-1.5 rounded border border-slate-600 transition-all shadow-xs"
+                    >
+                      {copiedCmd === 'curl' ? (
+                        <>
+                          <Check className="w-4 h-4 text-emerald-400" />
+                          <span>Skopiowano!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-4 h-4" />
+                          <span>Kopiuj</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
-                {/* 1-Liner Box - WGET */}
-                <div className="flex items-center justify-between text-xs text-slate-300 font-medium pt-2">
-                  <span className="flex items-center gap-2">
-                    <Terminal className="w-4 h-4 text-amber-400" />
-                    <span>Wariant alternatywny (Wget):</span>
-                  </span>
-                </div>
-                <div className="relative group bg-black/60 backdrop-blur-xs rounded-lg border border-slate-700/80 p-3 flex items-center justify-between gap-4">
-                  <code className="text-xs font-mono text-sky-200 break-all select-all">
-                    {oneLinerWget}
-                  </code>
-                  <button
-                    onClick={() => handleCopyCmd(oneLinerWget, 'wget')}
-                    className="shrink-0 flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium px-3 py-1.5 rounded border border-slate-600 transition-all shadow-xs"
-                  >
-                    {copiedCmd === 'wget' ? (
-                      <>
-                        <Check className="w-4 h-4 text-emerald-400" />
-                        <span>Skopiowano!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-4 h-4" />
-                        <span>Kopiuj</span>
-                      </>
-                    )}
-                  </button>
-                </div>
+                {/* Wariant 3: Bezpośredni instalator z tej działającej instancji */}
+                {directAppUrl && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs text-slate-300 font-medium">
+                      <span className="flex items-center gap-2">
+                        <Terminal className="w-4 h-4 text-amber-400" />
+                        <span>Wariant 3: Pobranie z bieżącego hosta aplikacji (Działa natychmiast bez czekania na GitHub):</span>
+                      </span>
+                    </div>
+                    <div className="relative group bg-black/60 backdrop-blur-xs rounded-lg border border-slate-700/80 p-3 flex items-center justify-between gap-4">
+                      <code className="text-xs font-mono text-amber-200 break-all select-all">
+                        {oneLinerDirect}
+                      </code>
+                      <button
+                        onClick={() => handleCopyCmd(oneLinerDirect, 'direct')}
+                        className="shrink-0 flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium px-3 py-1.5 rounded border border-slate-600 transition-all shadow-xs"
+                      >
+                        {copiedCmd === 'direct' ? (
+                          <>
+                            <Check className="w-4 h-4 text-emerald-400" />
+                            <span>Skopiowano!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-4 h-4" />
+                            <span>Kopiuj</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
+            </div>
+
+            {/* Why 404 occurs on raw.githubusercontent.com & How to push */}
+            <div className="bg-amber-50 border border-amber-300 rounded-xl p-5 space-y-3">
+              <div className="flex items-center gap-2 text-amber-950 font-bold text-sm">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                <span>Dlaczego adres https://raw.githubusercontent.com/.../install.sh zwraca 404?</span>
+              </div>
+              <p className="text-xs text-amber-900 leading-relaxed">
+                Jeśli repozytorium na GitHub zostało niedawno utworzone, pliki <code className="font-mono font-bold bg-amber-100 px-1 rounded text-amber-950">install.sh</code> oraz <code className="font-mono font-bold bg-amber-100 px-1 rounded text-amber-950">README.md</code> muszą zostać po raz pierwszy wysłane do repozytorium (<code className="font-mono font-bold">git push</code>).
+              </p>
+              <div className="bg-slate-900 text-slate-200 rounded-lg p-3 font-mono text-xs flex items-center justify-between gap-3">
+                <code className="select-all whitespace-pre text-emerald-300">
+                  {gitPushCommand}
+                </code>
+                <button
+                  onClick={() => handleCopyCmd(gitPushCommand, 'gitpush')}
+                  className="shrink-0 flex items-center gap-1 bg-amber-600 hover:bg-amber-500 text-white text-xs px-3 py-1.5 rounded font-medium transition-colors"
+                >
+                  {copiedCmd === 'gitpush' ? <Check className="w-3.5 h-3.5 text-white" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedCmd === 'gitpush' ? 'Skopiowano!' : 'Kopiuj komendy Git'}</span>
+                </button>
+              </div>
+              <p className="text-[11px] text-amber-800">
+                Wskazówka: Użycie <strong>Wariantu 1 (git clone)</strong> lub <strong>Wariantu 3</strong> działa od razu na Twoim serwerze!
+              </p>
             </div>
 
             {/* What the script does step-by-step */}

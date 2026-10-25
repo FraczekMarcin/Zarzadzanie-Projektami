@@ -449,6 +449,35 @@ echo -e "  - Zatrzymanie:             \${YELLOW}cd \${INSTALL_DIR} && \$DOCKER_C
 echo -e "\${GREEN}=================================================================\${NC}"
 `;
 
+export const README_MD_CONTENT = `# 🏗️ Zarządzanie Projektami (Pracownia Projektowa / Budownictwo)
+
+[![Wersja](https://img.shields.io/badge/Wersja-2026--10--25%20v%200.2-emerald.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
+[![Docker](https://img.shields.io/badge/Docker-PostgreSQL%2016-blue.svg)](https://www.docker.com/)
+[![GitHub](https://img.shields.io/badge/GitHub-FraczekMarcin%2FZarzadzanie--Projektami-purple.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
+
+Nowoczesny system zarządzania projektami dla biur projektowych i inżynieryjnych.
+
+## ⚡ Instalacja 1-poleceniem (Linux VPS / Serwer)
+
+\`\`\`bash
+# Wariant 1: Bezpośrednie pobranie i instalacja z oficjalnego repozytorium GitHub
+curl -fsSL https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/install.sh | sudo bash
+
+# Wariant 2: Tradycyjne klonowanie Git (100% niezawodne na każdym serwerze)
+git clone https://github.com/FraczekMarcin/Zarzadzanie-Projektami.git /opt/zarzadzanie-projektami
+cd /opt/zarzadzanie-projektami && sudo bash install.sh
+\`\`\`
+
+Aplikacja uruchamia się pod adresem: http://twoj-serwer:3000
+
+## 🛡️ Trwałość danych (PostgreSQL 16)
+Baza danych zapisywana jest w niezależnym wolumenie Docker \`zarzadzanie_postgres_data\`.
+Aktualizacja kodu komendą \`git pull && docker compose up -d --build\` NIE USUWA danych projektów ani zadań!
+
+## 💾 Automatyczne kopie zapasowe (Cron)
+Skrypt \`/opt/zarzadzanie-projektami/backup.sh\` wykonuje codzienny zrzut bazy o 02:00 w nocy do formatu gzip z 14-dniową rotacją.
+`;
+
 export const DOCKER_FILES: DockerConfigFile[] = [
   {
     name: 'Skrypt 1-poleceniem',
@@ -456,6 +485,13 @@ export const DOCKER_FILES: DockerConfigFile[] = [
     description: 'Automatyczny skrypt instalacyjny dla Linux - pobiera projekt z GitHub, konfiguruje Docker, PostgreSQL 16, wolumeny oraz automatyczny cron kopii zapasowych.',
     language: 'bash',
     content: INSTALL_SCRIPT_CONTENT,
+  },
+  {
+    name: 'Dokumentacja README',
+    filename: 'README.md',
+    description: 'Oficjalna dokumentacja projektu dla GitHub, opis instalacji 1-poleceniem, architektury bazy i kopii zapasowych.',
+    language: 'markdown',
+    content: README_MD_CONTENT,
   },
   {
     name: 'Docker Compose',
@@ -493,3 +529,4 @@ export const DOCKER_FILES: DockerConfigFile[] = [
     content: ENV_EXAMPLE_CONTENT,
   },
 ];
+
