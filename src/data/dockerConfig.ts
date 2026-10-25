@@ -7,17 +7,19 @@ export interface DockerConfigFile {
 }
 
 export const GITHUB_REPO_URL = 'https://github.com/FraczekMarcin/Zarzadzanie-Projektami';
-export const CURRENT_APP_VERSION = '2026-10-25 v 0.2';
+export const CURRENT_APP_VERSION = '2026-10-25 v 0.2.1';
 export const INSTALL_TARGET_DIR = '/opt/zarzadzanie-projektami';
-export const RAW_INSTALL_SCRIPT_URL = 'https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/install.sh';
+export const RAW_INSTALL_SCRIPT_URL = 'https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/Instalacja/install.sh';
+export const GITHUB_RAW_FALLBACK_URL = 'https://github.com/FraczekMarcin/Zarzadzanie-Projektami/raw/main/Instalacja/install.sh';
 
 export const DOCKER_COMPOSE_YML = `version: '3.8'
 
 # ==============================================================================
 # Zarządzanie Projektami (Pracownia Projektowa / Budownictwo)
-# Wersja: 2026-10-25 v 0.2
+# Wersja: 2026-10-25 v 0.2.1
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
-# Ścieżka docelowa: /opt/zarzadzanie-projektami
+# Lokalizacja docelowa na serwerze: /opt/zarzadzanie-projektami
+# Pliki instalacji: katalog Instalacja/
 # ==============================================================================
 
 services:
@@ -57,7 +59,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      APP_VERSION: "2026-10-25 v 0.2"
+      APP_VERSION: "2026-10-25 v 0.2.1"
       DATABASE_URL: postgres://\${POSTGRES_USER:-zarzadzanie}:\${POSTGRES_PASSWORD:-TwojeBezpieczneHaslo2026!}@db:5432/\${POSTGRES_DB:-zarzadzanie_db}
       APP_SECRET: \${APP_SECRET:-sekretna-fraza-szyfrowania-zarzadzanie-projektami-2026}
     ports:
@@ -91,8 +93,9 @@ networks:
 
 export const DOCKERFILE_CONTENT = `# ==========================================
 # Zarządzanie Projektami - Dockerfile
-# Wersja: 2026-10-25 v 0.2
+# Wersja: 2026-10-25 v 0.2.1
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
+# Ścieżka: Instalacja/Dockerfile
 # ==========================================
 
 # Etap 1: Budowanie aplikacji (Builder)
@@ -117,7 +120,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV APP_VERSION="2026-10-25 v 0.2"
+ENV APP_VERSION="2026-10-25 v 0.2.1"
 
 # Instalacja wyłącznie produkcyjnych zależności
 COPY package*.json ./
@@ -270,13 +273,13 @@ ON CONFLICT (id) DO NOTHING;
 
 export const ENV_EXAMPLE_CONTENT = `# ==============================================================================
 # Zarządzanie Projektami - Konfiguracja Środowiska Produkcyjnego
-# Wersja: 2026-10-25 v 0.2
+# Wersja: 2026-10-25 v 0.2.1
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Ścieżka docelowa: /opt/zarzadzanie-projektami/.env
 # ==============================================================================
 PORT=3000
 NODE_ENV=production
-APP_VERSION=2026-10-25 v 0.2
+APP_VERSION=2026-10-25 v 0.2.1
 
 # Baza danych PostgreSQL 16
 POSTGRES_USER=zarzadzanie
@@ -294,7 +297,7 @@ APP_SECRET=wygeneruj_unikalny_ciag_znakow_dla_tokenow_bezpieczenstwa_2026
 export const CRON_BACKUP_SCRIPT_CONTENT = `#!/usr/bin/env bash
 # ==============================================================================
 # Zarządzanie Projektami - Automatyczna Kopia Zapasowa PostgreSQL (Cron)
-# Wersja: 2026-10-25 v 0.2
+# Wersja: 2026-10-25 v 0.2.1
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Lokalizacja skryptu: /opt/zarzadzanie-projektami/backup.sh
 # ==============================================================================
@@ -324,9 +327,10 @@ echo "[$(date)] Kopia zapasowa gotowa: \$BACKUP_DIR/\$FILENAME (Zachowano kopie 
 export const INSTALL_SCRIPT_CONTENT = `#!/usr/bin/env bash
 # ==============================================================================
 # Zarządzanie Projektami - Pracownia Projektowa / Budownictwo
-# Wersja: 2026-10-25 v 0.2
+# Wersja: 2026-10-25 v 0.2.1
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
-# Lokalizacja instalacji: /opt/zarzadzanie-projektami
+# Ścieżka skryptu w repozytorium: Instalacja/install.sh
+# Lokalizacja instalacji na serwerze: /opt/zarzadzanie-projektami
 # Automatyczny Instalator 1-Poleceniem (Docker + PostgreSQL 16 + Auto-Backup)
 # ==============================================================================
 set -e
@@ -338,7 +342,7 @@ RED='\\033[0;31m'
 NC='\\033[0m'
 
 echo -e "\${BLUE}=================================================================\${NC}"
-echo -e "\${GREEN}  🏗️  Zarządzanie Projektami - Instalator 1-Poleceniem (Wersja 2026-10-25 v 0.2)\${NC}"
+echo -e "\${GREEN}  🏗️  Zarządzanie Projektami - Instalator (Wersja 2026-10-25 v 0.2.1)\${NC}"
 echo -e "\${BLUE}  Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami\${NC}"
 echo -e "\${BLUE}=================================================================\${NC}"
 
@@ -434,7 +438,7 @@ SERVER_IP=\$(hostname -I 2>/dev/null | awk '{print \$1}' || echo "localhost")
 
 echo -e "\${GREEN}=================================================================\${NC}"
 echo -e "\${GREEN}  ✅ WDROŻENIE ZAKOŃCZONE SUKCESEM!\${NC}"
-echo -e "\${GREEN}  Wersja: 2026-10-25 v 0.2\${NC}"
+echo -e "\${GREEN}  Wersja: 2026-10-25 v 0.2.1\${NC}"
 echo -e "\${GREEN}=================================================================\${NC}"
 echo -e "Aplikacja działa i jest dostępna pod:"
 echo -e "  👉 \${YELLOW}http://\${SERVER_IP}:3000\${NC} lub \${YELLOW}http://localhost:3000\${NC}"
@@ -451,7 +455,7 @@ echo -e "\${GREEN}==============================================================
 
 export const README_MD_CONTENT = `# 🏗️ Zarządzanie Projektami (Pracownia Projektowa / Budownictwo)
 
-[![Wersja](https://img.shields.io/badge/Wersja-2026--10--25%20v%200.2-emerald.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
+[![Wersja](https://img.shields.io/badge/Wersja-2026--10--25%20v%200.2.1-emerald.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
 [![Docker](https://img.shields.io/badge/Docker-PostgreSQL%2016-blue.svg)](https://www.docker.com/)
 [![GitHub](https://img.shields.io/badge/GitHub-FraczekMarcin%2FZarzadzanie--Projektami-purple.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
 
@@ -460,12 +464,12 @@ Nowoczesny system zarządzania projektami dla biur projektowych i inżynieryjnyc
 ## ⚡ Instalacja 1-poleceniem (Linux VPS / Serwer)
 
 \`\`\`bash
-# Wariant 1: Bezpośrednie pobranie i instalacja z oficjalnego repozytorium GitHub
-curl -fsSL https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/install.sh | sudo bash
+# Wariant 1: Bezpośrednie pobranie i instalacja z katalogu Instalacja na GitHub
+curl -fsSL https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/Instalacja/install.sh | sudo bash
 
 # Wariant 2: Tradycyjne klonowanie Git (100% niezawodne na każdym serwerze)
-git clone https://github.com/FraczekMarcin/Zarzadzanie-Projektami.git /opt/zarzadzanie-projektami
-cd /opt/zarzadzanie-projektami && sudo bash install.sh
+git clone https://github.com/FraczekMarcin/Zarzadzanie-Projektami.git
+cd Zarzadzanie-Projektami/Instalacja && sudo bash install.sh
 \`\`\`
 
 Aplikacja uruchamia się pod adresem: http://twoj-serwer:3000
