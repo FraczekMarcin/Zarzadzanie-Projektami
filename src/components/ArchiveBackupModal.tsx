@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Project, Task, User, Comment, ActivityLog } from '../types';
 import { 
   X, 
@@ -15,8 +15,29 @@ import {
   ShieldCheck, 
   ExternalLink,
   Lock,
-  ArrowRight
+  ArrowRight,
+  Clock,
+  Trash2,
+  Play,
+  RotateCcw,
+  Copy,
+  Check,
+  Terminal,
+  Calendar
 } from 'lucide-react';
+import { 
+  getAutoBackupConfig, 
+  saveAutoBackupConfig, 
+  getAutoBackupSnapshots, 
+  createAutoBackupSnapshot, 
+  deleteAutoBackupSnapshot, 
+  clearAllAutoBackupSnapshots, 
+  formatBytes, 
+  generateLinuxCronBackupScript,
+  AutoBackupConfig,
+  AutoBackupSnapshot 
+} from '../utils/autoBackup';
+import { INSTALL_TARGET_DIR } from '../data/dockerConfig';
 
 interface ArchiveBackupModalProps {
   isOpen: boolean;
@@ -46,7 +67,13 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
   onRestoreData,
   onLogActivity,
 }) => {
-  const [activeTab, setActiveTab] = useState<'gdrive' | 'ftp' | 'local' | 'history'>('gdrive');
+  const [activeTab, setActiveTab] = useState<'auto' | 'gdrive' | 'ftp' | 'local' | 'history'>('auto');
+
+  // Auto-backup state
+  const [autoConfig, setAutoConfig] = useState<AutoBackupConfig>(getAutoBackupConfig);
+  const [snapshots, setSnapshots] = useState<AutoBackupSnapshot[]>(getAutoBackupSnapshots);
+  const [copiedCron, setCopiedCron] = useState(false);
+  const [lastActionMsg, setLastActionMsg] = useState<string | null>(null);
 
   // Google Drive state
   const [gdriveFolder, setGdriveFolder] = useState('Moje Dyski / Zarządzanie Projektami / Kopie');
@@ -60,7 +87,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
   const [ftpPort, setFtpPort] = useState('22');
   const [ftpUser, setFtpUser] = useState('backup_user');
   const [ftpPass, setFtpPass] = useState('••••••••••••');
-  const [ftpRemotePath, setFtpRemotePath] = useState('/var/backups/zarzadzanie-projektami/');
+  const [ftpRemotePath, setFtpRemotePath] = useState(`${INSTALL_TARGET_DIR}/backups/`);
   const [isFtpTesting, setIsFtpTesting] = useState(false);
   const [ftpTestResult, setFtpTestResult] = useState<{ success: boolean; message: string; details?: string } | null>(null);
   const [isFtpUploading, setIsFtpUploading] = useState(false);
@@ -69,6 +96,15 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
   const [backupHistory, setBackupHistory] = useState([
     {
       id: 'bk-1',
+      date: '2026-10-25 02:00:00',
+      destination: 'Cron PostgreSQL (Docker host)',
+      filename: 'zarzadzanie_backup_2026-10-25_020000.sql.gz',
+      size: '340 KB',
+      status: 'success',
+      recordsCount: `${projects.length} projektów, ${tasks.length} zadań`,
+    },
+    {
+      id: 'bk-2',
       date: '2026-10-24 07:00:00',
       destination: 'Google Drive',
       filename: 'zarzadzanie-projektami-2026-10-24.json',
@@ -76,23 +112,22 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
       status: 'success',
       recordsCount: `${projects.length} projektów, ${tasks.length} zadań`,
     },
-    {
-      id: 'bk-2',
-      date: '2026-10-23 02:00:00',
-      destination: 'SFTP (backup.twojadomena.pl)',
-      filename: 'zarzadzanie-projektami-2026-10-23.sql',
-      size: '412 KB',
-      status: 'success',
-      recordsCount: 'Pełny zrzut PostgreSQL',
-    },
   ]);
+
+  // Sync auto snapshots on modal open
+  useEffect(() => {
+    if (isOpen) {
+      setAutoConfig(getAutoBackupConfig());
+      setSnapshots(getAutoBackupSnapshots());
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
   // Prepare full data payload
   const createBackupPayload = () => {
     return {
-      version: '2.0',
+      version: '2026-10-25 v 0.2',
       exportedAt: new Date().toISOString(),
       metadata: {
         appName: 'Zarządzanie Projektami',
@@ -111,6 +146,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
     const timestamp = new Date().toISOString();
     let sql = `-- ==================================================================\n`;
     sql += `-- Pełny Zrzut Bazy Danych PostgreSQL 16: Zarządzanie Projektami\n`;
+    sql += `-- Wersja: 2026-10-25 v 0.2\n`;
     sql += `-- Wygenerowano: ${timestamp}\n`;
     sql += `-- ==================================================================\n\n`;
 
@@ -134,6 +170,72 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
 
     sql += `\nCOMMIT;\n`;
     return sql;
+  };
+
+  // Trigger manual auto-backup snapshot
+  const handleTriggerManualAutoBackup = () => {
+    const snapshot = createAutoBackupSnapshot({
+      projects,
+      tasks,
+      users,
+      comments,
+      activityLogs,
+    });
+    setSnapshots(getAutoBackupSnapshots());
+    setAutoConfig(getAutoBackupConfig());
+    setLastActionMsg(`Wykonano automatyczną migawkę: ${snapshot.filename} (${formatBytes(snapshot.sizeBytes)})`);
+    onLogActivity('Wykonano ręczną migawkę automatycznej kopii zapasowej', undefined, snapshot.filename);
+    setTimeout(() => setLastActionMsg(null), 4000);
+  };
+
+  // Update auto-backup configuration
+  const handleUpdateAutoConfig = (newPartial: Partial<AutoBackupConfig>) => {
+    const updated = { ...autoConfig, ...newPartial };
+    setAutoConfig(updated);
+    saveAutoBackupConfig(updated);
+    onLogActivity('Zaktualizowano parametry automatycznych kopii zapasowych');
+  };
+
+  // Restore from snapshot
+  const handleRestoreFromSnapshot = (snapshot: AutoBackupSnapshot) => {
+    if (
+      window.confirm(
+        `Czy na pewno chcesz przywrócić stan z automatycznej kopii:\n"${snapshot.filename}" z ${new Date(
+          snapshot.timestamp
+        ).toLocaleString('pl-PL')}?\nZawiera: ${snapshot.projectsCount} projektów, ${snapshot.tasksCount} zadań.`
+      )
+    ) {
+      if (onRestoreData && snapshot.data) {
+        onRestoreData({
+          projects: snapshot.data.projects || [],
+          tasks: snapshot.data.tasks || [],
+          users: snapshot.data.users || [],
+          comments: snapshot.data.comments || [],
+        });
+        setLastActionMsg(`Przywrócono stan z migawki ${snapshot.filename}!`);
+        onLogActivity('Przywrócono kopię automatyczną', undefined, snapshot.filename);
+      }
+    }
+  };
+
+  // Download snapshot
+  const handleDownloadSnapshot = (snapshot: AutoBackupSnapshot) => {
+    const jsonStr = JSON.stringify(snapshot.data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = snapshot.filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Delete snapshot
+  const handleDeleteSnapshot = (id: string) => {
+    const updated = deleteAutoBackupSnapshot(id);
+    setSnapshots(updated);
   };
 
   // 1. Download Local JSON
@@ -245,7 +347,13 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
           return;
         }
 
-        if (confirm(`Czy na pewno chcesz przywrócić kopię z ${parsed.exportedAt || 'pliku'}?\nZnaleziono: ${parsed.projects.length} projektów i ${parsed.tasks.length} zadań.`)) {
+        if (
+          confirm(
+            `Czy na pewno chcesz przywrócić kopię z ${
+              parsed.exportedAt || 'pliku'
+            }?\nZnaleziono: ${parsed.projects.length} projektów i ${parsed.tasks.length} zadań.`
+          )
+        ) {
           if (onRestoreData) {
             onRestoreData({
               projects: parsed.projects,
@@ -264,6 +372,27 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
     reader.readAsText(file);
   };
 
+  const cronSnippet = `0 2 * * * root ${INSTALL_TARGET_DIR}/backup.sh >/dev/null 2>&1`;
+
+  const handleCopyCron = () => {
+    navigator.clipboard.writeText(cronSnippet);
+    setCopiedCron(true);
+    setTimeout(() => setCopiedCron(false), 2000);
+  };
+
+  const handleDownloadCronScript = () => {
+    const content = generateLinuxCronBackupScript();
+    const blob = new Blob([content], { type: 'text/x-shellscript' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'backup.sh';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
       <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95">
@@ -274,11 +403,14 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
               <Cloud className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900">
-                Centrum Archiwizacji & Kopii Zapasowych
+              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <span>Centrum Archiwizacji & Automatycznych Kopii Zapasowych</span>
+                <span className="text-[10px] bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded-full border border-emerald-300">
+                  Wersja 2026-10-25 v 0.2
+                </span>
               </h2>
               <p className="text-xs text-slate-500">
-                Zabezpieczanie danych: chmura Google Drive, serwer FTP/SFTP oraz zrzuty bazy PostgreSQL.
+                Harmonogram automatyczny, retencja kopii, integracja z Google Drive, serwerem FTP oraz zrzuty PostgreSQL.
               </p>
             </div>
           </div>
@@ -292,10 +424,25 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex border-b border-slate-200 px-6 bg-white gap-6 text-xs font-semibold">
+        <div className="flex border-b border-slate-200 px-6 bg-white gap-6 text-xs font-semibold overflow-x-auto">
+          <button
+            onClick={() => setActiveTab('auto')}
+            className={`py-3 flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${
+              activeTab === 'auto'
+                ? 'border-emerald-600 text-emerald-800 font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Automatyczne Kopie (Harmonogram)</span>
+            {autoConfig.enabled && (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            )}
+          </button>
+
           <button
             onClick={() => setActiveTab('gdrive')}
-            className={`py-3 flex items-center gap-2 border-b-2 transition-all ${
+            className={`py-3 flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${
               activeTab === 'gdrive'
                 ? 'border-sky-600 text-sky-800 font-bold'
                 : 'border-transparent text-slate-500 hover:text-slate-900'
@@ -307,19 +454,19 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
 
           <button
             onClick={() => setActiveTab('ftp')}
-            className={`py-3 flex items-center gap-2 border-b-2 transition-all ${
+            className={`py-3 flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${
               activeTab === 'ftp'
                 ? 'border-sky-600 text-sky-800 font-bold'
                 : 'border-transparent text-slate-500 hover:text-slate-900'
             }`}
           >
             <Server className="w-3.5 h-3.5 text-slate-700" />
-            <span>Własny Serwer FTP / SFTP</span>
+            <span>Serwer FTP / SFTP</span>
           </button>
 
           <button
             onClick={() => setActiveTab('local')}
-            className={`py-3 flex items-center gap-2 border-b-2 transition-all ${
+            className={`py-3 flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${
               activeTab === 'local'
                 ? 'border-sky-600 text-sky-800 font-bold'
                 : 'border-transparent text-slate-500 hover:text-slate-900'
@@ -331,19 +478,258 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
 
           <button
             onClick={() => setActiveTab('history')}
-            className={`py-3 flex items-center gap-2 border-b-2 transition-all ${
+            className={`py-3 flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${
               activeTab === 'history'
                 ? 'border-sky-600 text-sky-800 font-bold'
                 : 'border-transparent text-slate-500 hover:text-slate-900'
             }`}
           >
             <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
-            <span>Historia Kopii ({backupHistory.length})</span>
+            <span>Historia Zrzutów ({backupHistory.length})</span>
           </button>
         </div>
 
         {/* Tab Contents */}
         <div className="p-6 overflow-y-auto space-y-5 flex-1">
+          {/* Action toast message */}
+          {lastActionMsg && (
+            <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-lg flex items-center gap-2 text-xs text-emerald-900 animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{lastActionMsg}</span>
+            </div>
+          )}
+
+          {/* TAB: AUTOMATIC BACKUPS (NEW REQUEST) */}
+          {activeTab === 'auto' && (
+            <div className="space-y-6">
+              {/* Top Banner */}
+              <div className="bg-gradient-to-r from-emerald-900 to-teal-950 text-white rounded-xl p-5 shadow-sm space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 bg-emerald-500/20 rounded-lg border border-emerald-400/30">
+                      <Clock className="w-5 h-5 text-emerald-300" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm">Harmonogram Automatycznych Kopii Zapasowych</h3>
+                      <p className="text-xs text-emerald-200">
+                        System automatycznie zabezpiecza stan projektów, zadań, zależności i terminów urzędowych w tle.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleTriggerManualAutoBackup}
+                      className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-bold rounded-lg text-xs flex items-center gap-1.5 transition-all shadow-xs"
+                      title="Wymuś utworzenie nowej automatycznej kopii zapasowej w tej chwili"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>Wykonaj kopię teraz</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-emerald-800/60 flex flex-wrap items-center justify-between text-xs text-emerald-200 gap-2">
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-slate-300">Ostatnia kopia:</span>
+                    <strong className="text-white font-mono">
+                      {autoConfig.lastBackupTime
+                        ? new Date(autoConfig.lastBackupTime).toLocaleString('pl-PL')
+                        : 'Brak (oczekuje na pierwszy cykl)'}
+                    </strong>
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-slate-300">Liczba zapisanych migawek:</span>
+                    <strong className="text-emerald-300 font-mono">{snapshots.length} / {autoConfig.retentionCount}</strong>
+                  </span>
+                </div>
+              </div>
+
+              {/* Configuration Controls */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* 1. Toggle On/Off */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-800">Status automatu</span>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={autoConfig.enabled}
+                        onChange={(e) => handleUpdateAutoConfig({ enabled: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </label>
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    {autoConfig.enabled
+                      ? 'Automatyczne wykonywanie kopii zapasowych jest AKTYWNE.'
+                      : 'Kopie automatyczne są tymczasowo wstrzymane.'}
+                  </p>
+                </div>
+
+                {/* 2. Interval selector */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                  <span className="text-xs font-bold text-slate-800 block">Częstotliwość (Interwał)</span>
+                  <select
+                    value={autoConfig.intervalMinutes}
+                    onChange={(e) => handleUpdateAutoConfig({ intervalMinutes: Number(e.target.value) })}
+                    className="w-full border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-900 font-semibold bg-white"
+                  >
+                    <option value={15}>Co 15 minut (intensywna praca)</option>
+                    <option value={60}>Co 1 godzinę (zalecane)</option>
+                    <option value={360}>Co 6 godzin</option>
+                    <option value={1440}>Codziennie (co 24 godziny)</option>
+                  </select>
+                  <p className="text-[11px] text-slate-500">
+                    Odstęp czasowy pomiędzy kolejnymi automatycznymi zrzutami stanu.
+                  </p>
+                </div>
+
+                {/* 3. Retention Policy */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                  <span className="text-xs font-bold text-slate-800 block">Polityka Retencji (Rotacja)</span>
+                  <select
+                    value={autoConfig.retentionCount}
+                    onChange={(e) => handleUpdateAutoConfig({ retentionCount: Number(e.target.value) })}
+                    className="w-full border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-900 font-semibold bg-white"
+                  >
+                    <option value={5}>Zachowaj 5 ostatnich kopii</option>
+                    <option value={10}>Zachowaj 10 ostatnich kopii (zalecane)</option>
+                    <option value={20}>Zachowaj 20 ostatnich kopii</option>
+                  </select>
+                  <p className="text-[11px] text-slate-500">
+                    Starsze migawki powyżej limitu są automatycznie usuwane z magazynu.
+                  </p>
+                </div>
+              </div>
+
+              {/* Snapshots Table */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <Database className="w-4 h-4 text-emerald-600" />
+                    <span>Zapisane automatyczne migawki stanu ({snapshots.length}):</span>
+                  </span>
+                  {snapshots.length > 0 && (
+                    <button
+                      onClick={() => {
+                        if (confirm('Czy na pewno chcesz wyczyścić wszystkie zapisane automatyczne migawki?')) {
+                          clearAllAutoBackupSnapshots();
+                          setSnapshots([]);
+                        }
+                      }}
+                      className="text-[11px] text-rose-600 hover:text-rose-800 font-medium"
+                    >
+                      Wyczyść listę migawek
+                    </button>
+                  )}
+                </div>
+
+                {snapshots.length === 0 ? (
+                  <div className="p-6 bg-slate-50 border border-dashed border-slate-300 rounded-xl text-center space-y-2 text-xs text-slate-500">
+                    <Clock className="w-6 h-6 text-slate-400 mx-auto" />
+                    <p className="font-medium text-slate-700">Brak zapisanych migawek automatycznych</p>
+                    <p className="text-[11px]">
+                      Kliknij przycisk "Wykonaj kopię teraz" powyżej lub zaczekaj na wyzwolenie zaplanowanego cyklu.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-100 text-slate-600 uppercase text-[10px] tracking-wider border-b border-slate-200">
+                        <tr>
+                          <th className="py-2.5 px-3">Data wykonania</th>
+                          <th className="py-2.5 px-3">Nazwa pliku</th>
+                          <th className="py-2.5 px-3">Zawartość</th>
+                          <th className="py-2.5 px-3 text-right">Rozmiar</th>
+                          <th className="py-2.5 px-3 text-right">Akcje</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {snapshots.map((snap) => (
+                          <tr key={snap.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="py-2.5 px-3 font-mono text-slate-700 font-medium">
+                              {new Date(snap.timestamp).toLocaleString('pl-PL')}
+                            </td>
+                            <td className="py-2.5 px-3 font-mono text-emerald-800 truncate max-w-[180px]">
+                              {snap.filename}
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-600">
+                              {snap.projectsCount} projektów, {snap.tasksCount} zadań
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono text-slate-700">
+                              {formatBytes(snap.sizeBytes)}
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => handleRestoreFromSnapshot(snap)}
+                                  className="p-1 text-emerald-700 hover:text-emerald-900 hover:bg-emerald-100 rounded transition-colors"
+                                  title="Przywróć stan aplikacji z tej kopii"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDownloadSnapshot(snap)}
+                                  className="p-1 text-slate-600 hover:text-slate-900 hover:bg-slate-200 rounded transition-colors"
+                                  title="Pobierz ten plik JSON na komputer"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteSnapshot(snap.id)}
+                                  className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-100 rounded transition-colors"
+                                  title="Usuń tę migawkę"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Linux Server Docker Cron Configuration */}
+              <div className="p-4 bg-slate-900 text-white rounded-xl space-y-3 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
+                    <Terminal className="w-4 h-4 text-emerald-400" />
+                    <span>Automatyczny Cron dla serwera produkcyjnego Linux (PostgreSQL 16)</span>
+                  </div>
+                  <button
+                    onClick={handleDownloadCronScript}
+                    className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-medium px-2.5 py-1 rounded transition-colors border border-slate-700"
+                  >
+                    <Download className="w-3 h-3 text-emerald-400" />
+                    <span>Pobierz skrypt backup.sh</span>
+                  </button>
+                </div>
+
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Dla wdrożenia w kontenerze Docker w katalogu <code className="text-emerald-300 font-mono">{INSTALL_TARGET_DIR}</code>, instalator automatycznie dodaje wpis do pliku <code className="text-sky-300 font-mono">/etc/cron.d/zarzadzanie-projektami-backup</code>, wykonujący codzienny zrzut bazy o godzinie 02:00 w nocy z kompresją gzip i 14-dniową retencją.
+                </p>
+
+                <div className="bg-black/60 rounded-lg p-3 font-mono text-xs flex items-center justify-between gap-3 border border-slate-800">
+                  <code className="text-emerald-300 select-all overflow-x-auto">
+                    {cronSnippet}
+                  </code>
+                  <button
+                    onClick={handleCopyCron}
+                    className="shrink-0 flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] px-2.5 py-1 rounded font-medium transition-colors"
+                  >
+                    {copiedCron ? <Check className="w-3 h-3 text-white" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedCron ? 'Skopiowano!' : 'Kopiuj'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* TAB 1: GOOGLE DRIVE */}
           {activeTab === 'gdrive' && (
             <div className="space-y-5">
@@ -661,7 +1047,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
         <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-xs text-slate-500">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            <span>Kopie zawierają pełne drzewo zależności i terminy urzędowe.</span>
+            <span>Kopie zawierają pełne drzewo zależności, szablony i terminy urzędowe.</span>
           </div>
 
           <button

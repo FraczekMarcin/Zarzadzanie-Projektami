@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Task, Project, User, Priority, TaskStatus, ActivityLog, Comment } from './types';
+import { Task, Project, User, Priority, TaskStatus, ActivityLog, Comment, ProjectTemplate } from './types';
 import { INITIAL_USERS, INITIAL_PROJECTS, INITIAL_TASKS, INITIAL_ACTIVITY } from './data/initialData';
 import { GanttChart } from './components/GanttChart';
 import { CalendarView } from './components/CalendarView';
@@ -13,8 +13,12 @@ import { UserAuthModal } from './components/UserAuthModal';
 import { GoogleCalendarSyncModal } from './components/GoogleCalendarSyncModal';
 import { TaskFilterModal } from './components/TaskFilterModal';
 import { ArchiveBackupModal } from './components/ArchiveBackupModal';
+import { GitHubUpdateModal } from './components/GitHubUpdateModal';
+import { instantiateTasksFromTemplate } from './utils/projectTemplates';
 import { getNextProjectCode } from './utils/projectCode';
 import { downloadIcsFile } from './utils/calendar';
+import { getAutoBackupConfig, createAutoBackupSnapshot } from './utils/autoBackup';
+import { CURRENT_APP_VERSION, GITHUB_REPO_URL } from './data/dockerConfig';
 import { 
   FolderKanban, 
   Calendar as CalendarIcon, 
@@ -35,7 +39,10 @@ import {
   Unlock,
   GitMerge,
   Radio,
-  Cloud
+  Cloud,
+  GitBranch,
+  Sparkles,
+  X
 } from 'lucide-react';
 
 type ActiveView = 'gantt' | 'calendar' | 'tasks' | 'kanban' | 'projects';
@@ -143,6 +150,8 @@ export default function App() {
   const [isArchiveModalOpen, setIsArchiveModalOpen] = useState(false);
   const [isTaskFilterModalOpen, setIsTaskFilterModalOpen] = useState(false);
   const [taskFilterModalType, setTaskFilterModalType] = useState<'blocked' | 'critical'>('blocked');
+  const [isGitHubModalOpen, setIsGitHubModalOpen] = useState(false);
+  const [hasDismissedUpdateBanner, setHasDismissedUpdateBanner] = useState(false);
 
   // Sync to local storage
   useEffect(() => {
@@ -168,6 +177,45 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('oph_comments', JSON.stringify(comments));
   }, [comments]);
+
+  // Periodic Auto-Backup Engine
+  useEffect(() => {
+    const checkAndRunAutoBackup = () => {
+      try {
+        const config = getAutoBackupConfig();
+        if (!config.enabled) return;
+
+        const now = Date.now();
+        const last = config.lastBackupTime ? new Date(config.lastBackupTime).getTime() : 0;
+        const intervalMs = (config.intervalMinutes || 60) * 60 * 1000;
+
+        // If never backed up or scheduled interval has elapsed
+        if (!last || now - last >= intervalMs) {
+          const snapshot = createAutoBackupSnapshot({
+            projects,
+            tasks,
+            users,
+            comments,
+            activityLogs,
+          });
+          setNotificationToast({
+            message: `Automatyczna kopia zapasowa zapisana: ${snapshot.filename}`,
+            type: 'success',
+          });
+        }
+      } catch (err) {
+        console.warn('Auto backup engine error:', err);
+      }
+    };
+
+    const initialTimer = setTimeout(checkAndRunAutoBackup, 4000);
+    const intervalTimer = setInterval(checkAndRunAutoBackup, 60000);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(intervalTimer);
+    };
+  }, [projects, tasks, users, comments, activityLogs]);
 
   // Push tasks to server endpoint for live Google Calendar subscription feed polling
   useEffect(() => {
@@ -478,7 +526,7 @@ export default function App() {
     logActivity(`${currentUser.name} dodał komentarz do zadania`, taskId, content);
   };
 
-  const handleAddProject = (newProjData: Omit<Project, 'id'>) => {
+  const handleAddProject = (newProjData: Omit<Project, 'id'>, selectedTemplate?: ProjectTemplate) => {
     const key = newProjData.key ? newProjData.key.trim().toUpperCase() : getNextProjectCode(projects);
     const newProject: Project = {
       ...newProjData,
@@ -487,7 +535,29 @@ export default function App() {
     };
     setProjects((prev) => [...prev, newProject]);
     setSelectedProjectId(newProject.id);
-    logActivity(`${currentUser.name} zarejestrował nowy projekt [${newProject.key}]: ${newProject.name} (Czas: ${newProject.durationDays} dni)`);
+
+    // If template was selected, instantiate blueprint tasks
+    if (selectedTemplate && selectedTemplate.tasks && selectedTemplate.tasks.length > 0) {
+      const templateTasks = instantiateTasksFromTemplate(
+        selectedTemplate,
+        newProject.id,
+        newProject.startDate,
+        currentUser
+      );
+      const { updatedTasks } = processDependencyRules([...tasks, ...templateTasks]);
+      setTasks(updatedTasks);
+      logActivity(
+        `${currentUser.name} zarejestrował projekt [${newProject.key}] z szablonu "${selectedTemplate.name}" (${templateTasks.length} etapów)`,
+        undefined,
+        `Wygenerowano ${templateTasks.length} etapów w tym ${templateTasks.filter((t) => t.isOfficialDeadline).length} terminów urzędowych.`
+      );
+      setNotificationToast({
+        message: `Utworzono projekt [${newProject.key}] z ${templateTasks.length} etapami z szablonu "${selectedTemplate.name}"!`,
+        type: 'success',
+      });
+    } else {
+      logActivity(`${currentUser.name} zarejestrował nowy projekt [${newProject.key}]: ${newProject.name} (Czas: ${newProject.durationDays} dni)`);
+    }
   };
 
   const handleUpdateProject = (updatedProject: Project) => {
@@ -659,10 +729,21 @@ export default function App() {
           <button
             onClick={() => setIsDockerModalOpen(true)}
             className="hidden sm:flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold px-3 py-1.5 rounded transition-colors whitespace-nowrap border border-slate-200"
-            title="Konfiguracja wdrożenia lokalnego: Docker Compose & PostgreSQL 16"
+            title="Konfiguracja wdrożenia lokalnego: Docker Compose, instalator 1-poleceniem & PostgreSQL 16"
           >
             <Server className="w-3.5 h-3.5 text-sky-700" />
             <span>Wdrożenie Docker</span>
+          </button>
+
+          {/* GitHub New Release Checker Button */}
+          <button
+            onClick={() => setIsGitHubModalOpen(true)}
+            className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-50 to-teal-50 hover:from-emerald-100 hover:to-teal-100 text-emerald-900 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors whitespace-nowrap border border-emerald-300 shadow-2xs"
+            title={`Wersja: ${CURRENT_APP_VERSION} (Repozytorium: ${GITHUB_REPO_URL})`}
+          >
+            <GitBranch className="w-3.5 h-3.5 text-emerald-600" />
+            <span className="hidden lg:inline font-mono font-bold">GitHub: {CURRENT_APP_VERSION}</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
           </button>
 
           {/* User Switcher / Current User Badge */}
@@ -682,6 +763,40 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {/* GITHUB UPDATE ANNOUNCEMENT BANNER */}
+      {!hasDismissedUpdateBanner && (
+        <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-indigo-950 text-white px-4 py-2 text-xs flex flex-wrap items-center justify-between gap-3 border-b border-emerald-500/30 shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40 text-[10px] uppercase tracking-wider">
+              Wydanie na GitHub
+            </span>
+            <span className="font-semibold text-slate-100">
+              Dostępna wersja <strong className="text-emerald-400 font-mono">{CURRENT_APP_VERSION}</strong> na <span className="font-mono text-emerald-300 underline">{GITHUB_REPO_URL}</span> (Automatyczne kopie, instalator 1-poleceniem, szablony budowlane).
+            </span>
+            <span className="hidden xl:inline text-slate-400 text-[11px]">
+              Czy chcesz sprawdzić aktualizację bez utraty danych?
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsGitHubModalOpen(true)}
+              className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded text-xs transition-colors shadow-2xs flex items-center gap-1.5"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Szczegóły & Aktualizacja</span>
+            </button>
+            <button
+              onClick={() => setHasDismissedUpdateBanner(true)}
+              className="p-1 text-slate-400 hover:text-white transition-colors"
+              title="Ukryj powiadomienie"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 2. SUB-HEADER WORKSPACE TOOLBAR */}
       <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-3 text-xs">
@@ -845,6 +960,7 @@ export default function App() {
             projects={projects}
             tasks={tasks}
             users={users}
+            currentUser={currentUser}
             onSelectProject={(projId) => {
               setSelectedProjectId(projId);
               setActiveView('gantt');
@@ -918,6 +1034,13 @@ export default function App() {
         }}
         onAddUser={handleAddUser}
         activityLogs={activityLogs}
+        onOpenTemplateManager={() => {
+          setActiveView('projects');
+          setNotificationToast({
+            message: 'Otwarto widok projektów. Kliknij "Szablony projektów (Admin)", aby zarządzać szablonami pracowni.',
+            type: 'info',
+          });
+        }}
       />
 
       {/* Task Filter Modal for Clickable Blocked & Critical Badges */}
@@ -948,6 +1071,21 @@ export default function App() {
           if (c) setComments(c);
         }}
         onLogActivity={(action, entityId, details) => logActivity(action, entityId, details)}
+      />
+
+      {/* GitHub Version Update Checker & Simulation Modal */}
+      <GitHubUpdateModal
+        isOpen={isGitHubModalOpen}
+        onClose={() => setIsGitHubModalOpen(false)}
+        currentVersion="2026-10-24 v 0.1"
+        latestVersion={CURRENT_APP_VERSION}
+        onUpdateCompleted={() => {
+          setNotificationToast({
+            message: `Aplikacja zaktualizowana do wersji ${CURRENT_APP_VERSION} (GitHub). Wszystkie dane bazy PostgreSQL zostały zachowane!`,
+            type: 'success',
+          });
+          setHasDismissedUpdateBanner(true);
+        }}
       />
     </div>
   );

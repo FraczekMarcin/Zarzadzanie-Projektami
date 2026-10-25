@@ -10,7 +10,9 @@ import {
   History, 
   LogIn, 
   CheckCircle2,
-  Clock
+  Clock,
+  Layers,
+  Building2
 } from 'lucide-react';
 
 interface UserAuthModalProps {
@@ -21,6 +23,7 @@ interface UserAuthModalProps {
   onSwitchUser: (user: User) => void;
   onAddUser: (newUser: Omit<User, 'id' | 'initials'>) => void;
   activityLogs: ActivityLog[];
+  onOpenTemplateManager?: () => void;
 }
 
 export const UserAuthModal: React.FC<UserAuthModalProps> = ({
@@ -31,6 +34,7 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
   onSwitchUser,
   onAddUser,
   activityLogs,
+  onOpenTemplateManager,
 }) => {
   const [activeTab, setActiveTab] = useState<'switch' | 'new_user' | 'logs'>('switch');
 
@@ -39,7 +43,7 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<UserRole>('developer');
-  const [department, setDepartment] = useState('Dział IT');
+  const [department, setDepartment] = useState('Pracownia Konstrukcji Budowlanych');
 
   if (!isOpen) return null;
 
@@ -63,15 +67,15 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
   const getRoleBadge = (role: UserRole) => {
     switch (role) {
       case 'admin':
-        return <span className="text-[11px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">Administrator</span>;
+        return <span className="text-[11px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">Główny Architekt (Admin)</span>;
       case 'project_manager':
-        return <span className="text-[11px] font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">Project Manager</span>;
+        return <span className="text-[11px] font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">Koordynator Projektu</span>;
       case 'developer':
-        return <span className="text-[11px] font-medium text-sky-700 bg-sky-50 px-2 py-0.5 rounded border border-sky-200">Programista</span>;
+        return <span className="text-[11px] font-medium text-sky-700 bg-sky-50 px-2 py-0.5 rounded border border-sky-200">Projektant Branżowy</span>;
       case 'tester':
-        return <span className="text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">Tester QA</span>;
+        return <span className="text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">Sprawdzający / Rzeczoznawca</span>;
       default:
-        return <span className="text-[11px] text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">Obserwator</span>;
+        return <span className="text-[11px] text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">Inwestor / Obserwator</span>;
     }
   };
 
@@ -85,7 +89,7 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
               {currentUser.initials}
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-900">Uwierzytelnianie & Współpraca Zespołowa</h3>
+              <h3 className="text-sm font-bold text-slate-900">Uwierzytelnianie & Zespół Pracowni Projektowej</h3>
               <p className="text-xs text-slate-500">
                 Zalogowany jako: <strong className="text-slate-800">{currentUser.name}</strong> ({currentUser.email})
               </p>
@@ -99,6 +103,26 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
           </button>
         </div>
 
+        {/* Administrator Quick Action Banner */}
+        {currentUser.role === 'admin' && onOpenTemplateManager && (
+          <div className="bg-purple-50 border-b border-purple-200 px-6 py-2.5 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2 text-purple-900 font-semibold">
+              <Shield className="w-4 h-4 text-purple-600" />
+              <span>Uprawnienia Administratora: Szablony Projektów Budowlanych</span>
+            </div>
+            <button
+              onClick={() => {
+                onClose();
+                onOpenTemplateManager();
+              }}
+              className="flex items-center gap-1.5 px-3 py-1 bg-purple-700 hover:bg-purple-800 text-white rounded font-bold text-xs transition-colors shadow-2xs"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Otwórz kreator szablonów</span>
+            </button>
+          </div>
+        )}
+
         {/* Tab switchers */}
         <div className="px-6 border-b border-slate-200 bg-white flex items-center gap-4 text-xs font-medium">
           <button
@@ -110,7 +134,7 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
             }`}
           >
             <Users className="w-4 h-4" />
-            <span>Przełącz aktywnego użytkownika</span>
+            <span>Przełącz aktywnego projektanta</span>
           </button>
 
           <button
@@ -234,21 +258,21 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                   onChange={(e) => setRole(e.target.value as UserRole)}
                   className="w-full border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
                 >
-                  <option value="admin">Administrator (Pełne prawa)</option>
-                  <option value="project_manager">Project Manager</option>
-                  <option value="developer">Programista (Edycja zadań)</option>
-                  <option value="tester">Tester (Zgłaszanie błędów)</option>
-                  <option value="viewer">Obserwator (Tylko odczyt)</option>
+                  <option value="admin">Główny Architekt / Szef Pracowni (Admin)</option>
+                  <option value="project_manager">Koordynator Projektu / KPA</option>
+                  <option value="developer">Projektant Branżowy (Konstrukcja / Instalacje)</option>
+                  <option value="tester">Sprawdzający / Rzeczoznawca PPOŻ / Sanepid</option>
+                  <option value="viewer">Inwestor / Zamawiający (Tylko odczyt)</option>
                 </select>
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Dział / Zespół</label>
+                <label className="block font-semibold text-slate-700 mb-1">Pracownia / Dział branżowy</label>
                 <input
                   type="text"
                   value={department}
                   onChange={(e) => setDepartment(e.target.value)}
-                  placeholder="np. Backend Team"
+                  placeholder="np. Pracownia Konstrukcji Budowlanych"
                   className="w-full border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
                 />
               </div>
