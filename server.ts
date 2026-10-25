@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -18,6 +19,20 @@ app.get('/api/health', (_req, res) => {
     timestamp: new Date().toISOString(),
     postgresStatus: process.env.DATABASE_URL ? 'configured' : 'standalone-demo',
   });
+});
+
+// Direct endpoint to download or run install.sh via curl
+app.get('/install.sh', (_req, res) => {
+  try {
+    const scriptPath = path.resolve(__dirname, 'install.sh');
+    if (fs.existsSync(scriptPath)) {
+      res.setHeader('Content-Type', 'text/x-shellscript; charset=utf-8');
+      return res.sendFile(scriptPath);
+    }
+  } catch (err) {
+    console.error('Error serving install.sh:', err);
+  }
+  res.status(404).send('#!/bin/bash\necho "install.sh not found"\nexit 1');
 });
 
 // Server-side cache of current tasks and users for Google Calendar live crawler polling
