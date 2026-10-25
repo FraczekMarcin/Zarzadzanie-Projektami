@@ -37,7 +37,7 @@ import {
   AutoBackupConfig,
   AutoBackupSnapshot 
 } from '../utils/autoBackup';
-import { INSTALL_TARGET_DIR } from '../data/dockerConfig';
+import { INSTALL_TARGET_DIR, CURRENT_APP_VERSION } from '../data/dockerConfig';
 
 interface ArchiveBackupModalProps {
   isOpen: boolean;
@@ -127,7 +127,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
   // Prepare full data payload
   const createBackupPayload = () => {
     return {
-      version: '2026-10-25 v 0.2',
+      version: CURRENT_APP_VERSION,
       exportedAt: new Date().toISOString(),
       metadata: {
         appName: 'Zarządzanie Projektami',
@@ -146,7 +146,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
     const timestamp = new Date().toISOString();
     let sql = `-- ==================================================================\n`;
     sql += `-- Pełny Zrzut Bazy Danych PostgreSQL 16: Zarządzanie Projektami\n`;
-    sql += `-- Wersja: 2026-10-25 v 0.2\n`;
+    sql += `-- Wersja: ${CURRENT_APP_VERSION}\n`;
     sql += `-- Wygenerowano: ${timestamp}\n`;
     sql += `-- ==================================================================\n\n`;
 
@@ -406,7 +406,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
               <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <span>Centrum Archiwizacji & Automatycznych Kopii Zapasowych</span>
                 <span className="text-[10px] bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded-full border border-emerald-300">
-                  Wersja 2026-10-25 v 0.2
+                  Wersja {CURRENT_APP_VERSION}
                 </span>
               </h2>
               <p className="text-xs text-slate-500">

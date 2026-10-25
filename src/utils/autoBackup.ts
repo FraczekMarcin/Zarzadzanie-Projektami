@@ -79,7 +79,7 @@ export function createAutoBackupSnapshot(payload: {
   const filename = `zarzadzanie-projektami-autobackup-${dateSlug}_${timeSlug}.json`;
 
   const snapshotData = {
-    version: '2026-10-25 v 0.2',
+    version: '2026-10-25 v 0.2.1',
     exportedAt: timestamp,
     appName: 'Zarządzanie Projektami',
     projects: payload.projects,
@@ -154,7 +154,7 @@ export function generateLinuxCronBackupScript(): string {
   return `#!/usr/bin/env bash
 # ==============================================================================
 # Zarządzanie Projektami - Skrypt Automatycznej Kopii Zapasowej PostgreSQL
-# Wersja: 2026-10-25 v 0.2
+# Wersja: 2026-10-25 v 0.2.1
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # ==============================================================================
 set -e

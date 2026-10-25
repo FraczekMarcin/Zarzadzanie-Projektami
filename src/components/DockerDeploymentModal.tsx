@@ -73,10 +73,10 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
   };
 
   const oneLinerCurl = `curl -fsSL ${RAW_INSTALL_SCRIPT_URL} | sudo bash`;
-  const oneLinerGit = `git clone ${GITHUB_REPO_URL}.git ${INSTALL_TARGET_DIR} && cd ${INSTALL_TARGET_DIR} && sudo bash install.sh`;
+  const oneLinerGit = `git clone ${GITHUB_REPO_URL}.git && cd Zarzadzanie-Projektami/Instalacja && sudo bash install.sh`;
   const directAppUrl = typeof window !== 'undefined' ? `${window.location.origin}/install.sh` : '';
   const oneLinerDirect = `curl -fsSL ${directAppUrl} | sudo bash`;
-  const gitPushCommand = `git add .\ngit commit -m "Wydanie 2026-10-25 v 0.2: install.sh, README.md, docker-compose"\ngit branch -M main\ngit push -u origin main`;
+  const gitPushCommand = `git add .\ngit commit -m "Wydanie 2026-10-25 v 0.2.1: Katalog Instalacja z instalatorem"\ngit branch -M main\ngit push -u origin main`;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -316,11 +316,28 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
             <div className="bg-amber-50 border border-amber-300 rounded-xl p-5 space-y-3">
               <div className="flex items-center gap-2 text-amber-950 font-bold text-sm">
                 <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
-                <span>Dlaczego adres https://raw.githubusercontent.com/.../install.sh zwraca 404?</span>
+                <span>Wyjaśnienie błędu curl: (22) The requested URL returned error: 404</span>
               </div>
-              <p className="text-xs text-amber-900 leading-relaxed">
-                Jeśli repozytorium na GitHub zostało niedawno utworzone, pliki <code className="font-mono font-bold bg-amber-100 px-1 rounded text-amber-950">install.sh</code> oraz <code className="font-mono font-bold bg-amber-100 px-1 rounded text-amber-950">README.md</code> muszą zostać po raz pierwszy wysłane do repozytorium (<code className="font-mono font-bold">git push</code>).
-              </p>
+              <div className="text-xs text-amber-950 space-y-1.5 leading-relaxed">
+                <p>
+                  Jeśli w terminalu pojawił się komunikat: <br />
+                  <code className="font-mono text-rose-700 bg-rose-50 px-1 py-0.5 rounded font-bold">
+                    curl: (22) The requested URL returned error: 404
+                  </code>
+                </p>
+                <ol className="list-decimal list-inside space-y-1 text-slate-800">
+                  <li>
+                    <strong>Adres <code>/blob/</code> to strona HTML w przeglądarce:</strong> Narzędzie <code>curl</code> wymaga adresu surowego (<code>raw.githubusercontent.com/...</code> lub <code>github.com/.../raw/...</code>), a nie podglądu <code>/blob/</code>.
+                  </li>
+                  <li>
+                    <strong>Pliki instalacyjne znajdują się w folderze <code>Instalacja/</code>:</strong> Prawidłowa ścieżka w repozytorium to <code className="font-mono bg-amber-100 px-1 rounded">Instalacja/install.sh</code>.
+                  </li>
+                  <li>
+                    <strong>Repozytorium GitHub wymaga wypchnięcia (git push):</strong> Pliki muszą zostać wysłane na GitHub, aby link raw stał się publicznie widoczny.
+                  </li>
+                </ol>
+              </div>
+
               <div className="bg-slate-900 text-slate-200 rounded-lg p-3 font-mono text-xs flex items-center justify-between gap-3">
                 <code className="select-all whitespace-pre text-emerald-300">
                   {gitPushCommand}
@@ -333,9 +350,13 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
                   <span>{copiedCmd === 'gitpush' ? 'Skopiowano!' : 'Kopiuj komendy Git'}</span>
                 </button>
               </div>
-              <p className="text-[11px] text-amber-800">
-                Wskazówka: Użycie <strong>Wariantu 1 (git clone)</strong> lub <strong>Wariantu 3</strong> działa od razu na Twoim serwerze!
-              </p>
+
+              <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-950 text-xs">
+                <strong>Zalecenie:</strong> Na serwerze <code>root@Zarzadzanie:~#</code> najszybciej zainstalujesz system poleceniem <strong>Wariantu 1 (git clone)</strong>:
+                <div className="font-mono text-[11px] text-emerald-900 mt-1 font-bold">
+                  git clone https://github.com/FraczekMarcin/Zarzadzanie-Projektami.git && cd Zarzadzanie-Projektami/Instalacja && sudo bash install.sh
+                </div>
+              </div>
             </div>
 
             {/* What the script does step-by-step */}
