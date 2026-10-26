@@ -4,21 +4,20 @@
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # ==========================================
 
-# Etap 1: Budowanie aplikacji (Builder)
+# Etap 1: Budowanie aplikacji (wykonywane tylko gdy brak gotowego dist)
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Kopiowanie definicji zależności i instalacja
-COPY package*.json ./
-RUN npm install --legacy-peer-deps --no-audit
-
-# Kopiowanie kodu źródłowego i kompilacja (frontend + serwer)
 COPY . .
-RUN npm run build
+
+# Jeśli dist/server.js lub dist/index.html nie istnieją, skompiluj z kodu źródłowego
+RUN if [ ! -f dist/server.js ] || [ ! -f dist/index.html ]; then \
+      npm install --legacy-peer-deps --no-audit && npm run build; \
+    fi
 
 # ==========================================
-# Etap 2: Super-lekkie środowisko produkcyjne (Runtime < 140MB)
+# Etap 2: Super-lekkie środowisko produkcyjne (Runtime < 130MB)
 # ==========================================
 FROM node:20-alpine AS runner
 
@@ -32,14 +31,16 @@ ENV APP_VERSION="2026-10-25 v 0.2.1"
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S appuser -u 1001 -G nodejs
 
-# Kopiowanie package.json dla deklaracji ESM ("type": "module")
-COPY --chown=appuser:nodejs package*.json ./
-
-# Kopiowanie wyłącznie skompilowanych plików z etapu builder (bez ciężkich devDependencies)
+# Kopiowanie skompilowanego frontendu i serwera (zaledwie 650 KB!)
 COPY --chown=appuser:nodejs --from=builder /app/dist ./dist
 
-# Instalacja wyłącznie serwera express (zaledwie 2.4 MB zamiast 250 MB devDependencies)
-RUN npm install --omit=dev --no-audit express && npm cache clean --force
+# Instalacja wyłącznie serwera express (zaledwie 2.4 MB bez zbędnych 250 MB devDependencies)
+RUN npm --prefix /app init -y && \
+    npm --prefix /app install --no-package-lock --no-audit express && \
+    npm cache clean --force
+
+# Dodaj deklarację ESM ("type": "module") do package.json w kontenerze
+RUN node -e "const p = require('./package.json'); p.type = 'module'; require('fs').writeFileSync('./package.json', JSON.stringify(p, null, 2));"
 
 USER appuser
 

@@ -3,6 +3,5 @@ npm-debug.log*
 .git
 .github
 backups
-dist
 .env
 .env.production
