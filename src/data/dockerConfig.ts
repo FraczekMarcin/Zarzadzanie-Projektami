@@ -100,9 +100,9 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Instalacja zależności
+# Kopiowanie definicji zależności i instalacja z obsługą peer dependencies
 COPY package*.json ./
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+RUN npm install --legacy-peer-deps --no-audit
 
 # Kopiowanie kodu źródłowego i kompilacja
 COPY . .
@@ -119,11 +119,8 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV APP_VERSION="2026-10-25 v 0.2.1"
 
-# Instalacja wyłącznie produkcyjnych zależności
+# Kopiowanie skompilowanego frontendu, serwera oraz zainstalowanych pakietów z etapu builder
 COPY package*.json ./
-RUN if [ -f package-lock.json ]; then npm ci --only=production; else npm install --omit=dev; fi && npm cache clean --force
-
-# Kopiowanie skompilowanego frontendu oraz serwera
 COPY --from=builder /app/dist ./dist
 COPY server.ts ./server.ts
 COPY --from=builder /app/node_modules ./node_modules
