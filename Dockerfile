@@ -4,16 +4,22 @@
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # ==========================================
 
+# Etap 1: Budowanie aplikacji (Builder)
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Kopiowanie definicji zależności i instalacja z obsługą peer dependencies
 COPY package*.json ./
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+RUN npm install --legacy-peer-deps --no-audit
 
+# Kopiowanie kodu źródłowego i kompilacja
 COPY . .
 RUN npm run build
 
+# ==========================================
+# Etap 2: Środowisko produkcyjne (Runtime)
+# ==========================================
 FROM node:20-alpine AS runner
 
 WORKDIR /app
@@ -22,13 +28,13 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV APP_VERSION="2026-10-25 v 0.2.1"
 
+# Kopiowanie skompilowanego frontendu, serwera oraz zainstalowanych pakietów z etapu builder
 COPY package*.json ./
-RUN if [ -f package-lock.json ]; then npm ci --only=production; else npm install --omit=dev; fi && npm cache clean --force
-
 COPY --from=builder /app/dist ./dist
 COPY server.ts ./server.ts
 COPY --from=builder /app/node_modules ./node_modules
 
+# Utworzenie użytkownika o ograniczonych uprawnieniach (Security best practice)
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S appuser -u 1001 -G nodejs && \
     chown -R appuser:nodejs /app
