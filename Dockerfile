@@ -32,6 +32,9 @@ ENV APP_VERSION="2026-10-25 v 0.2.1"
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S appuser -u 1001 -G nodejs
 
+# Kopiowanie package.json dla deklaracji ESM ("type": "module")
+COPY --chown=appuser:nodejs package*.json ./
+
 # Kopiowanie wyłącznie skompilowanych plików z etapu builder (bez ciężkich devDependencies)
 COPY --chown=appuser:nodejs --from=builder /app/dist ./dist
 

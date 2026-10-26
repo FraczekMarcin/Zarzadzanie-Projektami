@@ -112,7 +112,7 @@ else
 fi
 
 # 7. Zabezpieczenie docker-compose.yml (usunięcie zbędnych wersji, upewnienie się o poprawnym kontekście)
-if [ ! -f docker-compose.yml ] || grep -q "context: \.\." docker-compose.yml 2>/dev/null || grep -q "version:" docker-compose.yml 2>/dev/null; then
+if [ ! -f docker-compose.yml ] || grep -q "context: \.\." docker-compose.yml 2>/dev/null || grep -q "version:" docker-compose.yml 2>/dev/null || grep -q "zarzadzanie.local" docker-compose.yml 2>/dev/null; then
     cat <<'EOF' > docker-compose.yml
 services:
   db:
@@ -162,7 +162,7 @@ services:
     container_name: zarzadzanie_pgadmin
     restart: unless-stopped
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@zarzadzanie.local}
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@pracownia.pl}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-SuperAdminHaslo2026!}
     ports:
       - "5050:80"

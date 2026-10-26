@@ -201,8 +201,8 @@ const distPath = fs.existsSync(path.resolve(__dirname, 'index.html'))
   : path.resolve(__dirname, 'dist');
 app.use(express.static(distPath));
 
-// Fallback to index.html for SPA client routing
-app.get('*', (_req, res) => {
+// Fallback to index.html for SPA client routing (compatible with Express 4 and Express 5)
+app.use((_req, res) => {
   res.sendFile(path.join(distPath, 'index.html'));
 });
 

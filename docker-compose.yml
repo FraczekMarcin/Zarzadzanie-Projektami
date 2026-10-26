@@ -56,7 +56,7 @@ services:
     container_name: zarzadzanie_pgadmin
     restart: unless-stopped
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@zarzadzanie.local}
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@pracownia.pl}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-SuperAdminHaslo2026!}
     ports:
       - "5050:80"

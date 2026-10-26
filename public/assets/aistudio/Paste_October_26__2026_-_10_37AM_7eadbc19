@@ -1,0 +1,697 @@
+root@Zarzadzanie:~/Zarzadzanie-Projektami/Instalacja# docker system prune -af
+Deleted Images:
+untagged: dpage/pgadmin4:latest
+deleted: sha256:c332c5f6dfba995d9ebc4af261d93506d6876085d712eaaa3defc8dd1a3f26de
+deleted: sha256:33eb7d070ee7500d1513453773f61df1256fdea08257d4a3f4aebd8cf1cc87cf
+deleted: sha256:87bb8ca660cda2743c4cf2d2aa8dc6b37b2ab6247f6f266126796e1fd948ac86
+untagged: postgres:16-alpine
+deleted: sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36
+deleted: sha256:cbf42f0edc946c0bc1b8eeed62403734e1f25dc67a3491455d07a92fdb558b28
+deleted: sha256:f33523a06b7a040b9b05bf9625ddc9fc945debfbbd47f5b19154e48376596193
+
+Deleted build cache objects:
+w5izwckb8tz7r1ckx943c5fnb
+qzs869jur6wwrwnx9xcbe4c3n
+38oflrraf2d4md21p865xjlpm
+gbvp9ll605jy7hqd0yr97u1v0
+w2vosdsl1xtc5dx4oxcxtotkf
+abatgwxvfjl2dwwaduo3ymdfg
+t0lv8qjlrl0vc0ak9wfm919g1
+wdj3idqlvbmpwmtsxg924di6q
+1adtkrt2f1m3lett6rwjehuku
+rjuy6zvrc6wb4mrq45epsw8g9
+2b4f00wxeo9i0qmzgmcf7crgz
+17aqauywz5h6geab31ea430tc
+q70l7q7wxc9i36vybzlm7msa0
+
+Total reclaimed space: 2.08GB
+root@Zarzadzanie:~/Zarzadzanie-Projektami/Instalacja# cd ~/Zarzadzanie-Projektami && git pull origin main
+remote: Enumerating objects: 24, done.
+remote: Counting objects: 100% (24/24), done.
+remote: Compressing objects: 100% (13/13), done.
+remote: Total 13 (delta 10), reused 0 (delta 0), pack-reused 0 (from 0)
+Unpacking objects: 100% (13/13), 2.07 KiB | 264.00 KiB/s, done.
+From https://github.com/FraczekMarcin/Zarzadzanie-Projektami
+ * branch            main       -> FETCH_HEAD
+   69c4f05..6da2090  main       -> origin/main
+Updating 69c4f05..6da2090
+Fast-forward
+ .dockerignore            |  8 ++++++++
+ Dockerfile               | 25 ++++++++++++-------------
+ Instalacja/.dockerignore |  8 ++++++++
+ Instalacja/Dockerfile    | 25 ++++++++++++-------------
+ Instalacja/install.sh    |  5 +++++
+ install.sh               |  5 +++++
+ package.json             |  2 +-
+ server.ts                |  8 ++++++--
+ src/data/dockerConfig.ts |  5 +++++
+ 9 files changed, 62 insertions(+), 29 deletions(-)
+ create mode 100644 .dockerignore
+ create mode 100644 Instalacja/.dockerignore
+root@Zarzadzanie:~/Zarzadzanie-Projektami# cd Instalacja && sudo bash install.sh
+=================================================================
+  🏗️  Zarządzanie Projektami - Instalator (Wersja 2026-10-25 v 0.2.1)
+  Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
+=================================================================
+==> Przygotowanie katalogu instalacji: /opt/zarzadzanie-projektami
+==> Wykryto lokalne repozytorium źródłowe: /root/Zarzadzanie-Projektami
+==> Kopiowanie plików aplikacji do /opt/zarzadzanie-projektami...
+Wykryto istniejący plik .env - zachowano konfigurację i hasła bazy danych.
+==> Konfiguracja automatycznego skryptu kopii zapasowych (backup.sh)...
+==> Zwalnianie tymczasowej pamięci podręcznej i zbędnych warstw Dockera...
+Total:  0B
+Total reclaimed space: 0B
+==> Uruchamianie kontenerów (PostgreSQL 16 + Zarządzanie Projektami)...
+[+] up 32/32
+ ✔ Image dpage/pgadmin4:latest Pulled                                                                                                                                                                                                                                                                                                          73.4s
+ ✔ Image postgres:16-alpine    Pulled                                                                                                                                                                                                                                                                                                          62.5s
+[+] Building 91.2s (16/16) FINISHED                                                                                                                                                                                                                                                                                                                 
+ => [internal] load local bake definitions                                                                                                                                                                                                                                                                                                     0.0s
+ => => reading from stdin 524B                                                                                                                                                                                                                                                                                                                 0.0s
+ => [internal] load build definition from Dockerfile                                                                                                                                                                                                                                                                                           0.5s
+ => => transferring dockerfile: 1.56kB                                                                                                                                                                                                                                                                                                         0.0s
+ => [internal] load metadata for docker.io/library/node:20-alpine                                                                                                                                                                                                                                                                              5.2s
+ => [internal] load .dockerignore                                                                                                                                                                                                                                                                                                              0.4s
+ => => transferring context: 115B                                                                                                                                                                                                                                                                                                              0.0s
+ => [builder 1/6] FROM docker.io/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293                                                                                                                                                                                                               12.0s
+ => => resolve docker.io/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293                                                                                                                                                                                                                        0.2s
+ => => sha256:fff4e2c1b189bf87d63ad8bd07f7f4eb288d6f2b6a07a8bb44c60e8c075d2096 445B / 445B                                                                                                                                                                                                                                                     0.6s
+ => => sha256:b2cbbfe903b0821005780971ddc5892edcc4ce74c5a48d82e1d2b382edac3122 1.26MB / 1.26MB                                                                                                                                                                                                                                                 0.6s
+ => => sha256:4feea04c154301db6f4a496efa397b3db96603b1c009c797cfdde77bea8b3287 43.23MB / 43.23MB                                                                                                                                                                                                                                               2.1s
+ => => sha256:6a0ac1617861a677b045b7ff88545213ec31c0ff08763195a70a4a5adda577bb 3.86MB / 3.86MB                                                                                                                                                                                                                                                 0.7s
+ => => extracting sha256:6a0ac1617861a677b045b7ff88545213ec31c0ff08763195a70a4a5adda577bb                                                                                                                                                                                                                                                      1.0s
+ => => extracting sha256:4feea04c154301db6f4a496efa397b3db96603b1c009c797cfdde77bea8b3287                                                                                                                                                                                                                                                      6.2s
+ => => extracting sha256:b2cbbfe903b0821005780971ddc5892edcc4ce74c5a48d82e1d2b382edac3122                                                                                                                                                                                                                                                      0.8s
+ => => extracting sha256:fff4e2c1b189bf87d63ad8bd07f7f4eb288d6f2b6a07a8bb44c60e8c075d2096                                                                                                                                                                                                                                                      0.4s
+ => [internal] load build context                                                                                                                                                                                                                                                                                                              1.2s
+ => => transferring context: 2.64MB                                                                                                                                                                                                                                                                                                            0.3s
+ => [builder 2/6] WORKDIR /app                                                                                                                                                                                                                                                                                                                 0.6s
+ => [builder 3/6] COPY package*.json ./                                                                                                                                                                                                                                                                                                        1.3s
+ => [runner 3/5] RUN addgroup -g 1001 -S nodejs &&     adduser -S appuser -u 1001 -G nodejs                                                                                                                                                                                                                                                    3.5s
+ => [builder 4/6] RUN npm install --legacy-peer-deps --no-audit                                                                                                                                                                                                                                                                               29.2s
+ => [builder 5/6] COPY . .                                                                                                                                                                                                                                                                                                                     1.4s 
+ => [builder 6/6] RUN npm run build                                                                                                                                                                                                                                                                                                           10.0s 
+ => [runner 4/5] COPY --chown=appuser:nodejs --from=builder /app/dist ./dist                                                                                                                                                                                                                                                                   1.1s 
+ => [runner 5/5] RUN npm install --omit=dev --no-audit express && npm cache clean --force                                                                                                                                                                                                                                                      9.6s 
+ => exporting to image                                                                                                                                                                                                                                                                                                                        17.1s 
+ => => exporting layers                                                                                                                                                                                                                                                                                                                        3.3s 
+ => => exporting manifest sha256:54a65ccd95f04f3cd3c4bc1c00384642cefb6c2a54ac67825343e0f96d52ea51                                                                                                                                                                                                                                              0.2s 
+ => => exporting config sha256:c5506d396386ab2117cbf9a1e0bcbf2be8c0e0ad0dc27b202fae86226c73f34d                                                                                                                                                                                                                                                0.2s 
+ => => exporting attestation manifest sha256:5364c8b13560ca1542ec4389f495098ebb6338853034e91de234ecf03582702a                                                                                                                                                                                                                                  0.4s 
+ => => exporting manifest list sha256:3c9c4b810c9fe90de21db1b2445c2c02d4fc0dfa2b20f698aca960e01ba8c122                                                                                                                                                                                                                                         0.2s 
+ => => naming to docker.io/library/zarzadzanie-projektami-app:latest                                                                                                                                                                                                                                                                           0.0s
+ => => unpacking to docker.io/library/zarzadzanie-projektami-app:latest                                                                                                                                                                                                                                                                       12.6s
+ => resolving provenance for metadata file                                                                                                                                                                                                                                                                                                     0.0s
+[+] up 38/38
+ ✔ Image dpage/pgadmin4:latest                             Pulled                                                                                                                                                                                                                                                                              73.4s
+ ✔ Image postgres:16-alpine                                Pulled                                                                                                                                                                                                                                                                              62.5s
+ ✔ Image zarzadzanie-projektami-app                        Built                                                                                                                                                                                                                                                                               91.6s
+ ✔ Network zarzadzanie-projektami_zarzadzanie_net          Created                                                                                                                                                                                                                                                                              0.5s
+ ✔ Volume zarzadzanie-projektami_zarzadzanie_postgres_data Created                                                                                                                                                                                                                                                                              0.1s
+ ✔ Container zarzadzanie_db                                Healthy                                                                                                                                                                                                                                                                             17.6s
+ ✔ Container zarzadzanie_pgadmin                           Started                                                                                                                                                                                                                                                                              6.0s
+ ✔ Container zarzadzanie_app                               Started                                                                                                                                                                                                                                                                             17.7s
+=================================================================
+  ✅ WDROŻENIE ZAKOŃCZONE SUKCESEM!
+  Wersja: 2026-10-25 v 0.2.1
+=================================================================
+Aplikacja działa i jest dostępna pod:
+  👉 http://192.168.10.190:3000 lub http://localhost:3000
+
+🛡️  Trwałość danych: Wolumen 'zarzadzanie_postgres_data' zachowuje dane bazy.
+💾  Kopie zapasowe: Skonfigurowane w '/opt/zarzadzanie-projektami/backups'.
+Zarządzanie:
+  - Podgląd logów:           cd /opt/zarzadzanie-projektami && docker compose logs -f
+  - Aktualizacja z GitHub:   cd /opt/zarzadzanie-projektami && git pull && docker compose up -d --build
+  - Ręczna kopia zapasowa:   /opt/zarzadzanie-projektami/backup.sh
+  - Zatrzymanie:             cd /opt/zarzadzanie-projektami && docker compose down
+=================================================================
+root@Zarzadzanie:~/Zarzadzanie-Projektami/Instalacja# cd /opt/zarzadzanie-projektami && docker compose logs -f
+zarzadzanie_db  | The files belonging to this database system will be owned by user "postgres".
+zarzadzanie_db  | This user must also own the server process.
+zarzadzanie_db  | 
+zarzadzanie_db  | The database cluster will be initialized with locale "en_US.utf8".
+zarzadzanie_db  | The default database encoding has accordingly been set to "UTF8".
+zarzadzanie_db  | The default text search configuration will be set to "english".
+zarzadzanie_db  | 
+zarzadzanie_db  | Data page checksums are disabled.
+zarzadzanie_db  | 
+zarzadzanie_db  | fixing permissions on existing directory /var/lib/postgresql/data ... ok
+zarzadzanie_db  | creating subdirectories ... ok
+zarzadzanie_db  | selecting dynamic shared memory implementation ... posix
+zarzadzanie_db  | selecting default max_connections ... 100
+zarzadzanie_db  | selecting default shared_buffers ... 128MB
+zarzadzanie_db  | selecting default time zone ... UTC
+zarzadzanie_db  | creating configuration files ... ok
+zarzadzanie_db  | running bootstrap script ... ok
+zarzadzanie_db  | sh: locale: not found
+zarzadzanie_db  | 2026-10-26 09:27:14.827 UTC [33] WARNING:  no usable system locales were found
+zarzadzanie_db  | performing post-bootstrap initialization ... ok
+zarzadzanie_db  | initdb: warning: enabling "trust" authentication for local connections
+zarzadzanie_db  | initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+zarzadzanie_db  | syncing data to disk ... ok
+zarzadzanie_db  | 
+zarzadzanie_db  | 
+zarzadzanie_db  | Success. You can now start the database server using:
+zarzadzanie_db  | 
+zarzadzanie_db  |     pg_ctl -D /var/lib/postgresql/data -l logfile start
+zarzadzanie_db  | 
+zarzadzanie_db  | waiting for server to start....2026-10-26 09:27:19.551 UTC [39] LOG:  starting PostgreSQL 16.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+zarzadzanie_db  | 2026-10-26 09:27:19.649 UTC [39] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+zarzadzanie_db  | 2026-10-26 09:27:19.887 UTC [42] LOG:  database system was shut down at 2026-10-26 09:27:16 UTC
+zarzadzanie_db  | .2026-10-26 09:27:20.239 UTC [39] LOG:  database system is ready to accept connections
+zarzadzanie_db  |  done
+zarzadzanie_db  | server started
+zarzadzanie_db  | 2026-10-26 09:27:20.469 UTC [54] FATAL:  database "zarzadzanie_db" does not exist
+zarzadzanie_db  | CREATE DATABASE
+zarzadzanie_db  | 
+zarzadzanie_db  | 
+zarzadzanie_db  | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/init.sql
+zarzadzanie_db  | CREATE EXTENSION
+zarzadzanie_db  | CREATE TABLE
+zarzadzanie_db  | CREATE TABLE
+zarzadzanie_db  | CREATE TABLE
+zarzadzanie_db  | CREATE TABLE
+zarzadzanie_db  | CREATE INDEX
+zarzadzanie_db  | CREATE INDEX
+zarzadzanie_db  | CREATE INDEX
+zarzadzanie_db  | CREATE INDEX
+zarzadzanie_db  | CREATE INDEX
+zarzadzanie_db  | CREATE TABLE
+zarzadzanie_db  | CREATE TABLE
+zarzadzanie_db  | CREATE TABLE
+zarzadzanie_db  | INSERT 0 2
+zarzadzanie_db  | 
+zarzadzanie_db  | 
+zarzadzanie_db  | waiting for server to shut down....2026-10-26 09:27:25.624 UTC [39] LOG:  received fast shutdown request
+zarzadzanie_db  | .2026-10-26 09:27:26.867 UTC [39] LOG:  aborting any active transactions
+zarzadzanie_db  | 2026-10-26 09:27:26.882 UTC [39] LOG:  background worker "logical replication launcher" (PID 51) exited with exit code 1
+zarzadzanie_db  | 2026-10-26 09:27:26.884 UTC [40] LOG:  shutting down
+zarzadzanie_db  | 2026-10-26 09:27:27.232 UTC [40] LOG:  checkpoint starting: shutdown immediate
+zarzadzanie_db  | ...2026-10-26 09:27:30.635 UTC [40] LOG:  checkpoint complete: wrote 949 buffers (5.8%); 0 WAL file(s) added, 0 removed, 0 recycled; write=1.899 s, sync=0.922 s, total=3.751 s; sync files=335, longest=0.160 s, average=0.003 s; distance=4495 kB, estimate=4495 kB; lsn=0/195AE40, redo lsn=0/195AE40
+zarzadzanie_db  | .2026-10-26 09:27:30.704 UTC [39] LOG:  database system is shut down
+zarzadzanie_db  |  done
+zarzadzanie_db  | server stopped
+zarzadzanie_db  | 
+zarzadzanie_db  | PostgreSQL init process complete; ready for start up.
+zarzadzanie_db  | 
+zarzadzanie_db  | 2026-10-26 09:27:31.059 UTC [1] LOG:  starting PostgreSQL 16.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+zarzadzanie_db  | 2026-10-26 09:27:31.060 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+zarzadzanie_db  | 2026-10-26 09:27:31.060 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+zarzadzanie_db  | 2026-10-26 09:27:31.147 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+zarzadzanie_db  | 2026-10-26 09:27:31.232 UTC [70] LOG:  database system was shut down at 2026-10-26 09:27:30 UTC
+zarzadzanie_db  | 2026-10-26 09:27:31.295 UTC [1] LOG:  database system is ready to accept connections
+zarzadzanie_db  | 2026-10-26 09:32:31.331 UTC [68] LOG:  checkpoint starting: time
+zarzadzanie_db  | 2026-10-26 09:32:36.955 UTC [68] LOG:  checkpoint complete: wrote 43 buffers (0.3%); 0 WAL file(s) added, 0 removed, 0 recycled; write=5.241 s, sync=0.181 s, total=5.625 s; sync files=13, longest=0.088 s, average=0.014 s; distance=202 kB, estimate=202 kB; lsn=0/198D950, redo lsn=0/198D918
+zarzadzanie_pgadmin  | email config is {'CHECK_EMAIL_DELIVERABILITY': False, 'ALLOW_SPECIAL_EMAIL_DOMAINS': [], 'GLOBALLY_DELIVERABLE': True}
+zarzadzanie_pgadmin  | 'admin@zarzadzanie.local' does not appear to be a valid email address. Please reset the PGADMIN_DEFAULT_EMAIL environment variable and try again.
+zarzadzanie_pgadmin  | Validation output: The part after the @-sign is a special-use or reserved name that cannot be used with email.
+zarzadzanie_pgadmin  | False
+zarzadzanie_pgadmin  | email config is {'CHECK_EMAIL_DELIVERABILITY': False, 'ALLOW_SPECIAL_EMAIL_DOMAINS': [], 'GLOBALLY_DELIVERABLE': True}
+zarzadzanie_pgadmin  | 'admin@zarzadzanie.local' does not appear to be a valid email address. Please reset the PGADMIN_DEFAULT_EMAIL environment variable and try again.
+zarzadzanie_pgadmin  | Validation output: The part after the @-sign is a special-use or reserved name that cannot be used with email.
+zarzadzanie_pgadmin  | False
+zarzadzanie_pgadmin  | email config is {'CHECK_EMAIL_DELIVERABILITY': False, 'ALLOW_SPECIAL_EMAIL_DOMAINS': [], 'GLOBALLY_DELIVERABLE': True}
+zarzadzanie_pgadmin  | 'admin@zarzadzanie.local' does not appear to be a valid email address. Please reset the PGADMIN_DEFAULT_EMAIL environment variable and try again.
+zarzadzanie_pgadmin  | Validation output: The part after the @-sign is a special-use or reserved name that cannot be used with email.
+zarzadzanie_pgadmin  | False
+zarzadzanie_pgadmin  | email config is {'CHECK_EMAIL_DELIVERABILITY': False, 'ALLOW_SPECIAL_EMAIL_DOMAINS': [], 'GLOBALLY_DELIVERABLE': True}
+zarzadzanie_pgadmin  | 'admin@zarzadzanie.local' does not appear to be a valid email address. Please reset the PGADMIN_DEFAULT_EMAIL environment variable and try again.
+zarzadzanie_pgadmin  | Validation output: The part after the @-sign is a special-use or reserved name that cannot be used with email.
+zarzadzanie_pgadmin  | False
+zarzadzanie_pgadmin  | email config is {'CHECK_EMAIL_DELIVERABILITY': False, 'ALLOW_SPECIAL_EMAIL_DOMAINS': [], 'GLOBALLY_DELIVERABLE': True}
+zarzadzanie_pgadmin  | 'admin@zarzadzanie.local' does not appear to be a valid email address. Please reset the PGADMIN_DEFAULT_EMAIL environment variable and try again.
+zarzadzanie_pgadmin  | Validation output: The part after the @-sign is a special-use or reserved name that cannot be used with email.
+zarzadzanie_pgadmin  | False
+zarzadzanie_pgadmin  | email config is {'CHECK_EMAIL_DELIVERABILITY': False, 'ALLOW_SPECIAL_EMAIL_DOMAINS': [], 'GLOBALLY_DELIVERABLE': True}
+zarzadzanie_pgadmin  | 'admin@zarzadzanie.local' does not appear to be a valid email address. Please reset the PGADMIN_DEFAULT_EMAIL environment variable and try again.
+zarzadzanie_pgadmin  | Validation output: The part after the @-sign is a special-use or reserved name that cannot be used with email.
+zarzadzanie_pgadmin  | False
+zarzadzanie_pgadmin  | email config is {'CHECK_EMAIL_DELIVERABILITY': False, 'ALLOW_SPECIAL_EMAIL_DOMAINS': [], 'GLOBALLY_DELIVERABLE': True}
+zarzadzanie_pgadmin  | 'admin@zarzadzanie.local' does not appear to be a valid email address. Please reset the PGADMIN_DEFAULT_EMAIL environment variable and try again.
+zarzadzanie_pgadmin  | Validation output: The part after the @-sign is a special-use or reserved name that cannot be used with email.
+zarzadzanie_pgadmin  | False
+zarzadzanie_pgadmin  | email config is {'CHECK_EMAIL_DELIVERABILITY': False, 'ALLOW_SPECIAL_EMAIL_DOMAINS': [], 'GLOBALLY_DELIVERABLE': True}
+zarzadzanie_pgadmin  | 'admin@zarzadzanie.local' does not appear to be a valid email address. Please reset the PGADMIN_DEFAULT_EMAIL environment variable and try again.
+zarzadzanie_pgadmin  | Validation output: The part after the @-sign is a special-use or reserved name that cannot be used with email.
+zarzadzanie_pgadmin  | False
+zarzadzanie_pgadmin  | email config is {'CHECK_EMAIL_DELIVERABILITY': False, 'ALLOW_SPECIAL_EMAIL_DOMAINS': [], 'GLOBALLY_DELIVERABLE': True}
+zarzadzanie_pgadmin  | 'admin@zarzadzanie.local' does not appear to be a valid email address. Please reset the PGADMIN_DEFAULT_EMAIL environment variable and try again.
+zarzadzanie_pgadmin  | Validation output: The part after the @-sign is a special-use or reserved name that cannot be used with email.
+zarzadzanie_pgadmin  | False
+zarzadzanie_pgadmin  | email config is {'CHECK_EMAIL_DELIVERABILITY': False, 'ALLOW_SPECIAL_EMAIL_DOMAINS': [], 'GLOBALLY_DELIVERABLE': True}
+zarzadzanie_pgadmin  | 'admin@zarzadzanie.local' does not appear to be a valid email address. Please reset the PGADMIN_DEFAULT_EMAIL environment variable and try again.
+zarzadzanie_pgadmin  | Validation output: The part after the @-sign is a special-use or reserved name that cannot be used with email.
+zarzadzanie_pgadmin  | False
+zarzadzanie_pgadmin  | email config is {'CHECK_EMAIL_DELIVERABILITY': False, 'ALLOW_SPECIAL_EMAIL_DOMAINS': [], 'GLOBALLY_DELIVERABLE': True}
+zarzadzanie_pgadmin  | 'admin@zarzadzanie.local' does not appear to be a valid email address. Please reset the PGADMIN_DEFAULT_EMAIL environment variable and try again.
+zarzadzanie_pgadmin  | Validation output: The part after the @-sign is a special-use or reserved name that cannot be used with email.
+zarzadzanie_pgadmin  | False
+zarzadzanie_pgadmin  | email config is {'CHECK_EMAIL_DELIVERABILITY': False, 'ALLOW_SPECIAL_EMAIL_DOMAINS': [], 'GLOBALLY_DELIVERABLE': True}
+zarzadzanie_pgadmin  | 'admin@zarzadzanie.local' does not appear to be a valid email address. Please reset the PGADMIN_DEFAULT_EMAIL environment variable and try again.
+zarzadzanie_pgadmin  | Validation output: The part after the @-sign is a special-use or reserved name that cannot be used with email.
+zarzadzanie_pgadmin  | False
+zarzadzanie_pgadmin  | email config is {'CHECK_EMAIL_DELIVERABILITY': False, 'ALLOW_SPECIAL_EMAIL_DOMAINS': [], 'GLOBALLY_DELIVERABLE': True}
+zarzadzanie_pgadmin  | 'admin@zarzadzanie.local' does not appear to be a valid email address. Please reset the PGADMIN_DEFAULT_EMAIL environment variable and try again.
+zarzadzanie_pgadmin  | Validation output: The part after the @-sign is a special-use or reserved name that cannot be used with email.
+zarzadzanie_pgadmin  | False
+zarzadzanie_pgadmin  | email config is {'CHECK_EMAIL_DELIVERABILITY': False, 'ALLOW_SPECIAL_EMAIL_DOMAINS': [], 'GLOBALLY_DELIVERABLE': True}
+zarzadzanie_pgadmin  | 'admin@zarzadzanie.local' does not appear to be a valid email address. Please reset the PGADMIN_DEFAULT_EMAIL environment variable and try again.
+zarzadzanie_pgadmin  | Validation output: The part after the @-sign is a special-use or reserved name that cannot be used with email.
+zarzadzanie_pgadmin  | False
+zarzadzanie_pgadmin  | email config is {'CHECK_EMAIL_DELIVERABILITY': False, 'ALLOW_SPECIAL_EMAIL_DOMAINS': [], 'GLOBALLY_DELIVERABLE': True}
+zarzadzanie_pgadmin  | 'admin@zarzadzanie.local' does not appear to be a valid email address. Please reset the PGADMIN_DEFAULT_EMAIL environment variable and try again.
+zarzadzanie_pgadmin  | Validation output: The part after the @-sign is a special-use or reserved name that cannot be used with email.
+zarzadzanie_pgadmin  | False
+zarzadzanie_app      | (node:1) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/dist/server.js is not specified and it doesn't parse as CommonJS.
+zarzadzanie_app      | Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+zarzadzanie_app      | To eliminate this warning, add "type": "module" to /app/package.json.
+zarzadzanie_app      | (Use `node --trace-warnings ...` to show where the warning was created)
+zarzadzanie_app      | /app/node_modules/path-to-regexp/dist/index.js:108
+zarzadzanie_app      |                     throw new PathError(`Missing parameter name at index ${index}`, str);
+zarzadzanie_app      |                           ^
+zarzadzanie_app      | 
+zarzadzanie_app      | PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+zarzadzanie_app      |     at consumeUntil (/app/node_modules/path-to-regexp/dist/index.js:108:27)
+zarzadzanie_app      |     at parse (/app/node_modules/path-to-regexp/dist/index.js:140:26)
+zarzadzanie_app      |     at process (/app/node_modules/path-to-regexp/dist/index.js:263:56)
+zarzadzanie_app      |     at pathToRegexp (/app/node_modules/path-to-regexp/dist/index.js:274:5)
+zarzadzanie_app      |     at Object.match (/app/node_modules/path-to-regexp/dist/index.js:225:30)
+zarzadzanie_app      |     at matcher (/app/node_modules/router/lib/layer.js:86:23)
+zarzadzanie_app      |     at new Layer (/app/node_modules/router/lib/layer.js:93:62)
+zarzadzanie_app      |     at Function.route (/app/node_modules/router/index.js:428:17)
+zarzadzanie_app      |     at Function.route (/app/node_modules/express/lib/application.js:257:22)
+zarzadzanie_app      |     at app.<computed> [as get] (/app/node_modules/express/lib/application.js:478:22) {
+zarzadzanie_app      |   originalPath: '*'
+zarzadzanie_app      | }
+zarzadzanie_app      | 
+zarzadzanie_app      | Node.js v20.20.2
+zarzadzanie_app      | (node:1) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/dist/server.js is not specified and it doesn't parse as CommonJS.
+zarzadzanie_app      | Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+zarzadzanie_app      | To eliminate this warning, add "type": "module" to /app/package.json.
+zarzadzanie_app      | (Use `node --trace-warnings ...` to show where the warning was created)
+zarzadzanie_app      | /app/node_modules/path-to-regexp/dist/index.js:108
+zarzadzanie_app      |                     throw new PathError(`Missing parameter name at index ${index}`, str);
+zarzadzanie_app      |                           ^
+zarzadzanie_app      | 
+zarzadzanie_app      | PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+zarzadzanie_app      |     at consumeUntil (/app/node_modules/path-to-regexp/dist/index.js:108:27)
+zarzadzanie_app      |     at parse (/app/node_modules/path-to-regexp/dist/index.js:140:26)
+zarzadzanie_app      |     at process (/app/node_modules/path-to-regexp/dist/index.js:263:56)
+zarzadzanie_app      |     at pathToRegexp (/app/node_modules/path-to-regexp/dist/index.js:274:5)
+zarzadzanie_app      |     at Object.match (/app/node_modules/path-to-regexp/dist/index.js:225:30)
+zarzadzanie_app      |     at matcher (/app/node_modules/router/lib/layer.js:86:23)
+zarzadzanie_app      |     at new Layer (/app/node_modules/router/lib/layer.js:93:62)
+zarzadzanie_app      |     at Function.route (/app/node_modules/router/index.js:428:17)
+zarzadzanie_app      |     at Function.route (/app/node_modules/express/lib/application.js:257:22)
+zarzadzanie_app      |     at app.<computed> [as get] (/app/node_modules/express/lib/application.js:478:22) {
+zarzadzanie_app      |   originalPath: '*'
+zarzadzanie_app      | }
+zarzadzanie_app      | 
+zarzadzanie_app      | Node.js v20.20.2
+zarzadzanie_app      | (node:1) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/dist/server.js is not specified and it doesn't parse as CommonJS.
+zarzadzanie_app      | Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+zarzadzanie_app      | To eliminate this warning, add "type": "module" to /app/package.json.
+zarzadzanie_app      | (Use `node --trace-warnings ...` to show where the warning was created)
+zarzadzanie_app      | /app/node_modules/path-to-regexp/dist/index.js:108
+zarzadzanie_app      |                     throw new PathError(`Missing parameter name at index ${index}`, str);
+zarzadzanie_app      |                           ^
+zarzadzanie_app      | 
+zarzadzanie_app      | PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+zarzadzanie_app      |     at consumeUntil (/app/node_modules/path-to-regexp/dist/index.js:108:27)
+zarzadzanie_app      |     at parse (/app/node_modules/path-to-regexp/dist/index.js:140:26)
+zarzadzanie_app      |     at process (/app/node_modules/path-to-regexp/dist/index.js:263:56)
+zarzadzanie_app      |     at pathToRegexp (/app/node_modules/path-to-regexp/dist/index.js:274:5)
+zarzadzanie_app      |     at Object.match (/app/node_modules/path-to-regexp/dist/index.js:225:30)
+zarzadzanie_app      |     at matcher (/app/node_modules/router/lib/layer.js:86:23)
+zarzadzanie_app      |     at new Layer (/app/node_modules/router/lib/layer.js:93:62)
+zarzadzanie_app      |     at Function.route (/app/node_modules/router/index.js:428:17)
+zarzadzanie_app      |     at Function.route (/app/node_modules/express/lib/application.js:257:22)
+zarzadzanie_app      |     at app.<computed> [as get] (/app/node_modules/express/lib/application.js:478:22) {
+zarzadzanie_app      |   originalPath: '*'
+zarzadzanie_app      | }
+zarzadzanie_app      | 
+zarzadzanie_app      | Node.js v20.20.2
+zarzadzanie_app      | (node:1) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/dist/server.js is not specified and it doesn't parse as CommonJS.
+zarzadzanie_app      | Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+zarzadzanie_app      | To eliminate this warning, add "type": "module" to /app/package.json.
+zarzadzanie_app      | (Use `node --trace-warnings ...` to show where the warning was created)
+zarzadzanie_app      | /app/node_modules/path-to-regexp/dist/index.js:108
+zarzadzanie_app      |                     throw new PathError(`Missing parameter name at index ${index}`, str);
+zarzadzanie_app      |                           ^
+zarzadzanie_app      | 
+zarzadzanie_app      | PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+zarzadzanie_app      |     at consumeUntil (/app/node_modules/path-to-regexp/dist/index.js:108:27)
+zarzadzanie_app      |     at parse (/app/node_modules/path-to-regexp/dist/index.js:140:26)
+zarzadzanie_app      |     at process (/app/node_modules/path-to-regexp/dist/index.js:263:56)
+zarzadzanie_app      |     at pathToRegexp (/app/node_modules/path-to-regexp/dist/index.js:274:5)
+zarzadzanie_app      |     at Object.match (/app/node_modules/path-to-regexp/dist/index.js:225:30)
+zarzadzanie_app      |     at matcher (/app/node_modules/router/lib/layer.js:86:23)
+zarzadzanie_app      |     at new Layer (/app/node_modules/router/lib/layer.js:93:62)
+zarzadzanie_app      |     at Function.route (/app/node_modules/router/index.js:428:17)
+zarzadzanie_app      |     at Function.route (/app/node_modules/express/lib/application.js:257:22)
+zarzadzanie_app      |     at app.<computed> [as get] (/app/node_modules/express/lib/application.js:478:22) {
+zarzadzanie_app      |   originalPath: '*'
+zarzadzanie_app      | }
+zarzadzanie_app      | 
+zarzadzanie_app      | Node.js v20.20.2
+zarzadzanie_app      | (node:1) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/dist/server.js is not specified and it doesn't parse as CommonJS.
+zarzadzanie_app      | Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+zarzadzanie_app      | To eliminate this warning, add "type": "module" to /app/package.json.
+zarzadzanie_app      | (Use `node --trace-warnings ...` to show where the warning was created)
+zarzadzanie_app      | /app/node_modules/path-to-regexp/dist/index.js:108
+zarzadzanie_app      |                     throw new PathError(`Missing parameter name at index ${index}`, str);
+zarzadzanie_app      |                           ^
+zarzadzanie_app      | 
+zarzadzanie_app      | PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+zarzadzanie_app      |     at consumeUntil (/app/node_modules/path-to-regexp/dist/index.js:108:27)
+zarzadzanie_app      |     at parse (/app/node_modules/path-to-regexp/dist/index.js:140:26)
+zarzadzanie_app      |     at process (/app/node_modules/path-to-regexp/dist/index.js:263:56)
+zarzadzanie_app      |     at pathToRegexp (/app/node_modules/path-to-regexp/dist/index.js:274:5)
+zarzadzanie_app      |     at Object.match (/app/node_modules/path-to-regexp/dist/index.js:225:30)
+zarzadzanie_app      |     at matcher (/app/node_modules/router/lib/layer.js:86:23)
+zarzadzanie_app      |     at new Layer (/app/node_modules/router/lib/layer.js:93:62)
+zarzadzanie_app      |     at Function.route (/app/node_modules/router/index.js:428:17)
+zarzadzanie_app      |     at Function.route (/app/node_modules/express/lib/application.js:257:22)
+zarzadzanie_app      |     at app.<computed> [as get] (/app/node_modules/express/lib/application.js:478:22) {
+zarzadzanie_app      |   originalPath: '*'
+zarzadzanie_app      | }
+zarzadzanie_app      | 
+zarzadzanie_app      | Node.js v20.20.2
+zarzadzanie_app      | (node:1) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/dist/server.js is not specified and it doesn't parse as CommonJS.
+zarzadzanie_app      | Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+zarzadzanie_app      | To eliminate this warning, add "type": "module" to /app/package.json.
+zarzadzanie_app      | (Use `node --trace-warnings ...` to show where the warning was created)
+zarzadzanie_app      | /app/node_modules/path-to-regexp/dist/index.js:108
+zarzadzanie_app      |                     throw new PathError(`Missing parameter name at index ${index}`, str);
+zarzadzanie_app      |                           ^
+zarzadzanie_app      | 
+zarzadzanie_app      | PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+zarzadzanie_app      |     at consumeUntil (/app/node_modules/path-to-regexp/dist/index.js:108:27)
+zarzadzanie_app      |     at parse (/app/node_modules/path-to-regexp/dist/index.js:140:26)
+zarzadzanie_app      |     at process (/app/node_modules/path-to-regexp/dist/index.js:263:56)
+zarzadzanie_app      |     at pathToRegexp (/app/node_modules/path-to-regexp/dist/index.js:274:5)
+zarzadzanie_app      |     at Object.match (/app/node_modules/path-to-regexp/dist/index.js:225:30)
+zarzadzanie_app      |     at matcher (/app/node_modules/router/lib/layer.js:86:23)
+zarzadzanie_app      |     at new Layer (/app/node_modules/router/lib/layer.js:93:62)
+zarzadzanie_app      |     at Function.route (/app/node_modules/router/index.js:428:17)
+zarzadzanie_app      |     at Function.route (/app/node_modules/express/lib/application.js:257:22)
+zarzadzanie_app      |     at app.<computed> [as get] (/app/node_modules/express/lib/application.js:478:22) {
+zarzadzanie_app      |   originalPath: '*'
+zarzadzanie_app      | }
+zarzadzanie_app      | 
+zarzadzanie_app      | Node.js v20.20.2
+zarzadzanie_app      | (node:1) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/dist/server.js is not specified and it doesn't parse as CommonJS.
+zarzadzanie_app      | Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+zarzadzanie_app      | To eliminate this warning, add "type": "module" to /app/package.json.
+zarzadzanie_app      | (Use `node --trace-warnings ...` to show where the warning was created)
+zarzadzanie_app      | /app/node_modules/path-to-regexp/dist/index.js:108
+zarzadzanie_app      |                     throw new PathError(`Missing parameter name at index ${index}`, str);
+zarzadzanie_app      |                           ^
+zarzadzanie_app      | 
+zarzadzanie_app      | PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+zarzadzanie_app      |     at consumeUntil (/app/node_modules/path-to-regexp/dist/index.js:108:27)
+zarzadzanie_app      |     at parse (/app/node_modules/path-to-regexp/dist/index.js:140:26)
+zarzadzanie_app      |     at process (/app/node_modules/path-to-regexp/dist/index.js:263:56)
+zarzadzanie_app      |     at pathToRegexp (/app/node_modules/path-to-regexp/dist/index.js:274:5)
+zarzadzanie_app      |     at Object.match (/app/node_modules/path-to-regexp/dist/index.js:225:30)
+zarzadzanie_app      |     at matcher (/app/node_modules/router/lib/layer.js:86:23)
+zarzadzanie_app      |     at new Layer (/app/node_modules/router/lib/layer.js:93:62)
+zarzadzanie_app      |     at Function.route (/app/node_modules/router/index.js:428:17)
+zarzadzanie_app      |     at Function.route (/app/node_modules/express/lib/application.js:257:22)
+zarzadzanie_app      |     at app.<computed> [as get] (/app/node_modules/express/lib/application.js:478:22) {
+zarzadzanie_app      |   originalPath: '*'
+zarzadzanie_app      | }
+zarzadzanie_app      | 
+zarzadzanie_app      | Node.js v20.20.2
+zarzadzanie_app      | (node:1) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/dist/server.js is not specified and it doesn't parse as CommonJS.
+zarzadzanie_app      | Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+zarzadzanie_app      | To eliminate this warning, add "type": "module" to /app/package.json.
+zarzadzanie_app      | (Use `node --trace-warnings ...` to show where the warning was created)
+zarzadzanie_app      | /app/node_modules/path-to-regexp/dist/index.js:108
+zarzadzanie_app      |                     throw new PathError(`Missing parameter name at index ${index}`, str);
+zarzadzanie_app      |                           ^
+zarzadzanie_app      | 
+zarzadzanie_app      | PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+zarzadzanie_app      |     at consumeUntil (/app/node_modules/path-to-regexp/dist/index.js:108:27)
+zarzadzanie_app      |     at parse (/app/node_modules/path-to-regexp/dist/index.js:140:26)
+zarzadzanie_app      |     at process (/app/node_modules/path-to-regexp/dist/index.js:263:56)
+zarzadzanie_app      |     at pathToRegexp (/app/node_modules/path-to-regexp/dist/index.js:274:5)
+zarzadzanie_app      |     at Object.match (/app/node_modules/path-to-regexp/dist/index.js:225:30)
+zarzadzanie_app      |     at matcher (/app/node_modules/router/lib/layer.js:86:23)
+zarzadzanie_app      |     at new Layer (/app/node_modules/router/lib/layer.js:93:62)
+zarzadzanie_app      |     at Function.route (/app/node_modules/router/index.js:428:17)
+zarzadzanie_app      |     at Function.route (/app/node_modules/express/lib/application.js:257:22)
+zarzadzanie_app      |     at app.<computed> [as get] (/app/node_modules/express/lib/application.js:478:22) {
+zarzadzanie_app      |   originalPath: '*'
+zarzadzanie_app      | }
+zarzadzanie_app      | 
+zarzadzanie_app      | Node.js v20.20.2
+zarzadzanie_app      | (node:1) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/dist/server.js is not specified and it doesn't parse as CommonJS.
+zarzadzanie_app      | Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+zarzadzanie_app      | To eliminate this warning, add "type": "module" to /app/package.json.
+zarzadzanie_app      | (Use `node --trace-warnings ...` to show where the warning was created)
+zarzadzanie_app      | /app/node_modules/path-to-regexp/dist/index.js:108
+zarzadzanie_app      |                     throw new PathError(`Missing parameter name at index ${index}`, str);
+zarzadzanie_app      |                           ^
+zarzadzanie_app      | 
+zarzadzanie_app      | PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+zarzadzanie_app      |     at consumeUntil (/app/node_modules/path-to-regexp/dist/index.js:108:27)
+zarzadzanie_app      |     at parse (/app/node_modules/path-to-regexp/dist/index.js:140:26)
+zarzadzanie_app      |     at process (/app/node_modules/path-to-regexp/dist/index.js:263:56)
+zarzadzanie_app      |     at pathToRegexp (/app/node_modules/path-to-regexp/dist/index.js:274:5)
+zarzadzanie_app      |     at Object.match (/app/node_modules/path-to-regexp/dist/index.js:225:30)
+zarzadzanie_app      |     at matcher (/app/node_modules/router/lib/layer.js:86:23)
+zarzadzanie_app      |     at new Layer (/app/node_modules/router/lib/layer.js:93:62)
+zarzadzanie_app      |     at Function.route (/app/node_modules/router/index.js:428:17)
+zarzadzanie_app      |     at Function.route (/app/node_modules/express/lib/application.js:257:22)
+zarzadzanie_app      |     at app.<computed> [as get] (/app/node_modules/express/lib/application.js:478:22) {
+zarzadzanie_app      |   originalPath: '*'
+zarzadzanie_app      | }
+zarzadzanie_app      | 
+zarzadzanie_app      | Node.js v20.20.2
+zarzadzanie_app      | (node:1) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/dist/server.js is not specified and it doesn't parse as CommonJS.
+zarzadzanie_app      | Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+zarzadzanie_app      | To eliminate this warning, add "type": "module" to /app/package.json.
+zarzadzanie_app      | (Use `node --trace-warnings ...` to show where the warning was created)
+zarzadzanie_app      | /app/node_modules/path-to-regexp/dist/index.js:108
+zarzadzanie_app      |                     throw new PathError(`Missing parameter name at index ${index}`, str);
+zarzadzanie_app      |                           ^
+zarzadzanie_app      | 
+zarzadzanie_app      | PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+zarzadzanie_app      |     at consumeUntil (/app/node_modules/path-to-regexp/dist/index.js:108:27)
+zarzadzanie_app      |     at parse (/app/node_modules/path-to-regexp/dist/index.js:140:26)
+zarzadzanie_app      |     at process (/app/node_modules/path-to-regexp/dist/index.js:263:56)
+zarzadzanie_app      |     at pathToRegexp (/app/node_modules/path-to-regexp/dist/index.js:274:5)
+zarzadzanie_app      |     at Object.match (/app/node_modules/path-to-regexp/dist/index.js:225:30)
+zarzadzanie_app      |     at matcher (/app/node_modules/router/lib/layer.js:86:23)
+zarzadzanie_app      |     at new Layer (/app/node_modules/router/lib/layer.js:93:62)
+zarzadzanie_app      |     at Function.route (/app/node_modules/router/index.js:428:17)
+zarzadzanie_app      |     at Function.route (/app/node_modules/express/lib/application.js:257:22)
+zarzadzanie_app      |     at app.<computed> [as get] (/app/node_modules/express/lib/application.js:478:22) {
+zarzadzanie_app      |   originalPath: '*'
+zarzadzanie_app      | }
+zarzadzanie_app      | 
+zarzadzanie_app      | Node.js v20.20.2
+zarzadzanie_app      | (node:1) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/dist/server.js is not specified and it doesn't parse as CommonJS.
+zarzadzanie_app      | Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+zarzadzanie_app      | To eliminate this warning, add "type": "module" to /app/package.json.
+zarzadzanie_app      | (Use `node --trace-warnings ...` to show where the warning was created)
+zarzadzanie_app      | /app/node_modules/path-to-regexp/dist/index.js:108
+zarzadzanie_app      |                     throw new PathError(`Missing parameter name at index ${index}`, str);
+zarzadzanie_app      |                           ^
+zarzadzanie_app      | 
+zarzadzanie_app      | PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+zarzadzanie_app      |     at consumeUntil (/app/node_modules/path-to-regexp/dist/index.js:108:27)
+zarzadzanie_app      |     at parse (/app/node_modules/path-to-regexp/dist/index.js:140:26)
+zarzadzanie_app      |     at process (/app/node_modules/path-to-regexp/dist/index.js:263:56)
+zarzadzanie_app      |     at pathToRegexp (/app/node_modules/path-to-regexp/dist/index.js:274:5)
+zarzadzanie_app      |     at Object.match (/app/node_modules/path-to-regexp/dist/index.js:225:30)
+zarzadzanie_app      |     at matcher (/app/node_modules/router/lib/layer.js:86:23)
+zarzadzanie_app      |     at new Layer (/app/node_modules/router/lib/layer.js:93:62)
+zarzadzanie_app      |     at Function.route (/app/node_modules/router/index.js:428:17)
+zarzadzanie_app      |     at Function.route (/app/node_modules/express/lib/application.js:257:22)
+zarzadzanie_app      |     at app.<computed> [as get] (/app/node_modules/express/lib/application.js:478:22) {
+zarzadzanie_app      |   originalPath: '*'
+zarzadzanie_app      | }
+zarzadzanie_app      | 
+zarzadzanie_app      | Node.js v20.20.2
+zarzadzanie_app      | (node:1) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/dist/server.js is not specified and it doesn't parse as CommonJS.
+zarzadzanie_app      | Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+zarzadzanie_app      | To eliminate this warning, add "type": "module" to /app/package.json.
+zarzadzanie_app      | (Use `node --trace-warnings ...` to show where the warning was created)
+zarzadzanie_app      | /app/node_modules/path-to-regexp/dist/index.js:108
+zarzadzanie_app      |                     throw new PathError(`Missing parameter name at index ${index}`, str);
+zarzadzanie_app      |                           ^
+zarzadzanie_app      | 
+zarzadzanie_app      | PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+zarzadzanie_app      |     at consumeUntil (/app/node_modules/path-to-regexp/dist/index.js:108:27)
+zarzadzanie_app      |     at parse (/app/node_modules/path-to-regexp/dist/index.js:140:26)
+zarzadzanie_app      |     at process (/app/node_modules/path-to-regexp/dist/index.js:263:56)
+zarzadzanie_app      |     at pathToRegexp (/app/node_modules/path-to-regexp/dist/index.js:274:5)
+zarzadzanie_app      |     at Object.match (/app/node_modules/path-to-regexp/dist/index.js:225:30)
+zarzadzanie_app      |     at matcher (/app/node_modules/router/lib/layer.js:86:23)
+zarzadzanie_app      |     at new Layer (/app/node_modules/router/lib/layer.js:93:62)
+zarzadzanie_app      |     at Function.route (/app/node_modules/router/index.js:428:17)
+zarzadzanie_app      |     at Function.route (/app/node_modules/express/lib/application.js:257:22)
+zarzadzanie_app      |     at app.<computed> [as get] (/app/node_modules/express/lib/application.js:478:22) {
+zarzadzanie_app      |   originalPath: '*'
+zarzadzanie_app      | }
+zarzadzanie_app      | 
+zarzadzanie_app      | Node.js v20.20.2
+zarzadzanie_app      | (node:1) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/dist/server.js is not specified and it doesn't parse as CommonJS.
+zarzadzanie_app      | Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+zarzadzanie_app      | To eliminate this warning, add "type": "module" to /app/package.json.
+zarzadzanie_app      | (Use `node --trace-warnings ...` to show where the warning was created)
+zarzadzanie_app      | /app/node_modules/path-to-regexp/dist/index.js:108
+zarzadzanie_app      |                     throw new PathError(`Missing parameter name at index ${index}`, str);
+zarzadzanie_app      |                           ^
+zarzadzanie_app      | 
+zarzadzanie_app      | PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+zarzadzanie_app      |     at consumeUntil (/app/node_modules/path-to-regexp/dist/index.js:108:27)
+zarzadzanie_app      |     at parse (/app/node_modules/path-to-regexp/dist/index.js:140:26)
+zarzadzanie_app      |     at process (/app/node_modules/path-to-regexp/dist/index.js:263:56)
+zarzadzanie_app      |     at pathToRegexp (/app/node_modules/path-to-regexp/dist/index.js:274:5)
+zarzadzanie_app      |     at Object.match (/app/node_modules/path-to-regexp/dist/index.js:225:30)
+zarzadzanie_app      |     at matcher (/app/node_modules/router/lib/layer.js:86:23)
+zarzadzanie_app      |     at new Layer (/app/node_modules/router/lib/layer.js:93:62)
+zarzadzanie_app      |     at Function.route (/app/node_modules/router/index.js:428:17)
+zarzadzanie_app      |     at Function.route (/app/node_modules/express/lib/application.js:257:22)
+zarzadzanie_app      |     at app.<computed> [as get] (/app/node_modules/express/lib/application.js:478:22) {
+zarzadzanie_app      |   originalPath: '*'
+zarzadzanie_app      | }
+zarzadzanie_app      | 
+zarzadzanie_app      | Node.js v20.20.2
+zarzadzanie_app      | (node:1) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/dist/server.js is not specified and it doesn't parse as CommonJS.
+zarzadzanie_app      | Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+zarzadzanie_app      | To eliminate this warning, add "type": "module" to /app/package.json.
+zarzadzanie_app      | (Use `node --trace-warnings ...` to show where the warning was created)
+zarzadzanie_app      | /app/node_modules/path-to-regexp/dist/index.js:108
+zarzadzanie_app      |                     throw new PathError(`Missing parameter name at index ${index}`, str);
+zarzadzanie_app      |                           ^
+zarzadzanie_app      | 
+zarzadzanie_app      | PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+zarzadzanie_app      |     at consumeUntil (/app/node_modules/path-to-regexp/dist/index.js:108:27)
+zarzadzanie_app      |     at parse (/app/node_modules/path-to-regexp/dist/index.js:140:26)
+zarzadzanie_app      |     at process (/app/node_modules/path-to-regexp/dist/index.js:263:56)
+zarzadzanie_app      |     at pathToRegexp (/app/node_modules/path-to-regexp/dist/index.js:274:5)
+zarzadzanie_app      |     at Object.match (/app/node_modules/path-to-regexp/dist/index.js:225:30)
+zarzadzanie_app      |     at matcher (/app/node_modules/router/lib/layer.js:86:23)
+zarzadzanie_app      |     at new Layer (/app/node_modules/router/lib/layer.js:93:62)
+zarzadzanie_app      |     at Function.route (/app/node_modules/router/index.js:428:17)
+zarzadzanie_app      |     at Function.route (/app/node_modules/express/lib/application.js:257:22)
+zarzadzanie_app      |     at app.<computed> [as get] (/app/node_modules/express/lib/application.js:478:22) {
+zarzadzanie_app      |   originalPath: '*'
+zarzadzanie_app      | }
+zarzadzanie_app      | 
+zarzadzanie_app      | Node.js v20.20.2
+zarzadzanie_app      | (node:1) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/dist/server.js is not specified and it doesn't parse as CommonJS.
+zarzadzanie_app      | Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+zarzadzanie_app      | To eliminate this warning, add "type": "module" to /app/package.json.
+zarzadzanie_app      | (Use `node --trace-warnings ...` to show where the warning was created)
+zarzadzanie_app      | /app/node_modules/path-to-regexp/dist/index.js:108
+zarzadzanie_app      |                     throw new PathError(`Missing parameter name at index ${index}`, str);
+zarzadzanie_app      |                           ^
+zarzadzanie_app      | 
+zarzadzanie_app      | PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+zarzadzanie_app      |     at consumeUntil (/app/node_modules/path-to-regexp/dist/index.js:108:27)
+zarzadzanie_app      |     at parse (/app/node_modules/path-to-regexp/dist/index.js:140:26)
+zarzadzanie_app      |     at process (/app/node_modules/path-to-regexp/dist/index.js:263:56)
+zarzadzanie_app      |     at pathToRegexp (/app/node_modules/path-to-regexp/dist/index.js:274:5)
+zarzadzanie_app      |     at Object.match (/app/node_modules/path-to-regexp/dist/index.js:225:30)
+zarzadzanie_app      |     at matcher (/app/node_modules/router/lib/layer.js:86:23)
+zarzadzanie_app      |     at new Layer (/app/node_modules/router/lib/layer.js:93:62)
+zarzadzanie_app      |     at Function.route (/app/node_modules/router/index.js:428:17)
+zarzadzanie_app      |     at Function.route (/app/node_modules/express/lib/application.js:257:22)
+zarzadzanie_app      |     at app.<computed> [as get] (/app/node_modules/express/lib/application.js:478:22) {
+zarzadzanie_app      |   originalPath: '*'
+zarzadzanie_app      | }
+zarzadzanie_app      | 
+zarzadzanie_app      | Node.js v20.20.2
+zarzadzanie_app      | (node:1) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/dist/server.js is not specified and it doesn't parse as CommonJS.
+zarzadzanie_app      | Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+zarzadzanie_app      | To eliminate this warning, add "type": "module" to /app/package.json.
+zarzadzanie_app      | (Use `node --trace-warnings ...` to show where the warning was created)
+zarzadzanie_app      | /app/node_modules/path-to-regexp/dist/index.js:108
+zarzadzanie_app      |                     throw new PathError(`Missing parameter name at index ${index}`, str);
+zarzadzanie_app      |                           ^
+zarzadzanie_app      | 
+zarzadzanie_app      | PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+zarzadzanie_app      |     at consumeUntil (/app/node_modules/path-to-regexp/dist/index.js:108:27)
+zarzadzanie_app      |     at parse (/app/node_modules/path-to-regexp/dist/index.js:140:26)
+zarzadzanie_app      |     at process (/app/node_modules/path-to-regexp/dist/index.js:263:56)
+zarzadzanie_app      |     at pathToRegexp (/app/node_modules/path-to-regexp/dist/index.js:274:5)
+zarzadzanie_app      |     at Object.match (/app/node_modules/path-to-regexp/dist/index.js:225:30)
+zarzadzanie_app      |     at matcher (/app/node_modules/router/lib/layer.js:86:23)
+zarzadzanie_app      |     at new Layer (/app/node_modules/router/lib/layer.js:93:62)
+zarzadzanie_app      |     at Function.route (/app/node_modules/router/index.js:428:17)
+zarzadzanie_app      |     at Function.route (/app/node_modules/express/lib/application.js:257:22)
+zarzadzanie_app      |     at app.<computed> [as get] (/app/node_modules/express/lib/application.js:478:22) {
+zarzadzanie_app      |   originalPath: '*'
+zarzadzanie_app      | }
+zarzadzanie_app      | 
+zarzadzanie_app      | Node.js v20.20.2
+zarzadzanie_app exited with code 1 (restarting)
+zarzadzanie_pgadmin  | email config is {'CHECK_EMAIL_DELIVERABILITY': False, 'ALLOW_SPECIAL_EMAIL_DOMAINS': [], 'GLOBALLY_DELIVERABLE': True}
+zarzadzanie_pgadmin  | 'admin@zarzadzanie.local' does not appear to be a valid email address. Please reset the PGADMIN_DEFAULT_EMAIL environment variable and try again.
+zarzadzanie_pgadmin  | Validation output: The part after the @-sign is a special-use or reserved name that cannot be used with email.
+zarzadzanie_pgadmin  | False
+zarzadzanie_pgadmin exited with code 1 (restarting)
+zarzadzanie_app      | (node:1) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/dist/server.js is not specified and it doesn't parse as CommonJS.
+zarzadzanie_app      | Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+zarzadzanie_app      | To eliminate this warning, add "type": "module" to /app/package.json.
+zarzadzanie_app      | (Use `node --trace-warnings ...` to show where the warning was created)
+zarzadzanie_app      | /app/node_modules/path-to-regexp/dist/index.js:108
+zarzadzanie_app      |                     throw new PathError(`Missing parameter name at index ${index}`, str);
+zarzadzanie_app      |                           ^
+zarzadzanie_app      | 
+zarzadzanie_app      | PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+zarzadzanie_app      |     at consumeUntil (/app/node_modules/path-to-regexp/dist/index.js:108:27)
+zarzadzanie_app      |     at parse (/app/node_modules/path-to-regexp/dist/index.js:140:26)
+zarzadzanie_app      |     at process (/app/node_modules/path-to-regexp/dist/index.js:263:56)
+zarzadzanie_app      |     at pathToRegexp (/app/node_modules/path-to-regexp/dist/index.js:274:5)
+zarzadzanie_app      |     at Object.match (/app/node_modules/path-to-regexp/dist/index.js:225:30)
+zarzadzanie_app      |     at matcher (/app/node_modules/router/lib/layer.js:86:23)
+zarzadzanie_app      |     at new Layer (/app/node_modules/router/lib/layer.js:93:62)
+zarzadzanie_app      |     at Function.route (/app/node_modules/router/index.js:428:17)
+zarzadzanie_app      |     at Function.route (/app/node_modules/express/lib/application.js:257:22)
+zarzadzanie_app      |     at app.<computed> [as get] (/app/node_modules/express/lib/application.js:478:22) {
+zarzadzanie_app      |   originalPath: '*'
+zarzadzanie_app      | }
+zarzadzanie_app      | 
+zarzadzanie_app      | Node.js v20.20.2
+zarzadzanie_app exited with code 1 (restarting)
+zarzadzanie_pgadmin  | email config is {'CHECK_EMAIL_DELIVERABILITY': False, 'ALLOW_SPECIAL_EMAIL_DOMAINS': [], 'GLOBALLY_DELIVERABLE': True}
+zarzadzanie_pgadmin  | 'admin@zarzadzanie.local' does not appear to be a valid email address. Please reset the PGADMIN_DEFAULT_EMAIL environment variable and try again.
+zarzadzanie_pgadmin  | Validation output: The part after the @-sign is a special-use or reserved name that cannot be used with email.
+zarzadzanie_pgadmin  | False
+zarzadzanie_pgadmin exited with code 1 (restarting)
+zarzadzanie_app      | (node:1) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/dist/server.js is not specified and it doesn't parse as CommonJS.
+zarzadzanie_app      | Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+zarzadzanie_app      | To eliminate this warning, add "type": "module" to /app/package.json.
+zarzadzanie_app      | (Use `node --trace-warnings ...` to show where the warning was created)
+zarzadzanie_app      | /app/node_modules/path-to-regexp/dist/index.js:108
+zarzadzanie_app      |                     throw new PathError(`Missing parameter name at index ${index}`, str);
+zarzadzanie_app      |                           ^
+zarzadzanie_app      | 
+zarzadzanie_app      | PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+zarzadzanie_app      |     at consumeUntil (/app/node_modules/path-to-regexp/dist/index.js:108:27)
+zarzadzanie_app      |     at parse (/app/node_modules/path-to-regexp/dist/index.js:140:26)
+zarzadzanie_app      |     at process (/app/node_modules/path-to-regexp/dist/index.js:263:56)
+zarzadzanie_app      |     at pathToRegexp (/app/node_modules/path-to-regexp/dist/index.js:274:5)
+zarzadzanie_app      |     at Object.match (/app/node_modules/path-to-regexp/dist/index.js:225:30)
+zarzadzanie_app      |     at matcher (/app/node_modules/router/lib/layer.js:86:23)
+zarzadzanie_app      |     at new Layer (/app/node_modules/router/lib/layer.js:93:62)
+zarzadzanie_app      |     at Function.route (/app/node_modules/router/index.js:428:17)
+zarzadzanie_app      |     at Function.route (/app/node_modules/express/lib/application.js:257:22)
+zarzadzanie_app      |     at app.<computed> [as get] (/app/node_modules/express/lib/application.js:478:22) {
+zarzadzanie_app      |   originalPath: '*'
+zarzadzanie_app      | }
+zarzadzanie_app      | 
+zarzadzanie_app      | Node.js v20.20.2
+zarzadzanie_app exited with code 1 (restarting)
+zarzadzanie_pgadmin  | email config is {'CHECK_EMAIL_DELIVERABILITY': False, 'ALLOW_SPECIAL_EMAIL_DOMAINS': [], 'GLOBALLY_DELIVERABLE': True}
+zarzadzanie_pgadmin  | 'admin@zarzadzanie.local' does not appear to be a valid email address. Please reset the PGADMIN_DEFAULT_EMAIL environment variable and try again.
+zarzadzanie_pgadmin  | Validation output: The part after the @-sign is a special-use or reserved name that cannot be used with email.
+zarzadzanie_pgadmin  | False
+zarzadzanie_pgadmin exited with code 1 (restarting)
