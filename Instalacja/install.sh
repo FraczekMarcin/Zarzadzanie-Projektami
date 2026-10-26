@@ -272,6 +272,7 @@ fi
 
 # 10. Start kontenerów (budowa i uruchomienie)
 echo -e "${BLUE}==> Zwalnianie tymczasowej pamięci podręcznej i zbędnych warstw Dockera...${NC}"
+docker system prune -f 2>/dev/null || true
 docker builder prune -a -f 2>/dev/null || true
 docker image prune -f 2>/dev/null || true
 
