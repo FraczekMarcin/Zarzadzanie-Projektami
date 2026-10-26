@@ -1,33 +1,29 @@
 # ==========================================
 # Zarządzanie Projektami - Dockerfile
-# Wersja: 2026-10-25 v 0.2
+# Wersja: 2026-10-25 v 0.2.1
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # ==========================================
 
-# Etap 1: Budowanie aplikacji (Builder)
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 COPY . .
 RUN npm run build
 
-# ==========================================
-# Etap 2: Środowisko produkcyjne (Runtime)
-# ==========================================
 FROM node:20-alpine AS runner
 
 WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV APP_VERSION="2026-10-25 v 0.2"
+ENV APP_VERSION="2026-10-25 v 0.2.1"
 
 COPY package*.json ./
-RUN npm ci --only=production && npm cache clean --force
+RUN if [ -f package-lock.json ]; then npm ci --only=production; else npm install --omit=dev; fi && npm cache clean --force
 
 COPY --from=builder /app/dist ./dist
 COPY server.ts ./server.ts

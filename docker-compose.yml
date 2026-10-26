@@ -1,8 +1,6 @@
-version: '3.8'
-
 # ==============================================================================
 # Zarządzanie Projektami (Pracownia Projektowa / Budownictwo)
-# Wersja: 2026-10-25 v 0.2
+# Wersja: 2026-10-25 v 0.2.1
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Ścieżka docelowa: /opt/zarzadzanie-projektami
 # ==============================================================================
@@ -44,7 +42,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      APP_VERSION: "2026-10-25 v 0.2"
+      APP_VERSION: "2026-10-25 v 0.2.1"
       DATABASE_URL: postgres://${POSTGRES_USER:-zarzadzanie}:${POSTGRES_PASSWORD:-TwojeBezpieczneHaslo2026!}@db:5432/${POSTGRES_DB:-zarzadzanie_db}
       APP_SECRET: ${APP_SECRET:-sekretna-fraza-szyfrowania-zarzadzanie-projektami-2026}
     ports:
@@ -58,8 +56,8 @@ services:
     container_name: zarzadzanie_pgadmin
     restart: unless-stopped
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@twojadomena.pl
-      PGADMIN_DEFAULT_PASSWORD: SuperAdminHaslo2026!
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@zarzadzanie.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-SuperAdminHaslo2026!}
     ports:
       - "5050:80"
     depends_on:
