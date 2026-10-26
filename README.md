@@ -1,6 +1,6 @@
 # 🏗️ Zarządzanie Projektami (Pracownia Projektowa / Budownictwo)
 
-[![Wersja](https://img.shields.io/badge/Wersja-2026--10--25%20v%200.2-emerald.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
+[![Wersja](https://img.shields.io/badge/Wersja-2026--10--25%20v%200.2.1-emerald.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
 [![Docker](https://img.shields.io/badge/Docker-PostgreSQL%2016-blue.svg)](https://www.docker.com/)
 [![Licencja](https://img.shields.io/badge/Licencja-MIT-green.svg)](LICENSE)
 [![GitHub](https://img.shields.io/badge/GitHub-FraczekMarcin%2FZarzadzanie--Projektami-purple.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
@@ -9,31 +9,27 @@ Nowoczesny, kompleksowy system zarządzania projektami architektonicznymi, inży
 
 ---
 
-## ⚡ Szybka instalacja 1-poleceniem (Linux VPS / NAS / Serwer dedykowany)
+## ⚡ Szybka instalacja (Linux VPS / NAS / Serwer dedykowany)
 
-Skrypt automatycznie sprawdza i instaluje silnik Docker, generuje bezpieczne hasła bazy PostgreSQL, tworzy katalog `/opt/zarzadzanie-projektami`, konfiguruje trwałe wolumeny oraz uruchamia automatyczny harmonogram kopii zapasowych (Cron codziennie o 02:00).
+Wszystkie pliki instalacyjne znajdują się w dedykowanym katalogu **`Instalacja/`**. Skrypt automatycznie sprawdza i instaluje silnik Docker, generuje bezpieczne hasła bazy PostgreSQL, tworzy katalog `/opt/zarzadzanie-projektami`, konfiguruje trwałe wolumeny oraz uruchamia automatyczny harmonogram kopii zapasowych (Cron codziennie o 02:00).
 
-### Wariant 1: Pobranie i uruchomienie instalatora (Zalecane)
+### Wariant 1: Klonowanie Git (100% niezawodne na każdym serwerze)
 ```bash
-curl -fsSL https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/install.sh | sudo bash
-```
-
-*Jeśli Twoje repozytorium korzysta z gałęzi `master`:*
-```bash
-curl -fsSL https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/master/install.sh | sudo bash
-```
-
-### Wariant 2: Narzędzie Wget
-```bash
-wget -qO- https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/install.sh | sudo bash
-```
-
-### Wariant 3: Tradycyjne klonowanie Git (100% niezawodne)
-```bash
-git clone https://github.com/FraczekMarcin/Zarzadzanie-Projektami.git /opt/zarzadzanie-projektami
-cd /opt/zarzadzanie-projektami
+git clone https://github.com/FraczekMarcin/Zarzadzanie-Projektami.git
+cd Zarzadzanie-Projektami/Instalacja
 sudo bash install.sh
 ```
+
+### Wariant 2: Bezpośrednie pobranie cURL (surowy plik raw z katalogu Instalacja)
+```bash
+curl -fsSL https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/Instalacja/install.sh | sudo bash
+```
+*(lub link alternatywny)*:
+```bash
+curl -fsSL https://github.com/FraczekMarcin/Zarzadzanie-Projektami/raw/main/Instalacja/install.sh | sudo bash
+```
+
+> ⚠️ **Ważna uwaga:** Nie używaj adresu z `/blob/` (np. `.../blob/main/install.sh`), ponieważ GitHub pod tym adresem zwraca stronę HTML z interfejsem graficznym, a nie plik wykonywalny, co powoduje błąd `curl: (22) The requested URL returned error: 404`. Prawidłowy adres to `raw.githubusercontent.com/.../Instalacja/install.sh`.
 
 Aplikacja natychmiast uruchomi się w kontenerach Docker i będzie dostępna pod adresem:
 👉 **http://adres-twojego-serwera:3000** (lub `http://localhost:3000`)

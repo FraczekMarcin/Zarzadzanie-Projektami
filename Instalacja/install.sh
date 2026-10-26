@@ -19,12 +19,12 @@ echo -e "${GREEN}  🏗️  Zarządzanie Projektami - Instalator (Wersja 2026-10
 echo -e "${BLUE}  Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami${NC}"
 echo -e "${BLUE}=================================================================${NC}"
 
-# 1. Sprawdzenie uprawnień
+# 1. Sprawdzenie uprawnień roota
 if [ "$EUID" -ne 0 ]; then
   echo -e "${YELLOW}Wskazówka: Zalecane uruchomienie jako root lub przez 'sudo bash install.sh'${NC}"
 fi
 
-# 2. Sprawdzenie i ewentualna instalacja Dockera
+# 2. Sprawdzenie i ewentualna automatyczna instalacja Dockera
 if ! command -v docker &> /dev/null; then
     echo -e "${YELLOW}Docker nie został wykryty. Instalowanie silnika Docker...${NC}"
     curl -fsSL https://get.docker.com | sh
@@ -32,7 +32,7 @@ if ! command -v docker &> /dev/null; then
     systemctl enable docker || true
 fi
 
-# 3. Wykrycie Docker Compose
+# 3. Wykrycie Docker Compose (wtyczka v2 lub docker-compose v1)
 if docker compose version &> /dev/null; then
     DOCKER_CMD="docker compose"
 elif command -v docker-compose &> /dev/null; then
@@ -46,23 +46,45 @@ INSTALL_DIR="/opt/zarzadzanie-projektami"
 echo -e "${BLUE}==> Przygotowanie katalogu instalacji: ${INSTALL_DIR}${NC}"
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$INSTALL_DIR/backups"
-cd "$INSTALL_DIR"
 
-# 4. Klonowanie lub pobieranie plików z katalogu Instalacja repozytorium
+# 4. Wykrycie źródła plików (lokalne repozytorium vs pobieranie z GitHub)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 REPO_URL="https://github.com/FraczekMarcin/Zarzadzanie-Projektami.git"
-if [ ! -d ".git" ]; then
-    echo -e "${BLUE}==> Klonowanie oficjalnego repozytorium GitHub...${NC}"
+
+if [ -f "$SCRIPT_DIR/../package.json" ]; then
+    # Skrypt uruchomiony z wnętrza sklonowanego repo (np. cd Zarzadzanie-Projektami/Instalacja && sudo bash install.sh)
+    SRC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+    echo -e "${BLUE}==> Wykryto lokalne repozytorium źródłowe: ${SRC_DIR}${NC}"
+    echo -e "${BLUE}==> Kopiowanie plików aplikacji do ${INSTALL_DIR}...${NC}"
+    cp -r "$SRC_DIR"/* "$INSTALL_DIR/" 2>/dev/null || true
+    cp -r "$SRC_DIR"/.[!.]* "$INSTALL_DIR/" 2>/dev/null || true
+elif [ -f "$SCRIPT_DIR/package.json" ]; then
+    # Skrypt uruchomiony z katalogu głównego repo
+    SRC_DIR="$SCRIPT_DIR"
+    echo -e "${BLUE}==> Wykryto pliki aplikacji w katalogu: ${SRC_DIR}${NC}"
+    cp -r "$SRC_DIR"/* "$INSTALL_DIR/" 2>/dev/null || true
+    cp -r "$SRC_DIR"/.[!.]* "$INSTALL_DIR/" 2>/dev/null || true
+else
+    # Skrypt uruchomiony bezpośrednio (np. curl ... | sudo bash)
+    echo -e "${BLUE}==> Klonowanie oficjalnego repozytorium GitHub do katalogu instalacji...${NC}"
+    TEMP_CLONE=$(mktemp -d)
     if command -v git &> /dev/null; then
-        TEMP_CLONE=$(mktemp -d)
         git clone "$REPO_URL" "$TEMP_CLONE" 2>/dev/null || true
-        if [ -d "$TEMP_CLONE/Instalacja" ]; then
-            cp -r "$TEMP_CLONE/Instalacja/"* "$INSTALL_DIR/" 2>/dev/null || true
-        elif [ -d "$TEMP_CLONE" ]; then
-            cp -r "$TEMP_CLONE/"* "$INSTALL_DIR/" 2>/dev/null || true
-        fi
+        cp -r "$TEMP_CLONE"/* "$INSTALL_DIR/" 2>/dev/null || true
+        cp -r "$TEMP_CLONE"/.[!.]* "$INSTALL_DIR/" 2>/dev/null || true
         rm -rf "$TEMP_CLONE"
     fi
 fi
+
+# Upewnij się, że kluczowe pliki wdrożeniowe z katalogu Instalacja/ są umieszczone bezpośrednio w katalogu docelowym
+if [ -d "$INSTALL_DIR/Instalacja" ]; then
+    cp -f "$INSTALL_DIR/Instalacja/Dockerfile" "$INSTALL_DIR/Dockerfile" 2>/dev/null || true
+    cp -f "$INSTALL_DIR/Instalacja/docker-compose.yml" "$INSTALL_DIR/docker-compose.yml" 2>/dev/null || true
+    cp -f "$INSTALL_DIR/Instalacja/init.sql" "$INSTALL_DIR/init.sql" 2>/dev/null || true
+    cp -f "$INSTALL_DIR/Instalacja/backup.sh" "$INSTALL_DIR/backup.sh" 2>/dev/null || true
+fi
+
+cd "$INSTALL_DIR"
 
 # 5. Generowanie bezpiecznych haseł PostgreSQL i kluczy sesji
 DB_PASS=$(openssl rand -hex 16 2>/dev/null || date +%s%N | sha256sum | head -c 32)
@@ -88,11 +110,9 @@ else
     echo -e "${YELLOW}Wykryto istniejący plik .env - zachowano konfigurację i hasła bazy danych.${NC}"
 fi
 
-# 7. Utworzenie docker-compose.yml jeśli brak
-if [ ! -f docker-compose.yml ]; then
+# 7. Zabezpieczenie docker-compose.yml (usunięcie zbędnych wersji, upewnienie się o poprawnym kontekście)
+if [ ! -f docker-compose.yml ] || grep -q "context: \.\." docker-compose.yml 2>/dev/null || grep -q "version:" docker-compose.yml 2>/dev/null; then
     cat <<'EOF' > docker-compose.yml
-version: '3.8'
-
 services:
   db:
     image: postgres:16-alpine
@@ -133,6 +153,20 @@ services:
       APP_SECRET: ${APP_SECRET:-sekretna-fraza-szyfrowania-zarzadzanie-projektami-2026}
     ports:
       - "${APP_PORT:-3000}:3000"
+    networks:
+      - zarzadzanie_net
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: zarzadzanie_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@zarzadzanie.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-SuperAdminHaslo2026!}
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
     networks:
       - zarzadzanie_net
 
@@ -235,9 +269,9 @@ if [ ! -f "$CRON_FILE" ]; then
     echo -e "${GREEN}Automatyczne kopie zapasowe skonfigurowane w cronie: codziennie o 02:00 (retencja 14 dni).${NC}"
 fi
 
-# 10. Start kontenerów
+# 10. Start kontenerów (budowa i uruchomienie)
 echo -e "${BLUE}==> Uruchamianie kontenerów (PostgreSQL 16 + Zarządzanie Projektami)...${NC}"
-$DOCKER_CMD up -d
+$DOCKER_CMD up -d --build
 
 SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
 

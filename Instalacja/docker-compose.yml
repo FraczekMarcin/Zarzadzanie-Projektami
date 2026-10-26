@@ -1,5 +1,3 @@
-version: '3.8'
-
 # ==============================================================================
 # Zarządzanie Projektami (Pracownia Projektowa / Budownictwo)
 # Wersja: 2026-10-25 v 0.2.1
@@ -34,8 +32,8 @@ services:
   # 2. Aplikacja Zarządzanie Projektami
   app:
     build:
-      context: ..
-      dockerfile: Instalacja/Dockerfile
+      context: .
+      dockerfile: Dockerfile
     container_name: zarzadzanie_app
     restart: unless-stopped
     depends_on:
@@ -58,8 +56,8 @@ services:
     container_name: zarzadzanie_pgadmin
     restart: unless-stopped
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@twojadomena.pl
-      PGADMIN_DEFAULT_PASSWORD: SuperAdminHaslo2026!
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@zarzadzanie.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-SuperAdminHaslo2026!}
     ports:
       - "5050:80"
     depends_on:

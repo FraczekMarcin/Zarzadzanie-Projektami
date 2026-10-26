@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Zarządzanie Projektami - Pracownia Projektowa / Budownictwo
-# Wersja: 2026-10-25 v 0.2
+# Wersja: 2026-10-25 v 0.2.1
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
-# Lokalizacja instalacji: /opt/zarzadzanie-projektami
-# Automatyczny Instalator 1-Poleceniem (Docker + PostgreSQL 16 + Auto-Backup)
+# Ścieżka skryptu w repozytorium: install.sh / Instalacja/install.sh
+# Lokalizacja docelowa na serwerze: /opt/zarzadzanie-projektami
 # ==============================================================================
 set -e
 
@@ -15,7 +15,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 echo -e "${BLUE}=================================================================${NC}"
-echo -e "${GREEN}  🏗️  Zarządzanie Projektami - Instalator 1-Poleceniem (Wersja 2026-10-25 v 0.2)${NC}"
+echo -e "${GREEN}  🏗️  Zarządzanie Projektami - Instalator (Wersja 2026-10-25 v 0.2.1)${NC}"
 echo -e "${BLUE}  Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami${NC}"
 echo -e "${BLUE}=================================================================${NC}"
 
@@ -26,51 +26,74 @@ fi
 
 # 2. Sprawdzenie i ewentualna automatyczna instalacja Dockera
 if ! command -v docker &> /dev/null; then
-    echo -e "${YELLOW}Docker nie został wykryty. Rozpoczynanie automatycznej instalacji silnika Docker...${NC}"
+    echo -e "${YELLOW}Docker nie został wykryty. Instalowanie silnika Docker...${NC}"
     curl -fsSL https://get.docker.com | sh
     systemctl start docker || true
     systemctl enable docker || true
 fi
 
-# 3. Wykrycie Docker Compose (wtyczka v2 lub v1)
+# 3. Wykrycie Docker Compose (wtyczka v2 lub docker-compose v1)
 if docker compose version &> /dev/null; then
     DOCKER_CMD="docker compose"
 elif command -v docker-compose &> /dev/null; then
     DOCKER_CMD="docker-compose"
 else
-    echo -e "${RED}Błąd: Nie znaleziono narzędzia Docker Compose. Zainstaluj wtyczkę Docker Compose v2.${NC}"
+    echo -e "${RED}Błąd: Nie znaleziono Docker Compose. Zainstaluj wtyczkę Docker Compose v2.${NC}"
     exit 1
 fi
 
 INSTALL_DIR="/opt/zarzadzanie-projektami"
-echo -e "${BLUE}==> Katalog roboczy instalacji: ${INSTALL_DIR}${NC}"
+echo -e "${BLUE}==> Przygotowanie katalogu instalacji: ${INSTALL_DIR}${NC}"
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$INSTALL_DIR/backups"
-cd "$INSTALL_DIR"
 
-# 4. Klonowanie lub aktualizacja repozytorium GitHub
+# 4. Wykrycie źródła plików (lokalne repozytorium vs pobieranie z GitHub)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 REPO_URL="https://github.com/FraczekMarcin/Zarzadzanie-Projektami.git"
-if [ ! -d ".git" ]; then
-    echo -e "${BLUE}==> Klonowanie oficjalnego repozytorium GitHub do ${INSTALL_DIR}...${NC}"
-    if command -v git &> /dev/null; then
-        git clone "$REPO_URL" . 2>/dev/null || echo -e "${YELLOW}Katalog niepusty lub brak sieci - kontynuowanie z plikami lokalnymi...${NC}"
-    fi
+
+if [ -f "$SCRIPT_DIR/../package.json" ]; then
+    SRC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+    echo -e "${BLUE}==> Wykryto lokalne repozytorium źródłowe: ${SRC_DIR}${NC}"
+    echo -e "${BLUE}==> Kopiowanie plików aplikacji do ${INSTALL_DIR}...${NC}"
+    cp -r "$SRC_DIR"/* "$INSTALL_DIR/" 2>/dev/null || true
+    cp -r "$SRC_DIR"/.[!.]* "$INSTALL_DIR/" 2>/dev/null || true
+elif [ -f "$SCRIPT_DIR/package.json" ]; then
+    SRC_DIR="$SCRIPT_DIR"
+    echo -e "${BLUE}==> Wykryto pliki aplikacji w katalogu: ${SRC_DIR}${NC}"
+    cp -r "$SRC_DIR"/* "$INSTALL_DIR/" 2>/dev/null || true
+    cp -r "$SRC_DIR"/.[!.]* "$INSTALL_DIR/" 2>/dev/null || true
 else
-    echo -e "${BLUE}==> Aktualizacja istniejącego repozytorium (git pull)...${NC}"
-    git pull origin main 2>/dev/null || git pull origin master 2>/dev/null || true
+    echo -e "${BLUE}==> Klonowanie oficjalnego repozytorium GitHub do katalogu instalacji...${NC}"
+    TEMP_CLONE=$(mktemp -d)
+    if command -v git &> /dev/null; then
+        git clone "$REPO_URL" "$TEMP_CLONE" 2>/dev/null || true
+        cp -r "$TEMP_CLONE"/* "$INSTALL_DIR/" 2>/dev/null || true
+        cp -r "$TEMP_CLONE"/.[!.]* "$INSTALL_DIR/" 2>/dev/null || true
+        rm -rf "$TEMP_CLONE"
+    fi
 fi
 
-# 5. Generowanie bezpiecznych haseł i kluczy szyfrujących
+# Upewnij się, że kluczowe pliki wdrożeniowe z katalogu Instalacja/ są umieszczone bezpośrednio w katalogu docelowym
+if [ -d "$INSTALL_DIR/Instalacja" ]; then
+    cp -f "$INSTALL_DIR/Instalacja/Dockerfile" "$INSTALL_DIR/Dockerfile" 2>/dev/null || true
+    cp -f "$INSTALL_DIR/Instalacja/docker-compose.yml" "$INSTALL_DIR/docker-compose.yml" 2>/dev/null || true
+    cp -f "$INSTALL_DIR/Instalacja/init.sql" "$INSTALL_DIR/init.sql" 2>/dev/null || true
+    cp -f "$INSTALL_DIR/Instalacja/backup.sh" "$INSTALL_DIR/backup.sh" 2>/dev/null || true
+fi
+
+cd "$INSTALL_DIR"
+
+# 5. Generowanie bezpiecznych haseł PostgreSQL i kluczy sesji
 DB_PASS=$(openssl rand -hex 16 2>/dev/null || date +%s%N | sha256sum | head -c 32)
 APP_SECRET=$(openssl rand -hex 32 2>/dev/null || date +%s%N | sha256sum | head -c 64)
 
-# 6. Tworzenie bezpiecznego pliku .env (jeśli jeszcze nie istnieje)
+# 6. Bezpieczny plik .env
 if [ ! -f .env ]; then
-    echo -e "${BLUE}==> Generowanie pliku .env z unikalnymi kluczami i hasłami PostgreSQL...${NC}"
+    echo -e "${BLUE}==> Generowanie pliku konfiguracyjnego .env...${NC}"
     cat <<EOF > .env
 PORT=3000
 NODE_ENV=production
-APP_VERSION=2026-10-25 v 0.2
+APP_VERSION=2026-10-25 v 0.2.1
 POSTGRES_USER=zarzadzanie
 POSTGRES_PASSWORD=${DB_PASS}
 POSTGRES_DB=zarzadzanie_db
@@ -79,17 +102,14 @@ DATABASE_URL=postgres://zarzadzanie:${DB_PASS}@db:5432/zarzadzanie_db
 APP_SECRET=${APP_SECRET}
 EOF
     chmod 600 .env
-    echo -e "${GREEN}Plik .env wygenerowany i zabezpieczony.${NC}"
+    echo -e "${GREEN}Plik .env wygenerowany (uprawnienia 600).${NC}"
 else
     echo -e "${YELLOW}Wykryto istniejący plik .env - zachowano konfigurację i hasła bazy danych.${NC}"
 fi
 
-# 7. Tworzenie pliku docker-compose.yml jeśli brak
-if [ ! -f docker-compose.yml ]; then
-    echo -e "${BLUE}==> Tworzenie pliku docker-compose.yml...${NC}"
+# 7. Zabezpieczenie docker-compose.yml (usunięcie zbędnych wersji, upewnienie się o poprawnym kontekście)
+if [ ! -f docker-compose.yml ] || grep -q "context: \.\." docker-compose.yml 2>/dev/null || grep -q "version:" docker-compose.yml 2>/dev/null; then
     cat <<'EOF' > docker-compose.yml
-version: '3.8'
-
 services:
   db:
     image: postgres:16-alpine
@@ -125,11 +145,25 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      APP_VERSION: "2026-10-25 v 0.2"
+      APP_VERSION: "2026-10-25 v 0.2.1"
       DATABASE_URL: postgres://${POSTGRES_USER:-zarzadzanie}:${POSTGRES_PASSWORD:-TwojeBezpieczneHaslo2026!}@db:5432/${POSTGRES_DB:-zarzadzanie_db}
       APP_SECRET: ${APP_SECRET:-sekretna-fraza-szyfrowania-zarzadzanie-projektami-2026}
     ports:
       - "${APP_PORT:-3000}:3000"
+    networks:
+      - zarzadzanie_net
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: zarzadzanie_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@zarzadzanie.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-SuperAdminHaslo2026!}
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
     networks:
       - zarzadzanie_net
 
@@ -143,9 +177,8 @@ networks:
 EOF
 fi
 
-# 8. Tworzenie init.sql jeśli brak
+# 8. Utworzenie init.sql jeśli brak
 if [ ! -f init.sql ]; then
-    echo -e "${BLUE}==> Tworzenie schematu bazy init.sql...${NC}"
     cat <<'EOF' > init.sql
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
@@ -212,8 +245,8 @@ ON CONFLICT (id) DO NOTHING;
 EOF
 fi
 
-# 9. Konfiguracja automatycznego skryptu kopii zapasowych (backup.sh + Cron)
-echo -e "${BLUE}==> Konfiguracja automatycznych kopii zapasowych (backup.sh)...${NC}"
+# 9. Automatyczny backup cron
+echo -e "${BLUE}==> Konfiguracja automatycznego skryptu kopii zapasowych (backup.sh)...${NC}"
 cat <<'EOF' > /opt/zarzadzanie-projektami/backup.sh
 #!/usr/bin/env bash
 BACKUP_DIR="/opt/zarzadzanie-projektami/backups"
@@ -226,30 +259,29 @@ find "$BACKUP_DIR" -type f -name "zarzadzanie_backup_*.sql.gz" -mtime +14 -delet
 EOF
 chmod +x /opt/zarzadzanie-projektami/backup.sh
 
-# Wpis do crona systemowego
 CRON_FILE="/etc/cron.d/zarzadzanie-projektami-backup"
 if [ ! -f "$CRON_FILE" ]; then
     echo "0 2 * * * root /opt/zarzadzanie-projektami/backup.sh >/dev/null 2>&1" > "$CRON_FILE"
     chmod 644 "$CRON_FILE"
-    echo -e "${GREEN}Automatyczne kopie zapasowe skonfigurowane w cronie: codziennie o 02:00 w nocy (retencja 14 dni).${NC}"
+    echo -e "${GREEN}Automatyczne kopie zapasowe skonfigurowane w cronie: codziennie o 02:00 (retencja 14 dni).${NC}"
 fi
 
-# 10. Uruchomienie kontenerów
+# 10. Start kontenerów (budowa i uruchomienie)
 echo -e "${BLUE}==> Uruchamianie kontenerów (PostgreSQL 16 + Zarządzanie Projektami)...${NC}"
-$DOCKER_CMD up -d
+$DOCKER_CMD up -d --build
 
 SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
 
 echo -e "${GREEN}=================================================================${NC}"
 echo -e "${GREEN}  ✅ WDROŻENIE ZAKOŃCZONE SUKCESEM!${NC}"
-echo -e "${GREEN}  Wersja: 2026-10-25 v 0.2${NC}"
+echo -e "${GREEN}  Wersja: 2026-10-25 v 0.2.1${NC}"
 echo -e "${GREEN}=================================================================${NC}"
 echo -e "Aplikacja działa i jest dostępna pod:"
 echo -e "  👉 ${YELLOW}http://${SERVER_IP}:3000${NC} lub ${YELLOW}http://localhost:3000${NC}"
 echo -e ""
-echo -e "🛡️  Trwałość danych: Wolumen PostgreSQL '${BLUE}zarzadzanie_postgres_data${NC}' przechowuje dane trwale."
-echo -e "💾  Automatyczne kopie: Skonfigurowane w '${BLUE}/opt/zarzadzanie-projektami/backups${NC}' (Cron o 02:00)."
-echo -e "Zarządzanie aplikacją:"
+echo -e "🛡️  Trwałość danych: Wolumen '${BLUE}zarzadzanie_postgres_data${NC}' zachowuje dane bazy."
+echo -e "💾  Kopie zapasowe: Skonfigurowane w '${BLUE}/opt/zarzadzanie-projektami/backups${NC}'."
+echo -e "Zarządzanie:"
 echo -e "  - Podgląd logów:           ${YELLOW}cd ${INSTALL_DIR} && $DOCKER_CMD logs -f${NC}"
 echo -e "  - Aktualizacja z GitHub:   ${YELLOW}cd ${INSTALL_DIR} && git pull && $DOCKER_CMD up -d --build${NC}"
 echo -e "  - Ręczna kopia zapasowa:   ${YELLOW}/opt/zarzadzanie-projektami/backup.sh${NC}"
