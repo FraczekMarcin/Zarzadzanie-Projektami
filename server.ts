@@ -24,7 +24,9 @@ app.get('/api/health', (_req, res) => {
 // Direct endpoint to download or run install.sh via curl
 app.get('/install.sh', (_req, res) => {
   try {
-    const scriptPath = path.resolve(__dirname, 'install.sh');
+    const scriptPath = fs.existsSync(path.resolve(__dirname, 'install.sh'))
+      ? path.resolve(__dirname, 'install.sh')
+      : path.resolve(__dirname, '..', 'install.sh');
     if (fs.existsSync(scriptPath)) {
       res.setHeader('Content-Type', 'text/x-shellscript; charset=utf-8');
       return res.sendFile(scriptPath);
@@ -194,7 +196,9 @@ app.get('/api/system-info', (_req, res) => {
 });
 
 // Serve production assets if dist directory exists
-const distPath = path.resolve(__dirname, 'dist');
+const distPath = fs.existsSync(path.resolve(__dirname, 'index.html'))
+  ? __dirname
+  : path.resolve(__dirname, 'dist');
 app.use(express.static(distPath));
 
 // Fallback to index.html for SPA client routing

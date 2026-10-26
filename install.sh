@@ -79,6 +79,7 @@ if [ -d "$INSTALL_DIR/Instalacja" ]; then
     cp -f "$INSTALL_DIR/Instalacja/docker-compose.yml" "$INSTALL_DIR/docker-compose.yml" 2>/dev/null || true
     cp -f "$INSTALL_DIR/Instalacja/init.sql" "$INSTALL_DIR/init.sql" 2>/dev/null || true
     cp -f "$INSTALL_DIR/Instalacja/backup.sh" "$INSTALL_DIR/backup.sh" 2>/dev/null || true
+    cp -f "$INSTALL_DIR/Instalacja/.dockerignore" "$INSTALL_DIR/.dockerignore" 2>/dev/null || true
 fi
 
 cd "$INSTALL_DIR"
@@ -267,6 +268,10 @@ if [ ! -f "$CRON_FILE" ]; then
 fi
 
 # 10. Start kontenerów (budowa i uruchomienie)
+echo -e "${BLUE}==> Zwalnianie tymczasowej pamięci podręcznej i zbędnych warstw Dockera...${NC}"
+docker builder prune -a -f 2>/dev/null || true
+docker image prune -f 2>/dev/null || true
+
 echo -e "${BLUE}==> Uruchamianie kontenerów (PostgreSQL 16 + Zarządzanie Projektami)...${NC}"
 $DOCKER_CMD up -d --build
 
