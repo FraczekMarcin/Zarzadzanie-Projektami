@@ -1,10 +1,18 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
   body {
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
     color: #0f172a;
     background-color: #f8fafc;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  html.dark body {
+    color: #f1f5f9;
+    background-color: #090d16;
   }
 }
 
@@ -24,6 +32,13 @@
   background: #94a3b8;
 }
 
+html.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
 /* Blocked Task: Gray background with subtle 45-degree hatch (szrafura) without strike-through */
 .task-blocked-style {
   background-color: #e2e8f0 !important;
@@ -31,6 +46,12 @@
   border-color: #cbd5e1 !important;
   position: relative;
   overflow: hidden;
+}
+
+html.dark .task-blocked-style {
+  background-color: #1e293b !important;
+  color: #94a3b8 !important;
+  border-color: #334155 !important;
 }
 
 .task-blocked-style::before {

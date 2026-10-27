@@ -4,6 +4,7 @@ import { downloadIcsFile } from '../utils/calendar';
 import { getNextProjectCode, isProjectCodeAvailable, isValidProjectCodeFormat } from '../utils/projectCode';
 import { loadAllProjectTemplates } from '../utils/projectTemplates';
 import { AdminTemplateManagerModal } from './AdminTemplateManagerModal';
+import { ProjectFinancialsModal } from './ProjectFinancialsModal';
 import { 
   FolderPlus, 
   Calendar, 
@@ -18,8 +19,11 @@ import {
   Edit3,
   X,
   Check,
-  Sparkles,
-  Building2
+  Building2,
+  Trash2,
+  DollarSign,
+  TrendingUp,
+  Receipt
 } from 'lucide-react';
 
 interface ProjectsOverviewProps {
@@ -30,6 +34,8 @@ interface ProjectsOverviewProps {
   onSelectProject: (projectId: string) => void;
   onAddProject: (newProject: Omit<Project, 'id'>, selectedTemplate?: ProjectTemplate) => void;
   onUpdateProject?: (updatedProject: Project) => void;
+  onDeleteProject?: (projectId: string) => void;
+  onDeleteAllDemoData?: () => void;
 }
 
 export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
@@ -40,12 +46,20 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   onSelectProject,
   onAddProject,
   onUpdateProject,
+  onDeleteProject,
+  onDeleteAllDemoData,
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
   const [availableTemplates, setAvailableTemplates] = useState<ProjectTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('none');
+
+  // Financials modal state
+  const [financialsProject, setFinancialsProject] = useState<Project | null>(null);
+
+  // Delete project confirmation state
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
 
   // Form fields
   const [projectCode, setProjectCode] = useState('');
@@ -58,6 +72,13 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   const [dueDate, setDueDate] = useState('2026-12-23');
   const [budget, setBudget] = useState('100 000 PLN');
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>(['usr-1', 'usr-2']);
+
+  // Client info fields
+  const [clientName, setClientName] = useState('');
+  const [clientContactPerson, setClientContactPerson] = useState('');
+  const [clientPhone, setClientPhone] = useState('');
+  const [clientEmail, setClientEmail] = useState('');
+  const [clientNip, setClientNip] = useState('');
 
   useEffect(() => {
     setAvailableTemplates(loadAllProjectTemplates());
@@ -136,6 +157,11 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
       setDueDate('2026-12-23');
       setBudget('150 000 PLN');
     }
+    setClientName('');
+    setClientContactPerson('');
+    setClientPhone('');
+    setClientEmail('');
+    setClientNip('');
     setSelectedMemberIds(['usr-1', 'usr-2']);
     setIsModalOpen(true);
   };
@@ -158,14 +184,19 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setEditingProject(project);
     setProjectCode(project.key);
     setName(project.name);
-    setDescription(project.description || '');
-    setPriority(project.priority || 'normal');
-    setStatus(project.status || 'active');
-    setStartDate(project.startDate || '2026-10-24');
+    setDescription(project.description);
+    setPriority(project.priority);
+    setStatus(project.status);
+    setStartDate(project.startDate);
     setDurationDays(project.durationDays || 30);
-    setDueDate(project.dueDate || '2026-11-23');
+    setDueDate(project.dueDate);
     setBudget(project.budget || '');
-    setSelectedMemberIds(project.memberIds || ['usr-1']);
+    setSelectedMemberIds(project.memberIds || []);
+    setClientName(project.clientName || '');
+    setClientContactPerson(project.clientContactPerson || '');
+    setClientPhone(project.clientPhone || '');
+    setClientEmail(project.clientEmail || '');
+    setClientNip(project.clientNip || '');
     setIsModalOpen(true);
   };
 
@@ -173,43 +204,52 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     e.preventDefault();
     if (!isFormValid) return;
 
-    const cleanKey = projectCode.trim().toUpperCase();
-    const chosenTemplate = selectedTemplateId !== 'none'
-      ? availableTemplates.find((t) => t.id === selectedTemplateId)
-      : undefined;
-
     if (editingProject && onUpdateProject) {
       onUpdateProject({
         ...editingProject,
-        key: cleanKey,
-        name: name.trim(),
+        key: projectCode,
+        name,
         description,
         priority,
         status,
         startDate,
         dueDate,
-        durationDays: Number(durationDays) || 30,
+        durationDays,
         budget,
         memberIds: selectedMemberIds,
+        clientName: clientName.trim() || undefined,
+        clientContactPerson: clientContactPerson.trim() || undefined,
+        clientPhone: clientPhone.trim() || undefined,
+        clientEmail: clientEmail.trim() || undefined,
+        clientNip: clientNip.trim() || undefined,
       });
     } else {
+      const template = selectedTemplateId !== 'none'
+        ? availableTemplates.find((t) => t.id === selectedTemplateId)
+        : undefined;
+
       onAddProject(
         {
-          key: cleanKey,
-          name: name.trim(),
+          key: projectCode,
+          name,
           description,
           priority,
           status,
           startDate,
           dueDate,
-          durationDays: Number(durationDays) || 30,
+          durationDays,
           progress: 0,
           budget,
           spentHours: 0,
           memberIds: selectedMemberIds,
           color: '#0284c7',
+          clientName: clientName.trim() || undefined,
+          clientContactPerson: clientContactPerson.trim() || undefined,
+          clientPhone: clientPhone.trim() || undefined,
+          clientEmail: clientEmail.trim() || undefined,
+          clientNip: clientNip.trim() || undefined,
         },
-        chosenTemplate
+        template
       );
     }
 
@@ -217,39 +257,45 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   };
 
   const toggleMember = (userId: string) => {
-    if (selectedMemberIds.includes(userId)) {
-      setSelectedMemberIds(selectedMemberIds.filter((id) => id !== userId));
-    } else {
-      setSelectedMemberIds([...selectedMemberIds, userId]);
-    }
+    setSelectedMemberIds((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
+    );
   };
+
+  const demoProjectsCount = projects.filter((p) => p.isDemo).length;
 
   return (
     <div className="space-y-6">
-      {/* Header bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-white border border-slate-200 rounded-lg shadow-sm">
+      {/* Top Section */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-lg border border-slate-200 dark:border-slate-800 shadow-xs">
         <div>
-          <h2 className="text-base font-bold text-slate-900">Portfolio Projektów</h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Zarządzaj nadrzędnymi projektami, kodami projektów (schemat YYYY-NN), czasem trwania w dniach i budżetem.
+          <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Building2 className="w-5 h-5 text-sky-600 dark:text-sky-400" />
+            <span>Katalog Tematów i Projektów Pracowni</span>
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono font-bold">
+              {projects.length}
+            </span>
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Zarządzaj tematami projektowymi, zamawiającymi, wycenami ofertowymi oraz kosztorysem branżowym.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          {currentUser.role === 'admin' && (
+        <div className="flex flex-wrap items-center gap-2.5">
+          {demoProjectsCount > 0 && onDeleteAllDemoData && (
             <button
-              onClick={() => setIsTemplateManagerOpen(true)}
-              className="flex items-center gap-1.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 text-xs font-semibold px-3 py-2 rounded transition-colors shadow-xs"
-              title="Zarządzaj szablonami projektów budowlanych pracowni"
+              onClick={onDeleteAllDemoData}
+              className="flex items-center gap-1.5 border border-rose-200 dark:border-rose-900/40 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-semibold px-3 py-2 rounded transition-colors"
+              title="Usuń tematy wstawione pokazowo"
             >
-              <Layers className="w-4 h-4 text-purple-600" />
-              <span>Szablony projektów (Admin)</span>
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Usuń tematy demo ({demoProjectsCount})</span>
             </button>
           )}
 
           <button
             onClick={() => openCreateModal()}
-            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold px-4 py-2 rounded transition-colors shadow-xs"
+            className="flex items-center gap-1.5 bg-slate-900 dark:bg-sky-600 hover:bg-slate-800 dark:hover:bg-sky-700 text-white text-xs font-semibold px-4 py-2 rounded transition-colors shadow-xs"
           >
             <FolderPlus className="w-4 h-4" />
             <span>Zarejestruj nowy projekt</span>
@@ -265,33 +311,43 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
           const criticalTasks = projectTasks.filter((t) => t.priority === 'critical' && t.status !== 'done').length;
           const members = users.filter((u) => project.memberIds?.includes(u.id));
 
+          // Calculate project financial metrics
+          const quoteNet = (project.quotations || []).reduce((acc, q) => acc + (q.totalNet || 0), 0);
+          const costsNet = (project.costs || []).reduce((acc, c) => acc + (c.amountNet || 0), 0);
+          const profitNet = quoteNet - costsNet;
+
           return (
             <div
               key={project.id}
-              className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between"
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between"
             >
               <div>
                 {/* Top badges */}
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-1.5">
-                    <span className="font-mono text-xs font-bold text-sky-800 bg-sky-100 px-2.5 py-0.5 rounded border border-sky-300">
+                    <span className="font-mono text-xs font-bold text-sky-800 dark:text-sky-300 bg-sky-100 dark:bg-sky-950/60 px-2.5 py-0.5 rounded border border-sky-300 dark:border-sky-800">
                       {project.key}
                     </span>
                     <span className="text-[10px] text-slate-400 font-mono">
                       {project.status === 'active' ? 'Aktywny' : project.status === 'planning' ? 'Planowanie' : project.status}
                     </span>
+                    {project.isDemo && (
+                      <span className="text-[10px] text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.2 rounded">
+                        Demo
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2">
                     <span
                       className={`text-xs font-semibold ${
                         project.priority === 'critical'
-                          ? 'text-rose-600'
+                          ? 'text-rose-600 dark:text-rose-400'
                           : project.priority === 'high'
-                          ? 'text-amber-600'
+                          ? 'text-amber-600 dark:text-amber-400'
                           : project.priority === 'normal'
-                          ? 'text-blue-600'
-                          : 'text-slate-600'
+                          ? 'text-blue-600 dark:text-blue-400'
+                          : 'text-slate-600 dark:text-slate-400'
                       }`}
                     >
                       {project.priority === 'normal' ? 'Normalny' : project.priority.toUpperCase()}
@@ -302,33 +358,74 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                 {/* Project Title & Description */}
                 <h3
                   onClick={() => onSelectProject(project.id)}
-                  className="text-base font-bold text-slate-900 hover:text-sky-600 cursor-pointer transition-colors"
+                  className="text-base font-bold text-slate-900 dark:text-white hover:text-sky-600 dark:hover:text-sky-400 cursor-pointer transition-colors"
                 >
                   {project.name}
                 </h3>
-                <p className="text-xs text-slate-600 mt-1 line-clamp-2 leading-relaxed">
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed">
                   {project.description}
                 </p>
 
+                {/* Client / Investor Badge */}
+                {project.clientName && (
+                  <div className="mt-3 p-2 bg-slate-50 dark:bg-slate-800/60 rounded border border-slate-200/80 dark:border-slate-800 text-xs flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
+                      <Building2 className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 shrink-0" />
+                      <span className="truncate max-w-[190px] font-medium" title={project.clientName}>
+                        {project.clientName}
+                      </span>
+                    </div>
+                    {project.clientNip && (
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        NIP: {project.clientNip}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Financial overview badge */}
+                {(quoteNet > 0 || costsNet > 0) && (
+                  <div className="mt-2 grid grid-cols-3 gap-1.5 p-2 bg-sky-50/50 dark:bg-sky-950/20 rounded border border-sky-100 dark:border-sky-900/30 text-[11px]">
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Wycena:</span>
+                      <span className="font-bold font-mono text-slate-800 dark:text-slate-200">
+                        {quoteNet > 0 ? `${quoteNet.toLocaleString('pl-PL')} zł` : '—'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Koszty:</span>
+                      <span className="font-bold font-mono text-rose-600 dark:text-rose-400">
+                        {costsNet > 0 ? `${costsNet.toLocaleString('pl-PL')} zł` : '—'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Zysk:</span>
+                      <span className={`font-bold font-mono ${profitNet >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600'}`}>
+                        {profitNet.toLocaleString('pl-PL')} zł
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 {/* Dates & Schedule with Duration in days */}
-                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
+                <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
                   <div className="flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5 text-sky-600" />
-                    <span className="font-bold text-slate-900 font-mono">
+                    <span className="font-bold text-slate-900 dark:text-white font-mono">
                       {project.durationDays || 30} dni
                     </span>
                     <span className="text-slate-400 font-mono text-[11px]">({project.startDate} · {project.dueDate})</span>
                   </div>
-                  {project.budget && <span className="font-mono tabular-nums text-slate-700 font-semibold">{project.budget}</span>}
+                  {project.budget && <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300 font-semibold">{project.budget}</span>}
                 </div>
 
                 {/* Progress bar */}
-                <div className="mt-3">
+                <div className="mt-2.5">
                   <div className="flex items-center justify-between text-xs mb-1">
-                    <span className="text-slate-600 font-medium">Postęp realizacji</span>
-                    <span className="font-mono tabular-nums text-slate-700 font-bold">{project.progress}%</span>
+                    <span className="text-slate-600 dark:text-slate-400 font-medium">Postęp realizacji</span>
+                    <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300 font-bold">{project.progress}%</span>
                   </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                  <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
                     <div
                       style={{ width: `${project.progress}%` }}
                       className={`h-full ${
@@ -343,18 +440,18 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                 </div>
 
                 {/* Task counts stats */}
-                <div className="grid grid-cols-2 gap-2 mt-4 text-xs bg-slate-50 p-2.5 rounded border border-slate-100">
+                <div className="grid grid-cols-2 gap-2 mt-3 text-xs bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded border border-slate-100 dark:border-slate-800">
                   <div>
                     <span className="text-slate-500 block text-[10px] uppercase font-semibold">Zadania</span>
-                    <span className="font-mono tabular-nums font-semibold text-slate-800">
+                    <span className="font-mono tabular-nums font-semibold text-slate-800 dark:text-slate-200">
                       {completedTasks} / {projectTasks.length} ukończonych
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[10px] uppercase font-semibold">Zadania krytyczne</span>
+                    <span className="text-slate-500 block text-[10px] uppercase font-semibold">Krytyczne</span>
                     <span
                       className={`font-mono tabular-nums font-semibold ${
-                        criticalTasks > 0 ? 'text-rose-600' : 'text-slate-700'
+                        criticalTasks > 0 ? 'text-rose-600' : 'text-slate-700 dark:text-slate-300'
                       }`}
                     >
                       {criticalTasks} wymagających uwagi
@@ -364,13 +461,13 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
               </div>
 
               {/* Card Footer: Team members & Actions */}
-              <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between">
+              <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
                 {/* Team Avatars */}
                 <div className="flex items-center -space-x-1.5 overflow-hidden">
                   {members.map((m) => (
                     <div
                       key={m.id}
-                      className="w-6 h-6 rounded-full bg-slate-200 border-2 border-white text-[10px] font-bold text-slate-700 flex items-center justify-center"
+                      className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-700 border-2 border-white dark:border-slate-900 text-[10px] font-bold text-slate-700 dark:text-slate-300 flex items-center justify-center"
                       title={`${m.name} (${m.role})`}
                     >
                       {m.initials}
@@ -380,35 +477,44 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
                 {/* Actions */}
                 <div className="flex items-center gap-1.5">
-                  {currentUser.role === 'admin' && (
-                    <button
-                      onClick={() => setIsTemplateManagerOpen(true)}
-                      className="p-1 text-slate-500 hover:text-purple-700 hover:bg-purple-50 rounded transition-colors"
-                      title="Zapisz projekt jako szablon pracowni (Admin)"
-                    >
-                      <Layers className="w-3.5 h-3.5 text-purple-600" />
-                    </button>
-                  )}
+                  <button
+                    onClick={() => setFinancialsProject(project)}
+                    className="p-1 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded transition-colors"
+                    title="Wyceny Inwestorskie, Koszty (Mapa, Geologia, Uzgodnienia)"
+                  >
+                    <Receipt className="w-4 h-4 text-emerald-600" />
+                  </button>
 
                   <button
                     onClick={() => openEditModal(project)}
-                    className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded transition-colors"
-                    title="Edytuj projekt i kod projektu"
+                    className="p-1 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors"
+                    title="Edytuj projekt i dane Zamawiającego"
                   >
                     <Edit3 className="w-3.5 h-3.5" />
                   </button>
 
                   <button
                     onClick={() => downloadIcsFile(projectTasks, `${project.key}-terminarz.ics`, project.name)}
-                    className="p-1 text-slate-500 hover:text-sky-600 hover:bg-sky-50 rounded transition-colors"
-                    title="Pobierz terminarz projektu (.ics) do Google Calendar"
+                    className="p-1 text-slate-500 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950/40 rounded transition-colors"
+                    title="Pobierz terminarz projektu (.ics)"
                   >
                     <Download className="w-3.5 h-3.5" />
                   </button>
 
+                  {/* Delete project button */}
+                  {onDeleteProject && (
+                    <button
+                      onClick={() => setProjectToDelete(project)}
+                      className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded transition-colors"
+                      title="Usuń projekt"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+
                   <button
                     onClick={() => onSelectProject(project.id)}
-                    className="text-xs font-semibold text-sky-600 hover:text-sky-700 hover:underline px-1 py-0.5"
+                    className="text-xs font-semibold text-sky-600 hover:text-sky-700 dark:text-sky-400 hover:underline px-1 py-0.5"
                   >
                     Otwórz →
                   </button>
@@ -419,97 +525,109 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         })}
       </div>
 
+      {/* Financials Modal */}
+      {financialsProject && (
+        <ProjectFinancialsModal
+          isOpen={true}
+          onClose={() => setFinancialsProject(null)}
+          project={financialsProject}
+          tasks={tasks}
+          onSaveProject={(updated) => {
+            if (onUpdateProject) onUpdateProject(updated);
+            setFinancialsProject(null);
+          }}
+        />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {projectToDelete && (
+        <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-2xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 max-w-md w-full shadow-2xl space-y-3 animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-2.5 text-rose-600 dark:text-rose-400">
+              <Trash2 className="w-5 h-5 shrink-0" />
+              <h4 className="text-sm font-bold text-slate-900 dark:text-white">Usuń projekt</h4>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Czy na pewno chcesz bezpowrotnie usunąć temat <strong>{projectToDelete.key}: {projectToDelete.name}</strong> oraz wszystkie powiązane z nim zadania i pozycje kosztorysu?
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setProjectToDelete(null)}
+                className="px-3 py-1.5 rounded text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                Anuluj
+              </button>
+              <button
+                onClick={() => {
+                  if (onDeleteProject) onDeleteProject(projectToDelete.id);
+                  setProjectToDelete(null);
+                }}
+                className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-semibold shadow-xs"
+              >
+                Tak, usuń projekt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal: Create or Edit Project */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl border border-slate-200 w-full max-w-lg p-6 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between mb-3">
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/70 flex items-center justify-between">
               <div>
-                <h3 className="text-base font-bold text-slate-900">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
                   {editingProject ? 'Edycja Projektu' : 'Rejestracja Nowego Projektu'}
                 </h3>
-                <p className="text-xs text-slate-500">
-                  {editingProject
-                    ? 'Zaktualizuj kod projektu, parametry harmonogramu i zespół.'
-                    : 'Kod projektu nadawany jest automatycznie w schemacie YYYY-NN z możliwością edycji.'}
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Kod projektu, Zamawiający, terminy i przypisani projektanci.
                 </p>
               </div>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+            <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4 flex-1 text-xs">
               {/* TEMPLATE PICKER - only when creating new project */}
               {!editingProject && (
-                <div className="p-3 bg-purple-50/70 border border-purple-200 rounded-lg space-y-2">
+                <div className="p-3 bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900/50 rounded-lg space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="font-bold text-purple-950 flex items-center gap-1.5">
-                      <Layers className="w-3.5 h-3.5 text-purple-700" />
-                      <span>Stwórz projekt z szablonu (Opcjonalnie):</span>
+                    <label className="font-bold text-purple-950 dark:text-purple-200 flex items-center gap-1.5">
+                      <Layers className="w-4 h-4 text-purple-600" />
+                      <span>Użyj gotowego szablonu procesu</span>
                     </label>
-                    {currentUser.role === 'admin' && (
-                      <button
-                        type="button"
-                        onClick={() => setIsTemplateManagerOpen(true)}
-                        className="text-[11px] text-purple-700 hover:underline font-semibold"
-                      >
-                        Kreator szablonów →
-                      </button>
-                    )}
                   </div>
 
                   <select
                     value={selectedTemplateId}
                     onChange={(e) => handleTemplateChange(e.target.value)}
-                    className="w-full bg-white border border-purple-300 rounded px-2.5 py-1.5 text-xs text-slate-900 font-medium focus:outline-none focus:ring-1 focus:ring-purple-500"
+                    className="w-full bg-white dark:bg-slate-900 border border-purple-300 dark:border-purple-800 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
                   >
-                    <option value="none">-- Czysty projekt (wprowadź własne etapy) --</option>
+                    <option value="none">-- Czysty projekt (dodaj zadania ręcznie) --</option>
                     {availableTemplates.map((tpl) => (
                       <option key={tpl.id} value={tpl.id}>
-                        {tpl.name} ({tpl.tasks.length} zadań, {tpl.defaultDurationDays} dni) {tpl.isCustom ? '[Własny]' : ''}
+                        {tpl.name} ({tpl.tasks.length} zadań · {tpl.defaultDurationDays} dni)
                       </option>
                     ))}
                   </select>
-
-                  {selectedTemplateId !== 'none' && (() => {
-                    const chosen = availableTemplates.find((t) => t.id === selectedTemplateId);
-                    if (!chosen) return null;
-                    const officialCount = chosen.tasks.filter((t) => t.isOfficialDeadline).length;
-                    return (
-                      <div className="bg-white/90 p-2 rounded border border-purple-200 text-[11px] space-y-1">
-                        <div className="text-purple-900 font-bold flex items-center justify-between">
-                          <span>✓ Szablon: {chosen.name}</span>
-                          <span className="text-[10px] bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded font-mono font-bold">
-                            {chosen.defaultDurationDays} dni roboczych
-                          </span>
-                        </div>
-                        <p className="text-slate-600 line-clamp-2">{chosen.description}</p>
-                        <div className="text-emerald-700 font-medium pt-0.5 flex items-center gap-2">
-                          <span>• Automatycznie utworzy {chosen.tasks.length} etapów</span>
-                          {officialCount > 0 && (
-                            <span className="text-rose-700 font-bold">• {officialCount} terminów urzędowych KPA</span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })()}
                 </div>
               )}
 
-              {/* PROJECT CODE FIELD WITH AVAILABILITY CHECK */}
-              <div className="p-3 bg-sky-50/70 border border-sky-200 rounded-lg space-y-1.5">
+              {/* PROJECT CODE FIELD */}
+              <div className="p-3 bg-sky-50/70 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900/50 rounded-lg space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="font-bold text-sky-950 block">
+                  <label className="font-bold text-sky-950 dark:text-sky-200 block">
                     KOD Projektu (schemat np. 2026-01) *
                   </label>
                   <button
                     type="button"
                     onClick={() => setProjectCode(getNextProjectCode(projects))}
-                    className="text-[11px] text-sky-700 hover:underline font-semibold"
+                    className="text-[11px] text-sky-700 dark:text-sky-400 hover:underline font-semibold"
                   >
                     Generuj kolejny nr
                   </button>
@@ -522,87 +640,129 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                     value={projectCode}
                     onChange={(e) => setProjectCode(e.target.value.toUpperCase())}
                     placeholder="np. 2026-04"
-                    className={`w-full bg-white border rounded px-3 py-2 text-xs font-mono font-bold uppercase tracking-wider focus:outline-none focus:ring-1 ${
-                      !isCodeFormatValid
-                        ? 'border-rose-300 focus:ring-rose-500'
-                        : isCodeAvailable
-                        ? 'border-emerald-300 focus:ring-emerald-500 text-emerald-950'
-                        : 'border-rose-400 focus:ring-rose-500 text-rose-950'
-                    }`}
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-3 py-2 text-xs font-mono font-bold uppercase tracking-wider text-slate-900 dark:text-white"
                   />
                   <div className="absolute right-2.5 top-2.5">
                     {isCodeAvailable && isCodeFormatValid ? (
-                      <span className="flex items-center gap-1 text-[11px] text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.5 rounded">
+                      <span className="flex items-center gap-1 text-[11px] text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded font-bold">
                         <Check className="w-3 h-3" /> Wolny
                       </span>
                     ) : (
-                      <span className="flex items-center gap-1 text-[11px] text-rose-700 font-bold bg-rose-100 px-1.5 py-0.5 rounded">
+                      <span className="flex items-center gap-1 text-[11px] text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded font-bold">
                         <X className="w-3 h-3" /> Zajęty
                       </span>
                     )}
                   </div>
                 </div>
-
-                <div className="text-[11px]">
-                  {isCodeAvailable && isCodeFormatValid ? (
-                    <span className="text-emerald-700 font-medium">
-                      ✓ Kod <strong className="font-mono">{projectCode}</strong> jest wolny i dostępny do przypisania.
-                    </span>
-                  ) : !isCodeFormatValid ? (
-                    <span className="text-rose-600 font-medium">
-                      Wprowadź poprawny kod projektu (min. 2 znaki alfanumeryczne, np. 2026-01).
-                    </span>
-                  ) : (
-                    <span className="text-rose-600 font-bold">
-                      ⚠ Kod <strong className="font-mono">{projectCode}</strong> jest już zajęty przez inny projekt! Zmień na unikalny numer.
-                    </span>
-                  )}
-                </div>
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Nazwa projektu *</label>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Nazwa projektu *</label>
                 <input
                   type="text"
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="np. Wdrożenie Platformy B2B"
-                  className="w-full border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium"
+                  placeholder="np. Budynek Usługowo-Biurowy Kat. XIV"
+                  className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-3 py-2 text-xs text-slate-900 dark:text-white"
                 />
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Opis projektu</label>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Opis projektu</label>
                 <textarea
                   rows={2}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Krótki cel i zakres projektu..."
-                  className="w-full border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                  placeholder="Cel, zakres formalnoprawny, PZT, PAB, PT..."
+                  className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-3 py-2 text-xs text-slate-900 dark:text-white"
                 />
               </div>
 
-              {/* DURATION IN DAYS ASSIGNMENT */}
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
-                <span className="font-semibold text-slate-800 block text-[11px] uppercase tracking-wide">
+              {/* DANE ZAMAWIAJĄCEGO */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg space-y-2">
+                <span className="font-semibold text-slate-800 dark:text-slate-200 block text-[11px] uppercase tracking-wide flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-sky-600" />
+                  <span>Zamawiający / Inwestor</span>
+                </span>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Nazwa firmy / Inwestora</label>
+                    <input
+                      type="text"
+                      value={clientName}
+                      onChange={(e) => setClientName(e.target.value)}
+                      placeholder="np. Nordic Development SA"
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Osoba kontaktowa</label>
+                    <input
+                      type="text"
+                      value={clientContactPerson}
+                      onChange={(e) => setClientContactPerson(e.target.value)}
+                      placeholder="np. Marek Zawadzki"
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">NIP</label>
+                    <input
+                      type="text"
+                      value={clientNip}
+                      onChange={(e) => setClientNip(e.target.value)}
+                      placeholder="525-00-00-000"
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Telefon</label>
+                    <input
+                      type="text"
+                      value={clientPhone}
+                      onChange={(e) => setClientPhone(e.target.value)}
+                      placeholder="+48 22 555 12 34"
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">E-mail</label>
+                    <input
+                      type="email"
+                      value={clientEmail}
+                      onChange={(e) => setClientEmail(e.target.value)}
+                      placeholder="inwestycje@nordic.pl"
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* DURATION & DATES */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg space-y-2">
+                <span className="font-semibold text-slate-800 dark:text-slate-200 block text-[11px] uppercase tracking-wide">
                   Harmonogram i Czas trwania w dniach
                 </span>
 
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Data startu *</label>
+                    <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Data startu *</label>
                     <input
                       type="date"
                       required
                       value={startDate}
                       onChange={(e) => handleStartDateChange(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-900 font-mono"
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono"
                     />
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">
+                    <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
                       Czas trwania *
                     </label>
                     <div className="flex items-center">
@@ -613,97 +773,65 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                         required
                         value={durationDays}
                         onChange={(e) => handleDurationDaysChange(Number(e.target.value))}
-                        className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-900 font-mono font-bold"
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono font-bold"
                       />
                       <span className="ml-1.5 font-mono text-slate-500">dni</span>
                     </div>
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Termin końcowy</label>
+                    <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Termin końcowy</label>
                     <input
                       type="date"
                       required
                       value={dueDate}
                       onChange={(e) => handleDueDateChange(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-900 font-mono"
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono"
                     />
                   </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
-                    Priorytet projektu
-                  </label>
-                  <select
-                    value={priority}
-                    onChange={(e) => setPriority(e.target.value as Priority)}
-                    className="w-full border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium"
-                  >
-                    <option value="critical">Krytyczny (P1)</option>
-                    <option value="high">Wysoki (P2)</option>
-                    <option value="normal">Normalny (P3 - Domyślny)</option>
-                    <option value="low">Niski (P4)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Status</label>
-                  <select
-                    value={status}
-                    onChange={(e) => setStatus(e.target.value as any)}
-                    className="w-full border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                  >
-                    <option value="active">Aktywny</option>
-                    <option value="planning">W planowaniu</option>
-                    <option value="on_hold">Wstrzymany</option>
-                    <option value="completed">Zakończony</option>
-                  </select>
-                </div>
-              </div>
-
+              {/* Members */}
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Szacowany budżet</label>
-                <input
-                  type="text"
-                  value={budget}
-                  onChange={(e) => setBudget(e.target.value)}
-                  placeholder="np. 150 000 PLN"
-                  className="w-full border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Zespół projektowy</label>
-                <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto p-2 border border-slate-200 rounded bg-slate-50">
-                  {users.map((u) => (
-                    <label key={u.id} className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={selectedMemberIds.includes(u.id)}
-                        onChange={() => toggleMember(u.id)}
-                        className="rounded text-sky-600 focus:ring-0"
-                      />
-                      <span>{u.name}</span>
-                    </label>
-                  ))}
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                  Projektanci przypisani do zespołu:
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {users.map((u) => {
+                    const isSelected = selectedMemberIds.includes(u.id);
+                    return (
+                      <div
+                        key={u.id}
+                        onClick={() => toggleMember(u.id)}
+                        className={`p-2 rounded border cursor-pointer flex items-center gap-2 transition-colors ${
+                          isSelected
+                            ? 'bg-sky-50 dark:bg-sky-950/50 border-sky-300 dark:border-sky-700 text-sky-900 dark:text-sky-200'
+                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        <div className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-bold flex items-center justify-center shrink-0">
+                          {u.initials}
+                        </div>
+                        <span className="text-xs truncate">{u.name}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200">
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded transition-colors"
+                  className="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
                   Anuluj
                 </button>
                 <button
                   type="submit"
                   disabled={!isFormValid}
-                  className="px-4 py-2 text-xs font-semibold bg-slate-900 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded transition-colors shadow-xs"
+                  className="bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white font-semibold px-4 py-2 rounded shadow-xs"
                 >
                   {editingProject ? 'Zapisz zmiany w projekcie' : 'Zarejestruj projekt'}
                 </button>
@@ -712,16 +840,6 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
           </div>
         </div>
       )}
-
-      {/* Admin Template Manager Modal */}
-      <AdminTemplateManagerModal
-        isOpen={isTemplateManagerOpen}
-        onClose={() => setIsTemplateManagerOpen(false)}
-        projects={projects}
-        tasks={tasks}
-        currentUser={currentUser}
-        onSelectTemplateToCreate={(tpl) => openCreateModal(tpl)}
-      />
     </div>
   );
 };
