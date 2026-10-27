@@ -1,6 +1,6 @@
 # ==========================================
 # Zarządzanie Projektami - Dockerfile
-# Wersja: 2026-10-27 v 0.3.0
+# Wersja: 2026-10-27 v 0.3.1
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Ścieżka: Instalacja/Dockerfile
 # ==========================================
@@ -26,7 +26,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV APP_VERSION="2026-10-27 v 0.3.0"
+ENV APP_VERSION="2026-10-27 v 0.3.1"
 
 # Użytkownik o ograniczonych uprawnieniach (Security best practice)
 RUN addgroup -g 1001 -S nodejs && \
@@ -37,7 +37,7 @@ COPY --chown=appuser:nodejs --from=builder /app/dist ./dist
 
 # Instalacja wyłącznie serwera express (zaledwie 2.4 MB bez zbędnych 250 MB devDependencies)
 RUN npm --prefix /app init -y && \
-    npm --prefix /app install --no-package-lock --no-audit express && \
+    npm --prefix /app install --no-package-lock --no-audit express@^4.21.2 && \
     npm cache clean --force
 
 # Dodaj deklarację ESM ("type": "module") do package.json w kontenerze

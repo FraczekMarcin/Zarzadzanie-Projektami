@@ -132,34 +132,34 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-lg shadow-sm flex flex-col overflow-hidden">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-sm flex flex-col overflow-hidden transition-colors">
       {/* Calendar Header Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4 p-4 border-b border-slate-200 bg-slate-50/70">
+      <div className="flex flex-wrap items-center justify-between gap-4 p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <CalendarIcon className="w-4 h-4 text-sky-600" />
-            <h2 className="text-sm font-semibold text-slate-900">
+            <CalendarIcon className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
               {MONTH_NAMES_PL[month]} {year}
             </h2>
           </div>
 
-          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-md shadow-xs p-0.5">
+          <div className="flex items-center gap-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md shadow-xs p-0.5">
             <button
               onClick={prevMonth}
-              className="p-1 hover:bg-slate-100 rounded text-slate-600 transition-colors"
+              className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300 transition-colors"
               title="Poprzedni miesiąc"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <button
               onClick={setToday}
-              className="px-2.5 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded transition-colors"
+              className="px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors"
             >
               Bieżący
             </button>
             <button
               onClick={nextMonth}
-              className="p-1 hover:bg-slate-100 rounded text-slate-600 transition-colors"
+              className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300 transition-colors"
               title="Następny miesiąc"
             >
               <ChevronRight className="w-4 h-4" />
@@ -171,10 +171,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         <div className="flex items-center gap-2">
           <button
             onClick={handleExportAllToIcs}
-            className="flex items-center gap-1.5 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 text-xs font-medium px-3 py-1.5 rounded shadow-xs hover:bg-slate-50 transition-colors"
+            className="flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 text-slate-700 dark:text-slate-200 text-xs font-medium px-3 py-1.5 rounded shadow-xs hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
             title="Pobierz plik terminarza .ics kompatybilny z Google Calendar, Outlook i Apple Calendar"
           >
-            <Download className="w-3.5 h-3.5 text-slate-500" />
+            <Download className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
             <span>Pobierz terminarz (.ics)</span>
           </button>
 
@@ -193,9 +193,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       </div>
 
       {/* Weekdays Header */}
-      <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-100/80 text-xs font-semibold text-slate-600">
-        {DAY_NAMES_PL.map((name, i) => (
-          <div key={name} className="py-2.5 px-3 border-r border-slate-200 last:border-r-0 text-center sm:text-left">
+      <div className="grid grid-cols-7 border-b border-slate-200 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-800/80 text-xs font-semibold text-slate-600 dark:text-slate-300">
+        {DAY_NAMES_PL.map((name) => (
+          <div key={name} className="py-2.5 px-3 border-r border-slate-200 dark:border-slate-700 last:border-r-0 text-center sm:text-left">
             <span className="hidden sm:inline">{name}</span>
             <span className="sm:hidden">{name.slice(0, 2)}</span>
           </div>
@@ -203,7 +203,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       </div>
 
       {/* Calendar Grid */}
-      <div className="grid grid-cols-7 divide-x divide-y divide-slate-200 bg-slate-200/50">
+      <div className="grid grid-cols-7 divide-x divide-y divide-slate-200 dark:divide-slate-800 bg-slate-200/50 dark:bg-slate-800/50">
         {calendarDays.map((day) => {
           // Tasks due on this day or spanning this day
           const dayTasks = filteredTasks.filter(
@@ -216,9 +216,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             <div
               key={day.dateStr}
               onClick={() => onOpenNewTaskWithDate(day.dateStr)}
-              className={`min-h-[110px] bg-white p-2 relative group flex flex-col justify-between transition-colors ${
-                !day.isCurrentMonth ? 'bg-slate-50/60 text-slate-400' : ''
-              } ${isToday ? 'ring-2 ring-inset ring-sky-500 bg-sky-50/20' : 'hover:bg-slate-50/80'}`}
+              className={`min-h-[110px] p-2 relative group flex flex-col justify-between transition-colors ${
+                !day.isCurrentMonth
+                  ? 'bg-slate-50/60 dark:bg-slate-950/60 text-slate-400 dark:text-slate-500'
+                  : 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200'
+              } ${isToday ? 'ring-2 ring-inset ring-sky-500 bg-sky-50/20 dark:bg-sky-950/40' : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/60'}`}
             >
               {/* Day Number Header */}
               <div className="flex items-center justify-between mb-1.5">
@@ -227,8 +229,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                     isToday
                       ? 'bg-sky-600 text-white font-bold w-5 h-5 rounded-full flex items-center justify-center'
                       : day.isCurrentMonth
-                      ? 'text-slate-700 font-semibold'
-                      : 'text-slate-400'
+                      ? 'text-slate-700 dark:text-slate-200 font-semibold'
+                      : 'text-slate-400 dark:text-slate-500'
                   }`}
                 >
                   {day.dayNum}

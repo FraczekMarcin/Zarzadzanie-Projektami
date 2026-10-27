@@ -152,23 +152,23 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-lg shadow-sm flex flex-col overflow-hidden">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-sm flex flex-col overflow-hidden transition-colors">
       {/* Top Filter and Controls Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4 p-4 border-b border-slate-200 bg-slate-50/70">
+      <div className="flex flex-wrap items-center justify-between gap-4 p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
+            <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
               Harmonogram Gantta & Drzewo Zależności
             </span>
             <span className="text-slate-400">·</span>
-            <span className="text-xs text-slate-500 font-mono tabular-nums">{filteredTasks.length} zadań</span>
+            <span className="text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums">{filteredTasks.length} zadań</span>
           </div>
 
-          <div className="hidden sm:flex items-center gap-1 ml-4 bg-slate-200/70 p-0.5 rounded-md">
+          <div className="hidden sm:flex items-center gap-1 ml-4 bg-slate-200/70 dark:bg-slate-800 p-0.5 rounded-md">
             <button
               onClick={() => setZoomLevel('days')}
               className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-                zoomLevel === 'days' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                zoomLevel === 'days' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               Widok dni
@@ -176,7 +176,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             <button
               onClick={() => setZoomLevel('weeks')}
               className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-                zoomLevel === 'weeks' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                zoomLevel === 'weeks' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               Widok kompaktowy
@@ -185,13 +185,13 @@ export const GanttChart: React.FC<GanttChartProps> = ({
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs text-slate-600">
+          <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
             <Filter className="w-3.5 h-3.5 text-slate-400" />
             <span>Priorytet:</span>
             <select
               value={priorityFilter}
               onChange={(e) => setPriorityFilter(e.target.value as Priority | 'all')}
-              className="bg-white border border-slate-200 rounded px-2 py-1 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500"
             >
               <option value="all">Wszystkie priorytety</option>
               <option value="critical">Tylko krytyczne (P1)</option>
@@ -203,7 +203,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
           <button
             onClick={onOpenNewTask}
-            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium px-3 py-1.5 rounded transition-colors shrink-0"
+            className="flex items-center gap-1.5 bg-slate-900 dark:bg-sky-600 hover:bg-slate-800 dark:hover:bg-sky-700 text-white text-xs font-medium px-3 py-1.5 rounded transition-colors shrink-0"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Nowe zadanie</span>
@@ -214,17 +214,17 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       {/* Main Gantt Split Container */}
       <div className="flex overflow-x-auto select-none" style={{ maxHeight: 'calc(100vh - 280px)' }}>
         {/* Left Column: Tasks Metadata & Hierarchy */}
-        <div className="w-84 shrink-0 border-r border-slate-200 bg-white sticky left-0 z-20 shadow-[2px_0_5px_rgba(0,0,0,0.03)]">
+        <div className="w-84 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 sticky left-0 z-20 shadow-[2px_0_5px_rgba(0,0,0,0.03)]">
           {/* Table Header */}
-          <div className="h-16 border-b border-slate-200 bg-slate-100/80 px-4 flex items-center justify-between text-xs font-semibold text-slate-700">
+          <div className="h-16 border-b border-slate-200 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-800/80 px-4 flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-200">
             <span>Zadanie / Drzewo zależności</span>
-            <span className="text-slate-500 font-normal">Czas · Priorytet</span>
+            <span className="text-slate-500 dark:text-slate-400 font-normal">Czas · Priorytet</span>
           </div>
 
           {/* Task Rows List */}
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
             {filteredTasks.length === 0 ? (
-              <div className="p-8 text-center text-xs text-slate-500">Brak zadań w wybranym filtrze.</div>
+              <div className="p-8 text-center text-xs text-slate-500 dark:text-slate-400">Brak zadań w wybranym filtrze.</div>
             ) : (
               filteredTasks.map((task) => {
                 const assignee = users.find((u) => u.id === task.assigneeId);
@@ -239,16 +239,16 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                     className={`h-12 px-3 flex items-center justify-between cursor-pointer transition-colors group relative ${
                       isBlocked
                         ? 'task-blocked-style'
-                        : 'hover:bg-sky-50/60 bg-white'
+                        : 'hover:bg-sky-50/60 dark:hover:bg-slate-800/60 bg-white dark:bg-slate-900'
                     } ${isOfficialWarning ? 'animate-official-deadline' : ''}`}
                   >
                     <div className="flex items-center gap-1.5 min-w-0 pr-2">
                       {task.parentId && (
-                        <span className="text-slate-300 ml-1">↳</span>
+                        <span className="text-slate-300 dark:text-slate-600 ml-1">↳</span>
                       )}
                       <span className="shrink-0">{getTypeIcon(task.type)}</span>
-                      <span className="font-mono text-xs text-slate-500 tabular-nums shrink-0">{task.code}</span>
-                      <span className={`text-xs font-medium truncate ${isBlocked ? 'text-slate-700 font-semibold' : 'text-slate-800'}`} title={task.title}>
+                      <span className="font-mono text-xs text-slate-500 dark:text-slate-400 tabular-nums shrink-0">{task.code}</span>
+                      <span className={`text-xs font-medium truncate ${isBlocked ? 'text-slate-700 dark:text-slate-200 font-semibold' : 'text-slate-800 dark:text-slate-200'}`} title={task.title}>
                         {task.title}
                       </span>
                       {task.isOfficialDeadline && (
@@ -295,14 +295,14 @@ export const GanttChart: React.FC<GanttChartProps> = ({
         {/* Right Area: Interactive Timeline Canvas */}
         <div className="flex-1 overflow-x-auto relative" style={{ minWidth: chartWidthPx }}>
           {/* Timeline Header: Months & Days */}
-          <div className="h-16 border-b border-slate-200 bg-slate-100/90 sticky top-0 z-10">
+          <div className="h-16 border-b border-slate-200 dark:border-slate-800 bg-slate-100/90 dark:bg-slate-800/90 sticky top-0 z-10">
             {/* Months Row */}
-            <div className="flex h-8 border-b border-slate-200/80 text-[11px] font-semibold text-slate-700">
+            <div className="flex h-8 border-b border-slate-200/80 dark:border-slate-700/80 text-[11px] font-semibold text-slate-700 dark:text-slate-200">
               {monthsList.map((m, idx) => (
                 <div
                   key={idx}
                   style={{ width: `${(m.daysCount / totalDays) * 100}%` }}
-                  className="px-3 border-r border-slate-200 flex items-center truncate"
+                  className="px-3 border-r border-slate-200 dark:border-slate-700 flex items-center truncate"
                 >
                   {m.label}
                 </div>
@@ -310,24 +310,24 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             </div>
 
             {/* Days Row */}
-            <div className="flex h-8 text-[10px] font-mono tabular-nums text-slate-500">
+            <div className="flex h-8 text-[10px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
               {daysList.map((d, idx) => (
                 <div
                   key={idx}
                   style={{ width: `${(1 / totalDays) * 100}%` }}
-                  className={`border-r border-slate-200 flex flex-col items-center justify-center shrink-0 ${
-                    d.isWeekend ? 'bg-slate-200/40 text-slate-400' : ''
-                  } ${d.dateStr === todayStr ? 'bg-amber-100/70 text-amber-900 font-bold' : ''}`}
+                  className={`border-r border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center shrink-0 ${
+                    d.isWeekend ? 'bg-slate-200/40 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500' : ''
+                  } ${d.dateStr === todayStr ? 'bg-amber-100/70 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 font-bold' : ''}`}
                 >
                   <span>{d.dayNum}</span>
-                  <span className="text-[8px] font-sans uppercase text-slate-400">{d.dayName}</span>
+                  <span className="text-[8px] font-sans uppercase text-slate-400 dark:text-slate-500">{d.dayName}</span>
                 </div>
               ))}
             </div>
           </div>
 
           {/* Timeline Grid Background & Tasks Rows */}
-          <div className="relative divide-y divide-slate-100">
+          <div className="relative divide-y divide-slate-100 dark:divide-slate-800">
             {/* Today indicator vertical line */}
             {todayOffsetDays >= 0 && todayOffsetDays <= totalDays && (
               <div
@@ -361,7 +361,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
               return (
                 <div
                   key={task.id}
-                  className="h-12 relative flex items-center hover:bg-slate-50 transition-colors group"
+                  className="h-12 relative flex items-center hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors group"
                 >
                   {/* Task Bar / Milestone marker */}
                   {isMilestone ? (
@@ -456,31 +456,31 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       </div>
 
       {/* Legend Footer */}
-      <div className="p-3 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between text-xs text-slate-600 gap-3">
+      <div className="p-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/70 flex flex-wrap items-center justify-between text-xs text-slate-600 dark:text-slate-400 gap-3">
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-1.5">
             <span className="w-3.5 h-3 rounded bg-sky-600 inline-block" />
-            <span>W toku / Realizacja</span>
+            <span className="dark:text-slate-300">W toku / Realizacja</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-3.5 h-3 rounded bg-emerald-600 inline-block" />
-            <span>Ukończone</span>
+            <span className="dark:text-slate-300">Ukończone</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="w-4 h-3.5 rounded task-blocked-style inline-block border border-slate-300" />
-            <span className="font-semibold text-rose-800">Zablokowane</span>
+            <span className="w-4 h-3.5 rounded task-blocked-style inline-block border border-slate-300 dark:border-slate-700" />
+            <span className="font-semibold text-rose-800 dark:text-rose-400">Zablokowane</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="w-3.5 h-3 rounded bg-rose-100 border border-rose-400 animate-official-deadline inline-block" />
-            <span className="font-semibold text-rose-700">Termin urzędowy (alarm ≤ 3 dni robocze)</span>
+            <span className="w-3.5 h-3 rounded bg-rose-100 dark:bg-rose-950/60 border border-rose-400 dark:border-rose-800 animate-official-deadline inline-block" />
+            <span className="font-semibold text-rose-700 dark:text-rose-400">Termin urzędowy (alarm ≤ 3 dni robocze)</span>
           </div>
           <div className="flex items-center gap-1.5">
             <Diamond className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-            <span>Kamień milowy</span>
+            <span className="dark:text-slate-300">Kamień milowy</span>
           </div>
         </div>
 
-        <div className="text-slate-500 text-[11px]">
+        <div className="text-slate-500 dark:text-slate-400 text-[11px]">
           Ukończenie zadań blokujących automatycznie odblokuje kolejne etapy i przeliczy ich terminy w dniach.
         </div>
       </div>

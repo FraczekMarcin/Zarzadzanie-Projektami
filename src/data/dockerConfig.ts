@@ -7,14 +7,14 @@ export interface DockerConfigFile {
 }
 
 export const GITHUB_REPO_URL = 'https://github.com/FraczekMarcin/Zarzadzanie-Projektami';
-export const CURRENT_APP_VERSION = '2026-10-27 v 0.3.0';
+export const CURRENT_APP_VERSION = '2026-10-27 v 0.3.1';
 export const INSTALL_TARGET_DIR = '/opt/zarzadzanie-projektami';
 export const RAW_INSTALL_SCRIPT_URL = 'https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/Instalacja/install.sh';
 export const GITHUB_RAW_FALLBACK_URL = 'https://github.com/FraczekMarcin/Zarzadzanie-Projektami/raw/main/Instalacja/install.sh';
 
 export const DOCKER_COMPOSE_YML = `# ==============================================================================
 # Zarządzanie Projektami (Pracownia Projektowa / Budownictwo)
-# Wersja: 2026-10-27 v 0.3.0
+# Wersja: 2026-10-27 v 0.3.1
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Lokalizacja docelowa na serwerze: /opt/zarzadzanie-projektami
 # ==============================================================================
@@ -56,7 +56,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      APP_VERSION: "2026-10-27 v 0.3.0"
+      APP_VERSION: "2026-10-27 v 0.3.1"
       DATABASE_URL: postgres://\${POSTGRES_USER:-zarzadzanie}:\${POSTGRES_PASSWORD:-TwojeBezpieczneHaslo2026!}@db:5432/\${POSTGRES_DB:-zarzadzanie_db}
       APP_SECRET: \${APP_SECRET:-sekretna-fraza-szyfrowania-zarzadzanie-projektami-2026}
     ports:
@@ -72,6 +72,8 @@ services:
     environment:
       PGADMIN_DEFAULT_EMAIL: \${PGADMIN_EMAIL:-admin@pracownia.pl}
       PGADMIN_DEFAULT_PASSWORD: \${PGADMIN_PASSWORD:-SuperAdminHaslo2026!}
+      PGADMIN_CONFIG_CHECK_EMAIL_DELIVERABILITY: "False"
+      PGADMIN_CONFIG_ALLOW_SPECIAL_EMAIL_DOMAINS: "['local']"
     ports:
       - "5050:80"
     depends_on:
@@ -90,7 +92,7 @@ networks:
 
 export const DOCKERFILE_CONTENT = `# ==========================================
 # Zarządzanie Projektami - Dockerfile
-# Wersja: 2026-10-27 v 0.3.0
+# Wersja: 2026-10-27 v 0.3.1
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Ścieżka: Instalacja/Dockerfile
 # ==========================================
@@ -116,7 +118,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV APP_VERSION="2026-10-27 v 0.3.0"
+ENV APP_VERSION="2026-10-27 v 0.3.1"
 
 # Użytkownik o ograniczonych uprawnieniach (Security best practice)
 RUN addgroup -g 1001 -S nodejs && \\
@@ -127,7 +129,7 @@ COPY --chown=appuser:nodejs --from=builder /app/dist ./dist
 
 # Instalacja wyłącznie serwera express (zaledwie 2.4 MB bez zbędnych 250 MB devDependencies)
 RUN npm --prefix /app init -y && \\
-    npm --prefix /app install --no-package-lock --no-audit express && \\
+    npm --prefix /app install --no-package-lock --no-audit express@^4.21.2 && \\
     npm cache clean --force
 
 # Dodaj deklarację ESM ("type": "module") do package.json w kontenerze
@@ -270,13 +272,13 @@ ON CONFLICT (id) DO NOTHING;
 
 export const ENV_EXAMPLE_CONTENT = `# ==============================================================================
 # Zarządzanie Projektami - Konfiguracja Środowiska Produkcyjnego
-# Wersja: 2026-10-27 v 0.3.0
+# Wersja: 2026-10-27 v 0.3.1
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Ścieżka docelowa: /opt/zarzadzanie-projektami/.env
 # ==============================================================================
 PORT=3000
 NODE_ENV=production
-APP_VERSION=2026-10-27 v 0.3.0
+APP_VERSION=2026-10-27 v 0.3.1
 
 # Baza danych PostgreSQL 16
 POSTGRES_USER=zarzadzanie
@@ -294,7 +296,7 @@ APP_SECRET=wygeneruj_unikalny_ciag_znakow_dla_tokenow_bezpieczenstwa_2026
 export const CRON_BACKUP_SCRIPT_CONTENT = `#!/usr/bin/env bash
 # ==============================================================================
 # Zarządzanie Projektami - Automatyczna Kopia Zapasowa PostgreSQL (Cron)
-# Wersja: 2026-10-27 v 0.3.0
+# Wersja: 2026-10-27 v 0.3.1
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Lokalizacja skryptu: /opt/zarzadzanie-projektami/backup.sh
 # ==============================================================================
@@ -324,7 +326,7 @@ echo "[$(date)] Kopia zapasowa gotowa: \$BACKUP_DIR/\$FILENAME (Zachowano kopie 
 export const INSTALL_SCRIPT_CONTENT = `#!/usr/bin/env bash
 # ==============================================================================
 # Zarządzanie Projektami - Pracownia Projektowa / Budownictwo
-# Wersja: 2026-10-27 v 0.3.0
+# Wersja: 2026-10-27 v 0.3.1
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Ścieżka skryptu w repozytorium: Instalacja/install.sh
 # Lokalizacja instalacji na serwerze: /opt/zarzadzanie-projektami
@@ -339,7 +341,7 @@ RED='\\033[0;31m'
 NC='\\033[0m'
 
 echo -e "\${BLUE}=================================================================\${NC}"
-echo -e "\${GREEN}  🏗️  Zarządzanie Projektami - Instalator (Wersja 2026-10-27 v 0.3.0)\${NC}"
+echo -e "\${GREEN}  🏗️  Zarządzanie Projektami - Instalator (Wersja 2026-10-27 v 0.3.1)\${NC}"
 echo -e "\${BLUE}  Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami\${NC}"
 echo -e "\${BLUE}=================================================================\${NC}"
 
@@ -418,7 +420,7 @@ if [ ! -f .env ]; then
     cat <<EOF > .env
 PORT=3000
 NODE_ENV=production
-APP_VERSION=2026-10-27 v 0.3.0
+APP_VERSION=2026-10-27 v 0.3.1
 POSTGRES_USER=zarzadzanie
 POSTGRES_PASSWORD=\${DB_PASS}
 POSTGRES_DB=zarzadzanie_db
@@ -470,7 +472,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      APP_VERSION: "2026-10-27 v 0.3.0"
+      APP_VERSION: "2026-10-27 v 0.3.1"
       DATABASE_URL: postgres://\${POSTGRES_USER:-zarzadzanie}:\${POSTGRES_PASSWORD:-TwojeBezpieczneHaslo2026!}@db:5432/\${POSTGRES_DB:-zarzadzanie_db}
       APP_SECRET: \${APP_SECRET:-sekretna-fraza-szyfrowania-zarzadzanie-projektami-2026}
     ports:
@@ -604,7 +606,7 @@ SERVER_IP=\$(hostname -I 2>/dev/null | awk '{print \$1}' || echo "localhost")
 
 echo -e "\${GREEN}=================================================================\${NC}"
 echo -e "\${GREEN}  ✅ WDROŻENIE ZAKOŃCZONE SUKCESEM!\${NC}"
-echo -e "\${GREEN}  Wersja: 2026-10-27 v 0.3.0\${NC}"
+echo -e "\${GREEN}  Wersja: 2026-10-27 v 0.3.1\${NC}"
 echo -e "\${GREEN}=================================================================\${NC}"
 echo -e "Aplikacja działa i jest dostępna pod:"
 echo -e "  👉 \${YELLOW}http://\${SERVER_IP}:3000\${NC} lub \${YELLOW}http://localhost:3000\${NC}"
