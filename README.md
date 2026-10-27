@@ -1,6 +1,6 @@
 # 🏗️ Zarządzanie Projektami (Pracownia Projektowa / Budownictwo)
 
-[![Wersja](https://img.shields.io/badge/Wersja-2026--10--25%20v%200.2.1-emerald.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
+[![Wersja](https://img.shields.io/badge/Wersja-2026--10--27%20v%200.3.0-emerald.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
 [![Docker](https://img.shields.io/badge/Docker-PostgreSQL%2016-blue.svg)](https://www.docker.com/)
 [![Licencja](https://img.shields.io/badge/Licencja-MIT-green.svg)](LICENSE)
 [![GitHub](https://img.shields.io/badge/GitHub-FraczekMarcin%2FZarzadzanie--Projektami-purple.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
@@ -58,10 +58,36 @@ Aplikacja natychmiast uruchomi się w kontenerach Docker i będzie dostępna pod
    - Bezpośredni eksport plików `.ics` oraz automatyczne odświeżanie zadań w smartfonie i programach Outlook / Google Calendar.
 
 5. **Tablica Kanban & Terminarz Miesięczny:**
-   - Pełna synchronizacja stanów zadań (Do zrobienia, W toku, Do weryfikacji, Zablokowane, Zakończone).
-   - Filtrowanie zadań krytycznych i zablokowanych bezpośrednio z paska narzędzi.
+   - Pełna synchronizacja stanów zadań (Do zrobienia, W toku, Do weryfikacji, Zablokowane).
+   - **Wyróżnik "Ukończone":** zakończone zadania są automatycznie filtrowane z aktywnego widoku roboczego i przenoszone do dedykowanego wyróżnika z możliwością łatwego przywrócenia.
 
-6. **Centrum Archiwizacji & Automatyczne Kopie Zapasowe (Auto-Backup):**
+6. **Finanse, Zamawiający & Kosztorys Projektu (Nowość v 0.3.0):**
+   - **Dane Zamawiającego (Inwestora):** NIP, osoba kontaktowa, telefon, e-mail, adres inwestycji.
+   - **Ramy czasowe i terminy:** data rozpoczęcia, zakończenia, kalkulacja dni roboczych/kalendarzowych.
+   - **Wyceny z listą pozycji:** rejestr składowych oferty dla Inwestora (stawki VAT, netto, brutto, statusy).
+   - **Koszty projektu i zadań:** przyporządkowanie wydatków branżowych:
+     - 🗺️ Mapa do celów projektowych (MDCP, geodezja)
+     - 🧪 Badania geotechniczne i geologia gruntu
+     - 📋 Uzgodnienia formalne (ZUD, PPOŻ, Sanepid, Wody Polskie, Konserwator)
+     - 🏗️ Podwykonawcy branżowi (Konstrukcja, HVAC, Elektryka, Drogi)
+     - 🏛️ Opłaty urzędowe i skarbowe
+   - **Kalkulator rentowności:** automatyczne wyliczanie zysku netto pracowni i procentowej marży.
+
+7. **Ciemny motyw & Personalizacja (Nowość v 0.3.0):**
+   - Możliwość wyboru motywu: Jasny, Ciemny (Dark Mode) lub automatyczny zgodny z systemem operacyjnym.
+
+8. **Uwierzytelnianie & Bezpieczeństwo Zespołu (Nowość v 0.3.0):**
+   - Wymóg podania hasła przy przełączaniu profilu projektanta (ochrona przed nieautoryzowanym działaniem).
+   - Pełna możliwość usuwania niepotrzebnych lub pokazowych użytkowników i tematów demo.
+
+9. **Centrum Ustawień (Symbol zębatki ⚙️) & Wskaźnik Archiwizacji:**
+   - Zintegrowane menu ustawień z podglądem wdrożenia Docker, zmianą hasła i sprawdzaniem aktualizacji z GitHub.
+   - **Codzienne sprawdzanie aktualizacji:** automatyczna weryfikacja 1x dziennie z repozytorium GitHub.
+   - **Inteligentny symbol archiwizacji:**
+     - 🟢 **Zielony** – gdy automatyczne kopie zapasowe są aktywne i prawidłowo skonfigurowane.
+     - 🔴 **Czerwony mrugający** – natychmiastowe ostrzeżenie, gdy archiwizacja nie jest skonfigurowana.
+
+10. **Centrum Archiwizacji & Automatyczne Kopie Zapasowe (Auto-Backup):**
    - **Harmonogram automatyczny:** wbudowany automat wykonujący cykliczne migawki stanu (co 15 min, 1 godz., 6 godz. lub codziennie).
    - **Rotacja i retencja:** bezpieczne przechowywanie określonej liczby ostatnich kopii (np. 10 ostatnich) i usuwanie najstarszych.
    - **Jedno-klikowe przywracanie:** natychmiastowe odtworzenie całego stanu projektów z wybranej migawki.

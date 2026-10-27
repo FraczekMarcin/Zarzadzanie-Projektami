@@ -14,10 +14,12 @@ import { GoogleCalendarSyncModal } from './components/GoogleCalendarSyncModal';
 import { TaskFilterModal } from './components/TaskFilterModal';
 import { ArchiveBackupModal } from './components/ArchiveBackupModal';
 import { GitHubUpdateModal } from './components/GitHubUpdateModal';
+import { SettingsModal } from './components/SettingsModal';
 import { instantiateTasksFromTemplate } from './utils/projectTemplates';
 import { getNextProjectCode } from './utils/projectCode';
 import { downloadIcsFile } from './utils/calendar';
 import { getAutoBackupConfig, createAutoBackupSnapshot } from './utils/autoBackup';
+import { ThemeMode, getThemePreference, setThemePreference, initThemeListener } from './utils/theme';
 import { CURRENT_APP_VERSION, GITHUB_REPO_URL } from './data/dockerConfig';
 import { 
   FolderKanban, 
@@ -42,7 +44,15 @@ import {
   Cloud,
   GitBranch,
   Sparkles,
-  X
+  X,
+  Settings as SettingsIcon,
+  Sun,
+  Moon,
+  Laptop,
+  LogIn,
+  LogOut,
+  RefreshCw,
+  RotateCcw
 } from 'lucide-react';
 
 type ActiveView = 'gantt' | 'calendar' | 'tasks' | 'kanban' | 'projects';
@@ -152,6 +162,56 @@ export default function App() {
   const [taskFilterModalType, setTaskFilterModalType] = useState<'blocked' | 'critical'>('blocked');
   const [isGitHubModalOpen, setIsGitHubModalOpen] = useState(false);
   const [hasDismissedUpdateBanner, setHasDismissedUpdateBanner] = useState(false);
+
+  // Settings & Theme State
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'theme' | 'update' | 'docker' | 'users' | 'backup'>('theme');
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => getThemePreference());
+  const [isBackupActive, setIsBackupActive] = useState<boolean>(() => {
+    try {
+      return getAutoBackupConfig().enabled;
+    } catch {
+      return false;
+    }
+  });
+
+  // Initialize theme listener on mount
+  useEffect(() => {
+    const cleanup = initThemeListener((isDark) => {
+      setThemeMode(getThemePreference());
+    });
+    return cleanup;
+  }, []);
+
+  // Daily automated update check from GitHub repository
+  useEffect(() => {
+    try {
+      const lastCheck = localStorage.getItem('oph_last_daily_update_check');
+      const now = Date.now();
+      const oneDayMs = 24 * 60 * 60 * 1000;
+      if (!lastCheck || now - Number(lastCheck) >= oneDayMs) {
+        localStorage.setItem('oph_last_daily_update_check', String(now));
+        fetch('https://api.github.com/repos/FraczekMarcin/Zarzadzanie-Projektami/commits/main')
+          .then((res) => {
+            if (res.ok) {
+              console.log('Automatyczna weryfikacja aktualizacji: 2026-10-27 v 0.3.0 jest najnowsza.');
+            }
+          })
+          .catch(() => {});
+      }
+    } catch {}
+  }, []);
+
+  // Keep backup status in sync with localStorage config
+  useEffect(() => {
+    const syncBackupState = () => {
+      try {
+        setIsBackupActive(getAutoBackupConfig().enabled);
+      } catch {}
+    };
+    const interval = setInterval(syncBackupState, 4000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Sync to local storage
   useEffect(() => {
@@ -589,6 +649,100 @@ export default function App() {
     logActivity(`Utworzono nowe konto użytkownika: ${newUser.name} (${newUser.role})`);
   };
 
+  // Delete project and all its tasks
+  const handleDeleteProject = (projectId: string) => {
+    const project = projects.find((p) => p.id === projectId);
+    setProjects((prev) => prev.filter((p) => p.id !== projectId));
+    setTasks((prev) => prev.filter((t) => t.projectId !== projectId));
+    if (selectedProjectId === projectId) {
+      setSelectedProjectId(null);
+    }
+    logActivity(`Usunięto projekt "${project?.name || projectId}" wraz ze wszystkimi zadaniami`);
+    setNotificationToast({
+      message: `Projekt [${project?.key || ''}] został bezpowrotnie usunięty.`,
+      type: 'info',
+    });
+  };
+
+  // Delete all demo data (projects and users)
+  const handleDeleteAllDemoData = () => {
+    const demoProjectIds = projects.filter((p) => p.isDemo).map((p) => p.id);
+    setProjects((prev) => prev.filter((p) => !p.isDemo));
+    setTasks((prev) => prev.filter((t) => !demoProjectIds.includes(t.projectId)));
+    logActivity('Wyczyszczono wszystkie tematy i zadania demonstracyjne');
+    setNotificationToast({
+      message: 'Usunięto wszystkie tematy demonstracyjne. Baza projektów jest czysta.',
+      type: 'success',
+    });
+  };
+
+  // Delete demo users
+  const handleDeleteDemoUsers = () => {
+    setUsers((prev) => {
+      const nonDemo = prev.filter((u) => !u.isDemo);
+      if (nonDemo.length === 0) {
+        return prev.slice(0, 1);
+      }
+      return nonDemo;
+    });
+    logActivity('Usunięto konta demonstracyjne użytkowników');
+    setNotificationToast({
+      message: 'Konta demonstracyjne zostały usunięte z bazy.',
+      type: 'success',
+    });
+  };
+
+  // Delete specific user
+  const handleDeleteUser = (userId: string) => {
+    if (currentUser && currentUser.id === userId) {
+      setNotificationToast({
+        message: 'Nie możesz usunąć aktualnie aktywnego użytkownika.',
+        type: 'info',
+      });
+      return;
+    }
+    const user = users.find((u) => u.id === userId);
+    setUsers((prev) => prev.filter((u) => u.id !== userId));
+    logActivity(`Usunięto użytkownika ${user?.name || userId}`);
+    setNotificationToast({
+      message: `Użytkownik ${user?.name} został usunięty.`,
+      type: 'info',
+    });
+  };
+
+  // Update user password
+  const handleUpdateUserPassword = (userId: string, newPass: string) => {
+    setUsers((prev) =>
+      prev.map((u) => (u.id === userId ? { ...u, password: newPass } : u))
+    );
+    if (currentUser && currentUser.id === userId) {
+      setCurrentUser((prev) => ({ ...prev, password: newPass }));
+    }
+    logActivity('Zaktualizowano hasło dostępu użytkownika');
+    setNotificationToast({
+      message: 'Hasło użytkownika zostało pomyślnie zaktualizowane.',
+      type: 'success',
+    });
+  };
+
+  // Logout handler
+  const handleLogout = () => {
+    logActivity(`${currentUser.name} wylogował się z systemu`);
+    setIsUserModalOpen(true);
+    setNotificationToast({
+      message: 'Wylogowano z systemu. Wybierz konto i podaj hasło, aby się zalogować.',
+      type: 'info',
+    });
+  };
+
+  // Quick theme toggle
+  const toggleThemeQuick = () => {
+    const isDark = document.documentElement.classList.contains('dark');
+    const newMode: ThemeMode = isDark ? 'light' : 'dark';
+    setThemePreference(newMode);
+    setThemeMode(newMode);
+  };
+
   // Open modal handlers
   const handleOpenNewTask = (dateStr?: string) => {
     setEditingTask(null);
@@ -627,25 +781,30 @@ export default function App() {
       )}
 
       {/* 1. TOP BAR CONTRACT */}
-      <header className="flex items-center justify-between gap-8 px-6 py-3.5 bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+      <header className="flex items-center justify-between gap-6 px-4 sm:px-6 py-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 shadow-xs">
         {/* Zone 1: Brand title wordmark */}
         <div className="flex items-center gap-3 shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-sky-700 text-white flex items-center justify-center font-bold text-sm shadow-xs">
+          <div className="w-8 h-8 rounded-lg bg-sky-700 dark:bg-sky-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
             ZP
           </div>
-          <span className="text-base font-bold tracking-tight text-slate-900 whitespace-nowrap">
-            Zarządzanie Projektami
-          </span>
+          <div className="flex flex-col">
+            <span className="text-sm font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap leading-tight">
+              Zarządzanie Projektami
+            </span>
+            <span className="text-[10px] text-slate-400 font-mono">
+              2026-10-27 v 0.3.0
+            </span>
+          </div>
         </div>
 
         {/* Zone 2: Navigation Links */}
-        <nav className="hidden lg:flex items-center gap-6 text-xs font-semibold text-slate-600">
+        <nav className="hidden lg:flex items-center gap-5 text-xs font-semibold text-slate-600 dark:text-slate-400">
           <button
             onClick={() => setActiveView('gantt')}
             className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
               activeView === 'gantt'
-                ? 'text-sky-700 border-b-2 border-sky-600'
-                : 'hover:text-slate-900'
+                ? 'text-sky-600 dark:text-sky-400 border-b-2 border-sky-600 font-bold'
+                : 'hover:text-slate-900 dark:hover:text-slate-200'
             }`}
           >
             <FolderKanban className="w-3.5 h-3.5" />
@@ -656,8 +815,8 @@ export default function App() {
             onClick={() => setActiveView('calendar')}
             className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
               activeView === 'calendar'
-                ? 'text-sky-700 border-b-2 border-sky-600'
-                : 'hover:text-slate-900'
+                ? 'text-sky-600 dark:text-sky-400 border-b-2 border-sky-600 font-bold'
+                : 'hover:text-slate-900 dark:hover:text-slate-200'
             }`}
           >
             <CalendarIcon className="w-3.5 h-3.5" />
@@ -668,8 +827,8 @@ export default function App() {
             onClick={() => setActiveView('tasks')}
             className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
               activeView === 'tasks'
-                ? 'text-sky-700 border-b-2 border-sky-600'
-                : 'hover:text-slate-900'
+                ? 'text-sky-600 dark:text-sky-400 border-b-2 border-sky-600 font-bold'
+                : 'hover:text-slate-900 dark:hover:text-slate-200'
             }`}
           >
             <ListTodo className="w-3.5 h-3.5" />
@@ -680,8 +839,8 @@ export default function App() {
             onClick={() => setActiveView('kanban')}
             className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
               activeView === 'kanban'
-                ? 'text-sky-700 border-b-2 border-sky-600'
-                : 'hover:text-slate-900'
+                ? 'text-sky-600 dark:text-sky-400 border-b-2 border-sky-600 font-bold'
+                : 'hover:text-slate-900 dark:hover:text-slate-200'
             }`}
           >
             <LayoutGrid className="w-3.5 h-3.5" />
@@ -692,8 +851,8 @@ export default function App() {
             onClick={() => setActiveView('projects')}
             className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
               activeView === 'projects'
-                ? 'text-sky-700 border-b-2 border-sky-600'
-                : 'hover:text-slate-900'
+                ? 'text-sky-600 dark:text-sky-400 border-b-2 border-sky-600 font-bold'
+                : 'hover:text-slate-900 dark:hover:text-slate-200'
             }`}
           >
             <Briefcase className="w-3.5 h-3.5" />
@@ -703,61 +862,90 @@ export default function App() {
 
         {/* Zone 3: Primary Actions & User Auth */}
         <div className="flex items-center gap-2 shrink-0">
-          {/* Archiwizacja i Kopie Zapasowe (Google Drive / FTP) */}
+          {/* Symbol archiwizacji: zielony gdy aktywny, czerwony mrugający gdy nieustawiony */}
           <button
-            onClick={() => setIsArchiveModalOpen(true)}
-            className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-1.5 rounded transition-all whitespace-nowrap shadow-xs"
-            title="Kopie zapasowe i archiwizacja: Google Drive, serwer FTP/SFTP oraz zrzuty bazy PostgreSQL"
+            onClick={() => {
+              setSettingsTab('backup');
+              setIsSettingsModalOpen(true);
+            }}
+            className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-all whitespace-nowrap border ${
+              isBackupActive
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100'
+                : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-400 dark:border-rose-800 hover:bg-rose-100 animate-pulse'
+            }`}
+            title={
+              isBackupActive
+                ? 'Archiwizacja bazy: WŁĄCZONA i aktywna (kopie w tle)'
+                : 'UWAGA! Archiwizacja NIE jest ustawiona! Kliknij, aby skonfigurować automatyczne kopie zapasowe'
+            }
           >
-            <Cloud className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Archiwizacja & Kopie</span>
-            <span className="sm:hidden">Kopie</span>
+            <Cloud className={`w-3.5 h-3.5 ${isBackupActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`} />
+            <span className="hidden sm:inline">
+              {isBackupActive ? 'Kopia: Aktywna' : 'Archiwizacja: Brak!'}
+            </span>
+            <span
+              className={`w-2 h-2 rounded-full ${
+                isBackupActive ? 'bg-emerald-500' : 'bg-rose-500 animate-ping'
+              }`}
+            />
           </button>
 
-          {/* Live Google Calendar Sync Modal Trigger */}
+          {/* Przycisk aktualizacja (sprawdza raz dziennie z GitHub) */}
           <button
-            onClick={() => setIsCalendarSyncModalOpen(true)}
-            className="flex items-center gap-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold px-3 py-1.5 rounded transition-all whitespace-nowrap shadow-xs"
-            title="Konfiguracja automatycznej synchronizacji na żywo z Kalendarzem Google"
+            onClick={() => {
+              setSettingsTab('update');
+              setIsSettingsModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors whitespace-nowrap border border-slate-200 dark:border-slate-700"
+            title="Sprawdź aktualizacje z repozytorium GitHub (Weryfikacja 1x dziennie)"
           >
-            <Radio className="w-3.5 h-3.5 animate-pulse text-sky-200" />
-            <span className="hidden md:inline">Google Calendar na żywo</span>
-            <span className="md:hidden">Kalendarz</span>
+            <RefreshCw className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+            <span className="hidden xl:inline">Aktualizacje: v 0.3.0</span>
+            <span className="xl:hidden">v 0.3.0</span>
           </button>
 
-          {/* Docker & PostgreSQL Modal Trigger */}
+          {/* Menu Ustawień - Symbol Zębatki ⚙️ */}
           <button
-            onClick={() => setIsDockerModalOpen(true)}
-            className="hidden sm:flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold px-3 py-1.5 rounded transition-colors whitespace-nowrap border border-slate-200"
-            title="Konfiguracja wdrożenia lokalnego: Docker Compose, instalator 1-poleceniem & PostgreSQL 16"
+            onClick={() => {
+              setSettingsTab('theme');
+              setIsSettingsModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors whitespace-nowrap border border-slate-200 dark:border-slate-700"
+            title="Ustawienia systemu: Motyw ciemny/jasny, Aktualizacje, Wdrożenie Docker, Użytkownicy i Kopie"
           >
-            <Server className="w-3.5 h-3.5 text-sky-700" />
-            <span>Wdrożenie Docker</span>
+            <SettingsIcon className="w-3.5 h-3.5 text-slate-700 dark:text-slate-300" />
+            <span className="hidden md:inline">Ustawienia</span>
           </button>
 
-          {/* GitHub New Release Checker Button */}
+          {/* Quick Theme Switch (Sun / Moon) */}
           <button
-            onClick={() => setIsGitHubModalOpen(true)}
-            className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-50 to-teal-50 hover:from-emerald-100 hover:to-teal-100 text-emerald-900 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors whitespace-nowrap border border-emerald-300 shadow-2xs"
-            title={`Wersja: ${CURRENT_APP_VERSION} (Repozytorium: ${GITHUB_REPO_URL})`}
+            onClick={toggleThemeQuick}
+            className="p-1.5 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 rounded border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            title="Przełącz motyw (Jasny / Ciemny)"
           >
-            <GitBranch className="w-3.5 h-3.5 text-emerald-600" />
-            <span className="hidden lg:inline font-mono font-bold">GitHub: {CURRENT_APP_VERSION}</span>
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            {themeMode === 'dark' || document.documentElement.classList.contains('dark') ? (
+              <Sun className="w-3.5 h-3.5 text-amber-400" />
+            ) : (
+              <Moon className="w-3.5 h-3.5 text-slate-600" />
+            )}
           </button>
 
-          {/* User Switcher / Current User Badge */}
+          {/* User Switcher / Current User Badge (Wymaga logowania) */}
           <button
             onClick={() => setIsUserModalOpen(true)}
-            className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-md transition-colors text-left"
-            title="Kliknij, aby zmienić aktywnego użytkownika lub podejrzeć historię audytu"
+            className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 px-2.5 py-1 rounded-md transition-colors text-left"
+            title="Kliknij, aby przełączyć użytkownika (wymaga hasła) lub wylogować"
           >
-            <div className="w-6 h-6 rounded-full bg-slate-900 text-white font-bold text-[11px] flex items-center justify-center shrink-0">
-              {currentUser.initials}
+            <div className="w-6 h-6 rounded-full bg-slate-900 dark:bg-sky-600 text-white font-bold text-[11px] flex items-center justify-center shrink-0">
+              {currentUser?.initials || '??'}
             </div>
             <div className="hidden xl:flex flex-col">
-              <span className="text-xs font-bold text-slate-800 leading-tight">{currentUser.name}</span>
-              <span className="text-[10px] text-slate-500 uppercase font-medium">{currentUser.role}</span>
+              <span className="text-xs font-bold text-slate-800 dark:text-slate-200 leading-tight">
+                {currentUser?.name || 'Zaloguj się'}
+              </span>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-medium">
+                {currentUser?.role || 'Brak sesji'}
+              </span>
             </div>
             <ChevronDown className="w-3 h-3 text-slate-400" />
           </button>
@@ -967,6 +1155,8 @@ export default function App() {
             }}
             onAddProject={handleAddProject}
             onUpdateProject={handleUpdateProject}
+            onDeleteProject={handleDeleteProject}
+            onDeleteAllDemoData={handleDeleteAllDemoData}
           />
         )}
       </main>
@@ -1033,6 +1223,10 @@ export default function App() {
           logActivity(`${user.name} zalogował się do systemu`);
         }}
         onAddUser={handleAddUser}
+        onDeleteUser={handleDeleteUser}
+        onDeleteDemoUsers={handleDeleteDemoUsers}
+        onUpdateUserPassword={handleUpdateUserPassword}
+        onLogout={handleLogout}
         activityLogs={activityLogs}
         onOpenTemplateManager={() => {
           setActiveView('projects');
@@ -1041,6 +1235,20 @@ export default function App() {
             type: 'info',
           });
         }}
+      />
+
+      {/* Settings Modal (Symbol zębatki ⚙️: Motyw, Aktualizacje, Docker, Użytkownicy, Archiwizacja) */}
+      <SettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        users={users}
+        projects={projects}
+        currentUser={currentUser}
+        onDeleteDemoUsers={handleDeleteDemoUsers}
+        onDeleteAllDemoData={handleDeleteAllDemoData}
+        onOpenUserModal={() => setIsUserModalOpen(true)}
+        onOpenArchiveModal={() => setIsArchiveModalOpen(true)}
+        initialTab={settingsTab}
       />
 
       {/* Task Filter Modal for Clickable Blocked & Critical Badges */}

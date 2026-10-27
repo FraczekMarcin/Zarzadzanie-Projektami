@@ -14,6 +14,44 @@ export interface User {
   role: UserRole;
   department: string;
   initials: string;
+  password?: string;
+  isDemo?: boolean;
+}
+
+export interface QuotationItem {
+  id: string;
+  title: string;
+  quantity: number;
+  unit: string; // np. 'kpl', 'szt', 'godz', 'm²'
+  unitPriceNet: number;
+  vatRate: number; // np. 23 (%)
+  totalNet: number;
+  totalGross: number;
+  status: 'draft' | 'sent' | 'accepted' | 'rejected' | 'invoiced';
+  notes?: string;
+}
+
+export type CostCategory =
+  | 'mapa' // Mapa do celów projektowych
+  | 'geologia' // Badania geotechniczne i geologia gruntu
+  | 'uzgodnienia' // Uzgodnienia formalne (ZUD, PPOŻ, Sanepid, Wody Polskie, Konserwator)
+  | 'podwykonawca' // Podwykonawcy branżowi (Konstrukcja, Sanitarka, Elektryka, Drogi)
+  | 'oplaty_urzedowe' // Opłaty skarbowe, wypisy i wyrysy z rejestru gruntów
+  | 'inne'; // Inne koszty operacyjne
+
+export interface CostItem {
+  id: string;
+  projectId: string;
+  taskId?: string; // Powiązanie z konkretnym zadaniem
+  title: string;
+  category: CostCategory;
+  amountNet: number;
+  amountGross: number;
+  contractorName?: string; // np. Geodeta, Rzeczoznawca PPOŻ
+  invoiceNumber?: string;
+  date: string;
+  status: 'planned' | 'incurred' | 'paid';
+  notes?: string;
 }
 
 export interface Project {
@@ -31,6 +69,17 @@ export interface Project {
   spentHours?: number;
   memberIds: string[];
   color: string;
+  // Zamawiający / Inwestor
+  clientName?: string;
+  clientContactPerson?: string;
+  clientPhone?: string;
+  clientEmail?: string;
+  clientNip?: string;
+  clientAddress?: string;
+  // Wyceny i koszty
+  quotations?: QuotationItem[];
+  costs?: CostItem[];
+  isDemo?: boolean;
 }
 
 export interface Task {
@@ -56,6 +105,7 @@ export interface Task {
   parentId?: string; // ID of higher-level parent task in hierarchy
   completedAt?: string;
   tags?: string[];
+  costIds?: string[]; // Powiązane koszty
   createdAt: string;
   updatedAt: string;
 }
