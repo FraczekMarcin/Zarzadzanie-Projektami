@@ -21,6 +21,7 @@ import { downloadIcsFile } from './utils/calendar';
 import { getAutoBackupConfig, createAutoBackupSnapshot } from './utils/autoBackup';
 import { ThemeMode, getThemePreference, setThemePreference, initThemeListener } from './utils/theme';
 import { CURRENT_APP_VERSION, GITHUB_REPO_URL } from './data/dockerConfig';
+import { isDemoUser, isDemoProject } from './utils/demoData';
 import { 
   FolderKanban, 
   Calendar as CalendarIcon, 
@@ -62,7 +63,11 @@ export default function App() {
   const [users, setUsers] = useState<User[]>(() => {
     try {
       const saved = localStorage.getItem('oph_users');
-      return saved ? JSON.parse(saved) : INITIAL_USERS;
+      const list: User[] = saved ? JSON.parse(saved) : INITIAL_USERS;
+      return list.map((u) => ({
+        ...u,
+        isDemo: isDemoUser(u),
+      }));
     } catch {
       return INITIAL_USERS;
     }
@@ -80,12 +85,12 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>(() => {
     try {
       const saved = localStorage.getItem('oph_projects');
-      if (!saved) return INITIAL_PROJECTS;
-      const parsed = JSON.parse(saved);
+      const parsed: Project[] = saved ? JSON.parse(saved) : INITIAL_PROJECTS;
       return parsed.map((p: any) => ({
         ...p,
         priority: p.priority === 'medium' ? 'normal' : (p.priority || 'normal'),
         durationDays: p.durationDays || 30,
+        isDemo: isDemoProject(p),
       }));
     } catch {
       return INITIAL_PROJECTS;
@@ -664,11 +669,14 @@ export default function App() {
     });
   };
 
-  // Delete all demo data (projects and users)
+  // Delete all demo data (projects and their tasks)
   const handleDeleteAllDemoData = () => {
-    const demoProjectIds = projects.filter((p) => p.isDemo).map((p) => p.id);
-    setProjects((prev) => prev.filter((p) => !p.isDemo));
+    const demoProjectIds = projects.filter(isDemoProject).map((p) => p.id);
+    setProjects((prev) => prev.filter((p) => !isDemoProject(p)));
     setTasks((prev) => prev.filter((t) => !demoProjectIds.includes(t.projectId)));
+    if (selectedProjectId && demoProjectIds.includes(selectedProjectId)) {
+      setSelectedProjectId(null);
+    }
     logActivity('Wyczyszczono wszystkie tematy i zadania demonstracyjne');
     setNotificationToast({
       message: 'Usunięto wszystkie tematy demonstracyjne. Baza projektów jest czysta.',
@@ -679,9 +687,22 @@ export default function App() {
   // Delete demo users
   const handleDeleteDemoUsers = () => {
     setUsers((prev) => {
-      const nonDemo = prev.filter((u) => !u.isDemo);
+      const nonDemo = prev.filter((u) => !isDemoUser(u));
       if (nonDemo.length === 0) {
-        return prev.slice(0, 1);
+        const defaultAdmin: User = {
+          id: `usr-${Date.now()}`,
+          name: 'Administrator',
+          email: 'admin@pracownia.pl',
+          role: 'admin',
+          department: 'Główny Projektant',
+          initials: 'AD',
+          isDemo: false,
+        };
+        setCurrentUser(defaultAdmin);
+        return [defaultAdmin];
+      }
+      if (isDemoUser(currentUser)) {
+        setCurrentUser(nonDemo[0]);
       }
       return nonDemo;
     });
@@ -890,18 +911,17 @@ export default function App() {
             />
           </button>
 
-          {/* Przycisk aktualizacja (sprawdza raz dziennie z GitHub) */}
+          {/* Przycisk bieżącej wersji z możliwością sprawdzenia wersji po kliknięciu */}
           <button
             onClick={() => {
               setSettingsTab('update');
               setIsSettingsModalOpen(true);
             }}
-            className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors whitespace-nowrap border border-slate-200 dark:border-slate-700"
-            title="Sprawdź aktualizacje z repozytorium GitHub (Weryfikacja 1x dziennie)"
+            className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors whitespace-nowrap border border-slate-200 dark:border-slate-700 group cursor-pointer"
+            title="Bieżąca wersja aplikacji: 2026-10-27 v 0.3.1. Kliknij, aby sprawdzić aktualizacje lub wdrożenie Docker."
           >
-            <RefreshCw className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
-            <span className="hidden xl:inline">Aktualizacje: v 0.3.0</span>
-            <span className="xl:hidden">v 0.3.0</span>
+            <GitBranch className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 group-hover:rotate-12 transition-transform" />
+            <span className="font-mono">{CURRENT_APP_VERSION}</span>
           </button>
 
           {/* Menu Ustawień - Symbol Zębatki ⚙️ */}
@@ -952,49 +972,15 @@ export default function App() {
         </div>
       </header>
 
-      {/* GITHUB UPDATE ANNOUNCEMENT BANNER */}
-      {!hasDismissedUpdateBanner && (
-        <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-indigo-950 text-white px-4 py-2 text-xs flex flex-wrap items-center justify-between gap-3 border-b border-emerald-500/30 shadow-xs">
-          <div className="flex items-center gap-2.5">
-            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40 text-[10px] uppercase tracking-wider">
-              Wydanie na GitHub
-            </span>
-            <span className="font-semibold text-slate-100">
-              Dostępna wersja <strong className="text-emerald-400 font-mono">{CURRENT_APP_VERSION}</strong> na <span className="font-mono text-emerald-300 underline">{GITHUB_REPO_URL}</span> (Automatyczne kopie, instalator 1-poleceniem, szablony budowlane).
-            </span>
-            <span className="hidden xl:inline text-slate-400 text-[11px]">
-              Czy chcesz sprawdzić aktualizację bez utraty danych?
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsGitHubModalOpen(true)}
-              className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded text-xs transition-colors shadow-2xs flex items-center gap-1.5"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Szczegóły & Aktualizacja</span>
-            </button>
-            <button
-              onClick={() => setHasDismissedUpdateBanner(true)}
-              className="p-1 text-slate-400 hover:text-white transition-colors"
-              title="Ukryj powiadomienie"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* 2. SUB-HEADER WORKSPACE TOOLBAR */}
-      <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-3 text-xs">
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-3 text-xs transition-colors">
         {/* Left: Project selector & Duration in days */}
         <div className="flex items-center gap-3">
-          <span className="font-semibold text-slate-500 uppercase tracking-wider text-[11px]">Projekt:</span>
+          <span className="font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-[11px]">Projekt:</span>
           <select
             value={selectedProjectId || ''}
             onChange={(e) => setSelectedProjectId(e.target.value ? e.target.value : null)}
-            className="bg-white border border-slate-200 rounded px-2.5 py-1 text-xs text-slate-900 font-semibold focus:outline-none focus:ring-1 focus:ring-sky-500"
+            className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1 text-xs text-slate-900 dark:text-slate-100 font-semibold focus:outline-none focus:ring-1 focus:ring-sky-500 transition-colors"
           >
             <option value="">Wszystkie projekty ({projects.length})</option>
             {projects.map((p) => (
@@ -1005,13 +991,13 @@ export default function App() {
           </select>
 
           {activeProject && (
-            <div className="hidden md:flex items-center gap-2 text-slate-500">
+            <div className="hidden md:flex items-center gap-2 text-slate-500 dark:text-slate-400">
               <span>·</span>
-              <span>Czas trwania: <strong className="text-slate-800 font-mono">{activeProject.durationDays || 30} dni</strong></span>
+              <span>Czas trwania: <strong className="text-slate-800 dark:text-slate-200 font-mono">{activeProject.durationDays || 30} dni</strong></span>
               <span>·</span>
-              <span>Termin: <strong className="text-slate-700 font-mono">{activeProject.dueDate}</strong></span>
+              <span>Termin: <strong className="text-slate-700 dark:text-slate-300 font-mono">{activeProject.dueDate}</strong></span>
               <span>·</span>
-              <span>Postęp: <strong className="text-slate-700 font-mono">{activeProject.progress}%</strong></span>
+              <span>Postęp: <strong className="text-slate-700 dark:text-slate-300 font-mono">{activeProject.progress}%</strong></span>
             </div>
           )}
         </div>
@@ -1025,10 +1011,10 @@ export default function App() {
                 setTaskFilterModalType('blocked');
                 setIsTaskFilterModalOpen(true);
               }}
-              className="flex items-center gap-1.5 text-amber-900 hover:text-amber-950 font-bold text-xs bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded border border-amber-300 transition-all cursor-pointer shadow-2xs hover:scale-102"
+              className="flex items-center gap-1.5 text-amber-900 dark:text-amber-200 font-bold text-xs bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-950/60 px-2.5 py-1 rounded border border-amber-300 dark:border-amber-800 transition-all cursor-pointer shadow-2xs hover:scale-102"
               title="Kliknij, aby wyświetlić listę zablokowanych zadań i przejść do konkretnego projektu"
             >
-              <Lock className="w-3.5 h-3.5 text-amber-700" />
+              <Lock className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" />
               <span>{blockedTasksCount} zablokowanych</span>
             </button>
           )}
@@ -1040,20 +1026,20 @@ export default function App() {
                 setTaskFilterModalType('critical');
                 setIsTaskFilterModalOpen(true);
               }}
-              className="flex items-center gap-1.5 text-rose-800 hover:text-rose-950 font-bold text-xs bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded border border-rose-300 transition-all cursor-pointer shadow-2xs hover:scale-102"
+              className="flex items-center gap-1.5 text-rose-800 dark:text-rose-200 font-bold text-xs bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-950/60 px-2.5 py-1 rounded border border-rose-300 dark:border-rose-800 transition-all cursor-pointer shadow-2xs hover:scale-102"
               title="Kliknij, aby wyświetlić listę krytycznych zadań i przejść do konkretnego projektu"
             >
-              <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+              <AlertCircle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
               <span>{criticalTasksCount} krytycznych</span>
             </button>
           )}
 
           {/* Mobile view switch buttons */}
-          <div className="flex lg:hidden items-center gap-1 bg-slate-100 p-0.5 rounded">
+          <div className="flex lg:hidden items-center gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded border border-slate-200 dark:border-slate-700">
             <button
               onClick={() => setActiveView('gantt')}
               className={`px-2 py-1 text-[11px] font-medium rounded ${
-                activeView === 'gantt' ? 'bg-white shadow-xs font-bold text-sky-700' : 'text-slate-600'
+                activeView === 'gantt' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
               }`}
             >
               Gantt
@@ -1061,7 +1047,7 @@ export default function App() {
             <button
               onClick={() => setActiveView('calendar')}
               className={`px-2 py-1 text-[11px] font-medium rounded ${
-                activeView === 'calendar' ? 'bg-white shadow-xs font-bold text-sky-700' : 'text-slate-600'
+                activeView === 'calendar' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
               }`}
             >
               Terminarz
@@ -1069,7 +1055,7 @@ export default function App() {
             <button
               onClick={() => setActiveView('tasks')}
               className={`px-2 py-1 text-[11px] font-medium rounded ${
-                activeView === 'tasks' ? 'bg-white shadow-xs font-bold text-sky-700' : 'text-slate-600'
+                activeView === 'tasks' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
               }`}
             >
               Zadania
@@ -1077,7 +1063,7 @@ export default function App() {
             <button
               onClick={() => setActiveView('kanban')}
               className={`px-2 py-1 text-[11px] font-medium rounded ${
-                activeView === 'kanban' ? 'bg-white shadow-xs font-bold text-sky-700' : 'text-slate-600'
+                activeView === 'kanban' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
               }`}
             >
               Kanban
@@ -1086,7 +1072,7 @@ export default function App() {
 
           <button
             onClick={() => handleOpenNewTask()}
-            className="flex items-center gap-1 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium px-3.5 py-1.5 rounded transition-colors shadow-xs"
+            className="flex items-center gap-1 bg-slate-900 dark:bg-sky-600 hover:bg-slate-800 dark:hover:bg-sky-700 text-white text-xs font-medium px-3.5 py-1.5 rounded transition-colors shadow-xs"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Nowe zadanie</span>
@@ -1094,8 +1080,8 @@ export default function App() {
         </div>
       </div>
 
-      {/* 3. MAIN WORKSPACE VIEWPORT (maksymalna szerokość - 100% ekranu) */}
-      <main className="flex-1 py-3 px-2 sm:px-3 lg:px-4 w-full max-w-none">
+      {/* 3. MAIN WORKSPACE VIEWPORT (ciemny motyw obejmuje cały obszar roboczy) */}
+      <main className="flex-1 py-3 px-2 sm:px-3 lg:px-4 w-full max-w-none bg-slate-50/50 dark:bg-slate-950 transition-colors">
         {activeView === 'gantt' && (
           <GanttChart
             tasks={tasks}

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Zarządzanie Projektami - Pracownia Projektowa / Budownictwo
-# Wersja: 2026-10-27 v 0.3.0
+# Wersja: 2026-10-27 v 0.3.1
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Ścieżka skryptu w repozytorium: Instalacja/install.sh
 # Lokalizacja docelowa na serwerze: /opt/zarzadzanie-projektami
@@ -15,7 +15,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 echo -e "${BLUE}=================================================================${NC}"
-echo -e "${GREEN}  🏗️  Zarządzanie Projektami - Instalator (Wersja 2026-10-27 v 0.3.0)${NC}"
+echo -e "${GREEN}  🏗️  Zarządzanie Projektami - Instalator (Wersja 2026-10-27 v 0.3.1)${NC}"
 echo -e "${BLUE}  Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami${NC}"
 echo -e "${BLUE}=================================================================${NC}"
 
@@ -97,7 +97,7 @@ if [ ! -f .env ]; then
     cat <<EOF > .env
 PORT=3000
 NODE_ENV=production
-APP_VERSION=2026-10-27 v 0.3.0
+APP_VERSION=2026-10-27 v 0.3.1
 POSTGRES_USER=zarzadzanie
 POSTGRES_PASSWORD=${DB_PASS}
 POSTGRES_DB=zarzadzanie_db
@@ -109,6 +109,7 @@ EOF
     echo -e "${GREEN}Plik .env wygenerowany (uprawnienia 600).${NC}"
 else
     echo -e "${YELLOW}Wykryto istniejący plik .env - zachowano konfigurację i hasła bazy danych.${NC}"
+    sed -i 's/@zarzadzanie\.local/@pracownia\.pl/g' .env 2>/dev/null || true
 fi
 
 # 7. Zabezpieczenie docker-compose.yml (usunięcie zbędnych wersji, upewnienie się o poprawnym kontekście)
@@ -149,7 +150,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      APP_VERSION: "2026-10-27 v 0.3.0"
+      APP_VERSION: "2026-10-27 v 0.3.1"
       DATABASE_URL: postgres://${POSTGRES_USER:-zarzadzanie}:${POSTGRES_PASSWORD:-TwojeBezpieczneHaslo2026!}@db:5432/${POSTGRES_DB:-zarzadzanie_db}
       APP_SECRET: ${APP_SECRET:-sekretna-fraza-szyfrowania-zarzadzanie-projektami-2026}
     ports:
@@ -164,6 +165,8 @@ services:
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@pracownia.pl}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-SuperAdminHaslo2026!}
+      PGADMIN_CONFIG_CHECK_EMAIL_DELIVERABILITY: "False"
+      PGADMIN_CONFIG_ALLOW_SPECIAL_EMAIL_DOMAINS: "['local']"
     ports:
       - "5050:80"
     depends_on:
@@ -283,7 +286,7 @@ SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
 
 echo -e "${GREEN}=================================================================${NC}"
 echo -e "${GREEN}  ✅ WDROŻENIE ZAKOŃCZONE SUKCESEM!${NC}"
-echo -e "${GREEN}  Wersja: 2026-10-27 v 0.3.0${NC}"
+echo -e "${GREEN}  Wersja: 2026-10-27 v 0.3.1${NC}"
 echo -e "${GREEN}=================================================================${NC}"
 echo -e "Aplikacja działa i jest dostępna pod:"
 echo -e "  👉 ${YELLOW}http://${SERVER_IP}:3000${NC} lub ${YELLOW}http://localhost:3000${NC}"

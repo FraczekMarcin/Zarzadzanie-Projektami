@@ -25,6 +25,7 @@ import { CURRENT_APP_VERSION, GITHUB_REPO_URL } from '../data/dockerConfig';
 import { getAutoBackupConfig, saveAutoBackupConfig } from '../utils/autoBackup';
 import { DockerConfigFile, DOCKER_COMPOSE_YML, DOCKERFILE_CONTENT, ENV_EXAMPLE_CONTENT, INSTALL_SCRIPT_CONTENT } from '../data/dockerConfig';
 import { User, Project } from '../types';
+import { isDemoUser, isDemoProject } from '../utils/demoData';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -145,8 +146,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  const demoUsersCount = users.filter((u) => u.isDemo).length;
-  const demoProjectsCount = projects.filter((p) => p.isDemo).length;
+  const demoUsersCount = users.filter(isDemoUser).length;
+  const demoProjectsCount = projects.filter(isDemoProject).length;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">

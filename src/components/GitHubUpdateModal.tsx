@@ -28,7 +28,7 @@ interface GitHubUpdateModalProps {
 export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
   isOpen,
   onClose,
-  currentVersion = '2026-10-24 v 0.1',
+  currentVersion = CURRENT_APP_VERSION,
   latestVersion = CURRENT_APP_VERSION,
   onUpdateCompleted,
 }) => {
@@ -82,11 +82,7 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
     }, 850);
   };
 
-  const terminalUpdateCommand = `cd ${INSTALL_TARGET_DIR} && \\
-docker exec -t zarzadzanie_db pg_dump -U zarzadzanie zarzadzanie_db | gzip > backups/backup_pre_upgrade.sql.gz && \\
-git pull origin main && \\
-docker compose pull && \\
-docker compose up -d --build`;
+  const terminalUpdateCommand = `cd ${INSTALL_TARGET_DIR} && git pull origin main && docker compose up -d --build`;
 
   const handleCopyCommand = () => {
     navigator.clipboard.writeText(terminalUpdateCommand);
@@ -95,29 +91,29 @@ docker compose up -d --build`;
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/70 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-emerald-100 rounded-lg text-emerald-700">
+            <div className="p-2 bg-emerald-100 dark:bg-emerald-950/60 rounded-lg text-emerald-700 dark:text-emerald-400">
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <span>Dostępna nowa wersja na GitHub</span>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <span>Wersja & Aktualizacje Systemu</span>
                 <span className="text-[11px] bg-emerald-600 text-white font-bold px-2 py-0.5 rounded-full">
-                  {latestVersion}
+                  {CURRENT_APP_VERSION}
                 </span>
               </h3>
-              <p className="text-xs text-slate-500">
-                Bieżąca wersja: <span className="font-mono text-slate-700">{currentVersion}</span> → Nowa wersja: <span className="font-mono text-emerald-700 font-bold">{latestVersion}</span>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Zainstalowana wersja: <span className="font-mono text-slate-700 dark:text-slate-200 font-semibold">{CURRENT_APP_VERSION}</span> (System jest zaktualizowany)
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition-colors"
+            className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
