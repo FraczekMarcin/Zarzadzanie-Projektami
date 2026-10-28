@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { exec } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -9,16 +10,97 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+
+// Persistent shared database directory for all clients
+const DATA_DIR = process.env.DATA_DIR || path.resolve(__dirname, 'data');
+const STATE_FILE = path.join(DATA_DIR, 'app_state.json');
+
+// Ensure data directory exists
+if (!fs.existsSync(DATA_DIR)) {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  } catch (err) {
+    console.warn('Could not create data dir:', err);
+  }
+}
+
+// In-memory cache for live synchronization and Google Calendar iCal feeds
+let serverAppStateCache: any = null;
+let serverTasksCache: any[] = [];
+let serverUsersCache: any[] = [];
+
+// Load existing state on server startup
+if (fs.existsSync(STATE_FILE)) {
+  try {
+    const raw = fs.readFileSync(STATE_FILE, 'utf-8');
+    serverAppStateCache = JSON.parse(raw);
+    if (serverAppStateCache && Array.isArray(serverAppStateCache.tasks)) {
+      serverTasksCache = serverAppStateCache.tasks;
+    }
+    if (serverAppStateCache && Array.isArray(serverAppStateCache.users)) {
+      serverUsersCache = serverAppStateCache.users;
+    }
+    console.log(`[Server] Loaded persistent state from ${STATE_FILE} (${serverTasksCache.length} tasks, ${serverUsersCache.length} users)`);
+  } catch (err) {
+    console.error('[Server] Error reading app_state.json:', err);
+  }
+}
 
 // API Healthcheck endpoint for Docker & Kubernetes
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '1.0.0',
+    version: '2026-10-28 v 0.3.2',
     timestamp: new Date().toISOString(),
-    postgresStatus: process.env.DATABASE_URL ? 'configured' : 'standalone-demo',
+    postgresStatus: process.env.DATABASE_URL ? 'configured' : 'standalone-json-db',
+    persistedState: !!serverAppStateCache,
   });
+});
+
+// SHARED DATABASE ENDPOINTS (Solves: accessing from other computers showing demo data)
+app.get('/api/state', (_req, res) => {
+  if (serverAppStateCache && serverAppStateCache.initialized) {
+    return res.json({ initialized: true, state: serverAppStateCache });
+  }
+  if (fs.existsSync(STATE_FILE)) {
+    try {
+      const raw = fs.readFileSync(STATE_FILE, 'utf-8');
+      serverAppStateCache = JSON.parse(raw);
+      return res.json({ initialized: true, state: serverAppStateCache });
+    } catch (err) {
+      console.error('[Server] Error parsing state file:', err);
+    }
+  }
+  res.json({ initialized: false, state: null });
+});
+
+app.post('/api/state', (req, res) => {
+  try {
+    const state = req.body;
+    serverAppStateCache = {
+      ...state,
+      initialized: true,
+      updatedAt: new Date().toISOString(),
+    };
+    if (Array.isArray(state.tasks)) {
+      serverTasksCache = state.tasks;
+    }
+    if (Array.isArray(state.users)) {
+      serverUsersCache = state.users;
+    }
+
+    try {
+      fs.writeFileSync(STATE_FILE, JSON.stringify(serverAppStateCache, null, 2), 'utf-8');
+    } catch (writeErr) {
+      console.error('[Server] Failed to write to disk:', writeErr);
+    }
+
+    res.json({ success: true, timestamp: serverAppStateCache.updatedAt });
+  } catch (err: any) {
+    console.error('[Server] Error saving app_state:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // Direct endpoint to download or run install.sh via curl
@@ -36,10 +118,6 @@ app.get('/install.sh', (_req, res) => {
   }
   res.status(404).send('#!/bin/bash\necho "install.sh not found"\nexit 1');
 });
-
-// Server-side cache of current tasks and users for Google Calendar live crawler polling
-let serverTasksCache: any[] = [];
-let serverUsersCache: any[] = [];
 
 // Endpoint to receive latest tasks from client for Google Calendar live sync
 app.post('/api/calendar/push-tasks', (req, res) => {
@@ -178,19 +256,87 @@ app.get('/api/calendar/all.ics', (_req, res) => {
   res.send(icsBody);
 });
 
+// REAL GITHUB UPDATE CHECKER ENDPOINT
+app.get('/api/system/check-update', async (_req, res) => {
+  try {
+    const localVersion = process.env.APP_VERSION || '2026-10-28 v 0.3.2';
+    
+    // Check GitHub raw dockerConfig.ts or package.json
+    const rawUrl = 'https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/src/data/dockerConfig.ts';
+    const resp = await fetch(`${rawUrl}?t=${Date.now()}`, { cache: 'no-cache' }).catch(() => null);
+    
+    let remoteVersion = localVersion;
+    if (resp && resp.ok) {
+      const text = await resp.text();
+      const match = text.match(/CURRENT_APP_VERSION\s*=\s*['"]([^'"]+)['"]/);
+      if (match && match[1]) {
+        remoteVersion = match[1].trim();
+      }
+    }
+
+    // Also query latest commit on main
+    let latestSha = '';
+    let commitMessage = '';
+    const ghResp = await fetch('https://api.github.com/repos/FraczekMarcin/Zarzadzanie-Projektami/commits/main', {
+      headers: { 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'OpenProject-Updater' },
+    }).catch(() => null);
+
+    if (ghResp && ghResp.ok) {
+      const cData: any = await ghResp.json();
+      latestSha = (cData.sha || '').slice(0, 7);
+      commitMessage = cData.commit?.message || '';
+    }
+
+    const hasUpdate = remoteVersion !== localVersion;
+
+    res.json({
+      localVersion,
+      remoteVersion,
+      hasUpdate,
+      latestSha,
+      commitMessage,
+      checkedAt: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// TRIGGER UPDATE ENDPOINT
+app.post('/api/system/run-update', (_req, res) => {
+  const updateCmd = 'cd ~/Zarzadzanie-Projektami && git pull origin main && cd Instalacja && sudo bash install.sh';
+  exec('git pull origin main', (error, stdout, stderr) => {
+    if (error) {
+      return res.json({
+        success: false,
+        message: 'Aplikacja działa w kontenerze Docker. Aby zaktualizować serwer produkcyjny, wykonaj polecenie w terminalu:',
+        command: updateCmd,
+        details: stderr || error.message,
+      });
+    }
+    res.json({
+      success: true,
+      message: 'Pomyślnie zaktualizowano kod z repozytorium GitHub!',
+      output: stdout,
+      command: updateCmd,
+    });
+  });
+});
+
 // API Info endpoint
 app.get('/api/system-info', (_req, res) => {
   res.json({
     name: 'Zarządzanie Projektami',
     description: 'System zarządzania projektami z wykresem Gantta, terminarzem i integracją Google Calendar na żywo',
-    version: '1.1.0',
+    version: '2026-10-28 v 0.3.2',
     deployment: 'Docker & PostgreSQL Ready',
     features: [
-      'Gantt Chart Interactive Timeline',
+      'Gantt Chart Interactive Timeline with Project Names on Bars',
       'Dependency & Blocker Engine',
-      'Google Calendar Live Two-Way Subscription (Moje Kalendarze)',
-      'Multi-User Roles & Live Audit Log',
-      'Docker Compose & PostgreSQL 16 Self-Hosting',
+      'Shared Server-side State Persistence across all PCs',
+      'Google Calendar Live Subscription as Another Calendar',
+      'Hierarchical Task Tree with Overdue and Approaching Animations',
+      'User Authentication and Administrator Approval Gate',
     ],
   });
 });
@@ -207,5 +353,5 @@ app.use((_req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`OpenProject Hub running on port ${PORT}`);
+  console.log(`Zarządzanie Projektami running on port ${PORT}`);
 });

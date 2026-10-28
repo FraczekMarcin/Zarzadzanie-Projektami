@@ -18,8 +18,11 @@ import {
   Building2,
   Calendar,
   ExternalLink,
-  Filter
+  Filter,
+  Flame,
+  Hourglass
 } from 'lucide-react';
+import { getDeadlineWarningDays } from '../utils/variableSettings';
 
 interface TaskTreeViewProps {
   tasks: Task[];
@@ -176,15 +179,33 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
       if (matchingChildren.length === 0) return null;
     }
 
+    const warningDays = getDeadlineWarningDays();
+    const today = new Date().toISOString().slice(0, 10);
+    const dueTime = new Date((task.dueDate || today) + 'T00:00:00').getTime();
+    const nowTime = new Date(today + 'T00:00:00').getTime();
+    const diffDays = Math.ceil((dueTime - nowTime) / (1000 * 60 * 60 * 24));
+
+    const isOverdue = task.status !== 'done' && (task.dueDate ? task.dueDate < today : false);
+    const isApproaching = task.status !== 'done' && !isOverdue && diffDays >= 0 && diffDays <= warningDays;
+
+    let cardStyle = '';
+    if (isOverdue) {
+      // Zadania których termin minął: tło mruga na czerwono
+      cardStyle = 'bg-rose-500/20 dark:bg-rose-950/70 border-rose-500 animate-pulse text-rose-950 dark:text-rose-100 ring-2 ring-rose-500/60 shadow-md';
+    } else if (isApproaching) {
+      // Zadania zbliżające się: obwiednia mruga
+      cardStyle = 'border-2 border-amber-500 ring-2 ring-amber-400 animate-pulse bg-amber-50/50 dark:bg-amber-950/30';
+    } else if (level === 0) {
+      cardStyle = 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-2xs hover:border-sky-400 dark:hover:border-sky-600';
+    } else {
+      cardStyle = 'bg-slate-50/70 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800';
+    }
+
     return (
       <div key={task.id} className="relative">
         {/* Node card */}
         <div 
-          className={`group flex items-center justify-between p-2.5 rounded-lg border transition-all mb-2 ${
-            level === 0 
-              ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-2xs hover:border-sky-400 dark:hover:border-sky-600' 
-              : 'bg-slate-50/70 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800'
-          }`}
+          className={`group flex items-center justify-between p-2.5 rounded-lg border transition-all mb-2 ${cardStyle}`}
           style={{ marginLeft: `${level * 24}px` }}
         >
           {/* Left Column: Branch Expander, Code, Title & Hierarchy info */}
@@ -231,6 +252,21 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
             >
               {task.title}
             </span>
+
+            {/* Overdue / Approaching Alarm Badges */}
+            {isOverdue && (
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-600 text-white shrink-0 flex items-center gap-1 shadow-xs animate-bounce">
+                <Flame className="w-3 h-3" />
+                <span>Przeterminowane ({Math.abs(diffDays)}d po terminie)</span>
+              </span>
+            )}
+
+            {isApproaching && (
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-white shrink-0 flex items-center gap-1 shadow-xs">
+                <Hourglass className="w-3 h-3" />
+                <span>Termin za {diffDays === 0 ? 'dzisiaj' : `${diffDays} dni`}</span>
+              </span>
+            )}
 
             {/* Subtasks Count Badge */}
             {hasChildren && (

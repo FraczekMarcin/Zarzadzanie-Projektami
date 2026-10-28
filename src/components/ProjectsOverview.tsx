@@ -331,9 +331,15 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
           const members = users.filter((u) => project.memberIds?.includes(u.id));
 
           // Calculate project financial metrics
-          const quoteNet = (project.quotations || []).reduce((acc, q) => acc + (q.totalNet || 0), 0);
-          const costsNet = (project.costs || []).reduce((acc, c) => acc + (c.amountNet || 0), 0);
-          const profitNet = quoteNet - costsNet;
+          const selectedQuotes = (project.quotations || []).filter((q) => q.isSelected !== false);
+          const revenueQuotes = selectedQuotes.filter((q) => q.type !== 'koszt');
+          const costQuotes = selectedQuotes.filter((q) => q.type === 'koszt');
+
+          const quoteNet = revenueQuotes.reduce((acc, q) => acc + (q.totalNet || 0), 0);
+          const directCostsNet = (project.costs || []).reduce((acc, c) => acc + (c.amountNet || 0), 0);
+          const quoteCostsNet = costQuotes.reduce((acc, q) => acc + (q.totalNet || 0), 0);
+          const totalCostsNet = directCostsNet + quoteCostsNet;
+          const profitNet = quoteNet - totalCostsNet;
 
           return (
             <div
@@ -402,29 +408,53 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                   </div>
                 )}
 
-                {/* Financial overview badge */}
-                {(quoteNet > 0 || costsNet > 0) && (
-                  <div className="mt-2 grid grid-cols-3 gap-1.5 p-2 bg-sky-50/50 dark:bg-sky-950/20 rounded border border-sky-100 dark:border-sky-900/30 text-[11px]">
+                {/* Project Value & Breakdown Card */}
+                <div className="mt-2.5 p-2.5 bg-slate-50/80 dark:bg-slate-800/50 rounded-lg border border-slate-200/80 dark:border-slate-700/80 text-xs space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                      <DollarSign className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                      <span>Wartość Projektu:</span>
+                    </span>
+                    <span className="font-mono font-bold text-slate-900 dark:text-white text-xs">
+                      {quoteNet > 0 ? `${quoteNet.toLocaleString('pl-PL')} zł netto` : (project.budget || 'Do wyceny')}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-1 pt-1 border-t border-slate-200/60 dark:border-slate-700/60 text-[10px]">
                     <div>
-                      <span className="text-[10px] text-slate-500 block">Wycena:</span>
-                      <span className="font-bold font-mono text-slate-800 dark:text-slate-200">
-                        {quoteNet > 0 ? `${quoteNet.toLocaleString('pl-PL')} zł` : '—'}
+                      <span className="text-slate-500 block">Wycena:</span>
+                      <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                        {quoteNet > 0 ? `${quoteNet.toLocaleString('pl-PL')} zł` : '0 zł'}
                       </span>
                     </div>
                     <div>
-                      <span className="text-[10px] text-slate-500 block">Koszty:</span>
-                      <span className="font-bold font-mono text-rose-600 dark:text-rose-400">
-                        {costsNet > 0 ? `${costsNet.toLocaleString('pl-PL')} zł` : '—'}
+                      <span className="text-slate-500 block">Koszty:</span>
+                      <span className="font-mono font-semibold text-rose-600 dark:text-rose-400">
+                        {totalCostsNet > 0 ? `${totalCostsNet.toLocaleString('pl-PL')} zł` : '0 zł'}
                       </span>
                     </div>
                     <div>
-                      <span className="text-[10px] text-slate-500 block">Zysk:</span>
-                      <span className={`font-bold font-mono ${profitNet >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600'}`}>
+                      <span className="text-slate-500 block">Zysk:</span>
+                      <span className={`font-mono font-bold ${profitNet >= 0 ? 'text-sky-600 dark:text-sky-400' : 'text-rose-600'}`}>
                         {profitNet.toLocaleString('pl-PL')} zł
                       </span>
                     </div>
                   </div>
-                )}
+
+                  {revenueQuotes.length > 0 && (
+                    <div className="pt-1 text-[10px] text-slate-500 dark:text-slate-400 flex flex-wrap gap-1">
+                      <span className="font-medium text-slate-600 dark:text-slate-300">Składowe:</span>
+                      {revenueQuotes.slice(0, 3).map((rq) => (
+                        <span key={rq.id} className="bg-slate-200/60 dark:bg-slate-700/50 px-1 py-0.2 rounded font-mono truncate max-w-[130px]">
+                          {rq.title}
+                        </span>
+                      ))}
+                      {revenueQuotes.length > 3 && (
+                        <span>+{revenueQuotes.length - 3}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
 
                 {/* Disk Location if specified */}
                 {project.diskPath && (

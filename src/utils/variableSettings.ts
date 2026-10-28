@@ -145,3 +145,21 @@ export function registerClientIfNew(client: Partial<ClientRecord> & { name: stri
   saveClients(updatedList);
   return updatedList;
 }
+
+export function getDeadlineWarningDays(): number {
+  try {
+    const saved = localStorage.getItem('oph_deadline_warning_days');
+    return saved ? Math.max(1, parseInt(saved, 10)) : 3;
+  } catch {
+    return 3;
+  }
+}
+
+export function saveDeadlineWarningDays(days: number): void {
+  try {
+    const val = Math.max(1, days);
+    localStorage.setItem('oph_deadline_warning_days', String(val));
+  } catch (err) {
+    console.error('Błąd zapisu dni ostrzeżenia o terminie:', err);
+  }
+}
