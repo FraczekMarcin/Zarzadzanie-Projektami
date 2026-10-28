@@ -11,6 +11,7 @@ interface TaskModalProps {
   allTasks: Task[];
   defaultProjectId?: string | null;
   defaultDate?: string;
+  defaultParentId?: string;
   initialTask?: Task | null;
 }
 
@@ -23,6 +24,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   allTasks,
   defaultProjectId,
   defaultDate,
+  defaultParentId,
   initialTask,
 }) => {
   const [projectId, setProjectId] = useState(defaultProjectId || (projects[0]?.id ?? ''));
@@ -104,9 +106,9 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       setProgress(0);
       setTagsInput('');
       setBlockingTaskIds([]);
-      setParentId('');
+      setParentId(defaultParentId || '');
     }
-  }, [initialTask, defaultProjectId, defaultDate, projects, users]);
+  }, [initialTask, defaultProjectId, defaultDate, defaultParentId, projects, users]);
 
   // When start date changes, recompute due date from duration
   const handleStartDateChange = (newStart: string) => {

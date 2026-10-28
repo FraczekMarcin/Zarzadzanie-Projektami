@@ -23,8 +23,11 @@ import {
   Trash2,
   DollarSign,
   TrendingUp,
-  Receipt
+  Receipt,
+  Folder,
+  Copy
 } from 'lucide-react';
+import { getClients, registerClientIfNew } from '../utils/variableSettings';
 
 interface ProjectsOverviewProps {
   projects: Project[];
@@ -79,6 +82,8 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   const [clientPhone, setClientPhone] = useState('');
   const [clientEmail, setClientEmail] = useState('');
   const [clientNip, setClientNip] = useState('');
+  const [diskPath, setDiskPath] = useState('');
+  const [copiedProjectId, setCopiedProjectId] = useState<string | null>(null);
 
   useEffect(() => {
     setAvailableTemplates(loadAllProjectTemplates());
@@ -162,6 +167,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setClientPhone('');
     setClientEmail('');
     setClientNip('');
+    setDiskPath('');
     setSelectedMemberIds(['usr-1', 'usr-2']);
     setIsModalOpen(true);
   };
@@ -197,12 +203,23 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setClientPhone(project.clientPhone || '');
     setClientEmail(project.clientEmail || '');
     setClientNip(project.clientNip || '');
+    setDiskPath(project.diskPath || '');
     setIsModalOpen(true);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!isFormValid) return;
+
+    if (clientName.trim()) {
+      registerClientIfNew({
+        name: clientName.trim(),
+        contactPerson: clientContactPerson.trim() || undefined,
+        phone: clientPhone.trim() || undefined,
+        email: clientEmail.trim() || undefined,
+        nip: clientNip.trim() || undefined,
+      });
+    }
 
     if (editingProject && onUpdateProject) {
       onUpdateProject({
@@ -222,6 +239,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         clientPhone: clientPhone.trim() || undefined,
         clientEmail: clientEmail.trim() || undefined,
         clientNip: clientNip.trim() || undefined,
+        diskPath: diskPath.trim() || undefined,
       });
     } else {
       const template = selectedTemplateId !== 'none'
@@ -248,6 +266,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
           clientPhone: clientPhone.trim() || undefined,
           clientEmail: clientEmail.trim() || undefined,
           clientNip: clientNip.trim() || undefined,
+          diskPath: diskPath.trim() || undefined,
         },
         template
       );
@@ -404,6 +423,31 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                         {profitNet.toLocaleString('pl-PL')} zł
                       </span>
                     </div>
+                  </div>
+                )}
+
+                {/* Disk Location if specified */}
+                {project.diskPath && (
+                  <div className="mt-2.5 px-2.5 py-1.5 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-900/40 rounded flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Folder className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <span className="font-mono text-[11px] text-slate-700 dark:text-slate-300 truncate" title={project.diskPath}>
+                        {project.diskPath}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigator.clipboard.writeText(project.diskPath || '');
+                        setCopiedProjectId(project.id);
+                        setTimeout(() => setCopiedProjectId(null), 2000);
+                      }}
+                      className="p-1 hover:bg-amber-100 dark:hover:bg-amber-900/60 rounded text-amber-700 dark:text-amber-300 shrink-0 ml-1"
+                      title="Kopiuj ścieżkę na dysku"
+                    >
+                      {copiedProjectId === project.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
                   </div>
                 )}
 
@@ -688,7 +732,30 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Nazwa firmy / Inwestora</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] text-slate-600 dark:text-slate-400">Nazwa firmy / Inwestora</label>
+                      {getClients().length > 0 && (
+                        <select
+                          onChange={(e) => {
+                            const c = getClients().find((item) => item.id === e.target.value);
+                            if (c) {
+                              setClientName(c.name);
+                              if (c.contactPerson) setClientContactPerson(c.contactPerson);
+                              if (c.phone) setClientPhone(c.phone);
+                              if (c.email) setClientEmail(c.email);
+                              if (c.nip) setClientNip(c.nip);
+                            }
+                          }}
+                          defaultValue=""
+                          className="text-[10px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-0.5 text-slate-600 dark:text-slate-300"
+                        >
+                          <option value="" disabled>Wybierz z bazy</option>
+                          {getClients().map((c) => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
                     <input
                       type="text"
                       value={clientName}
@@ -741,6 +808,21 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                     />
                   </div>
                 </div>
+              </div>
+
+              {/* LOKALIZACJA NA DYSKU / NAS */}
+              <div className="p-3 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 rounded-lg space-y-1.5">
+                <span className="font-semibold text-amber-900 dark:text-amber-200 block text-[11px] uppercase tracking-wide flex items-center gap-1.5">
+                  <Folder className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                  <span>Lokalizacja na dysku lokalnym lub serwerze NAS</span>
+                </span>
+                <input
+                  type="text"
+                  value={diskPath}
+                  onChange={(e) => setDiskPath(e.target.value)}
+                  placeholder="np. Z:\PROJEKTY\2026\2026-01-NordicTower lub /mnt/nas/projekty/..."
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono"
+                />
               </div>
 
               {/* DURATION & DATES */}

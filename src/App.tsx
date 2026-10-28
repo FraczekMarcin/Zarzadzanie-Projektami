@@ -6,6 +6,7 @@ import { CalendarView } from './components/CalendarView';
 import { TaskListView } from './components/TaskListView';
 import { KanbanView } from './components/KanbanView';
 import { ProjectsOverview } from './components/ProjectsOverview';
+import { TaskTreeView } from './components/TaskTreeView';
 import { TaskModal } from './components/TaskModal';
 import { TaskDetailDrawer } from './components/TaskDetailDrawer';
 import { DockerDeploymentModal } from './components/DockerDeploymentModal';
@@ -56,7 +57,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 
-type ActiveView = 'gantt' | 'calendar' | 'tasks' | 'kanban' | 'projects';
+type ActiveView = 'gantt' | 'calendar' | 'tasks' | 'tree' | 'kanban' | 'projects';
 
 export default function App() {
   // Persistence state with auto-migration to prevent legacy crash
@@ -158,6 +159,7 @@ export default function App() {
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [defaultTaskDate, setDefaultTaskDate] = useState<string | undefined>(undefined);
+  const [defaultParentId, setDefaultParentId] = useState<string | undefined>(undefined);
   const [selectedTaskDetail, setSelectedTaskDetail] = useState<Task | null>(null);
   const [isDockerModalOpen, setIsDockerModalOpen] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
@@ -167,10 +169,13 @@ export default function App() {
   const [taskFilterModalType, setTaskFilterModalType] = useState<'blocked' | 'critical'>('blocked');
   const [isGitHubModalOpen, setIsGitHubModalOpen] = useState(false);
   const [hasDismissedUpdateBanner, setHasDismissedUpdateBanner] = useState(false);
+  const [hasUpdateAvailable, setHasUpdateAvailable] = useState<boolean>(() => {
+    return localStorage.getItem('oph_update_available') === 'true';
+  });
 
   // Settings & Theme State
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'theme' | 'update' | 'docker' | 'users' | 'backup'>('theme');
+  const [settingsTab, setSettingsTab] = useState<'theme' | 'update' | 'docker' | 'users' | 'backup' | 'variables'>('theme');
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => getThemePreference());
   const [isBackupActive, setIsBackupActive] = useState<boolean>(() => {
     try {
@@ -765,9 +770,13 @@ export default function App() {
   };
 
   // Open modal handlers
-  const handleOpenNewTask = (dateStr?: string) => {
+  const handleOpenNewTask = (dateStr?: string, parentTaskId?: string, projectId?: string) => {
     setEditingTask(null);
     setDefaultTaskDate(dateStr);
+    setDefaultParentId(parentTaskId);
+    if (projectId) {
+      setSelectedProjectId(projectId);
+    }
     setIsTaskModalOpen(true);
   };
 
@@ -857,6 +866,18 @@ export default function App() {
           </button>
 
           <button
+            onClick={() => setActiveView('tree')}
+            className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
+              activeView === 'tree'
+                ? 'text-sky-600 dark:text-sky-400 border-b-2 border-sky-600 font-bold'
+                : 'hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            <GitMerge className="w-3.5 h-3.5" />
+            <span>Drzewo zadań</span>
+          </button>
+
+          <button
             onClick={() => setActiveView('kanban')}
             className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
               activeView === 'kanban'
@@ -911,17 +932,30 @@ export default function App() {
             />
           </button>
 
-          {/* Przycisk bieżącej wersji z możliwością sprawdzenia wersji po kliknięciu */}
+          {/* Przycisk bieżącej wersji: zielony gdy aktualna, czerwony gdy nowa wersja */}
           <button
             onClick={() => {
               setSettingsTab('update');
               setIsSettingsModalOpen(true);
             }}
-            className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors whitespace-nowrap border border-slate-200 dark:border-slate-700 group cursor-pointer"
-            title="Bieżąca wersja aplikacji: 2026-10-27 v 0.3.1. Kliknij, aby sprawdzić aktualizacje lub wdrożenie Docker."
+            className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-all whitespace-nowrap border cursor-pointer ${
+              hasUpdateAvailable
+                ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-400 dark:border-rose-800 hover:bg-rose-100 animate-pulse'
+                : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100'
+            }`}
+            title={
+              hasUpdateAvailable
+                ? `Dostępna jest nowa wersja oprogramowania! Kliknij, aby sprawdzić i zaktualizować (Obecnie: ${CURRENT_APP_VERSION})`
+                : `Wersja oprogramowania: ${CURRENT_APP_VERSION} (Wersja aktualna)`
+            }
           >
-            <GitBranch className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 group-hover:rotate-12 transition-transform" />
+            <GitBranch className={`w-3.5 h-3.5 ${hasUpdateAvailable ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`} />
             <span className="font-mono">{CURRENT_APP_VERSION}</span>
+            <span
+              className={`w-2 h-2 rounded-full ${
+                hasUpdateAvailable ? 'bg-rose-500 animate-ping' : 'bg-emerald-500'
+              }`}
+            />
           </button>
 
           {/* Menu Ustawień - Symbol Zębatki ⚙️ */}
@@ -1061,6 +1095,14 @@ export default function App() {
               Zadania
             </button>
             <button
+              onClick={() => setActiveView('tree')}
+              className={`px-2 py-1 text-[11px] font-medium rounded ${
+                activeView === 'tree' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
+              }`}
+            >
+              Drzewo
+            </button>
+            <button
               onClick={() => setActiveView('kanban')}
               className={`px-2 py-1 text-[11px] font-medium rounded ${
                 activeView === 'kanban' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
@@ -1117,6 +1159,19 @@ export default function App() {
           />
         )}
 
+        {activeView === 'tree' && (
+          <TaskTreeView
+            tasks={tasks}
+            projects={projects}
+            users={users}
+            selectedProjectId={selectedProjectId}
+            onSelectProject={(projId) => setSelectedProjectId(projId)}
+            onSelectTask={handleSelectTask}
+            onAddTask={(projId, parentTaskId) => handleOpenNewTask(undefined, parentTaskId, projId)}
+            onUpdateTaskStatus={handleUpdateStatus}
+          />
+        )}
+
         {activeView === 'kanban' && (
           <KanbanView
             tasks={tasks}
@@ -1160,6 +1215,7 @@ export default function App() {
         allTasks={tasks}
         defaultProjectId={selectedProjectId}
         defaultDate={defaultTaskDate}
+        defaultParentId={defaultParentId}
         initialTask={editingTask}
       />
 
@@ -1223,13 +1279,18 @@ export default function App() {
         }}
       />
 
-      {/* Settings Modal (Symbol zębatki ⚙️: Motyw, Aktualizacje, Docker, Użytkownicy, Archiwizacja) */}
+      {/* Settings Modal (Symbol zębatki ⚙️: Motyw, Zmienne VAT & Inwestorzy, Aktualizacje, Docker, Użytkownicy, Archiwizacja) */}
       <SettingsModal
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
         users={users}
         projects={projects}
         currentUser={currentUser}
+        hasUpdateAvailable={hasUpdateAvailable}
+        onToggleUpdateSimulation={(val) => {
+          setHasUpdateAvailable(val);
+          localStorage.setItem('oph_update_available', String(val));
+        }}
         onDeleteDemoUsers={handleDeleteDemoUsers}
         onDeleteAllDemoData={handleDeleteAllDemoData}
         onOpenUserModal={() => setIsUserModalOpen(true)}

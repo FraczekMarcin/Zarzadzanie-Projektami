@@ -1,6 +1,6 @@
 # 🏗️ Zarządzanie Projektami (Pracownia Projektowa / Budownictwo)
 
-[![Wersja](https://img.shields.io/badge/Wersja-2026--10--27%20v%200.3.1-emerald.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
+[![Wersja](https://img.shields.io/badge/Wersja-2026--10--28%20v%200.3.2-emerald.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
 [![Docker](https://img.shields.io/badge/Docker-PostgreSQL%2016-blue.svg)](https://www.docker.com/)
 [![Licencja](https://img.shields.io/badge/Licencja-MIT-green.svg)](LICENSE)
 [![GitHub](https://img.shields.io/badge/GitHub-FraczekMarcin%2FZarzadzanie--Projektami-purple.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
@@ -110,16 +110,17 @@ volumes:
 Fizyczne pliki bazy danych znajdują się w trwałym katalogu hosta (`/var/lib/docker/volumes/zarzadzanie_postgres_data/_data`). Podczas aktualizacji Docker podmienia jedynie warstwę kodu aplikacji, a wolumen bazy danych pozostaje **nienaruszony**.
 
 ### Bezpieczna procedura aktualizacji do najnowszej wersji:
+
+#### Metoda 1 (Zalecana i sprawdzona):
+```bash
+cd ~/Zarzadzanie-Projektami && git pull origin main && cd Instalacja && sudo bash install.sh
+```
+
+#### Metoda 2 (Bezpośrednio w `/opt/zarzadzanie-projektami`):
 ```bash
 cd /opt/zarzadzanie-projektami
-
-# 1. Kopia bezpieczeństwa przed aktualizacją (zalecane)
 sudo bash backup.sh
-
-# 2. Pobranie najnowszych zmian z repozytorium GitHub
-git pull origin main
-
-# 3. Przeładowanie kontenerów (dane bazy zostają zachowane!)
+git stash && git pull origin main
 docker compose up -d --build
 ```
 

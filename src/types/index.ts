@@ -20,11 +20,15 @@ export interface User {
 
 export interface QuotationItem {
   id: string;
-  title: string;
+  title: string; // Nazwa wyceny
+  companyName?: string; // Firma / Oferent
+  isSelected?: boolean; // Znacznik: Wybrana (tylko wybrana przechodzi do bilansu)
+  taxType?: 'netto' | 'brutto' | 'zwolniony'; // Typ kalkulacji: Netto, Brutto lub Zwolniony z VAT
   quantity: number;
   unit: string; // np. 'kpl', 'szt', 'godz', 'm²'
   unitPriceNet: number;
-  vatRate: number; // np. 23 (%)
+  unitPriceGross?: number;
+  vatRate: number; // np. 23 (%) lub 0
   totalNet: number;
   totalGross: number;
   status: 'draft' | 'sent' | 'accepted' | 'rejected' | 'invoiced';
@@ -76,6 +80,8 @@ export interface Project {
   clientEmail?: string;
   clientNip?: string;
   clientAddress?: string;
+  // Lokalizacja na dysku / serwerze NAS
+  diskPath?: string;
   // Wyceny i koszty
   quotations?: QuotationItem[];
   costs?: CostItem[];
