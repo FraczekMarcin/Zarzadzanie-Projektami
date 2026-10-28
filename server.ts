@@ -51,7 +51,7 @@ if (fs.existsSync(STATE_FILE)) {
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '2026-10-28 v 0.3.2',
+    version: '2026-10-28 v 0.3.3',
     timestamp: new Date().toISOString(),
     postgresStatus: process.env.DATABASE_URL ? 'configured' : 'standalone-json-db',
     persistedState: !!serverAppStateCache,
