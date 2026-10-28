@@ -394,7 +394,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                           ? 'task-blocked-style text-slate-800 border-slate-300'
                           : 'bg-amber-50/90 text-amber-900 border-amber-200'
                       }`}>
-                        {task.title}
+                        {task.title} {taskProject && <span className="opacity-75 font-normal text-[10px]">[{taskProject.key}: {taskProject.name}]</span>}
                       </span>
                     </div>
                   ) : (
@@ -404,7 +404,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                         width: `${Math.max(2.2, widthPercent)}%`,
                       }}
                       onClick={() => onSelectTask(task)}
-                      className={`absolute h-7 rounded-md cursor-pointer transition-all hover:ring-2 hover:ring-sky-400 shadow-xs flex items-center overflow-hidden border text-white text-[11px] font-medium group/bar ${
+                      className={`absolute h-9 rounded-md cursor-pointer transition-all hover:ring-2 hover:ring-sky-400 shadow-xs flex items-center overflow-hidden border text-white text-[11px] font-medium group/bar ${
                         isBlocked
                           ? 'task-blocked-style border-slate-400 !text-slate-800'
                           : 'border-slate-300/80 bg-slate-700'
@@ -424,16 +424,23 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                         />
                       )}
 
-                      {/* Content inside bar */}
-                      <div className="relative z-10 px-2 flex items-center justify-between w-full truncate">
-                        <div className="flex items-center gap-1 truncate">
-                          {isBlocked && <Lock className="w-3 h-3 text-rose-700 shrink-0" />}
-                          {task.isOfficialDeadline && (
-                            <ShieldAlert className="w-3 h-3 text-rose-600 shrink-0" />
+                      {/* Content inside bar with project name */}
+                      <div className="relative z-10 px-2 flex items-center justify-between w-full min-w-0">
+                        <div className="flex flex-col min-w-0 leading-tight">
+                          <div className="flex items-center gap-1 min-w-0">
+                            {isBlocked && <Lock className="w-3 h-3 text-rose-700 shrink-0" />}
+                            {task.isOfficialDeadline && (
+                              <ShieldAlert className="w-3 h-3 text-rose-600 shrink-0" />
+                            )}
+                            <span className="truncate drop-shadow-xs font-semibold text-[11px]">{task.title}</span>
+                          </div>
+                          {taskProject && (
+                            <span className="truncate text-[9px] font-mono opacity-90 drop-shadow-xs text-sky-100">
+                              [{taskProject.key}] {taskProject.name}
+                            </span>
                           )}
-                          <span className="truncate drop-shadow-xs font-semibold">{task.title}</span>
                         </div>
-                        <span className="font-mono tabular-nums text-[10px] ml-1.5 opacity-90 shrink-0">
+                        <span className="font-mono tabular-nums text-[10px] ml-1.5 opacity-90 shrink-0 self-center">
                           {task.durationDays || 1}d
                         </span>
                       </div>

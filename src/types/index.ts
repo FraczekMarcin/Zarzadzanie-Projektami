@@ -16,12 +16,15 @@ export interface User {
   initials: string;
   password?: string;
   isDemo?: boolean;
+  isApproved?: boolean; // Nowy użytkownik musi być zatwierdzony przez administratora
+  registeredAt?: string;
 }
 
 export interface QuotationItem {
   id: string;
   title: string; // Nazwa wyceny
   companyName?: string; // Firma / Oferent
+  type?: 'przychod' | 'koszt'; // Kierunek: Przychód pracowni (wycena dla klienta) lub Koszt (oferta podwykonawcy)
   isSelected?: boolean; // Znacznik: Wybrana (tylko wybrana przechodzi do bilansu)
   taxType?: 'netto' | 'brutto' | 'zwolniony'; // Typ kalkulacji: Netto, Brutto lub Zwolniony z VAT
   quantity: number;
