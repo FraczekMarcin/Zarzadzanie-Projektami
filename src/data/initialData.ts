@@ -76,10 +76,14 @@ export const INITIAL_PROJECTS: Project[] = [
     clientEmail: 'm.zawadzki@nordicdev.pl',
     clientNip: '525-288-99-12',
     clientAddress: 'al. Jana Pawła II 22, 00-133 Warszawa',
+    diskPath: 'Z:\\PROJEKTY\\2026\\2026-01-NordicTower',
     quotations: [
       {
         id: 'q-101',
         title: 'Projekt Zagospodarowania Terenu (PZT) i Koncepcja',
+        companyName: 'Pracownia Architektoniczna Frączek',
+        isSelected: true,
+        taxType: 'netto',
         quantity: 1,
         unit: 'kpl',
         unitPriceNet: 45000,
@@ -92,6 +96,9 @@ export const INITIAL_PROJECTS: Project[] = [
       {
         id: 'q-102',
         title: 'Projekt Architektoniczno-Budowlany (PAB) do PnB',
+        companyName: 'Pracownia Architektoniczna Frączek',
+        isSelected: true,
+        taxType: 'netto',
         quantity: 1,
         unit: 'kpl',
         unitPriceNet: 115000,
@@ -104,6 +111,9 @@ export const INITIAL_PROJECTS: Project[] = [
       {
         id: 'q-103',
         title: 'Projekt Techniczny (PT) Wielobranżowy (Konstrukcja + HVAC + EL)',
+        companyName: 'Pracownia Architektoniczna Frączek',
+        isSelected: true,
+        taxType: 'netto',
         quantity: 1,
         unit: 'kpl',
         unitPriceNet: 95000,
@@ -116,6 +126,9 @@ export const INITIAL_PROJECTS: Project[] = [
       {
         id: 'q-104',
         title: 'Nadzory Autorskie na budowie (15 pobytów na budowie)',
+        companyName: 'Pracownia Architektoniczna Frączek',
+        isSelected: true,
+        taxType: 'netto',
         quantity: 15,
         unit: 'pobyt',
         unitPriceNet: 1666.67,
@@ -207,10 +220,14 @@ export const INITIAL_PROJECTS: Project[] = [
     clientEmail: 'a.kowalczyk@zielonetarasy.pl',
     clientNip: '777-123-45-67',
     clientAddress: 'ul. Parkowa 44, 60-101 Poznań',
+    diskPath: 'Z:\\PROJEKTY\\2026\\2026-02-ZieloneTarasy',
     quotations: [
       {
         id: 'q-201',
         title: 'Koncepcja Urbanistyczno-Architektoniczna osiedla',
+        companyName: 'Pracownia Architektoniczna Frączek',
+        isSelected: true,
+        taxType: 'netto',
         quantity: 1,
         unit: 'kpl',
         unitPriceNet: 60000,
@@ -222,6 +239,9 @@ export const INITIAL_PROJECTS: Project[] = [
       {
         id: 'q-202',
         title: 'Projekt Budowlany wielobranżowy (3 budynki wielorodzinne)',
+        companyName: 'Pracownia Architektoniczna Frączek',
+        isSelected: true,
+        taxType: 'netto',
         quantity: 1,
         unit: 'kpl',
         unitPriceNet: 260000,
@@ -278,10 +298,14 @@ export const INITIAL_PROJECTS: Project[] = [
     clientEmail: 'tomasz.adamski@logisticspark.pl',
     clientNip: '894-332-11-00',
     clientAddress: 'ul. Magazynowa 1, 55-040 Kobierzyce',
+    diskPath: 'Z:\\PROJEKTY\\2026\\2026-03-HalaMagazynowa',
     quotations: [
       {
         id: 'q-301',
         title: 'Projekt Wykonawczy Konstrukcji Stalowej i Fundamentów',
+        companyName: 'Pracownia Architektoniczna Frączek',
+        isSelected: true,
+        taxType: 'netto',
         quantity: 1,
         unit: 'kpl',
         unitPriceNet: 120000,
@@ -293,6 +317,9 @@ export const INITIAL_PROJECTS: Project[] = [
       {
         id: 'q-302',
         title: 'Projekt Wykonawczy Instalacji Przemysłowych i PPOŻ (Tryskacze)',
+        companyName: 'Pracownia Architektoniczna Frączek',
+        isSelected: true,
+        taxType: 'netto',
         quantity: 1,
         unit: 'kpl',
         unitPriceNet: 75000,

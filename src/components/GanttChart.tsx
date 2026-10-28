@@ -228,6 +228,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             ) : (
               filteredTasks.map((task) => {
                 const assignee = users.find((u) => u.id === task.assigneeId);
+                const taskProject = projects.find((p) => p.id === task.projectId);
                 const isBlocked = task.status === 'blocked';
                 const isOfficialWarning = isApproachingOfficialDeadline(task);
                 const businessDaysRemaining = getBusinessDaysRemaining(task.dueDate);
@@ -236,38 +237,47 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                   <div
                     key={task.id}
                     onClick={() => onSelectTask(task)}
-                    className={`h-12 px-3 flex items-center justify-between cursor-pointer transition-colors group relative ${
+                    className={`h-14 px-3 flex items-center justify-between cursor-pointer transition-colors group relative ${
                       isBlocked
                         ? 'task-blocked-style'
                         : 'hover:bg-sky-50/60 dark:hover:bg-slate-800/60 bg-white dark:bg-slate-900'
                     } ${isOfficialWarning ? 'animate-official-deadline' : ''}`}
                   >
-                    <div className="flex items-center gap-1.5 min-w-0 pr-2">
-                      {task.parentId && (
-                        <span className="text-slate-300 dark:text-slate-600 ml-1">↳</span>
-                      )}
-                      <span className="shrink-0">{getTypeIcon(task.type)}</span>
-                      <span className="font-mono text-xs text-slate-500 dark:text-slate-400 tabular-nums shrink-0">{task.code}</span>
-                      <span className={`text-xs font-medium truncate ${isBlocked ? 'text-slate-700 dark:text-slate-200 font-semibold' : 'text-slate-800 dark:text-slate-200'}`} title={task.title}>
-                        {task.title}
-                      </span>
-                      {task.isOfficialDeadline && (
-                        <span
-                          className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1 rounded border shrink-0 ${
-                            isOfficialWarning
-                              ? 'bg-rose-100 text-rose-800 border-rose-300 animate-pulse'
-                              : 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                          }`}
-                          title={`Termin urzędowy. Dni robocze: ${businessDaysRemaining}`}
-                        >
-                          <ShieldAlert className="w-2.5 h-2.5 text-rose-600" />
-                          <span>{businessDaysRemaining}d</span>
+                    <div className="flex flex-col justify-center min-w-0 pr-2 flex-1">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {task.parentId && (
+                          <span className="text-slate-300 dark:text-slate-600 ml-1">↳</span>
+                        )}
+                        <span className="shrink-0">{getTypeIcon(task.type)}</span>
+                        <span className="font-mono text-xs text-slate-500 dark:text-slate-400 tabular-nums shrink-0">{task.code}</span>
+                        <span className={`text-xs font-medium truncate ${isBlocked ? 'text-slate-700 dark:text-slate-200 font-semibold' : 'text-slate-800 dark:text-slate-200'}`} title={task.title}>
+                          {task.title}
                         </span>
-                      )}
-                      {isBlocked && (
-                        <span title="Zadanie zablokowane (wymaga ukończenia poprzedników)">
-                          <Lock className="w-3 h-3 text-rose-700 shrink-0" />
-                        </span>
+                        {task.isOfficialDeadline && (
+                          <span
+                            className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1 rounded border shrink-0 ${
+                              isOfficialWarning
+                                ? 'bg-rose-100 text-rose-800 border-rose-300 animate-pulse'
+                                : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                            }`}
+                            title={`Termin urzędowy. Dni robocze: ${businessDaysRemaining}`}
+                          >
+                            <ShieldAlert className="w-2.5 h-2.5 text-rose-600" />
+                            <span>{businessDaysRemaining}d</span>
+                          </span>
+                        )}
+                        {isBlocked && (
+                          <span title="Zadanie zablokowane (wymaga ukończenia poprzedników)">
+                            <Lock className="w-3 h-3 text-rose-700 shrink-0" />
+                          </span>
+                        )}
+                      </div>
+                      {taskProject && (
+                        <div className="text-[10px] text-slate-400 dark:text-slate-500 truncate pl-5 flex items-center gap-1">
+                          <span className="font-mono text-sky-700 dark:text-sky-400 font-semibold">{taskProject.key}</span>
+                          <span>·</span>
+                          <span className="truncate">{taskProject.name}</span>
+                        </div>
                       )}
                     </div>
 
@@ -361,7 +371,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
               return (
                 <div
                   key={task.id}
-                  className="h-12 relative flex items-center hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors group"
+                  className="h-14 relative flex items-center hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors group"
                 >
                   {/* Task Bar / Milestone marker */}
                   {isMilestone ? (

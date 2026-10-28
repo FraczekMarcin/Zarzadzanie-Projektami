@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Project, Task, QuotationItem, CostItem, CostCategory } from '../types';
+import { getVatRates, getClients, registerClientIfNew, VatRateOption } from '../utils/variableSettings';
 import { 
   X, 
   Building2, 
@@ -18,7 +19,12 @@ import {
   Mail,
   MapPin,
   Clock,
-  Layers
+  Layers,
+  Folder,
+  Copy,
+  Check,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 
 interface ProjectFinancialsModalProps {
@@ -36,7 +42,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   tasks,
   onSaveProject,
 }) => {
-  const [activeTab, setActiveTab] = useState<'client' | 'quotations' | 'costs' | 'summary'>('quotations');
+  const [activeTab, setActiveTab] = useState<'quotations' | 'costs' | 'client' | 'summary'>('quotations');
 
   // Client form fields
   const [clientName, setClientName] = useState(project.clientName || '');
@@ -45,18 +51,36 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   const [clientEmail, setClientEmail] = useState(project.clientEmail || '');
   const [clientNip, setClientNip] = useState(project.clientNip || '');
   const [clientAddress, setClientAddress] = useState(project.clientAddress || '');
+  const [diskPath, setDiskPath] = useState(project.diskPath || '');
+  const [copiedPath, setCopiedPath] = useState(false);
   
   // Dates
   const [startDate, setStartDate] = useState(project.startDate || '2026-10-01');
   const [dueDate, setDueDate] = useState(project.dueDate || '2027-02-28');
 
   // Quotation items
-  const [quotations, setQuotations] = useState<QuotationItem[]>(project.quotations || []);
+  const [quotations, setQuotations] = useState<QuotationItem[]>(() => {
+    return (project.quotations || []).map((q) => ({
+      ...q,
+      companyName: q.companyName || project.clientName || 'Inwestor Główny',
+      isSelected: q.isSelected !== undefined ? q.isSelected : true,
+      taxType: q.taxType || 'netto',
+    }));
+  });
+
+  // Quotation Form State
   const [newQuoteTitle, setNewQuoteTitle] = useState('');
+  const [newQuoteCompany, setNewQuoteCompany] = useState(project.clientName || '');
   const [newQuoteQuantity, setNewQuoteQuantity] = useState(1);
   const [newQuoteUnit, setNewQuoteUnit] = useState('kpl');
-  const [newQuotePriceNet, setNewQuotePriceNet] = useState(10000);
+  const [newQuotePrice, setNewQuotePrice] = useState(10000);
+  const [newQuoteTaxType, setNewQuoteTaxType] = useState<'netto' | 'brutto' | 'zwolniony'>('netto');
   const [newQuoteVatRate, setNewQuoteVatRate] = useState(23);
+  const [newQuoteIsSelected, setNewQuoteIsSelected] = useState(true);
+
+  // Available VAT rates from system variables
+  const vatRateOptions = getVatRates();
+  const availableClients = getClients();
 
   // Costs items
   const [costs, setCosts] = useState<CostItem[]>(project.costs || []);
@@ -75,9 +99,10 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   // Filter tasks belonging to this project
   const projectTasks = tasks.filter((t) => t.projectId === project.id);
 
-  // Totals calculations
-  const totalQuotationNet = quotations.reduce((acc, q) => acc + (q.totalNet || 0), 0);
-  const totalQuotationGross = quotations.reduce((acc, q) => acc + (q.totalGross || 0), 0);
+  // Totals calculations - ONLY include selected quotations into project balance!
+  const selectedQuotations = quotations.filter((q) => q.isSelected !== false);
+  const totalQuotationNet = selectedQuotations.reduce((acc, q) => acc + (q.totalNet || 0), 0);
+  const totalQuotationGross = selectedQuotations.reduce((acc, q) => acc + (q.totalGross || 0), 0);
 
   const totalCostsNet = costs.reduce((acc, c) => acc + (c.amountNet || 0), 0);
   const totalCostsGross = costs.reduce((acc, c) => acc + (c.amountGross || 0), 0);
@@ -95,25 +120,53 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
     e.preventDefault();
     if (!newQuoteTitle.trim()) return;
 
-    const totalNet = Number(newQuoteQuantity) * Number(newQuotePriceNet);
-    const totalGross = totalNet * (1 + newQuoteVatRate / 100);
+    let unitNet = Number(newQuotePrice);
+    let unitGross = Number(newQuotePrice);
+    let vatRate = newQuoteVatRate;
+
+    if (newQuoteTaxType === 'zwolniony') {
+      vatRate = 0;
+      unitNet = Number(newQuotePrice);
+      unitGross = unitNet;
+    } else if (newQuoteTaxType === 'brutto') {
+      unitGross = Number(newQuotePrice);
+      unitNet = vatRate > 0 ? Math.round((unitGross / (1 + vatRate / 100)) * 100) / 100 : unitGross;
+    } else {
+      // 'netto'
+      unitNet = Number(newQuotePrice);
+      unitGross = Math.round(unitNet * (1 + vatRate / 100) * 100) / 100;
+    }
+
+    const totalNet = Math.round(Number(newQuoteQuantity) * unitNet * 100) / 100;
+    const totalGross = Math.round(Number(newQuoteQuantity) * unitGross * 100) / 100;
 
     const newItem: QuotationItem = {
       id: `q-${Date.now()}`,
       title: newQuoteTitle.trim(),
+      companyName: newQuoteCompany.trim() || clientName || 'Pracownia Projektowa',
       quantity: Number(newQuoteQuantity),
       unit: newQuoteUnit,
-      unitPriceNet: Number(newQuotePriceNet),
-      vatRate: newQuoteVatRate,
+      unitPriceNet: unitNet,
+      unitPriceGross: unitGross,
+      taxType: newQuoteTaxType,
+      vatRate,
       totalNet,
-      totalGross: Math.round(totalGross * 100) / 100,
+      totalGross,
+      isSelected: newQuoteIsSelected,
       status: 'accepted',
     };
 
     setQuotations([...quotations, newItem]);
     setNewQuoteTitle('');
+    setNewQuoteCompany(clientName || '');
     setNewQuoteQuantity(1);
-    setNewQuotePriceNet(5000);
+    setNewQuotePrice(5000);
+  };
+
+  const handleToggleSelectQuotation = (id: string) => {
+    setQuotations(
+      quotations.map((q) => (q.id === id ? { ...q, isSelected: !q.isSelected } : q))
+    );
   };
 
   const handleDeleteQuotation = (id: string) => {
@@ -152,7 +205,38 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
     setCosts(costs.filter((c) => c.id !== id));
   };
 
+  const handleSelectPredefinedClient = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selected = availableClients.find((c) => c.id === e.target.value);
+    if (selected) {
+      setClientName(selected.name);
+      if (selected.contactPerson) setClientContactPerson(selected.contactPerson);
+      if (selected.phone) setClientPhone(selected.phone);
+      if (selected.email) setClientEmail(selected.email);
+      if (selected.nip) setClientNip(selected.nip);
+      if (selected.address) setClientAddress(selected.address);
+    }
+  };
+
+  const handleCopyDiskPath = () => {
+    if (!diskPath) return;
+    navigator.clipboard.writeText(diskPath);
+    setCopiedPath(true);
+    setTimeout(() => setCopiedPath(false), 2500);
+  };
+
   const handleSaveAll = () => {
+    // If client was entered, register into variable database automatically
+    if (clientName.trim()) {
+      registerClientIfNew({
+        name: clientName.trim(),
+        contactPerson: clientContactPerson.trim() || undefined,
+        phone: clientPhone.trim() || undefined,
+        email: clientEmail.trim() || undefined,
+        nip: clientNip.trim() || undefined,
+        address: clientAddress.trim() || undefined,
+      });
+    }
+
     const updated: Project = {
       ...project,
       clientName: clientName.trim() || undefined,
@@ -161,6 +245,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
       clientEmail: clientEmail.trim() || undefined,
       clientNip: clientNip.trim() || undefined,
       clientAddress: clientAddress.trim() || undefined,
+      diskPath: diskPath.trim() || undefined,
       startDate,
       dueDate,
       quotations,
@@ -224,48 +309,51 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
         {/* Top Financial Stats Bar */}
         <div className="bg-slate-100/70 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 px-6 py-2.5 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
           <div>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400 block">Wycena Inwestora (Netto)</span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 block">Wycena w bilansie (Netto)</span>
             <span className="font-bold text-slate-900 dark:text-white text-sm font-mono">
               {totalQuotationNet.toLocaleString('pl-PL')} PLN
             </span>
           </div>
+
           <div>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400 block">Koszty Zewnętrzne (Netto)</span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 block">Koszty łączne (Netto)</span>
             <span className="font-bold text-rose-600 dark:text-rose-400 text-sm font-mono">
               {totalCostsNet.toLocaleString('pl-PL')} PLN
             </span>
           </div>
+
           <div>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400 block">Zysk Pracowni (Netto)</span>
-            <span className={`font-bold text-sm font-mono ${profitNet >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600'}`}>
-              {profitNet.toLocaleString('pl-PL')} PLN
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 block">Wynik finansowy (Netto)</span>
+            <span className={`font-bold text-sm font-mono ${profitNet >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+              {profitNet >= 0 ? '+' : ''}{profitNet.toLocaleString('pl-PL')} PLN
             </span>
           </div>
+
           <div>
             <span className="text-[11px] text-slate-500 dark:text-slate-400 block">Rentowność / Marża</span>
-            <span className="font-bold text-sky-600 dark:text-sky-400 text-sm font-mono">
+            <span className={`font-bold text-sm font-mono ${marginPercent >= 20 ? 'text-emerald-600 dark:text-emerald-400' : marginPercent > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>
               {marginPercent}%
             </span>
           </div>
         </div>
 
-        {/* Tab switchers */}
-        <div className="px-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-4 text-xs font-medium">
+        {/* Tabs Bar */}
+        <div className="flex border-b border-slate-200 dark:border-slate-800 px-6 bg-slate-50/50 dark:bg-slate-900/50 gap-6 text-xs overflow-x-auto">
           <button
             onClick={() => setActiveTab('quotations')}
-            className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 ${
+            className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'quotations'
                 ? 'border-sky-600 text-sky-600 dark:text-sky-400 font-semibold'
                 : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
             }`}
           >
-            <FileText className="w-4 h-4" />
-            <span>Wyceny z listą pozycji ({quotations.length})</span>
+            <DollarSign className="w-4 h-4" />
+            <span>Wyceny i Oferty ({quotations.length})</span>
           </button>
 
           <button
             onClick={() => setActiveTab('costs')}
-            className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 ${
+            className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'costs'
                 ? 'border-sky-600 text-sky-600 dark:text-sky-400 font-semibold'
                 : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
@@ -277,19 +365,19 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
 
           <button
             onClick={() => setActiveTab('client')}
-            className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 ${
+            className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'client'
                 ? 'border-sky-600 text-sky-600 dark:text-sky-400 font-semibold'
                 : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
             }`}
           >
             <Building2 className="w-4 h-4" />
-            <span>Zamawiający & Terminy</span>
+            <span>Zamawiający, Dysk & Terminy</span>
           </button>
 
           <button
             onClick={() => setActiveTab('summary')}
-            className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 ${
+            className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'summary'
                 ? 'border-sky-600 text-sky-600 dark:text-sky-400 font-semibold'
                 : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
@@ -305,17 +393,19 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
           {/* TAB 1: WYCENY Z LISTĄ */}
           {activeTab === 'quotations' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <h4 className="font-bold text-slate-900 dark:text-white text-sm">
                     Wyceny i Oferta dla Zamawiającego
                   </h4>
                   <p className="text-slate-500 dark:text-slate-400 text-xs">
-                    Pozycje składowe wynagrodzenia pracowni (Koncepcja, PAB, PT, PW, Nadzory).
+                    Zaznacz znacznik <strong>Wybrana</strong>, aby włączyć ofertę do bilansu projektu. Odrzucone lub alternatywne oferty możesz odznaczyć.
                   </p>
                 </div>
-                <div className="text-right">
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400 block">Suma wyceny:</span>
+                <div className="text-left sm:text-right bg-sky-50 dark:bg-sky-950/40 p-2.5 rounded-lg border border-sky-200 dark:border-sky-800">
+                  <span className="text-[11px] text-sky-800 dark:text-sky-300 block">
+                    W bilansie ({selectedQuotations.length} z {quotations.length} ofert):
+                  </span>
                   <span className="text-sm font-bold text-sky-600 dark:text-sky-400 font-mono">
                     {totalQuotationNet.toLocaleString('pl-PL')} zł netto ({totalQuotationGross.toLocaleString('pl-PL')} zł brutto)
                   </span>
@@ -327,55 +417,94 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
                     <tr>
-                      <th className="py-2.5 px-3 font-semibold">Pozycja / Zakres opracowania</th>
-                      <th className="py-2.5 px-3 font-semibold w-24">Ilość</th>
-                      <th className="py-2.5 px-3 font-semibold w-28 text-right">Cena jedn. netto</th>
-                      <th className="py-2.5 px-3 font-semibold w-20 text-center">VAT</th>
+                      <th className="py-2.5 px-3 font-semibold w-24 text-center">Do bilansu</th>
+                      <th className="py-2.5 px-3 font-semibold">Nazwa wyceny</th>
+                      <th className="py-2.5 px-3 font-semibold">Firma / Oferent</th>
+                      <th className="py-2.5 px-3 font-semibold w-20">Ilość</th>
+                      <th className="py-2.5 px-3 font-semibold w-24 text-center">Typ & VAT</th>
                       <th className="py-2.5 px-3 font-semibold w-28 text-right">Wartość netto</th>
                       <th className="py-2.5 px-3 font-semibold w-28 text-right">Wartość brutto</th>
-                      <th className="py-2.5 px-3 font-semibold w-12 text-center">Akcja</th>
+                      <th className="py-2.5 px-3 font-semibold w-12 text-center">Usuń</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
                     {quotations.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="py-4 text-center text-slate-400">
-                          Brak pozycji wyceny. Dodaj pierwszą pozycję poniżej.
+                        <td colSpan={8} className="py-6 text-center text-slate-400">
+                          Brak pozycji wyceny. Wypełnij poniższy formularz i dodaj pierwszą pozycję.
                         </td>
                       </tr>
                     ) : (
-                      quotations.map((q) => (
-                        <tr key={q.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                          <td className="py-2 px-3 font-medium text-slate-900 dark:text-slate-100">
-                            {q.title}
-                            {q.notes && <span className="block text-[10px] text-slate-400">{q.notes}</span>}
-                          </td>
-                          <td className="py-2 px-3 text-slate-600 dark:text-slate-400">
-                            {q.quantity} {q.unit}
-                          </td>
-                          <td className="py-2 px-3 text-right font-mono text-slate-700 dark:text-slate-300">
-                            {q.unitPriceNet.toLocaleString('pl-PL')} zł
-                          </td>
-                          <td className="py-2 px-3 text-center text-slate-500">
-                            {q.vatRate}%
-                          </td>
-                          <td className="py-2 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
-                            {q.totalNet.toLocaleString('pl-PL')} zł
-                          </td>
-                          <td className="py-2 px-3 text-right font-mono text-slate-600 dark:text-slate-400">
-                            {q.totalGross.toLocaleString('pl-PL')} zł
-                          </td>
-                          <td className="py-2 px-3 text-center">
-                            <button
-                              onClick={() => handleDeleteQuotation(q.id)}
-                              className="text-slate-400 hover:text-rose-600 p-1"
-                              title="Usuń pozycję"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))
+                      quotations.map((q) => {
+                        const isSelected = q.isSelected !== false;
+                        return (
+                          <tr 
+                            key={q.id} 
+                            className={`transition-colors ${
+                              isSelected 
+                                ? 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/60' 
+                                : 'bg-slate-50/60 dark:bg-slate-950/40 opacity-70 hover:opacity-100'
+                            }`}
+                          >
+                            <td className="py-2 px-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleSelectQuotation(q.id)}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${
+                                  isSelected
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-300 dark:border-slate-700'
+                                }`}
+                                title={isSelected ? 'Kliknij, aby wykluczyć z bilansu' : 'Kliknij, aby włączyć do bilansu'}
+                              >
+                                {isSelected ? (
+                                  <>
+                                    <CheckSquare className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                    <span>Wybrana</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Square className="w-3.5 h-3.5 text-slate-400" />
+                                    <span>Opcja</span>
+                                  </>
+                                )}
+                              </button>
+                            </td>
+                            <td className="py-2 px-3 font-medium text-slate-900 dark:text-slate-100">
+                              {q.title}
+                              {q.notes && <span className="block text-[10px] text-slate-400">{q.notes}</span>}
+                            </td>
+                            <td className="py-2 px-3 text-slate-600 dark:text-slate-400">
+                              <span className="inline-block px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded font-medium text-[11px] text-slate-700 dark:text-slate-300">
+                                {q.companyName || '—'}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                              {q.quantity} {q.unit}
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                {q.taxType === 'zwolniony' ? 'ZW (0%)' : `${q.taxType || 'netto'} ${q.vatRate}%`}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
+                              {q.totalNet.toLocaleString('pl-PL')} zł
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono text-slate-600 dark:text-slate-400">
+                              {q.totalGross.toLocaleString('pl-PL')} zł
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              <button
+                                onClick={() => handleDeleteQuotation(q.id)}
+                                className="text-slate-400 hover:text-rose-600 p-1"
+                                title="Usuń pozycję"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
@@ -383,18 +512,41 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
 
               {/* Add quotation item form */}
               <form onSubmit={handleAddQuotation} className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg space-y-3">
-                <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
-                  + Dodaj nową pozycję do wyceny
-                </span>
-                <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
+                    + Dodaj nową wycenę / ofertę
+                  </span>
+                  <label className="flex items-center gap-1.5 cursor-pointer text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                    <input
+                      type="checkbox"
+                      checked={newQuoteIsSelected}
+                      onChange={(e) => setNewQuoteIsSelected(e.target.checked)}
+                      className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span>Włącz bezpośrednio do bilansu projektu (Wybrana)</span>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-6 gap-3">
                   <div className="sm:col-span-2">
-                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Nazwa pozycji / etapu *</label>
+                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Nazwa wyceny / zakresu *</label>
                     <input
                       type="text"
                       required
                       value={newQuoteTitle}
                       onChange={(e) => setNewQuoteTitle(e.target.value)}
-                      placeholder="np. Projekt Architektoniczno-Budowlany"
+                      placeholder="np. Koncepcja & Projekt Budowlany"
+                      className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Firma / Oferent</label>
+                    <input
+                      type="text"
+                      value={newQuoteCompany}
+                      onChange={(e) => setNewQuoteCompany(e.target.value)}
+                      placeholder="np. Biuro Projektowe Architekci Sp. p."
                       className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
                     />
                   </div>
@@ -407,28 +559,63 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                         min="1"
                         value={newQuoteQuantity}
                         onChange={(e) => setNewQuoteQuantity(Number(e.target.value))}
-                        className="w-16 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2 py-1.5 text-xs text-slate-900 dark:text-white"
+                        className="w-14 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2 py-1.5 text-xs text-slate-900 dark:text-white text-center"
                       />
                       <input
                         type="text"
                         value={newQuoteUnit}
                         onChange={(e) => setNewQuoteUnit(e.target.value)}
                         placeholder="kpl"
-                        className="w-16 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2 py-1.5 text-xs text-slate-900 dark:text-white"
+                        className="w-14 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2 py-1.5 text-xs text-slate-900 dark:text-white text-center"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Cena netto (zł) *</label>
+                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">
+                      Podstawa kwoty
+                    </label>
+                    <select
+                      value={newQuoteTaxType}
+                      onChange={(e) => setNewQuoteTaxType(e.target.value as any)}
+                      className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2 py-1.5 text-xs text-slate-900 dark:text-white"
+                    >
+                      <option value="netto">Netto</option>
+                      <option value="brutto">Brutto</option>
+                      <option value="zwolniony">Zwolniony (ZW)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                  <div>
+                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">
+                      {newQuoteTaxType === 'brutto' ? 'Cena brutto (zł) *' : 'Cena netto (zł) *'}
+                    </label>
                     <input
                       type="number"
                       required
                       min="0"
-                      value={newQuotePriceNet}
-                      onChange={(e) => setNewQuotePriceNet(Number(e.target.value))}
+                      value={newQuotePrice}
+                      onChange={(e) => setNewQuotePrice(Number(e.target.value))}
                       className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Stawka VAT</label>
+                    <select
+                      disabled={newQuoteTaxType === 'zwolniony'}
+                      value={newQuoteTaxType === 'zwolniony' ? 0 : newQuoteVatRate}
+                      onChange={(e) => setNewQuoteVatRate(Number(e.target.value))}
+                      className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white disabled:opacity-50"
+                    >
+                      {vatRateOptions.map((v) => (
+                        <option key={v.id} value={v.value}>
+                          {v.label} ({v.value}%)
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div className="flex items-end">
@@ -436,7 +623,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                       type="submit"
                       className="w-full py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded font-medium text-xs transition-colors shadow-xs"
                     >
-                      Dodaj pozycję
+                      + Dodaj wycenę do listy
                     </button>
                   </div>
                 </div>
@@ -450,10 +637,10 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="font-bold text-slate-900 dark:text-white text-sm">
-                    Koszty Projektu & Przyporządkowanie do Zadań
+                    Koszty Projektowe i Podwykonawcy (Mapa, Geologia, Uzgodnienia)
                   </h4>
                   <p className="text-slate-500 dark:text-slate-400 text-xs">
-                    Wydatki zewnętrzne takie jak Mapa (MDCP), Geologia, Uzgodnienia ZUD/PPOŻ, Podwykonawcy branżowi powiązane z zadaniami.
+                    Rejestr wydatków bezpośrednich powiązanych z etapami i zadaniami.
                   </p>
                 </div>
                 <div className="text-right">
@@ -464,70 +651,63 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                 </div>
               </div>
 
-              {/* Cost items table */}
+              {/* Table of costs */}
               <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
                     <tr>
-                      <th className="py-2.5 px-3 font-semibold">Tytuł kosztu / Dostawca</th>
-                      <th className="py-2.5 px-3 font-semibold">Kategoria</th>
-                      <th className="py-2.5 px-3 font-semibold">Powiązane zadanie</th>
-                      <th className="py-2.5 px-3 font-semibold">Data & Status</th>
-                      <th className="py-2.5 px-3 font-semibold text-right">Kwota netto</th>
-                      <th className="py-2.5 px-3 font-semibold text-right">Kwota brutto</th>
-                      <th className="py-2.5 px-3 font-semibold w-12 text-center">Akcja</th>
+                      <th className="py-2.5 px-3 font-semibold">Tytuł kosztu</th>
+                      <th className="py-2.5 px-3 font-semibold w-48">Kategoria branżowa</th>
+                      <th className="py-2.5 px-3 font-semibold w-40">Powiązane zadanie</th>
+                      <th className="py-2.5 px-3 font-semibold w-36">Wykonawca</th>
+                      <th className="py-2.5 px-3 font-semibold w-24 text-right">Netto</th>
+                      <th className="py-2.5 px-3 font-semibold w-24 text-right">Brutto</th>
+                      <th className="py-2.5 px-3 font-semibold w-12 text-center">Usuń</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
                     {costs.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="py-4 text-center text-slate-400">
-                          Brak zarejestrowanych kosztów. Wprowadź koszt poniżej (np. Mapa, Geologia, Uzgodnienia).
+                        <td colSpan={7} className="py-6 text-center text-slate-400">
+                          Brak wprowadzonych kosztów branżowych. Dodaj koszt mapy, geologii lub uzgodnień poniżej.
                         </td>
                       </tr>
                     ) : (
                       costs.map((c) => {
-                        const cat = getCategoryLabel(c.category);
-                        const assignedTask = projectTasks.find((t) => t.id === c.taskId);
+                        const meta = getCategoryLabel(c.category);
+                        const linkedTask = projectTasks.find((t) => t.id === c.taskId);
                         return (
                           <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                            <td className="py-2.5 px-3">
-                              <span className="font-semibold text-slate-900 dark:text-white block">
-                                {c.title}
-                              </span>
-                              <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                                {c.contractorName || 'Brak wykonawcy'} {c.invoiceNumber ? `· FV: ${c.invoiceNumber}` : ''}
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-3">
-                              <span className={`text-[10px] font-medium px-2 py-0.5 rounded border inline-block ${cat.color}`}>
-                                {cat.label}
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">
-                              {assignedTask ? (
-                                <span className="font-medium text-sky-700 dark:text-sky-300">
-                                  {assignedTask.code}: {assignedTask.title.slice(0, 30)}...
-                                </span>
-                              ) : (
-                                <span className="text-slate-400 italic">Ogólny koszt projektu</span>
+                            <td className="py-2 px-3 font-medium text-slate-900 dark:text-slate-100">
+                              {c.title}
+                              {c.invoiceNumber && (
+                                <span className="block text-[10px] text-slate-400 font-mono">Faktura: {c.invoiceNumber}</span>
                               )}
                             </td>
-                            <td className="py-2.5 px-3">
-                              <span className="text-[10px] text-slate-500 font-mono block">{c.date}</span>
-                              <span className={`text-[10px] font-semibold ${
-                                c.status === 'paid' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'
-                              }`}>
-                                {c.status === 'paid' ? '● Opłacony' : c.status === 'incurred' ? '● Do zapłaty' : '● Planowany'}
+                            <td className="py-2 px-3">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-medium border ${meta.color}`}>
+                                {meta.label}
                               </span>
                             </td>
-                            <td className="py-2.5 px-3 text-right font-mono font-bold text-rose-600 dark:text-rose-400">
+                            <td className="py-2 px-3 text-slate-600 dark:text-slate-400">
+                              {linkedTask ? (
+                                <span className="font-mono text-[11px] text-sky-600 dark:text-sky-400 font-semibold">
+                                  [{linkedTask.code}] {linkedTask.title.slice(0, 20)}...
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 italic">Ogólny projekt</span>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 text-slate-600 dark:text-slate-400">
+                              {c.contractorName || '—'}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
                               {c.amountNet.toLocaleString('pl-PL')} zł
                             </td>
-                            <td className="py-2.5 px-3 text-right font-mono text-slate-500">
+                            <td className="py-2 px-3 text-right font-mono text-slate-600 dark:text-slate-400">
                               {c.amountGross.toLocaleString('pl-PL')} zł
                             </td>
-                            <td className="py-2.5 px-3 text-center">
+                            <td className="py-2 px-3 text-center">
                               <button
                                 onClick={() => handleDeleteCost(c.id)}
                                 className="text-slate-400 hover:text-rose-600 p-1"
@@ -544,48 +724,49 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                 </table>
               </div>
 
-              {/* Add cost item form */}
+              {/* Add cost form */}
               <form onSubmit={handleAddCost} className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg space-y-3">
                 <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
                   + Zarejestruj nowy koszt (Mapa, Geologia, Uzgodnienia, Podwykonawcy)
                 </span>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Tytuł kosztu *</label>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Tytuł kosztu / opis opracowania *</label>
                     <input
                       type="text"
                       required
                       value={newCostTitle}
                       onChange={(e) => setNewCostTitle(e.target.value)}
-                      placeholder="np. Aktualizacja mapy do celów proj. dz. 45"
+                      placeholder="np. Opracowanie Mapy do Celów Projektowych (MDCP)"
                       className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Kategoria branżowa *</label>
+                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Kategoria kosztu</label>
                     <select
                       value={newCostCategory}
                       onChange={(e) => setNewCostCategory(e.target.value as CostCategory)}
                       className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
                     >
-                      <option value="mapa">🗺️ Mapa do celów projektowych (Geodeta)</option>
-                      <option value="geologia">🧪 Badania geotechniczne i grunt</option>
-                      <option value="uzgodnienia">📋 Uzgodnienia formalne (ZUD, PPOŻ, Sanepid)</option>
-                      <option value="podwykonawca">🏗️ Podwykonawca branżowy (Konstrukcja, HVAC)</option>
-                      <option value="oplaty_urzedowe">🏛️ Opłaty skarbowe i wypisy z rejestru</option>
-                      <option value="inne">📦 Inne koszty</option>
+                      <option value="mapa">🗺️ Mapa (MDCP)</option>
+                      <option value="geologia">🧪 Badania geologiczne i grunt</option>
+                      <option value="uzgodnienia">📋 Uzgodnienia ZUD/PPOŻ/Sanepid</option>
+                      <option value="podwykonawca">🏗️ Branżysta / Konstruktor</option>
+                      <option value="oplaty_urzedowe">🏛️ Opłaty skarbowe / urzędowe</option>
+                      <option value="inne">📦 Inne wydatki</option>
                     </select>
                   </div>
 
                   <div>
-                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Przypisz do zadania z harmonogramu</label>
+                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Przypisz do zadania</label>
                     <select
                       value={newCostTaskId}
                       onChange={(e) => setNewCostTaskId(e.target.value)}
                       className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
                     >
-                      <option value="">-- Ogólny koszt całego projektu --</option>
+                      <option value="">-- Koszt ogólny projektu --</option>
                       {projectTasks.map((t) => (
                         <option key={t.id} value={t.id}>
                           {t.code}: {t.title}
@@ -593,7 +774,9 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                       ))}
                     </select>
                   </div>
+                </div>
 
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div>
                     <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Kwota netto (zł) *</label>
                     <input
@@ -604,6 +787,21 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                       onChange={(e) => setNewCostAmountNet(Number(e.target.value))}
                       className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Stawka VAT</label>
+                    <select
+                      value={newCostVatRate}
+                      onChange={(e) => setNewCostVatRate(Number(e.target.value))}
+                      className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+                    >
+                      {vatRateOptions.map((v) => (
+                        <option key={v.id} value={v.value}>
+                          {v.label} ({v.value}%)
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div>
@@ -622,7 +820,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                       type="submit"
                       className="w-full py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded font-medium text-xs transition-colors shadow-xs"
                     >
-                      Zapisz koszt
+                      + Zapisz koszt
                     </button>
                   </div>
                 </div>
@@ -630,19 +828,39 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
             </div>
           )}
 
-          {/* TAB 3: ZAMAWIAJĄCY & TERMINY */}
+          {/* TAB 3: ZAMAWIAJĄCY & DYSK & TERMINY */}
           {activeTab === 'client' && (
             <div className="space-y-4">
               <h4 className="font-bold text-slate-900 dark:text-white text-sm">
-                Dane Zamawiającego (Inwestora) & Ramy Czasowe Projektu
+                Dane Zamawiającego (Inwestora), Lokalizacja na Dysku & Ramy Czasowe Projektu
               </h4>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Investor details */}
                 <div className="space-y-3 p-4 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg">
-                  <h5 className="font-semibold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1.5">
-                    <Building2 className="w-4 h-4 text-sky-600" />
-                    <span>Inwestor / Zamawiający</span>
-                  </h5>
+                  <div className="flex items-center justify-between">
+                    <h5 className="font-semibold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1.5">
+                      <Building2 className="w-4 h-4 text-sky-600" />
+                      <span>Inwestor / Zamawiający</span>
+                    </h5>
+                    {availableClients.length > 0 && (
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-slate-500">Wybierz:</span>
+                        <select
+                          onChange={handleSelectPredefinedClient}
+                          defaultValue=""
+                          className="text-[11px] border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2 py-0.5 text-slate-700 dark:text-slate-300"
+                        >
+                          <option value="" disabled>-- Baza inwestorów --</option>
+                          {availableClients.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
 
                   <div>
                     <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Nazwa Inwestora / Zamawiającego</label>
@@ -713,44 +931,67 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                   </div>
                 </div>
 
-                <div className="space-y-3 p-4 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg">
-                  <h5 className="font-semibold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1.5">
-                    <Calendar className="w-4 h-4 text-emerald-600" />
-                    <span>Termin rozpoczęcia i zakończenia</span>
-                  </h5>
-
-                  <div>
-                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Data rozpoczęcia</label>
-                    <input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-3 py-2 text-xs text-slate-900 dark:text-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Termin końcowy (zakończenie wyceny / umowy)</label>
-                    <input
-                      type="date"
-                      value={dueDate}
-                      onChange={(e) => setDueDate(e.target.value)}
-                      className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-3 py-2 text-xs text-slate-900 dark:text-white"
-                    />
-                  </div>
-
-                  <div className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded text-xs space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Szacowany czas realizacji:</span>
-                      <span className="font-bold text-slate-800 dark:text-slate-200">
-                        {project.durationDays} dni
-                      </span>
+                {/* Disk Path and Dates */}
+                <div className="space-y-4">
+                  {/* Disk location card */}
+                  <div className="p-4 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg space-y-2">
+                    <h5 className="font-semibold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1.5">
+                      <Folder className="w-4 h-4 text-amber-500" />
+                      <span>Lokalizacja na dysku / serwerze NAS</span>
+                    </h5>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Ścieżka do katalogu projektu w sieci lokalnej lub na dysku roboczym pracowni.
+                    </p>
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        value={diskPath}
+                        onChange={(e) => setDiskPath(e.target.value)}
+                        placeholder="np. Z:\PROJEKTY\2026\2026-01-NordicTower lub /mnt/projekty/2026/01"
+                        className="flex-1 font-mono text-xs border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-3 py-2 text-slate-900 dark:text-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCopyDiskPath}
+                        disabled={!diskPath}
+                        className={`px-3 py-2 rounded text-xs font-semibold flex items-center gap-1.5 transition-colors border ${
+                          copiedPath
+                            ? 'bg-emerald-500 text-white border-emerald-600'
+                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                        } disabled:opacity-40`}
+                        title="Kopiuj ścieżkę do schowka"
+                      >
+                        {copiedPath ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                        <span>{copiedPath ? 'Skopiowano' : 'Kopiuj'}</span>
+                      </button>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Postęp zadań:</span>
-                      <span className="font-bold text-emerald-600">
-                        {project.progress}%
-                      </span>
+                  </div>
+
+                  {/* Project Dates */}
+                  <div className="p-4 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg space-y-3">
+                    <h5 className="font-semibold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1.5">
+                      <Calendar className="w-4 h-4 text-emerald-600" />
+                      <span>Termin rozpoczęcia i zakończenia</span>
+                    </h5>
+
+                    <div>
+                      <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Data rozpoczęcia</label>
+                      <input
+                        type="date"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-3 py-2 text-xs text-slate-900 dark:text-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Termin końcowy (zakończenie wyceny / umowy)</label>
+                      <input
+                        type="date"
+                        value={dueDate}
+                        onChange={(e) => setDueDate(e.target.value)}
+                        className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-3 py-2 text-xs text-slate-900 dark:text-white"
+                      />
                     </div>
                   </div>
                 </div>
@@ -768,7 +1009,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg">
                   <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-300 block mb-1">
-                    Wycena / Przychód pracowni
+                    Wycena / Przychód pracowni (Wybrane)
                   </span>
                   <div className="text-xl font-bold font-mono text-emerald-700 dark:text-emerald-400">
                     {totalQuotationNet.toLocaleString('pl-PL')} PLN
@@ -780,7 +1021,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
 
                 <div className="p-4 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 rounded-lg">
                   <span className="text-xs font-semibold text-rose-800 dark:text-rose-300 block mb-1">
-                    Koszty podwykonawców & uzgodnień
+                    Koszty poniesione (Netto)
                   </span>
                   <div className="text-xl font-bold font-mono text-rose-700 dark:text-rose-400">
                     {totalCostsNet.toLocaleString('pl-PL')} PLN
@@ -790,12 +1031,12 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                   </span>
                 </div>
 
-                <div className="p-4 bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 rounded-lg">
+                <div className={`p-4 rounded-lg border ${profitNet >= 0 ? 'bg-sky-50 dark:bg-sky-950/30 border-sky-200 dark:border-sky-800' : 'bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800'}`}>
                   <span className="text-xs font-semibold text-sky-800 dark:text-sky-300 block mb-1">
-                    Wynik operacyjny (Zysk)
+                    Zysk operacyjny (Netto)
                   </span>
-                  <div className="text-xl font-bold font-mono text-sky-700 dark:text-sky-400">
-                    {profitNet.toLocaleString('pl-PL')} PLN
+                  <div className={`text-xl font-bold font-mono ${profitNet >= 0 ? 'text-sky-700 dark:text-sky-400' : 'text-rose-700 dark:text-rose-400'}`}>
+                    {profitNet >= 0 ? '+' : ''}{profitNet.toLocaleString('pl-PL')} PLN
                   </div>
                   <span className="text-[11px] text-sky-600 dark:text-sky-400 block mt-1 font-semibold">
                     Marża projektu: {marginPercent}%

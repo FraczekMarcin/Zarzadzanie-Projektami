@@ -1,6 +1,6 @@
 # ==========================================
 # Zarządzanie Projektami - Dockerfile
-# Wersja: 2026-10-27 v 0.3.1
+# Wersja: 2026-10-28 v 0.3.2
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Ścieżka: Instalacja/Dockerfile
 # ==========================================
@@ -26,7 +26,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV APP_VERSION="2026-10-27 v 0.3.1"
+ENV APP_VERSION="2026-10-28 v 0.3.2"
 
 # Użytkownik o ograniczonych uprawnieniach (Security best practice)
 RUN addgroup -g 1001 -S nodejs && \
