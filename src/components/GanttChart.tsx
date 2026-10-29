@@ -394,7 +394,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                           ? 'task-blocked-style text-slate-800 border-slate-300'
                           : 'bg-amber-50/90 text-amber-900 border-amber-200'
                       }`}>
-                        {task.title} {taskProject && <span className="opacity-75 font-normal text-[10px]">[{taskProject.key}: {taskProject.name}]</span>}
+                        {task.title} {project && <span className="opacity-75 font-normal text-[10px]">[{project.key}: {project.name}]</span>}
                       </span>
                     </div>
                   ) : (
@@ -434,9 +434,9 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                             )}
                             <span className="truncate drop-shadow-xs font-semibold text-[11px]">{task.title}</span>
                           </div>
-                          {taskProject && (
+                          {project && (
                             <span className="truncate text-[9px] font-mono opacity-90 drop-shadow-xs text-sky-100">
-                              [{taskProject.key}] {taskProject.name}
+                              [{project.key}] {project.name}
                             </span>
                           )}
                         </div>

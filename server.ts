@@ -51,7 +51,7 @@ if (fs.existsSync(STATE_FILE)) {
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '2026-10-28 v 0.3.3',
+    version: '2026-10-29 v 0.3.3',
     timestamp: new Date().toISOString(),
     postgresStatus: process.env.DATABASE_URL ? 'configured' : 'standalone-json-db',
     persistedState: !!serverAppStateCache,
@@ -259,7 +259,7 @@ app.get('/api/calendar/all.ics', (_req, res) => {
 // REAL GITHUB UPDATE CHECKER ENDPOINT
 app.get('/api/system/check-update', async (_req, res) => {
   try {
-    const localVersion = process.env.APP_VERSION || '2026-10-28 v 0.3.2';
+    const localVersion = process.env.APP_VERSION || '2026-10-29 v 0.3.3';
     
     // Check GitHub raw dockerConfig.ts or package.json
     const rawUrl = 'https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/src/data/dockerConfig.ts';
@@ -328,7 +328,7 @@ app.get('/api/system-info', (_req, res) => {
   res.json({
     name: 'Zarządzanie Projektami',
     description: 'System zarządzania projektami z wykresem Gantta, terminarzem i integracją Google Calendar na żywo',
-    version: '2026-10-28 v 0.3.2',
+    version: '2026-10-29 v 0.3.3',
     deployment: 'Docker & PostgreSQL Ready',
     features: [
       'Gantt Chart Interactive Timeline with Project Names on Bars',
@@ -341,15 +341,31 @@ app.get('/api/system-info', (_req, res) => {
   });
 });
 
-// Serve production assets if dist directory exists
-const distPath = fs.existsSync(path.resolve(__dirname, 'index.html'))
-  ? __dirname
-  : path.resolve(__dirname, 'dist');
-app.use(express.static(distPath));
+// Robust static file serving
+const candidateDistPaths = [
+  path.resolve(__dirname),
+  path.resolve(__dirname, 'dist'),
+  path.resolve(process.cwd(), 'dist'),
+  path.resolve(process.cwd()),
+];
+
+const distPath = candidateDistPaths.find((p) => fs.existsSync(path.join(p, 'index.html'))) || path.resolve(__dirname, 'dist');
+console.log(`[Server] Serving static assets from: ${distPath}`);
+
+app.use(express.static(distPath, { index: false, maxAge: '1h' }));
 
 // Fallback to index.html for SPA client routing (compatible with Express 4 and Express 5)
-app.use((_req, res) => {
-  res.sendFile(path.join(distPath, 'index.html'));
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  if (req.path.startsWith('/api')) return next();
+
+  const indexPath = path.join(distPath, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    return res.sendFile(indexPath);
+  }
+  next();
 });
 
 app.listen(PORT, () => {
