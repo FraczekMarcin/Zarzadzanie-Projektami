@@ -1,21 +1,20 @@
 # ==========================================
 # Zarządzanie Projektami - Dockerfile
-# Wersja: 2026-10-28 v 0.3.2
+# Wersja: 2026-10-29 v 0.3.3
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Ścieżka: Instalacja/Dockerfile
 # ==========================================
 
-# Etap 1: Budowanie aplikacji (wykonywane tylko gdy brak gotowego dist)
+# Etap 1: Budowanie aplikacji z kodu źródłowego
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY . .
+COPY package*.json ./
+RUN npm install --legacy-peer-deps --no-audit
 
-# Jeśli dist/server.js lub dist/index.html nie istnieją, skompiluj z kodu źródłowego
-RUN if [ ! -f dist/server.js ] || [ ! -f dist/index.html ]; then \
-      npm install --legacy-peer-deps --no-audit && npm run build; \
-    fi
+COPY . .
+RUN npm run build
 
 # ==========================================
 # Etap 2: Super-lekkie środowisko produkcyjne (Runtime < 130MB)
@@ -26,7 +25,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV APP_VERSION="2026-10-28 v 0.3.2"
+ENV APP_VERSION="2026-10-29 v 0.3.3"
 
 # Użytkownik o ograniczonych uprawnieniach (Security best practice)
 RUN addgroup -g 1001 -S nodejs && \

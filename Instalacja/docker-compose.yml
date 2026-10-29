@@ -1,6 +1,6 @@
 # ==============================================================================
 # Zarządzanie Projektami (Pracownia Projektowa / Budownictwo)
-# Wersja: 2026-10-28 v 0.3.2
+# Wersja: 2026-10-29 v 0.3.3
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Lokalizacja docelowa na serwerze: /opt/zarzadzanie-projektami
 # ==============================================================================
@@ -42,11 +42,13 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      APP_VERSION: "2026-10-28 v 0.3.2"
+      APP_VERSION: "2026-10-29 v 0.3.3"
       DATABASE_URL: postgres://${POSTGRES_USER:-zarzadzanie}:${POSTGRES_PASSWORD:-TwojeBezpieczneHaslo2026!}@db:5432/${POSTGRES_DB:-zarzadzanie_db}
       APP_SECRET: ${APP_SECRET:-sekretna-fraza-szyfrowania-zarzadzanie-projektami-2026}
     ports:
       - "${APP_PORT:-3000}:3000"
+    volumes:
+      - ./data:/app/data
     networks:
       - zarzadzanie_net
 

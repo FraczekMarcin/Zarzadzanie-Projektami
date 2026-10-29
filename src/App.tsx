@@ -52,6 +52,7 @@ import {
   Sun,
   Moon,
   Laptop,
+  UserCheck,
   LogIn,
   LogOut,
   RefreshCw,
@@ -61,6 +62,15 @@ import {
 type ActiveView = 'gantt' | 'calendar' | 'tasks' | 'tree' | 'kanban' | 'projects';
 
 export default function App() {
+  // Authentication session gate: requires login on first visit or after logout
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('oph_is_authenticated') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
   // Persistence state with auto-migration to prevent legacy crash
   const [users, setUsers] = useState<User[]>(() => {
     try {
@@ -245,9 +255,79 @@ export default function App() {
     localStorage.setItem('oph_activity', JSON.stringify(activityLogs));
   }, [activityLogs]);
 
+  // Multi-device server state synchronization (guarantees other computers see identical database)
   useEffect(() => {
-    localStorage.setItem('oph_comments', JSON.stringify(comments));
-  }, [comments]);
+    let isMounted = true;
+    fetch('/api/state')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!isMounted || !data) return;
+        if (data.initialized && data.state) {
+          const s = data.state;
+          if (Array.isArray(s.users) && s.users.length > 0) {
+            setUsers(s.users);
+            localStorage.setItem('oph_users', JSON.stringify(s.users));
+          }
+          if (Array.isArray(s.projects)) {
+            setProjects(s.projects);
+            localStorage.setItem('oph_projects', JSON.stringify(s.projects));
+          }
+          if (Array.isArray(s.tasks)) {
+            setTasks(s.tasks);
+            localStorage.setItem('oph_tasks', JSON.stringify(s.tasks));
+          }
+          if (Array.isArray(s.activityLogs)) {
+            setActivityLogs(s.activityLogs);
+            localStorage.setItem('oph_activity', JSON.stringify(s.activityLogs));
+          }
+          if (Array.isArray(s.comments)) {
+            setComments(s.comments);
+            localStorage.setItem('oph_comments', JSON.stringify(s.comments));
+          }
+        } else {
+          // Push initial client state to server if server state file is empty
+          fetch('/api/state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              initialized: true,
+              projects,
+              tasks,
+              users,
+              comments,
+              activityLogs,
+            }),
+          }).catch(() => {});
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not sync initial state from server:', err);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Debounced server state persistence on any database mutation
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        fetch('/api/state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            initialized: true,
+            projects,
+            tasks,
+            users,
+            comments,
+            activityLogs,
+          }),
+        }).catch(() => {});
+      } catch {}
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [projects, tasks, users, comments, activityLogs]);
 
   // Periodic Auto-Backup Engine
   useEffect(() => {
@@ -752,12 +832,128 @@ export default function App() {
     });
   };
 
-  // Logout handler
+  // Logout handler - returns completely to login gate
   const handleLogout = () => {
-    logActivity(`${currentUser.name} wylogował się z systemu`);
-    setIsUserModalOpen(true);
+    setIsAuthenticated(false);
+    try {
+      localStorage.removeItem('oph_is_authenticated');
+    } catch {}
+    setIsUserModalOpen(false);
+    logActivity(`${currentUser?.name || 'Użytkownik'} wylogował się z systemu`);
     setNotificationToast({
-      message: 'Wylogowano z systemu. Wybierz konto i podaj hasło, aby się zalogować.',
+      message: 'Wylogowano z systemu. Ekran logowania jest aktywny.',
+      type: 'info',
+    });
+  };
+
+  // Login handler
+  const handleLoginSuccess = (user: User) => {
+    setCurrentUser(user);
+    setIsAuthenticated(true);
+    try {
+      localStorage.setItem('oph_is_authenticated', 'true');
+      localStorage.setItem('oph_current_user', JSON.stringify(user));
+    } catch {}
+    logActivity(`${user.name} zalogował się do systemu`);
+    setNotificationToast({
+      message: `Zalogowano jako ${user.name}. Dobrej pracy w pracowni!`,
+      type: 'success',
+    });
+  };
+
+  // Registration handler with administrator approval requirement
+  const handleRegisterUser = (newUserData: Omit<User, 'id' | 'initials'>) => {
+    const initials = newUserData.name
+      .split(' ')
+      .map((n) => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2) || 'UZ';
+
+    const newUser: User = {
+      ...newUserData,
+      id: `usr-${Date.now()}`,
+      initials,
+      isApproved: false, // Requires Administrator confirmation!
+    };
+
+    setUsers((prev) => {
+      const next = [...prev, newUser];
+      try {
+        fetch('/api/state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            initialized: true,
+            projects,
+            tasks,
+            users: next,
+            comments,
+            activityLogs,
+          }),
+        }).catch(() => {});
+      } catch {}
+      return next;
+    });
+
+    logActivity(`Nowa rejestracja konta: ${newUser.name} (${newUser.email}) - oczekuje na zatwierdzenie przez Administratora`);
+    setNotificationToast({
+      message: `Wniosek rejestracji użytkownika ${newUser.name} został zarejestrowany. Administrator musi zatwierdzić konto przed pierwszym logowaniem.`,
+      type: 'info',
+    });
+  };
+
+  // Administrator approval handlers
+  const handleApproveUser = (userId: string) => {
+    const user = users.find((u) => u.id === userId);
+    setUsers((prev) => {
+      const next = prev.map((u) => (u.id === userId ? { ...u, isApproved: true } : u));
+      try {
+        fetch('/api/state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            initialized: true,
+            projects,
+            tasks,
+            users: next,
+            comments,
+            activityLogs,
+          }),
+        }).catch(() => {});
+      } catch {}
+      return next;
+    });
+    logActivity(`Administrator zatwierdził konto użytkownika: ${user?.name || userId}`);
+    setNotificationToast({
+      message: `Konto ${user?.name} zostało pomyślnie zatwierdzone. Użytkownik ma teraz dostęp do systemu.`,
+      type: 'success',
+    });
+  };
+
+  const handleRejectUser = (userId: string) => {
+    const user = users.find((u) => u.id === userId);
+    setUsers((prev) => {
+      const next = prev.filter((u) => u.id !== userId);
+      try {
+        fetch('/api/state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            initialized: true,
+            projects,
+            tasks,
+            users: next,
+            comments,
+            activityLogs,
+          }),
+        }).catch(() => {});
+      } catch {}
+      return next;
+    });
+    logActivity(`Administrator odrzucił wniosek rejestracji użytkownika: ${user?.name || userId}`);
+    setNotificationToast({
+      message: `Wniosek rejestracyjny ${user?.name} został odrzucony i usunięty.`,
       type: 'info',
     });
   };
@@ -786,11 +982,23 @@ export default function App() {
     setIsTaskModalOpen(true);
   };
 
-  // Selected project info
+  // Selected project info & Pending users
   const activeProject = projects.find((p) => p.id === selectedProjectId);
   const activeTasks = tasks.filter((t) => (!selectedProjectId ? true : t.projectId === selectedProjectId));
   const criticalTasksCount = activeTasks.filter((t) => t.priority === 'critical' && t.status !== 'done').length;
   const blockedTasksCount = activeTasks.filter((t) => t.status === 'blocked').length;
+  const pendingUsersCount = users.filter((u) => u.isApproved === false).length;
+
+  // Gate: If user is not authenticated, show full-screen LoginGate
+  if (!isAuthenticated) {
+    return (
+      <LoginGate
+        users={users}
+        onLogin={handleLoginSuccess}
+        onRegister={handleRegisterUser}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col text-slate-900">
@@ -823,7 +1031,7 @@ export default function App() {
               Zarządzanie Projektami
             </span>
             <span className="text-[10px] text-slate-400 font-mono">
-              2026-10-27 v 0.3.0
+              {CURRENT_APP_VERSION}
             </span>
           </div>
         </div>
@@ -1003,6 +1211,31 @@ export default function App() {
               </span>
             </div>
             <ChevronDown className="w-3 h-3 text-slate-400" />
+          </button>
+
+          {/* Pending Users Notification Badge for Administrator */}
+          {pendingUsersCount > 0 && currentUser?.role === 'admin' && (
+            <button
+              onClick={() => {
+                setSettingsTab('users');
+                setIsSettingsModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-all whitespace-nowrap bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40 animate-pulse"
+              title="Nowi użytkownicy oczekują na zatwierdzenie przez Administratora"
+            >
+              <UserCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <span>Oczekujące ({pendingUsersCount})</span>
+            </button>
+          )}
+
+          {/* Dedykowany Przycisk Wylogowania - powrót do ekranu logowania */}
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-all whitespace-nowrap bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40 cursor-pointer shadow-2xs"
+            title="Wyloguj się z systemu i przejdź do ekranu logowania"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Wyloguj</span>
           </button>
         </div>
       </header>
@@ -1296,6 +1529,8 @@ export default function App() {
         onDeleteAllDemoData={handleDeleteAllDemoData}
         onOpenUserModal={() => setIsUserModalOpen(true)}
         onOpenArchiveModal={() => setIsArchiveModalOpen(true)}
+        onApproveUser={handleApproveUser}
+        onRejectUser={handleRejectUser}
         initialTab={settingsTab}
       />
 
