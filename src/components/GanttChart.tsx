@@ -16,7 +16,8 @@ import {
   Plus,
   Lock,
   GitMerge,
-  ShieldAlert
+  ShieldAlert,
+  Briefcase
 } from 'lucide-react';
 import { isApproachingOfficialDeadline, getBusinessDaysRemaining } from '../utils/businessDays';
 
@@ -447,24 +448,19 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                     </div>
                   )}
 
-                  {/* Quick Google Calendar action on hover */}
-                  <div
-                    style={{ left: `${leftPercent + widthPercent}%` }}
-                    className="absolute ml-2 hidden group-hover:flex items-center gap-1.5 z-20"
-                  >
-                    <a
-                      href={gCalUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="Dodaj termin do Kalendarza Google"
-                      className="flex items-center gap-1 bg-white border border-slate-200 hover:border-sky-500 text-slate-700 hover:text-sky-600 px-2 py-0.5 rounded text-[11px] shadow-sm transition-colors whitespace-nowrap"
-                      onClick={(e) => e.stopPropagation()}
+                  {/* Project name information on hover */}
+                  {project && (
+                    <div
+                      style={{ left: `${leftPercent + widthPercent}%` }}
+                      className="absolute ml-2 hidden group-hover:flex items-center gap-1.5 z-20"
                     >
-                      <Calendar className="w-3 h-3 text-sky-600" />
-                      <span>Do Google Calendar</span>
-                      <ExternalLink className="w-2.5 h-2.5 opacity-60" />
-                    </a>
-                  </div>
+                      <div className="flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-100 px-2 py-0.5 rounded text-[11px] shadow-md transition-colors whitespace-nowrap font-medium">
+                        <Briefcase className="w-3 h-3 text-sky-600 dark:text-sky-400 shrink-0" />
+                        <span className="font-mono text-sky-700 dark:text-sky-300 font-bold">[{project.key}]</span>
+                        <span className="truncate max-w-[200px]">{project.name}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}

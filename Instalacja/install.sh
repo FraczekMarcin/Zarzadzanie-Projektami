@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Zarządzanie Projektami - Pracownia Projektowa / Budownictwo
-# Wersja: 2026-10-29 v 0.3.3
+# Wersja: 2026-10-29 v 0.03.4
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Ścieżka skryptu w repozytorium: Instalacja/install.sh
 # Lokalizacja docelowa na serwerze: /opt/zarzadzanie-projektami
@@ -15,7 +15,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 echo -e "${BLUE}=================================================================${NC}"
-echo -e "${GREEN}  🏗️  Zarządzanie Projektami - Instalator (Wersja 2026-10-29 v 0.3.3)${NC}"
+echo -e "${GREEN}  🏗️  Zarządzanie Projektami - Instalator (Wersja 2026-10-29 v 0.03.4)${NC}"
 echo -e "${BLUE}  Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami${NC}"
 echo -e "${BLUE}=================================================================${NC}"
 
@@ -97,7 +97,7 @@ if [ ! -f .env ]; then
     cat <<EOF > .env
 PORT=3000
 NODE_ENV=production
-APP_VERSION=2026-10-29 v 0.3.3
+APP_VERSION=2026-10-29 v 0.03.4
 POSTGRES_USER=zarzadzanie
 POSTGRES_PASSWORD=${DB_PASS}
 POSTGRES_DB=zarzadzanie_db
@@ -150,7 +150,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      APP_VERSION: "2026-10-29 v 0.3.3"
+      APP_VERSION: "2026-10-29 v 0.03.4"
       DATABASE_URL: postgres://${POSTGRES_USER:-zarzadzanie}:${POSTGRES_PASSWORD:-TwojeBezpieczneHaslo2026!}@db:5432/${POSTGRES_DB:-zarzadzanie_db}
       APP_SECRET: ${APP_SECRET:-sekretna-fraza-szyfrowania-zarzadzanie-projektami-2026}
     ports:
@@ -286,7 +286,7 @@ SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
 
 echo -e "${GREEN}=================================================================${NC}"
 echo -e "${GREEN}  ✅ WDROŻENIE ZAKOŃCZONE SUKCESEM!${NC}"
-echo -e "${GREEN}  Wersja: 2026-10-29 v 0.3.3${NC}"
+echo -e "${GREEN}  Wersja: 2026-10-29 v 0.03.4${NC}"
 echo -e "${GREEN}=================================================================${NC}"
 echo -e "Aplikacja działa i jest dostępna pod:"
 echo -e "  👉 ${YELLOW}http://${SERVER_IP}:3000${NC} lub ${YELLOW}http://localhost:3000${NC}"

@@ -51,7 +51,7 @@ if (fs.existsSync(STATE_FILE)) {
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '2026-10-29 v 0.3.3',
+    version: '2026-10-29 v 0.03.4',
     timestamp: new Date().toISOString(),
     postgresStatus: process.env.DATABASE_URL ? 'configured' : 'standalone-json-db',
     persistedState: !!serverAppStateCache,
@@ -259,18 +259,45 @@ app.get('/api/calendar/all.ics', (_req, res) => {
 // REAL GITHUB UPDATE CHECKER ENDPOINT
 app.get('/api/system/check-update', async (_req, res) => {
   try {
-    const localVersion = process.env.APP_VERSION || '2026-10-29 v 0.3.3';
+    const localVersion = process.env.APP_VERSION || '2026-10-29 v 0.03.4';
     
-    // Check GitHub raw dockerConfig.ts or package.json
-    const rawUrl = 'https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/src/data/dockerConfig.ts';
-    const resp = await fetch(`${rawUrl}?t=${Date.now()}`, { cache: 'no-cache' }).catch(() => null);
-    
+    // 1. Sprawdź plik VERSION bezpośrednio z repozytorium GitHub
     let remoteVersion = localVersion;
-    if (resp && resp.ok) {
-      const text = await resp.text();
-      const match = text.match(/CURRENT_APP_VERSION\s*=\s*['"]([^'"]+)['"]/);
-      if (match && match[1]) {
-        remoteVersion = match[1].trim();
+    let checkedSource = 'brak połączenia';
+
+    const versionUrl = 'https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/VERSION';
+    const vResp = await fetch(`${versionUrl}?t=${Date.now()}`, { cache: 'no-cache' }).catch(() => null);
+
+    if (vResp && vResp.ok) {
+      const vText = (await vResp.text()).trim();
+      if (vText && vText.length > 0 && vText.length < 50) {
+        remoteVersion = vText;
+        checkedSource = 'plik VERSION na GitHub (gałąź main)';
+      }
+    } else {
+      // 2. Alternatywnie sprawdź plik package.json z GitHub
+      const pkgUrl = 'https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/package.json';
+      const pResp = await fetch(`${pkgUrl}?t=${Date.now()}`, { cache: 'no-cache' }).catch(() => null);
+      if (pResp && pResp.ok) {
+        try {
+          const pJson = await pResp.json();
+          if (pJson && pJson.version) {
+            remoteVersion = `2026-10-29 v ${pJson.version}`;
+            checkedSource = 'plik package.json na GitHub (gałąź main)';
+          }
+        } catch {}
+      } else {
+        // 3. Fallback: sprawdź plik dockerConfig.ts z GitHub
+        const rawUrl = 'https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/src/data/dockerConfig.ts';
+        const dResp = await fetch(`${rawUrl}?t=${Date.now()}`, { cache: 'no-cache' }).catch(() => null);
+        if (dResp && dResp.ok) {
+          const text = await dResp.text();
+          const match = text.match(/CURRENT_APP_VERSION\s*=\s*['"]([^'"]+)['"]/);
+          if (match && match[1]) {
+            remoteVersion = match[1].trim();
+            checkedSource = 'plik dockerConfig.ts na GitHub (gałąź main)';
+          }
+        }
       }
     }
 
@@ -293,6 +320,7 @@ app.get('/api/system/check-update', async (_req, res) => {
       localVersion,
       remoteVersion,
       hasUpdate,
+      checkedSource,
       latestSha,
       commitMessage,
       checkedAt: new Date().toISOString(),
@@ -328,7 +356,7 @@ app.get('/api/system-info', (_req, res) => {
   res.json({
     name: 'Zarządzanie Projektami',
     description: 'System zarządzania projektami z wykresem Gantta, terminarzem i integracją Google Calendar na żywo',
-    version: '2026-10-29 v 0.3.3',
+    version: '2026-10-29 v 0.03.4',
     deployment: 'Docker & PostgreSQL Ready',
     features: [
       'Gantt Chart Interactive Timeline with Project Names on Bars',

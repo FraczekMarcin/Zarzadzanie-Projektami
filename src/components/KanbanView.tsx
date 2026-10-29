@@ -18,7 +18,8 @@ import {
   RotateCcw,
   Check,
   Eye,
-  Filter
+  Filter,
+  FileText
 } from 'lucide-react';
 import { isApproachingOfficialDeadline, getBusinessDaysRemaining } from '../utils/businessDays';
 
@@ -73,6 +74,14 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
 
   const getTypeIcon = (type: string) => {
     switch (type) {
+      case 'rysunek':
+        return <Layers className="w-3.5 h-3.5 text-sky-500" />;
+      case 'opis':
+        return <FileText className="w-3.5 h-3.5 text-emerald-500" />;
+      case 'uzgodnienia':
+        return <Diamond className="w-3.5 h-3.5 text-purple-500 fill-purple-500/20" />;
+      case 'urzad':
+        return <Clock className="w-3.5 h-3.5 text-amber-500" />;
       case 'milestone':
         return <Diamond className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />;
       case 'bug':
@@ -286,6 +295,13 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
                             >
                               <ShieldAlert className={`w-3 h-3 ${isOfficialWarning ? 'text-rose-600 animate-bounce' : 'text-indigo-600'}`} />
                               <span>Termin urzędowy ({businessDaysRemaining} dni rob.)</span>
+                            </div>
+                          )}
+
+                          {/* Project Name */}
+                          {project && (
+                            <div className="text-[10px] font-mono text-sky-700 dark:text-sky-400 font-semibold truncate mb-1">
+                              [{project.key}] {project.name}
                             </div>
                           )}
 
