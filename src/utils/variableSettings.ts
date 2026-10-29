@@ -163,3 +163,100 @@ export function saveDeadlineWarningDays(days: number): void {
     console.error('Błąd zapisu dni ostrzeżenia o terminie:', err);
   }
 }
+
+export type TaskTypeColor = 'sky' | 'emerald' | 'purple' | 'amber' | 'rose' | 'indigo' | 'blue' | 'slate';
+
+export interface TaskTypeDefinition {
+  id: string; // np. 'rysunek', 'opis', 'uzgodnienia', 'urzad' lub własne id
+  name: string; // np. 'Rysunek', 'Opis', 'Uzgodnienia', 'Czekanie na urząd'
+  color: TaskTypeColor;
+  icon?: string;
+  isDefault?: boolean;
+}
+
+export const DEFAULT_TASK_TYPES: TaskTypeDefinition[] = [
+  { id: 'rysunek', name: 'Rysunek', color: 'sky', isDefault: true },
+  { id: 'opis', name: 'Opis', color: 'emerald', isDefault: true },
+  { id: 'uzgodnienia', name: 'Uzgodnienia', color: 'purple', isDefault: true },
+  { id: 'urzad', name: 'Czekanie na urząd', color: 'amber', isDefault: true },
+];
+
+export function getTaskTypes(): TaskTypeDefinition[] {
+  try {
+    const saved = localStorage.getItem('oph_task_types');
+    if (!saved) return DEFAULT_TASK_TYPES;
+    const parsed = JSON.parse(saved);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed;
+    }
+    return DEFAULT_TASK_TYPES;
+  } catch {
+    return DEFAULT_TASK_TYPES;
+  }
+}
+
+export function saveTaskTypes(types: TaskTypeDefinition[]): void {
+  try {
+    localStorage.setItem('oph_task_types', JSON.stringify(types));
+  } catch (err) {
+    console.error('Błąd zapisu typów zadań:', err);
+  }
+}
+
+export function getTaskTypeLabel(typeId: string, customTypes?: TaskTypeDefinition[]): string {
+  const all = customTypes || getTaskTypes();
+  const match = all.find((t) => t.id === typeId || t.name.toLowerCase() === typeId.toLowerCase());
+  if (match) return match.name;
+  if (typeId === 'task') return 'Rysunek';
+  if (typeId === 'milestone') return 'Uzgodnienia';
+  if (typeId === 'bug') return 'Opis';
+  if (typeId === 'phase') return 'Czekanie na urząd';
+  return typeId;
+}
+
+export function getTaskTypeBadgeStyle(typeId: string, customTypes?: TaskTypeDefinition[]): {
+  badgeClass: string;
+  dotColor: string;
+} {
+  const all = customTypes || getTaskTypes();
+  const match = all.find((t) => t.id === typeId || t.name.toLowerCase() === typeId.toLowerCase());
+  const color = match?.color || 'sky';
+
+  switch (color) {
+    case 'emerald':
+      return {
+        badgeClass: 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800',
+        dotColor: 'bg-emerald-500',
+      };
+    case 'purple':
+      return {
+        badgeClass: 'bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800',
+        dotColor: 'bg-purple-500',
+      };
+    case 'amber':
+      return {
+        badgeClass: 'bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-200 border-amber-200 dark:border-amber-800',
+        dotColor: 'bg-amber-500',
+      };
+    case 'rose':
+      return {
+        badgeClass: 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800',
+        dotColor: 'bg-rose-500',
+      };
+    case 'indigo':
+      return {
+        badgeClass: 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800',
+        dotColor: 'bg-indigo-500',
+      };
+    case 'slate':
+      return {
+        badgeClass: 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700',
+        dotColor: 'bg-slate-500',
+      };
+    default:
+      return {
+        badgeClass: 'bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800',
+        dotColor: 'bg-sky-500',
+      };
+  }
+}

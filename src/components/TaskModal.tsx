@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Task, Project, User, Priority, TaskType, TaskStatus } from '../types';
 import { X, Calendar, UserCheck, AlertTriangle, Layers, Clock, Lock, GitMerge } from 'lucide-react';
+import { getTaskTypes, TaskTypeDefinition } from '../utils/variableSettings';
 
 interface TaskModalProps {
   isOpen: boolean;
@@ -27,10 +28,11 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   defaultParentId,
   initialTask,
 }) => {
+  const [taskTypes, setTaskTypes] = useState<TaskTypeDefinition[]>(() => getTaskTypes());
   const [projectId, setProjectId] = useState(defaultProjectId || (projects[0]?.id ?? ''));
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [type, setType] = useState<TaskType>('task');
+  const [type, setType] = useState<TaskType>('rysunek');
   const [priority, setPriority] = useState<Priority>('normal'); // Default Normalny as requested!
   const [status, setStatus] = useState<TaskStatus>('to_do');
   const [assigneeId, setAssigneeId] = useState<string>(users[0]?.id || '');
@@ -71,6 +73,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   };
 
   useEffect(() => {
+    const currentTypes = getTaskTypes();
+    setTaskTypes(currentTypes);
     if (initialTask) {
       setProjectId(initialTask.projectId);
       setTitle(initialTask.title);
@@ -93,7 +97,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       setProjectId(defaultProjectId || (projects[0]?.id ?? ''));
       setTitle('');
       setDescription('');
-      setType('task');
+      setType(currentTypes[0]?.id || 'rysunek');
       setPriority('normal'); // Default Normalny
       setStatus('to_do');
       setAssigneeId(users[0]?.id || '');
@@ -236,17 +240,17 @@ export const TaskModal: React.FC<TaskModalProps> = ({
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Typ zadania *</label>
+              <label className="block font-semibold text-slate-700 dark:text-slate-200 mb-1">Typ zadania *</label>
               <select
                 value={type}
                 onChange={(e) => setType(e.target.value as TaskType)}
-                className="w-full border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500"
               >
-                <option value="task">Zadanie standardowe (Task)</option>
-                <option value="milestone">Kamień milowy (Milestone)</option>
-                <option value="bug">Błąd do naprawy (Bug)</option>
-                <option value="feature">Funkcjonalność (Feature)</option>
-                <option value="phase">Faza projektu / Grupa (Phase)</option>
+                {taskTypes.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
               </select>
             </div>
           </div>

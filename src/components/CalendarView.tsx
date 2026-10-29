@@ -270,36 +270,44 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                     badgeColor = 'bg-emerald-50 text-emerald-800 border-emerald-200';
                   }
 
-                  return (
-                    <div
-                      key={task.id}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSelectTask(task);
-                      }}
-                      className={`text-[11px] p-1 rounded border leading-tight cursor-pointer truncate transition-all hover:scale-[1.01] ${badgeColor} ${
-                        isMilestone ? 'font-semibold' : ''
-                      } ${isOfficialWarning ? 'animate-official-deadline' : ''}`}
-                      title={`${task.code} - ${task.title} (${task.status})${
-                        task.isOfficialDeadline ? ` [Termin urzędowy: pozostało ${businessDaysRemaining} dni roboczych]` : ''
-                      }`}
-                    >
-                      <div className="flex items-center gap-1 truncate">
-                        {isMilestone && <Diamond className="w-2.5 h-2.5 text-amber-600 fill-amber-500 shrink-0" />}
-                        {isBlocked && <Lock className="w-2.5 h-2.5 text-rose-700 shrink-0" />}
-                        {task.isOfficialDeadline && (
-                          <ShieldAlert className={`w-2.5 h-2.5 shrink-0 ${isOfficialWarning ? 'text-rose-600 animate-pulse' : 'text-indigo-600'}`} />
-                        )}
-                        {isOverdue && isDueToday && (
-                          <span title="Termin przekroczony!">
-                            <AlertCircle className="w-2.5 h-2.5 text-rose-600 shrink-0" />
-                          </span>
-                        )}
-                        <span className="font-mono text-[9px] opacity-75 shrink-0">{task.code}</span>
-                        <span className="truncate font-medium">{task.title}</span>
-                      </div>
-                    </div>
-                  );
+                      const taskProj = projects.find((p) => p.id === task.projectId);
+
+                      return (
+                        <div
+                          key={task.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectTask(task);
+                          }}
+                          className={`text-[11px] p-1.5 rounded border leading-tight cursor-pointer transition-all hover:scale-[1.01] ${badgeColor} ${
+                            isMilestone ? 'font-semibold' : ''
+                          } ${isOfficialWarning ? 'animate-official-deadline' : ''}`}
+                          title={`${task.code} - ${task.title} [${taskProj ? taskProj.name : ''}] (${task.status})${
+                            task.isOfficialDeadline ? ` [Termin urzędowy: pozostało ${businessDaysRemaining} dni roboczych]` : ''
+                          }`}
+                        >
+                          <div className="flex items-center gap-1 truncate">
+                            {isMilestone && <Diamond className="w-2.5 h-2.5 text-amber-600 fill-amber-500 shrink-0" />}
+                            {isBlocked && <Lock className="w-2.5 h-2.5 text-rose-700 shrink-0" />}
+                            {task.isOfficialDeadline && (
+                              <ShieldAlert className={`w-2.5 h-2.5 shrink-0 ${isOfficialWarning ? 'text-rose-600 animate-pulse' : 'text-indigo-600'}`} />
+                            )}
+                            {isOverdue && isDueToday && (
+                              <span title="Termin przekroczony!">
+                                <AlertCircle className="w-2.5 h-2.5 text-rose-600 shrink-0" />
+                              </span>
+                            )}
+                            <span className="font-mono text-[9px] opacity-75 shrink-0">{task.code}</span>
+                            <span className="truncate font-semibold">{task.title}</span>
+                          </div>
+                          {taskProj && (
+                            <div className="text-[9px] font-mono opacity-90 truncate mt-0.5 text-sky-700 dark:text-sky-300 font-medium flex items-center gap-1">
+                              <span>[{taskProj.key}]</span>
+                              <span className="truncate">{taskProj.name}</span>
+                            </div>
+                          )}
+                        </div>
+                      );
                 })}
               </div>
 

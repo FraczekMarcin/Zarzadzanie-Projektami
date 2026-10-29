@@ -1,6 +1,12 @@
 export type Priority = 'critical' | 'high' | 'normal' | 'low';
 
-export type TaskType = 'task' | 'milestone' | 'bug' | 'feature' | 'phase';
+export type TaskType = 
+  | 'rysunek' // Rysunek architektoniczny / wykonawczy
+  | 'opis' // Opis techniczny, specyfikacja, bilans
+  | 'uzgodnienia' // Uzgodnienia branżowe i rzeczoznawcy
+  | 'urzad' // Czekanie na urząd, decyzję, pozwolenie
+  | 'task' | 'milestone' | 'bug' | 'feature' | 'phase' // Kompatybilność wsteczna
+  | string;
 
 export type TaskStatus = 'to_do' | 'in_progress' | 'review' | 'done' | 'blocked';
 
@@ -89,6 +95,9 @@ export interface Project {
   quotations?: QuotationItem[];
   costs?: CostItem[];
   isDemo?: boolean;
+  // Archiwum projektów
+  isArchived?: boolean;
+  archivedAt?: string;
 }
 
 export interface Task {
