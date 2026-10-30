@@ -169,16 +169,19 @@ export type TaskTypeColor = 'sky' | 'emerald' | 'purple' | 'amber' | 'rose' | 'i
 export interface TaskTypeDefinition {
   id: string; // np. 'rysunek', 'opis', 'uzgodnienia', 'urzad' lub własne id
   name: string; // np. 'Rysunek', 'Opis', 'Uzgodnienia', 'Czekanie na urząd'
-  color: TaskTypeColor;
+  label?: string; // alias dla name
+  description?: string;
+  color?: TaskTypeColor;
+  badgeColor?: string;
   icon?: string;
   isDefault?: boolean;
 }
 
 export const DEFAULT_TASK_TYPES: TaskTypeDefinition[] = [
-  { id: 'rysunek', name: 'Rysunek', color: 'sky', isDefault: true },
-  { id: 'opis', name: 'Opis', color: 'emerald', isDefault: true },
-  { id: 'uzgodnienia', name: 'Uzgodnienia', color: 'purple', isDefault: true },
-  { id: 'urzad', name: 'Czekanie na urząd', color: 'amber', isDefault: true },
+  { id: 'rysunek', name: 'Rysunek', label: 'Rysunek', description: 'Rysunki wykonawcze, schematy, rzuty CAD/BIM', color: 'sky', isDefault: true },
+  { id: 'opis', name: 'Opis', label: 'Opis', description: 'Opisy techniczne, specyfikacje materiałowe, przedmiary', color: 'emerald', isDefault: true },
+  { id: 'uzgodnienia', name: 'Uzgodnienia', label: 'Uzgodnienia', description: 'Uzgodnienia rzeczoznawców PPOŻ, Sanepid, BHP, gestorzy sieci', color: 'purple', isDefault: true },
+  { id: 'urzad', name: 'Czekanie na urząd', label: 'Czekanie na urząd', description: 'Procedury administracyjne, KPA, pozwolenia na budowę', color: 'amber', isDefault: true },
 ];
 
 export function getTaskTypes(): TaskTypeDefinition[] {

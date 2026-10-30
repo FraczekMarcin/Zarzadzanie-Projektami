@@ -1,6 +1,6 @@
 {
   "name": "OpenProject Hub",
-  "description": "Profesjonalna platforma do zarządzania projektami z wykresem Gantta, terminarzem, integracją Google Calendar oraz pakietem instalacyjnym Docker i PostgreSQL.",
+  "description": "Zarządzanie Projektami - profesjonalny system dla biur projektowych i inżynieryjnych z harmonogramem Gantta, terminarzem, wycenami, integracją Google i wdrożeniem Docker PostgreSQL.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

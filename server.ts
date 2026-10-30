@@ -51,7 +51,7 @@ if (fs.existsSync(STATE_FILE)) {
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '2026-10-29 v 0.03.4',
+    version: '2026-10-30 v0.3.5',
     timestamp: new Date().toISOString(),
     postgresStatus: process.env.DATABASE_URL ? 'configured' : 'standalone-json-db',
     persistedState: !!serverAppStateCache,
@@ -259,7 +259,7 @@ app.get('/api/calendar/all.ics', (_req, res) => {
 // REAL GITHUB UPDATE CHECKER ENDPOINT
 app.get('/api/system/check-update', async (_req, res) => {
   try {
-    const localVersion = process.env.APP_VERSION || '2026-10-29 v 0.03.4';
+    const localVersion = process.env.APP_VERSION || '2026-10-30 v0.3.5';
     
     // 1. Sprawdź plik VERSION bezpośrednio z repozytorium GitHub
     let remoteVersion = localVersion;
@@ -305,7 +305,7 @@ app.get('/api/system/check-update', async (_req, res) => {
     let latestSha = '';
     let commitMessage = '';
     const ghResp = await fetch('https://api.github.com/repos/FraczekMarcin/Zarzadzanie-Projektami/commits/main', {
-      headers: { 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'OpenProject-Updater' },
+      headers: { 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'Zarzadzanie-Projektami-Updater' },
     }).catch(() => null);
 
     if (ghResp && ghResp.ok) {
@@ -356,7 +356,7 @@ app.get('/api/system-info', (_req, res) => {
   res.json({
     name: 'Zarządzanie Projektami',
     description: 'System zarządzania projektami z wykresem Gantta, terminarzem i integracją Google Calendar na żywo',
-    version: '2026-10-29 v 0.03.4',
+    version: '2026-10-30 v0.3.5',
     deployment: 'Docker & PostgreSQL Ready',
     features: [
       'Gantt Chart Interactive Timeline with Project Names on Bars',

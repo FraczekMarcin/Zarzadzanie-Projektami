@@ -7,14 +7,14 @@ export interface DockerConfigFile {
 }
 
 export const GITHUB_REPO_URL = 'https://github.com/FraczekMarcin/Zarzadzanie-Projektami';
-export const CURRENT_APP_VERSION = '2026-10-29 v 0.03.4';
+export const CURRENT_APP_VERSION = '2026-10-30 v0.3.5';
 export const INSTALL_TARGET_DIR = '/opt/zarzadzanie-projektami';
 export const RAW_INSTALL_SCRIPT_URL = 'https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/Instalacja/install.sh';
 export const GITHUB_RAW_FALLBACK_URL = 'https://github.com/FraczekMarcin/Zarzadzanie-Projektami/raw/main/Instalacja/install.sh';
 
 export const DOCKER_COMPOSE_YML = `# ==============================================================================
 # Zarządzanie Projektami (Pracownia Projektowa / Budownictwo)
-# Wersja: 2026-10-29 v 0.03.4
+# Wersja: 2026-10-30 v0.3.5
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Lokalizacja docelowa na serwerze: /opt/zarzadzanie-projektami
 # ==============================================================================
@@ -56,7 +56,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      APP_VERSION: "2026-10-29 v 0.03.4"
+      APP_VERSION: "2026-10-30 v0.3.5"
       DATABASE_URL: postgres://\${POSTGRES_USER:-zarzadzanie}:\${POSTGRES_PASSWORD:-TwojeBezpieczneHaslo2026!}@db:5432/\${POSTGRES_DB:-zarzadzanie_db}
       APP_SECRET: \${APP_SECRET:-sekretna-fraza-szyfrowania-zarzadzanie-projektami-2026}
     ports:
@@ -94,7 +94,7 @@ networks:
 
 export const DOCKERFILE_CONTENT = `# ==========================================
 # Zarządzanie Projektami - Dockerfile
-# Wersja: 2026-10-29 v 0.03.4
+# Wersja: 2026-10-30 v0.3.5
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Ścieżka: Instalacja/Dockerfile
 # ==========================================
@@ -119,7 +119,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV APP_VERSION="2026-10-29 v 0.03.4"
+ENV APP_VERSION="2026-10-30 v0.3.5"
 
 # Użytkownik o ograniczonych uprawnieniach (Security best practice)
 RUN addgroup -g 1001 -S nodejs && \\
@@ -327,7 +327,7 @@ echo "[$(date)] Kopia zapasowa gotowa: \$BACKUP_DIR/\$FILENAME (Zachowano kopie 
 export const INSTALL_SCRIPT_CONTENT = `#!/usr/bin/env bash
 # ==============================================================================
 # Zarządzanie Projektami - Pracownia Projektowa / Budownictwo
-# Wersja: 2026-10-29 v 0.03.4
+# Wersja: 2026-10-30 v0.3.5
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Ścieżka skryptu w repozytorium: Instalacja/install.sh
 # Lokalizacja instalacji na serwerze: /opt/zarzadzanie-projektami
@@ -342,7 +342,7 @@ RED='\\033[0;31m'
 NC='\\033[0m'
 
 echo -e "\${BLUE}=================================================================\${NC}"
-echo -e "\${GREEN}  🏗️  Zarządzanie Projektami - Instalator (Wersja 2026-10-29 v 0.03.4)\${NC}"
+echo -e "\${GREEN}  🏗️  Zarządzanie Projektami - Instalator (Wersja 2026-10-30 v0.3.5)\${NC}"
 echo -e "\${BLUE}  Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami\${NC}"
 echo -e "\${BLUE}=================================================================\${NC}"
 
@@ -607,7 +607,7 @@ SERVER_IP=\$(hostname -I 2>/dev/null | awk '{print \$1}' || echo "localhost")
 
 echo -e "\${GREEN}=================================================================\${NC}"
 echo -e "\${GREEN}  ✅ WDROŻENIE ZAKOŃCZONE SUKCESEM!\${NC}"
-echo -e "\${GREEN}  Wersja: 2026-10-29 v 0.03.4\${NC}"
+echo -e "\${GREEN}  Wersja: 2026-10-30 v0.3.5\${NC}"
 echo -e "\${GREEN}=================================================================\${NC}"
 echo -e "Aplikacja działa i jest dostępna pod:"
 echo -e "  👉 \${YELLOW}http://\${SERVER_IP}:3000\${NC} lub \${YELLOW}http://localhost:3000\${NC}"
