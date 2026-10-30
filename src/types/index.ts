@@ -21,6 +21,9 @@ export interface User {
   department: string;
   initials: string;
   password?: string;
+  passwordHash?: string; // Hasło zahashowane SHA-256
+  twoFactorEnabled?: boolean; // Google Authenticator 2FA
+  twoFactorSecret?: string; // Klucz TOTP
   isDemo?: boolean;
   isApproved?: boolean; // Nowy użytkownik musi być zatwierdzony przez administratora
   registeredAt?: string;
@@ -41,6 +44,9 @@ export interface QuotationItem {
   totalNet: number;
   totalGross: number;
   status: 'draft' | 'sent' | 'accepted' | 'rejected' | 'invoiced';
+  isPaid?: boolean; // Znacznik: Zapłacono (rozliczone w bilansie)
+  paidAt?: string;
+  paidAmount?: number;
   notes?: string;
 }
 
@@ -64,6 +70,8 @@ export interface CostItem {
   invoiceNumber?: string;
   date: string;
   status: 'planned' | 'incurred' | 'paid';
+  isPaid?: boolean; // Znacznik: Zapłacono
+  paidAt?: string;
   notes?: string;
 }
 
@@ -79,6 +87,10 @@ export interface Project {
   durationDays: number; // Project duration in days
   progress: number;
   budget?: string;
+  // Wartość projektu (kwota umowy) uwzględniana w bilansie
+  projectValue?: number; // Kwota netto w PLN
+  projectValueGross?: number; // Kwota brutto w PLN
+  projectVatRate?: number; // Stawka VAT (np. 23%)
   spentHours?: number;
   memberIds: string[];
   color: string;
@@ -95,9 +107,10 @@ export interface Project {
   quotations?: QuotationItem[];
   costs?: CostItem[];
   isDemo?: boolean;
-  // Archiwum projektów
+  // Archiwum projektów (tylko Administrator)
   isArchived?: boolean;
   archivedAt?: string;
+  archivedBy?: string;
 }
 
 export interface Task {

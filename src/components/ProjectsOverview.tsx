@@ -5,6 +5,7 @@ import { getNextProjectCode, isProjectCodeAvailable, isValidProjectCodeFormat } 
 import { loadAllProjectTemplates } from '../utils/projectTemplates';
 import { AdminTemplateManagerModal } from './AdminTemplateManagerModal';
 import { ProjectFinancialsModal } from './ProjectFinancialsModal';
+import { ProjectDetailModal } from './ProjectDetailModal';
 import { 
   FolderPlus, 
   Calendar, 
@@ -25,9 +26,12 @@ import {
   TrendingUp,
   Receipt,
   Folder,
-  Copy
+  Copy,
+  Eye,
+  Archive,
+  ArchiveRestore
 } from 'lucide-react';
-import { getClients, registerClientIfNew } from '../utils/variableSettings';
+import { getClients, registerClientIfNew, getVatRates } from '../utils/variableSettings';
 
 interface ProjectsOverviewProps {
   projects: Project[];
@@ -64,6 +68,18 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   // Delete project confirmation state
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
 
+  // Tab filter: Active vs Archived projects
+  const [activeTab, setActiveTab] = useState<'active' | 'archived'>('active');
+
+  // Read-only project details viewer
+  const [viewingProject, setViewingProject] = useState<Project | null>(null);
+
+  // Admin archive confirmation modal
+  const [projectToArchive, setProjectToArchive] = useState<{
+    project: Project;
+    incompleteCount: number;
+  } | null>(null);
+
   // Form fields
   const [projectCode, setProjectCode] = useState('');
   const [name, setName] = useState('');
@@ -74,6 +90,8 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   const [durationDays, setDurationDays] = useState<number>(60);
   const [dueDate, setDueDate] = useState('2026-12-23');
   const [budget, setBudget] = useState('100 000 PLN');
+  const [projectValue, setProjectValue] = useState<number>(100000);
+  const [projectVatRate, setProjectVatRate] = useState<number>(23);
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>(['usr-1', 'usr-2']);
 
   // Client info fields
@@ -151,6 +169,8 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
       setDurationDays(preselectedTemplate.defaultDurationDays);
       setDueDate(calculateDueDate('2026-10-24', preselectedTemplate.defaultDurationDays));
       setBudget(preselectedTemplate.defaultBudget || '180 000 PLN');
+      setProjectValue(180000);
+      setProjectVatRate(23);
     } else {
       setSelectedTemplateId('none');
       setName('');
@@ -161,6 +181,8 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
       setDurationDays(60);
       setDueDate('2026-12-23');
       setBudget('150 000 PLN');
+      setProjectValue(150000);
+      setProjectVatRate(23);
     }
     setClientName('');
     setClientContactPerson('');
@@ -197,6 +219,8 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setDurationDays(project.durationDays || 30);
     setDueDate(project.dueDate);
     setBudget(project.budget || '');
+    setProjectValue(project.projectValue || 100000);
+    setProjectVatRate(project.projectVatRate !== undefined ? project.projectVatRate : 23);
     setSelectedMemberIds(project.memberIds || []);
     setClientName(project.clientName || '');
     setClientContactPerson(project.clientContactPerson || '');
@@ -221,6 +245,10 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
       });
     }
 
+    const valNet = Number(projectValue || 0);
+    const valGross = Math.round(valNet * (1 + (projectVatRate || 23) / 100) * 100) / 100;
+    const budgetStr = valNet > 0 ? `${valNet.toLocaleString('pl-PL')} PLN` : budget;
+
     if (editingProject && onUpdateProject) {
       onUpdateProject({
         ...editingProject,
@@ -232,7 +260,10 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         startDate,
         dueDate,
         durationDays,
-        budget,
+        budget: budgetStr,
+        projectValue: valNet,
+        projectValueGross: valGross,
+        projectVatRate,
         memberIds: selectedMemberIds,
         clientName: clientName.trim() || undefined,
         clientContactPerson: clientContactPerson.trim() || undefined,
@@ -257,7 +288,10 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
           dueDate,
           durationDays,
           progress: 0,
-          budget,
+          budget: budgetStr,
+          projectValue: valNet,
+          projectValueGross: valGross,
+          projectVatRate,
           spentHours: 0,
           memberIds: selectedMemberIds,
           color: '#0284c7',
@@ -275,6 +309,33 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setIsModalOpen(false);
   };
 
+  const handleRequestArchive = (project: Project) => {
+    const projectTasks = tasks.filter((t) => t.projectId === project.id);
+    const incompleteCount = projectTasks.filter((t) => t.status !== 'done').length;
+    setProjectToArchive({ project, incompleteCount });
+  };
+
+  const handleConfirmArchive = () => {
+    if (!projectToArchive || !onUpdateProject) return;
+    onUpdateProject({
+      ...projectToArchive.project,
+      isArchived: true,
+      archivedAt: new Date().toISOString(),
+      archivedBy: currentUser.name,
+    });
+    setProjectToArchive(null);
+  };
+
+  const handleRestoreProject = (project: Project) => {
+    if (!onUpdateProject) return;
+    onUpdateProject({
+      ...project,
+      isArchived: false,
+      archivedAt: undefined,
+      archivedBy: undefined,
+    });
+  };
+
   const toggleMember = (userId: string) => {
     setSelectedMemberIds((prev) =>
       prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
@@ -282,6 +343,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   };
 
   const demoProjectsCount = projects.filter((p) => p.isDemo).length;
+  const activeProjects = projects.filter((p) => !p.isArchived);
+  const archivedProjects = projects.filter((p) => p.isArchived);
+  const displayedProjects = activeTab === 'active' ? activeProjects : archivedProjects;
 
   return (
     <div className="space-y-6">
@@ -322,24 +386,68 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         </div>
       </div>
 
+      {/* Tabs: Aktywne projekty vs Archiwum Projektów */}
+      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+        <button
+          type="button"
+          onClick={() => setActiveTab('active')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
+            activeTab === 'active'
+              ? 'bg-sky-600 text-white shadow-xs'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Building2 className="w-3.5 h-3.5" />
+          <span>Aktywne projekty ({activeProjects.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('archived')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
+            activeTab === 'archived'
+              ? 'bg-purple-600 text-white shadow-xs'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Archive className="w-3.5 h-3.5" />
+          <span>Archiwum projektów ({archivedProjects.length})</span>
+        </button>
+      </div>
+
       {/* Projects Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {projects.map((project) => {
-          const projectTasks = tasks.filter((t) => t.projectId === project.id);
-          const completedTasks = projectTasks.filter((t) => t.status === 'done').length;
-          const criticalTasks = projectTasks.filter((t) => t.priority === 'critical' && t.status !== 'done').length;
-          const members = users.filter((u) => project.memberIds?.includes(u.id));
+      {displayedProjects.length === 0 ? (
+        <div className="p-12 bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-800 rounded-xl text-center space-y-3">
+          <Archive className="w-8 h-8 text-slate-400 mx-auto" />
+          <h3 className="font-bold text-slate-700 dark:text-slate-200 text-sm">
+            {activeTab === 'active' ? 'Brak aktywnych projektów' : 'Brak zarchiwizowanych projektów'}
+          </h3>
+          <p className="text-xs text-slate-500 max-w-md mx-auto">
+            {activeTab === 'active'
+              ? 'Zarejestruj nowy projekt za pomocą przycisku powyżej.'
+              : 'Gdy ukończysz projekt, administrator może przenieść go do tego archiwum.'}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {displayedProjects.map((project) => {
+            const projectTasks = tasks.filter((t) => t.projectId === project.id);
+            const completedTasks = projectTasks.filter((t) => t.status === 'done').length;
+            const criticalTasks = projectTasks.filter((t) => t.priority === 'critical' && t.status !== 'done').length;
+            const members = users.filter((u) => project.memberIds?.includes(u.id));
 
-          // Calculate project financial metrics
-          const selectedQuotes = (project.quotations || []).filter((q) => q.isSelected !== false);
-          const revenueQuotes = selectedQuotes.filter((q) => q.type !== 'koszt');
-          const costQuotes = selectedQuotes.filter((q) => q.type === 'koszt');
+            // Calculate project financial metrics
+            const selectedQuotes = (project.quotations || []).filter((q) => q.isSelected !== false);
+            const revenueQuotes = selectedQuotes.filter((q) => q.type !== 'koszt');
+            const costQuotes = selectedQuotes.filter((q) => q.type === 'koszt');
 
-          const quoteNet = revenueQuotes.reduce((acc, q) => acc + (q.totalNet || 0), 0);
-          const directCostsNet = (project.costs || []).reduce((acc, c) => acc + (c.amountNet || 0), 0);
-          const quoteCostsNet = costQuotes.reduce((acc, q) => acc + (q.totalNet || 0), 0);
-          const totalCostsNet = directCostsNet + quoteCostsNet;
-          const profitNet = quoteNet - totalCostsNet;
+            const baseContract = project.projectValue || 0;
+            const quoteNet = revenueQuotes.reduce((acc, q) => acc + (q.totalNet || 0), 0);
+            const totalProjectRev = baseContract + quoteNet;
+            const directCostsNet = (project.costs || []).reduce((acc, c) => acc + (c.amountNet || 0), 0);
+            const quoteCostsNet = costQuotes.reduce((acc, q) => acc + (q.totalNet || 0), 0);
+            const totalCostsNet = directCostsNet + quoteCostsNet;
+            const profitNet = totalProjectRev - totalCostsNet;
 
           return (
             <div
@@ -552,6 +660,14 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                 {/* Actions */}
                 <div className="flex items-center gap-1.5">
                   <button
+                    onClick={() => setViewingProject(project)}
+                    className="p-1 text-slate-500 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950/40 rounded transition-colors"
+                    title="Podgląd danych projektu bez wchodzenia w edycję"
+                  >
+                    <Eye className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                  </button>
+
+                  <button
                     onClick={() => setFinancialsProject(project)}
                     className="p-1 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded transition-colors"
                     title="Wyceny Inwestorskie, Koszty (Mapa, Geologia, Uzgodnienia)"
@@ -574,6 +690,27 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                   >
                     <Download className="w-3.5 h-3.5" />
                   </button>
+
+                  {/* Archive button for administrator */}
+                  {currentUser.role === 'admin' && (
+                    project.isArchived ? (
+                      <button
+                        onClick={() => handleRestoreProject(project)}
+                        className="p-1 text-purple-600 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded transition-colors"
+                        title="Przywróć projekt z archiwum do bieżącej pracy"
+                      >
+                        <ArchiveRestore className="w-3.5 h-3.5 text-emerald-600" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleRequestArchive(project)}
+                        className="p-1 text-slate-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/40 rounded transition-colors"
+                        title="Przenieś projekt do archiwum (Tylko Administrator)"
+                      >
+                        <Archive className="w-3.5 h-3.5 text-purple-600" />
+                      </button>
+                    )
+                  )}
 
                   {/* Delete project button */}
                   {onDeleteProject && (
@@ -598,6 +735,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
           );
         })}
       </div>
+      )}
 
       {/* Financials Modal */}
       {financialsProject && (
@@ -611,6 +749,82 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
             setFinancialsProject(null);
           }}
         />
+      )}
+
+      {/* Project Detail Modal (Podgląd danych projektu bez wchodzenia w edycję) */}
+      {viewingProject && (
+        <ProjectDetailModal
+          isOpen={true}
+          onClose={() => setViewingProject(null)}
+          project={viewingProject}
+          tasks={tasks}
+          users={users}
+          currentUser={currentUser}
+          onEditProject={(p) => {
+            setViewingProject(null);
+            openEditModal(p);
+          }}
+          onOpenFinancials={(p) => {
+            setViewingProject(null);
+            setFinancialsProject(p);
+          }}
+          onArchiveProject={currentUser.role === 'admin' ? (p) => {
+            setViewingProject(null);
+            handleRequestArchive(p);
+          } : undefined}
+        />
+      )}
+
+      {/* Archive Warning & Confirmation Modal for Administrator */}
+      {projectToArchive && (
+        <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-2xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 max-w-md w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-2.5 text-purple-600 dark:text-purple-400">
+              <div className="p-2 bg-purple-100 dark:bg-purple-950/60 rounded-lg">
+                <Archive className="w-5 h-5" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                Archiwizacja Projektu: [{projectToArchive.project.key}] {projectToArchive.project.name}
+              </h3>
+            </div>
+
+            {projectToArchive.incompleteCount > 0 ? (
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-lg flex items-start gap-2.5 text-xs text-amber-900 dark:text-amber-200">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <span className="font-bold block">
+                    Ostrzeżenie: Część zadań w projekcie nie jest jeszcze ukończona!
+                  </span>
+                  <p>
+                    Projekt posiada <strong>{projectToArchive.incompleteCount} nieukończonych zadań</strong>.
+                    Czy jako Administrator na pewno chcesz przenieść ten projekt do archiwum projektów?
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-600 dark:text-slate-300">
+                Wszystkie zadania zostały zrealizowane. Projekt zostanie przeniesiony do zakładki "Archiwum projektów" i wykluczony z bieżących list operacyjnych.
+              </p>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800 text-xs">
+              <button
+                type="button"
+                onClick={() => setProjectToArchive(null)}
+                className="px-3.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 rounded font-semibold transition-colors"
+              >
+                Anuluj
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmArchive}
+                className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded font-semibold transition-colors shadow-xs"
+              >
+                Potwierdź archiwizację
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Delete Confirmation Modal */}
@@ -899,6 +1113,55 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                       value={dueDate}
                       onChange={(e) => handleDueDateChange(e.target.value)}
                       className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* WARTOŚĆ PROJEKTU (KWOTA UMOWY GŁÓWNEJ) */}
+              <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 rounded-lg space-y-2">
+                <span className="font-semibold text-emerald-950 dark:text-emerald-200 block text-[11px] uppercase tracking-wide flex items-center gap-1.5">
+                  <DollarSign className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>Wartość Projektu (kwota umowy głównej)</span>
+                </span>
+                <p className="text-[11px] text-emerald-800 dark:text-emerald-300">
+                  Kwota ta uwzględniana jest jako podstawowy przychód w bilansie i rentowności projektu.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Kwota netto (PLN) *</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="500"
+                      value={projectValue}
+                      onChange={(e) => setProjectValue(Number(e.target.value))}
+                      placeholder="np. 150000"
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Stawka VAT</label>
+                    <select
+                      value={projectVatRate}
+                      onChange={(e) => setProjectVatRate(Number(e.target.value))}
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+                    >
+                      {getVatRates().map((v) => (
+                        <option key={v.id} value={v.value ?? v.rate}>
+                          {v.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Wartość brutto (PLN)</label>
+                    <input
+                      type="text"
+                      disabled
+                      value={`${Math.round(projectValue * (1 + projectVatRate / 100)).toLocaleString('pl-PL')} zł`}
+                      className="w-full bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 font-mono font-bold"
                     />
                   </div>
                 </div>

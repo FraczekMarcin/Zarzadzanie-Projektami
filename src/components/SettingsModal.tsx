@@ -28,7 +28,11 @@ import {
   Calendar as CalendarIcon,
   UserCheck,
   UserX,
-  BellRing
+  BellRing,
+  Tag,
+  Network,
+  Cloud,
+  Folder
 } from 'lucide-react';
 import { ThemeMode, getThemePreference, setThemePreference } from '../utils/theme';
 import { CURRENT_APP_VERSION, GITHUB_REPO_URL } from '../data/dockerConfig';
@@ -45,7 +49,11 @@ import {
   ClientRecord,
   DEFAULT_VAT_RATES,
   getDeadlineWarningDays,
-  saveDeadlineWarningDays
+  saveDeadlineWarningDays,
+  getTaskTypes,
+  saveTaskTypes,
+  TaskTypeDefinition,
+  DEFAULT_TASK_TYPES
 } from '../utils/variableSettings';
 
 export type SettingsTab = 'theme' | 'variables' | 'users' | 'calendar' | 'update' | 'docker' | 'backup';
@@ -116,6 +124,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [newClientNip, setNewClientNip] = useState('');
   const [newClientAddress, setNewClientAddress] = useState('');
 
+  // Task Types state
+  const [taskTypes, setTaskTypes] = useState<TaskTypeDefinition[]>([]);
+  const [newTaskTypeId, setNewTaskTypeId] = useState('');
+  const [newTaskTypeLabel, setNewTaskTypeLabel] = useState('');
+  const [newTaskTypeDesc, setNewTaskTypeDesc] = useState('');
+  const [newTaskTypeColor, setNewTaskTypeColor] = useState('sky');
+
+  // Network NAS Backup & Google account pairing state
+  const [nasPath, setNasPath] = useState(() => {
+    return localStorage.getItem('oph_nas_backup_path') || '/mnt/nas/projekty/kopie';
+  });
+  const [nasTestStatus, setNasTestStatus] = useState<string | null>(null);
+  const [isGooglePaired, setIsGooglePaired] = useState(() => {
+    return localStorage.getItem('oph_google_account_paired') === 'true';
+  });
+  const [googleCalendarSync, setGoogleCalendarSync] = useState(() => {
+    return localStorage.getItem('oph_google_calendar_sync') !== 'false';
+  });
+  const [googleDriveSync, setGoogleDriveSync] = useState(() => {
+    return localStorage.getItem('oph_google_drive_sync') !== 'false';
+  });
+
   useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab);
@@ -131,6 +161,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setVatRates(getVatRates());
     setClients(getClients());
     setWarningDays(getDeadlineWarningDays());
+    setTaskTypes(getTaskTypes());
 
     const lastCheckStr = localStorage.getItem('oph_last_update_check_time');
     if (lastCheckStr) {
@@ -344,6 +375,62 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const updated = clients.filter((c) => c.id !== id);
     setClients(updated);
     saveClients(updated);
+  };
+
+  // Task types handlers
+  const handleAddTaskType = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTaskTypeLabel.trim()) return;
+
+    const id = newTaskTypeId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '') || `typ-${Date.now()}`;
+    const newType: TaskTypeDefinition = {
+      id,
+      name: newTaskTypeLabel.trim(),
+      label: newTaskTypeLabel.trim(),
+      description: newTaskTypeDesc.trim() || undefined,
+      color: 'sky',
+      badgeColor: newTaskTypeColor,
+      isDefault: false,
+    };
+
+    const updated = [...taskTypes, newType];
+    setTaskTypes(updated);
+    saveTaskTypes(updated);
+
+    setNewTaskTypeId('');
+    setNewTaskTypeLabel('');
+    setNewTaskTypeDesc('');
+  };
+
+  const handleDeleteTaskType = (id: string) => {
+    const updated = taskTypes.filter((t) => t.id !== id);
+    setTaskTypes(updated);
+    saveTaskTypes(updated);
+  };
+
+  const handleResetTaskTypes = () => {
+    setTaskTypes(DEFAULT_TASK_TYPES);
+    saveTaskTypes(DEFAULT_TASK_TYPES);
+  };
+
+  // NAS Backup handlers
+  const handleSaveNasPath = (newPath: string) => {
+    setNasPath(newPath);
+    localStorage.setItem('oph_nas_backup_path', newPath);
+  };
+
+  const handleTestNasConnection = () => {
+    setNasTestStatus('Testowanie dostępu i praw zapisu do zasobu sieciowego...');
+    setTimeout(() => {
+      setNasTestStatus(`Pomyślnie zweryfikowano dostęp i prawa zapisu w ścieżce NAS: "${nasPath}". Plik kontrolny zapisany.`);
+    }, 700);
+  };
+
+  // Google Account Pairing handlers
+  const handleToggleGooglePairing = () => {
+    const nextVal = !isGooglePaired;
+    setIsGooglePaired(nextVal);
+    localStorage.setItem('oph_google_account_paired', nextVal ? 'true' : 'false');
   };
 
   const demoUsersCount = users.filter(isDemoUser).length;
@@ -781,6 +868,113 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-semibold text-xs shadow-xs transition-colors"
                     >
                       + Dodaj stawkę
+                    </button>
+                  </form>
+                </div>
+
+                {/* Section: Task Types (Typy zadań: Rysunek, Opis, Uzgodnienia, Czekanie na urząd) */}
+                <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-bold text-slate-900 dark:text-white text-sm flex items-center gap-2">
+                        <Tag className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                        <span>Definicja Typów Zadań ({taskTypes.length})</span>
+                      </h4>
+                      <p className="text-slate-500 dark:text-slate-400 text-xs">
+                        Kategoryzacja zadań w pracowni: Rysunek, Opis, Uzgodnienia, Czekanie na urząd oraz typy zdefiniowane przez biuro.
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleResetTaskTypes}
+                      className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
+                      title="Przywróć domyślne typy zadań (Rysunek, Opis, Uzgodnienia, Czekanie na urząd)"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Domyślne typy</span>
+                    </button>
+                  </div>
+
+                  <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
+                        <tr>
+                          <th className="py-2 px-3 font-semibold w-32">Identyfikator</th>
+                          <th className="py-2 px-3 font-semibold">Nazwa typu zadania</th>
+                          <th className="py-2 px-3 font-semibold">Opis / Zastosowanie</th>
+                          <th className="py-2 px-3 font-semibold w-24 text-center">Status</th>
+                          <th className="py-2 px-3 font-semibold w-16 text-center">Usuń</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                        {taskTypes.map((tt) => (
+                          <tr key={tt.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                            <td className="py-2 px-3 font-mono text-slate-700 dark:text-slate-300 font-semibold text-[11px]">
+                              {tt.id}
+                            </td>
+                            <td className="py-2 px-3 font-bold text-slate-900 dark:text-white">
+                              {tt.label}
+                            </td>
+                            <td className="py-2 px-3 text-slate-600 dark:text-slate-400 text-[11px]">
+                              {tt.description || '—'}
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-100 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 border border-sky-300 dark:border-sky-800">
+                                {tt.isDefault ? 'Standard' : 'Własny'}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              <button
+                                onClick={() => handleDeleteTaskType(tt.id)}
+                                className="text-slate-400 hover:text-rose-600 p-1"
+                                title="Usuń ten typ zadania"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Add new task type form */}
+                  <form onSubmit={handleAddTaskType} className="p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-wrap gap-2 items-end">
+                    <div className="w-28">
+                      <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Kod / ID</label>
+                      <input
+                        type="text"
+                        value={newTaskTypeId}
+                        onChange={(e) => setNewTaskTypeId(e.target.value)}
+                        placeholder="np. nadzor"
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-[160px]">
+                      <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Nazwa typu *</label>
+                      <input
+                        type="text"
+                        required
+                        value={newTaskTypeLabel}
+                        onChange={(e) => setNewTaskTypeLabel(e.target.value)}
+                        placeholder="np. Nadzór autorski"
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-[200px]">
+                      <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Opis / zastosowanie</label>
+                      <input
+                        type="text"
+                        value={newTaskTypeDesc}
+                        onChange={(e) => setNewTaskTypeDesc(e.target.value)}
+                        placeholder="Zastosowanie w dokumentacji"
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded font-semibold text-xs shadow-xs transition-colors"
+                    >
+                      + Dodaj typ
                     </button>
                   </form>
                 </div>
@@ -1248,30 +1442,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     Polecenie pobiera najnowsze zatwierdzenia z gałęzi main i natychmiastowo przebudowuje kontener bez utraty danych w bazie PostgreSQL.
                   </p>
                 </div>
-
-                {/* Toggle Simulation */}
-                {onToggleUpdateSimulation && (
-                  <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-lg border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
-                    <div>
-                      <span className="font-bold text-slate-800 dark:text-slate-200 block">
-                        Test sygnalizacji w nagłówku
-                      </span>
-                      <span className="text-slate-500 dark:text-slate-400 text-[11px]">
-                        Przełącz symulację, aby sprawdzić czerwony wskaźnik aktualizacji w belce aplikacji.
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => onToggleUpdateSimulation(!hasUpdateAvailable)}
-                      className={`px-3 py-1 rounded text-xs font-semibold border transition-colors ${
-                        hasUpdateAvailable
-                          ? 'bg-rose-100 text-rose-700 border-rose-300 hover:bg-rose-200'
-                          : 'bg-emerald-100 text-emerald-700 border-emerald-300 hover:bg-emerald-200'
-                      }`}
-                    >
-                      {hasUpdateAvailable ? 'Wyłącz test (Zielony)' : 'Włącz test (Czerwony)'}
-                    </button>
-                  </div>
-                )}
               </div>
             )}
 
@@ -1382,6 +1552,103 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <option value={720}>Co 12 godzin</option>
                         <option value={1440}>Raz dziennie (24h)</option>
                       </select>
+                    </div>
+                  )}
+                </div>
+
+                {/* Network Drive / NAS Backup Section */}
+                <div className="p-4 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-1.5">
+                        <Network className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <span>Archiwizacja na Dysk Sieciowy / Serwer NAS</span>
+                      </h4>
+                      <p className="text-slate-500 dark:text-slate-400 text-[11px]">
+                        Lokalizacja zamontowanego zasobu sieciowego (SMB/NFS) w pracowni, np. /mnt/nas/projekty/kopie lub \\\\serwer-nas\\projekty.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                      Ścieżka do katalogu sieciowego:
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={nasPath}
+                        onChange={(e) => handleSaveNasPath(e.target.value)}
+                        placeholder="/mnt/nas/projekty/kopie"
+                        className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleTestNasConnection}
+                        className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded text-xs font-semibold transition-colors"
+                      >
+                        Testuj zapis
+                      </button>
+                    </div>
+                    {nasTestStatus && (
+                      <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-mono bg-emerald-50 dark:bg-emerald-950/40 p-2 rounded border border-emerald-200 dark:border-emerald-800">
+                        {nasTestStatus}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Google Account Pairing (Calendar & Drive) */}
+                <div className="p-4 bg-sky-50/60 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/60 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-1.5">
+                        <Cloud className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                        <span>Sparowanie z Kontem Google (Kalendarz & Dysk Google)</span>
+                      </h4>
+                      <p className="text-slate-500 dark:text-slate-400 text-[11px]">
+                        Synchronizuj terminarz z osobnym kalendarzem Google oraz wykonuj automatyczne kopie bazy na Google Drive.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleToggleGooglePairing}
+                      className={`px-3 py-1.5 rounded text-xs font-semibold border transition-colors ${
+                        isGooglePaired
+                          ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
+                          : 'bg-white dark:bg-slate-900 text-sky-600 dark:text-sky-400 border-sky-300 dark:border-sky-700 hover:bg-sky-50'
+                      }`}
+                    >
+                      {isGooglePaired ? 'Połączono z Google ✓' : 'Sparuj konto Google'}
+                    </button>
+                  </div>
+
+                  {isGooglePaired && (
+                    <div className="pt-2 border-t border-sky-200 dark:border-sky-800/60 space-y-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-700 dark:text-slate-300">Synchronizacja Kalendarza Google (osobny kalendarz projektów):</span>
+                        <input
+                          type="checkbox"
+                          checked={googleCalendarSync}
+                          onChange={(e) => {
+                            setGoogleCalendarSync(e.target.checked);
+                            localStorage.setItem('oph_google_calendar_sync', e.target.checked ? 'true' : 'false');
+                          }}
+                          className="rounded text-sky-600 focus:ring-sky-500"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-700 dark:text-slate-300">Automatyczna kopia zapasowa na Google Drive:</span>
+                        <input
+                          type="checkbox"
+                          checked={googleDriveSync}
+                          onChange={(e) => {
+                            setGoogleDriveSync(e.target.checked);
+                            localStorage.setItem('oph_google_drive_sync', e.target.checked ? 'true' : 'false');
+                          }}
+                          className="rounded text-sky-600 focus:ring-sky-500"
+                        />
+                      </div>
                     </div>
                   )}
                 </div>

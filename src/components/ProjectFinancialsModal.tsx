@@ -54,6 +54,11 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   const [diskPath, setDiskPath] = useState(project.diskPath || '');
   const [copiedPath, setCopiedPath] = useState(false);
   
+  // Base Contract Value (Wartość projektu z umowy)
+  const [baseContractValue, setBaseContractValue] = useState<number>(project.projectValue || 0);
+  const [projectVatRate, setProjectVatRate] = useState<number>(project.projectVatRate !== undefined ? project.projectVatRate : 23);
+  const [isBaseContractPaid, setIsBaseContractPaid] = useState<boolean>(project.status === 'completed');
+
   // Dates
   const [startDate, setStartDate] = useState(project.startDate || '2026-10-01');
   const [dueDate, setDueDate] = useState(project.dueDate || '2027-02-28');
@@ -65,6 +70,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
       companyName: q.companyName || project.clientName || 'Inwestor Główny',
       isSelected: q.isSelected !== undefined ? q.isSelected : true,
       taxType: q.taxType || 'netto',
+      isPaid: q.isPaid || false,
     }));
   });
 
@@ -78,13 +84,19 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   const [newQuoteTaxType, setNewQuoteTaxType] = useState<'netto' | 'brutto' | 'zwolniony'>('netto');
   const [newQuoteVatRate, setNewQuoteVatRate] = useState(23);
   const [newQuoteIsSelected, setNewQuoteIsSelected] = useState(true);
+  const [newQuoteIsPaid, setNewQuoteIsPaid] = useState(false);
 
   // Available VAT rates from system variables
   const vatRateOptions = getVatRates();
   const availableClients = getClients();
 
   // Costs items
-  const [costs, setCosts] = useState<CostItem[]>(project.costs || []);
+  const [costs, setCosts] = useState<CostItem[]>(() => {
+    return (project.costs || []).map((c) => ({
+      ...c,
+      isPaid: c.isPaid !== undefined ? c.isPaid : c.status === 'paid',
+    }));
+  });
   const [newCostTitle, setNewCostTitle] = useState('');
   const [newCostCategory, setNewCostCategory] = useState<CostCategory>('mapa');
   const [newCostAmountNet, setNewCostAmountNet] = useState(5000);
@@ -94,6 +106,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   const [newCostTaskId, setNewCostTaskId] = useState<string>('');
   const [newCostDate, setNewCostDate] = useState(new Date().toISOString().slice(0, 10));
   const [newCostStatus, setNewCostStatus] = useState<'planned' | 'incurred' | 'paid'>('paid');
+  const [newCostIsPaid, setNewCostIsPaid] = useState(true);
 
   if (!isOpen) return null;
 
@@ -102,6 +115,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
 
   // Totals calculations:
   // - Only SELECTED items (isSelected !== false) enter the project balance!
+  // - Base contract value (project.projectValue) is the foundation of project revenue!
   // - Items with type === 'koszt' count into costs
   // - Items with type === 'przychod' count into revenue (wartość projektu)
   // - Unselected items (isSelected === false) stay outside balance as optional variants/quotes
@@ -109,8 +123,15 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   const revenueQuotes = selectedQuotations.filter((q) => q.type !== 'koszt');
   const costQuotes = selectedQuotations.filter((q) => q.type === 'koszt');
 
+  const baseProjectValueNet = Number(baseContractValue || 0);
+  const baseProjectValueGross = Math.round(baseProjectValueNet * (1 + (projectVatRate || 23) / 100) * 100) / 100;
+
   const totalQuotationNet = revenueQuotes.reduce((acc, q) => acc + (q.totalNet || 0), 0);
   const totalQuotationGross = revenueQuotes.reduce((acc, q) => acc + (q.totalGross || 0), 0);
+
+  // Total project revenue = Base contract value + accepted revenue quotes
+  const totalRevenueNet = baseProjectValueNet + totalQuotationNet;
+  const totalRevenueGross = baseProjectValueGross + totalQuotationGross;
 
   const directCostsNet = costs.reduce((acc, c) => acc + (c.amountNet || 0), 0);
   const directCostsGross = costs.reduce((acc, c) => acc + (c.amountGross || 0), 0);
@@ -121,8 +142,30 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   const totalCostsNet = directCostsNet + quoteCostsNet;
   const totalCostsGross = directCostsGross + quoteCostsGross;
 
-  const profitNet = totalQuotationNet - totalCostsNet;
-  const marginPercent = totalQuotationNet > 0 ? Math.round((profitNet / totalQuotationNet) * 100) : 0;
+  const profitNet = totalRevenueNet - totalCostsNet;
+  const marginPercent = totalRevenueNet > 0 ? Math.round((profitNet / totalRevenueNet) * 100) : 0;
+
+  // Paid vs Unpaid breakdown
+  const paidRevenueNet = (isBaseContractPaid ? baseProjectValueNet : 0) + 
+    revenueQuotes.filter((q) => q.isPaid).reduce((acc, q) => acc + (q.totalNet || 0), 0);
+  const unpaidRevenueNet = Math.max(0, totalRevenueNet - paidRevenueNet);
+
+  const paidCostsNet = costs.filter((c) => c.isPaid || c.status === 'paid').reduce((acc, c) => acc + (c.amountNet || 0), 0) +
+    costQuotes.filter((q) => q.isPaid).reduce((acc, q) => acc + (q.totalNet || 0), 0);
+  const unpaidCostsNet = Math.max(0, totalCostsNet - paidCostsNet);
+
+  // Toggle paid handlers
+  const handleToggleQuotationPaid = (id: string) => {
+    setQuotations((prev) =>
+      prev.map((q) => (q.id === id ? { ...q, isPaid: !q.isPaid, paidAt: !q.isPaid ? new Date().toISOString() : undefined } : q))
+    );
+  };
+
+  const handleToggleCostPaid = (id: string) => {
+    setCosts((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, isPaid: !c.isPaid, status: !c.isPaid ? 'paid' : 'incurred' } : c))
+    );
+  };
 
   // Costs by category
   const costsByCategory = costs.reduce((acc, c) => {
@@ -263,9 +306,14 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
       diskPath: diskPath.trim() || undefined,
       startDate,
       dueDate,
+      projectValue: baseProjectValueNet,
+      projectValueGross: baseProjectValueGross,
+      projectVatRate,
       quotations,
       costs,
-      budget: `${totalQuotationNet.toLocaleString('pl-PL')} PLN`,
+      budget: baseProjectValueNet > 0 
+        ? `${baseProjectValueNet.toLocaleString('pl-PL')} PLN` 
+        : `${totalRevenueNet.toLocaleString('pl-PL')} PLN`,
     };
 
     onSaveProject(updated);
@@ -324,10 +372,13 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
         {/* Top Financial Stats Bar */}
         <div className="bg-slate-100/70 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 px-6 py-2.5 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
           <div>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400 block">Wycena w bilansie (Netto)</span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 block">Wartość Projektu (Netto)</span>
             <span className="font-bold text-slate-900 dark:text-white text-sm font-mono">
-              {totalQuotationNet.toLocaleString('pl-PL')} PLN
+              {totalRevenueNet.toLocaleString('pl-PL')} PLN
             </span>
+            {baseProjectValueNet > 0 && (
+              <span className="text-[10px] text-slate-400 block">Umowa: {baseProjectValueNet.toLocaleString('pl-PL')} zł</span>
+            )}
           </div>
 
           <div>
@@ -335,6 +386,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
             <span className="font-bold text-rose-600 dark:text-rose-400 text-sm font-mono">
               {totalCostsNet.toLocaleString('pl-PL')} PLN
             </span>
+            <span className="text-[10px] text-slate-400 block">Opłacono: {paidCostsNet.toLocaleString('pl-PL')} zł</span>
           </div>
 
           <div>
@@ -342,13 +394,21 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
             <span className={`font-bold text-sm font-mono ${profitNet >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
               {profitNet >= 0 ? '+' : ''}{profitNet.toLocaleString('pl-PL')} PLN
             </span>
+            <span className="text-[10px] text-slate-400 block">Marża: {marginPercent}%</span>
           </div>
 
           <div>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400 block">Rentowność / Marża</span>
-            <span className={`font-bold text-sm font-mono ${marginPercent >= 20 ? 'text-emerald-600 dark:text-emerald-400' : marginPercent > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>
-              {marginPercent}%
-            </span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 block">Status płatności (Wpłaty)</span>
+            <div className="flex items-center gap-1.5 pt-0.5">
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                Zapłacono: {paidRevenueNet.toLocaleString('pl-PL')} zł
+              </span>
+            </div>
+            {unpaidRevenueNet > 0 && (
+              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold block">
+                Do zapłaty: {unpaidRevenueNet.toLocaleString('pl-PL')} zł
+              </span>
+            )}
           </div>
         </div>
 
@@ -427,12 +487,70 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                 </div>
               </div>
 
+              {/* Base Project Contract Value (Kwota umowy) */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  <div>
+                    <span className="font-bold text-slate-800 dark:text-slate-200 text-xs block">
+                      Wartość bazowa projektu (kwota umowy głównej)
+                    </span>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Podstawa przychodu w bilansie projektu. Dodatkowe pozycje poniżej to wyceny uzupełniające.
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div>
+                    <span className="block text-[10px] text-slate-500">Kwota netto PLN</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="500"
+                      value={baseContractValue}
+                      onChange={(e) => setBaseContractValue(Number(e.target.value))}
+                      className="w-32 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 text-xs text-slate-900 dark:text-white font-mono font-bold"
+                    />
+                  </div>
+                  <div>
+                    <span className="block text-[10px] text-slate-500">Stawka VAT</span>
+                    <select
+                      value={projectVatRate}
+                      onChange={(e) => setProjectVatRate(Number(e.target.value))}
+                      className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-900 dark:text-white"
+                    >
+                      {vatRateOptions.map((v) => (
+                        <option key={v.id} value={v.value ?? v.rate}>
+                          {v.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="pt-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsBaseContractPaid(!isBaseContractPaid)}
+                      className={`px-2.5 py-1 rounded text-[11px] font-semibold border flex items-center gap-1 transition-colors ${
+                        isBaseContractPaid
+                          ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                          : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                      }`}
+                    >
+                      {isBaseContractPaid ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <Clock className="w-3.5 h-3.5 text-slate-400" />}
+                      <span>{isBaseContractPaid ? 'Umowa opłacona' : 'Umowa nieopłacona'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               {/* Table of quotation items */}
               <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
                     <tr>
                       <th className="py-2.5 px-3 font-semibold w-28 text-center">Do bilansu</th>
+                      <th className="py-2.5 px-3 font-semibold w-24 text-center">Zapłacono</th>
                       <th className="py-2.5 px-3 font-semibold w-24 text-center">Rodzaj</th>
                       <th className="py-2.5 px-3 font-semibold">Nazwa wyceny / zakres</th>
                       <th className="py-2.5 px-3 font-semibold">Firma / Oferent</th>
@@ -446,7 +564,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
                     {quotations.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="py-6 text-center text-slate-400">
+                        <td colSpan={10} className="py-6 text-center text-slate-400">
                           Brak pozycji wyceny. Wypełnij poniższy formularz i dodaj pierwszą pozycję.
                         </td>
                       </tr>
@@ -487,6 +605,21 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                                     <span>Opcja (poza)</span>
                                   </>
                                 )}
+                              </button>
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleQuotationPaid(q.id)}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${
+                                  q.isPaid
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-300 dark:border-slate-700 hover:border-slate-400'
+                                }`}
+                                title={q.isPaid ? 'Oznacz jako nieopłacone' : 'Oznacz jako zapłacone'}
+                              >
+                                {q.isPaid ? <CheckCircle2 className="w-3 h-3 text-emerald-600" /> : <Clock className="w-3 h-3 text-slate-400" />}
+                                <span>{q.isPaid ? 'Zapłacono' : 'Czeka'}</span>
                               </button>
                             </td>
                             <td className="py-2 px-3 text-center">
@@ -700,6 +833,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                   <thead className="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
                     <tr>
                       <th className="py-2.5 px-3 font-semibold">Tytuł kosztu</th>
+                      <th className="py-2.5 px-3 font-semibold w-24 text-center">Zapłacono</th>
                       <th className="py-2.5 px-3 font-semibold w-48">Kategoria branżowa</th>
                       <th className="py-2.5 px-3 font-semibold w-40">Powiązane zadanie</th>
                       <th className="py-2.5 px-3 font-semibold w-36">Wykonawca</th>
@@ -711,7 +845,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
                     {costs.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="py-6 text-center text-slate-400">
+                        <td colSpan={8} className="py-6 text-center text-slate-400">
                           Brak wprowadzonych kosztów branżowych. Dodaj koszt mapy, geologii lub uzgodnień poniżej.
                         </td>
                       </tr>
@@ -719,6 +853,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                       costs.map((c) => {
                         const meta = getCategoryLabel(c.category);
                         const linkedTask = projectTasks.find((t) => t.id === c.taskId);
+                        const isCostPaid = c.isPaid !== undefined ? c.isPaid : c.status === 'paid';
                         return (
                           <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                             <td className="py-2 px-3 font-medium text-slate-900 dark:text-slate-100">
@@ -726,6 +861,21 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                               {c.invoiceNumber && (
                                 <span className="block text-[10px] text-slate-400 font-mono">Faktura: {c.invoiceNumber}</span>
                               )}
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleCostPaid(c.id)}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${
+                                  isCostPaid
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-300 dark:border-slate-700 hover:border-slate-400'
+                                }`}
+                                title={isCostPaid ? 'Oznacz jako nieopłacone' : 'Oznacz jako opłacone'}
+                              >
+                                {isCostPaid ? <CheckCircle2 className="w-3 h-3 text-emerald-600" /> : <Clock className="w-3 h-3 text-slate-400" />}
+                                <span>{isCostPaid ? 'Zapłacono' : 'Czeka'}</span>
+                              </button>
                             </td>
                             <td className="py-2 px-3">
                               <span className={`px-2 py-0.5 rounded text-[10px] font-medium border ${meta.color}`}>

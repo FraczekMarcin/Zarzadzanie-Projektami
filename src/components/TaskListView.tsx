@@ -48,8 +48,8 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
   const [viewFilter, setViewFilter] = useState<'active' | 'completed' | 'all'>('active');
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('all');
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
-  const [sortBy, setSortBy] = useState<'dueDate' | 'priority' | 'progress' | 'code' | 'durationDays'>('dueDate');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [sortBy, setSortBy] = useState<'dueDate' | 'priority' | 'progress' | 'code' | 'durationDays'>('priority');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   // Counts
   const projectTasks = useMemo(() => {
@@ -79,18 +79,31 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
         return true;
       })
       .sort((a, b) => {
+        const weights: Record<Priority, number> = { critical: 4, high: 3, normal: 2, low: 1 };
+
+        if (sortBy === 'priority') {
+          const pA = weights[a.priority] || 0;
+          const pB = weights[b.priority] || 0;
+          if (pA !== pB) {
+            return sortOrder === 'asc' ? pA - pB : pB - pA;
+          }
+          // Secondary sort: due date ascending
+          const dueA = a.dueDate || '9999-99-99';
+          const dueB = b.dueDate || '9999-99-99';
+          return dueA.localeCompare(dueB);
+        }
+
         let valA: any = a[sortBy];
         let valB: any = b[sortBy];
 
-        if (sortBy === 'priority') {
-          const weights: Record<Priority, number> = { critical: 4, high: 3, normal: 2, low: 1 };
-          valA = weights[a.priority];
-          valB = weights[b.priority];
-        }
-
         if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
         if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
-        return 0;
+
+        // Fallback: priority descending, then due date
+        const pA = weights[a.priority] || 0;
+        const pB = weights[b.priority] || 0;
+        if (pA !== pB) return pB - pA;
+        return (a.dueDate || '').localeCompare(b.dueDate || '');
       });
   }, [projectTasks, viewFilter, statusFilter, priorityFilter, searchQuery, sortBy, sortOrder]);
 
@@ -99,7 +112,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
     } else {
       setSortBy(field);
-      setSortOrder('asc');
+      setSortOrder(field === 'priority' ? 'desc' : 'asc');
     }
   };
 

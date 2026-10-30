@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Task, Project, User, Priority, TaskStatus, ActivityLog, Comment, ProjectTemplate } from './types';
 import { INITIAL_USERS, INITIAL_PROJECTS, INITIAL_TASKS, INITIAL_ACTIVITY } from './data/initialData';
 import { GanttChart } from './components/GanttChart';
@@ -24,6 +24,7 @@ import { getAutoBackupConfig, createAutoBackupSnapshot } from './utils/autoBacku
 import { ThemeMode, getThemePreference, setThemePreference, initThemeListener } from './utils/theme';
 import { CURRENT_APP_VERSION, GITHUB_REPO_URL } from './data/dockerConfig';
 import { isDemoUser, isDemoProject } from './utils/demoData';
+import { sortTasksByPriorityAndDueDate } from './utils/taskSorting';
 import { 
   FolderKanban, 
   Calendar as CalendarIcon, 
@@ -125,6 +126,9 @@ export default function App() {
       return INITIAL_TASKS;
     }
   });
+
+  // Universal task sorting: Priority (critical -> high -> normal -> low), then due date
+  const sortedTasks = useMemo(() => sortTasksByPriorityAndDueDate(tasks), [tasks]);
 
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => {
     try {
@@ -1360,7 +1364,7 @@ export default function App() {
       <main className="flex-1 py-3 px-2 sm:px-3 lg:px-4 w-full max-w-none bg-slate-50/50 dark:bg-slate-950 transition-colors">
         {activeView === 'gantt' && (
           <GanttChart
-            tasks={tasks}
+            tasks={sortedTasks}
             projects={projects}
             users={users}
             selectedProjectId={selectedProjectId}
@@ -1371,7 +1375,7 @@ export default function App() {
 
         {activeView === 'calendar' && (
           <CalendarView
-            tasks={tasks}
+            tasks={sortedTasks}
             projects={projects}
             users={users}
             selectedProjectId={selectedProjectId}
@@ -1382,7 +1386,7 @@ export default function App() {
 
         {activeView === 'tasks' && (
           <TaskListView
-            tasks={tasks}
+            tasks={sortedTasks}
             projects={projects}
             users={users}
             selectedProjectId={selectedProjectId}
@@ -1395,7 +1399,7 @@ export default function App() {
 
         {activeView === 'tree' && (
           <TaskTreeView
-            tasks={tasks}
+            tasks={sortedTasks}
             projects={projects}
             users={users}
             selectedProjectId={selectedProjectId}
@@ -1408,7 +1412,7 @@ export default function App() {
 
         {activeView === 'kanban' && (
           <KanbanView
-            tasks={tasks}
+            tasks={sortedTasks}
             projects={projects}
             users={users}
             selectedProjectId={selectedProjectId}
@@ -1421,7 +1425,7 @@ export default function App() {
         {activeView === 'projects' && (
           <ProjectsOverview
             projects={projects}
-            tasks={tasks}
+            tasks={sortedTasks}
             users={users}
             currentUser={currentUser}
             onSelectProject={(projId) => {
@@ -1446,7 +1450,7 @@ export default function App() {
         onSave={handleSaveTask}
         projects={projects}
         users={users}
-        allTasks={tasks}
+        allTasks={sortedTasks}
         defaultProjectId={selectedProjectId}
         defaultDate={defaultTaskDate}
         defaultParentId={defaultParentId}
@@ -1457,7 +1461,7 @@ export default function App() {
         task={selectedTaskDetail}
         projects={projects}
         users={users}
-        allTasks={tasks}
+        allTasks={sortedTasks}
         currentUser={currentUser}
         onClose={() => setSelectedTaskDetail(null)}
         onEdit={(task) => {
@@ -1476,7 +1480,7 @@ export default function App() {
         onClose={() => setIsCalendarSyncModalOpen(false)}
         currentUser={currentUser}
         users={users}
-        tasks={tasks}
+        tasks={sortedTasks}
         projects={projects}
         onSwitchUser={(user) => {
           setCurrentUser(user);
@@ -1540,7 +1544,7 @@ export default function App() {
         onClose={() => setIsTaskFilterModalOpen(false)}
         activeFilter={taskFilterModalType}
         onChangeFilter={(f) => setTaskFilterModalType(f)}
-        tasks={tasks}
+        tasks={sortedTasks}
         projects={projects}
         users={users}
         onNavigateToTaskAndProject={handleNavigateToTaskAndProject}
