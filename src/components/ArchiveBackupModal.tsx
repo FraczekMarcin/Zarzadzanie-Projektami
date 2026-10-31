@@ -38,6 +38,7 @@ import {
   AutoBackupSnapshot 
 } from '../utils/autoBackup';
 import { INSTALL_TARGET_DIR, CURRENT_APP_VERSION } from '../data/dockerConfig';
+import { copyToClipboard } from '../utils/clipboard';
 
 interface ArchiveBackupModalProps {
   isOpen: boolean;
@@ -374,8 +375,8 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
 
   const cronSnippet = `0 2 * * * root ${INSTALL_TARGET_DIR}/backup.sh >/dev/null 2>&1`;
 
-  const handleCopyCron = () => {
-    navigator.clipboard.writeText(cronSnippet);
+  const handleCopyCron = async () => {
+    await copyToClipboard(cronSnippet);
     setCopiedCron(true);
     setTimeout(() => setCopiedCron(false), 2000);
   };

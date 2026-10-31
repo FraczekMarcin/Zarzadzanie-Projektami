@@ -8,6 +8,7 @@ import {
   CURRENT_APP_VERSION,
   INSTALL_TARGET_DIR
 } from '../data/dockerConfig';
+import { copyToClipboard } from '../utils/clipboard';
 import { 
   X, 
   Copy, 
@@ -40,16 +41,20 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
 
   const currentFile = DOCKER_FILES[selectedFileIndex];
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(currentFile.content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async () => {
+    const success = await copyToClipboard(currentFile.content);
+    if (success) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
-  const handleCopyCmd = (cmd: string, key: string) => {
-    navigator.clipboard.writeText(cmd);
-    setCopiedCmd(key);
-    setTimeout(() => setCopiedCmd(null), 2000);
+  const handleCopyCmd = async (cmd: string, key: string) => {
+    const success = await copyToClipboard(cmd);
+    if (success) {
+      setCopiedCmd(key);
+      setTimeout(() => setCopiedCmd(null), 2000);
+    }
   };
 
   const handleDownloadSingleFile = (file: DockerConfigFile) => {

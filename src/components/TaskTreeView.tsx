@@ -23,6 +23,7 @@ import {
   Hourglass
 } from 'lucide-react';
 import { getDeadlineWarningDays } from '../utils/variableSettings';
+import { copyToClipboard } from '../utils/clipboard';
 
 interface TaskTreeViewProps {
   tasks: Task[];
@@ -120,9 +121,9 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
     });
   };
 
-  const handleCopyDiskPath = () => {
+  const handleCopyDiskPath = async () => {
     if (!currentProject?.diskPath) return;
-    navigator.clipboard.writeText(currentProject.diskPath);
+    await copyToClipboard(currentProject.diskPath);
     setCopiedDiskPath(true);
     setTimeout(() => setCopiedDiskPath(false), 2000);
   };

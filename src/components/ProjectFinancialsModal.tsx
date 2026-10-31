@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Project, Task, QuotationItem, CostItem, CostCategory } from '../types';
 import { getVatRates, getClients, registerClientIfNew, VatRateOption } from '../utils/variableSettings';
+import { copyToClipboard } from '../utils/clipboard';
 import { 
   X, 
   Building2, 
@@ -275,9 +276,9 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
     }
   };
 
-  const handleCopyDiskPath = () => {
+  const handleCopyDiskPath = async () => {
     if (!diskPath) return;
-    navigator.clipboard.writeText(diskPath);
+    await copyToClipboard(diskPath);
     setCopiedPath(true);
     setTimeout(() => setCopiedPath(false), 2500);
   };

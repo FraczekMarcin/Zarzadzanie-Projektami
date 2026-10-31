@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Project, Task, User, Priority } from '../types';
+import { copyToClipboard } from '../utils/clipboard';
 import { 
   X, 
   Briefcase, 
@@ -94,11 +95,13 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
 
   const isAdmin = currentUser?.role === 'admin';
 
-  const handleCopyPath = () => {
+  const handleCopyPath = async () => {
     if (!project.diskPath) return;
-    navigator.clipboard.writeText(project.diskPath);
-    setCopiedDiskPath(true);
-    setTimeout(() => setCopiedDiskPath(false), 2000);
+    const success = await copyToClipboard(project.diskPath);
+    if (success) {
+      setCopiedDiskPath(true);
+      setTimeout(() => setCopiedDiskPath(false), 2000);
+    }
   };
 
   const handleArchiveClick = () => {
