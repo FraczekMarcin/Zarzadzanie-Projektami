@@ -16,6 +16,15 @@ interface TaskModalProps {
   initialTask?: Task | null;
 }
 
+// Helper to get today's date in YYYY-MM-DD
+const getTodayIsoDate = (): string => {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
 export const TaskModal: React.FC<TaskModalProps> = ({
   isOpen,
   onClose,
@@ -36,9 +45,9 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   const [priority, setPriority] = useState<Priority>('normal'); // Default Normalny as requested!
   const [status, setStatus] = useState<TaskStatus>('to_do');
   const [assigneeId, setAssigneeId] = useState<string>(users[0]?.id || '');
-  const [startDate, setStartDate] = useState(defaultDate || '2026-10-24');
+  const [startDate, setStartDate] = useState(defaultDate || getTodayIsoDate());
   const [durationDays, setDurationDays] = useState<number>(7);
-  const [dueDate, setDueDate] = useState(defaultDate || '2026-10-31');
+  const [dueDate, setDueDate] = useState(defaultDate || getTodayIsoDate());
   const [estimatedHours, setEstimatedHours] = useState(16);
   const [progress, setProgress] = useState(0);
   const [tagsInput, setTagsInput] = useState('');
@@ -101,7 +110,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       setPriority('normal'); // Default Normalny
       setStatus('to_do');
       setAssigneeId(users[0]?.id || '');
-      const sDate = defaultDate || '2026-10-24';
+      const sDate = defaultDate || getTodayIsoDate();
       setStartDate(sDate);
       setDurationDays(7);
       setDueDate(calculateDueDate(sDate, 7));
@@ -340,7 +349,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                   <input
                     type="number"
                     min={1}
-                    max={365}
+                    max={3650}
                     required
                     value={durationDays}
                     onChange={(e) => handleDurationDaysChange(Number(e.target.value))}

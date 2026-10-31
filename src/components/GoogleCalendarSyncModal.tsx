@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { User, Task, Project } from '../types';
 import { downloadIcsFile, generateGoogleCalendarSubscribeUrl } from '../utils/calendar';
+import { copyToClipboard } from '../utils/clipboard';
 import { 
   X, 
   Calendar as CalendarIcon, 
@@ -59,10 +60,12 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
   // When clicked, Google Calendar opens with the "Add Calendar from URL" modal pre-populated!
   const gCalSubscribeUrl = generateGoogleCalendarSubscribeUrl(fullFeedUrl);
 
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(fullFeedUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopyLink = async () => {
+    const success = await copyToClipboard(fullFeedUrl);
+    if (success) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   const handlePushSync = async () => {

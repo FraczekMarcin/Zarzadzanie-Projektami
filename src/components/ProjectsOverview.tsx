@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Project, Task, User, Priority, ProjectTemplate } from '../types';
 import { downloadIcsFile } from '../utils/calendar';
 import { getNextProjectCode, isProjectCodeAvailable, isValidProjectCodeFormat } from '../utils/projectCode';
@@ -6,6 +6,7 @@ import { loadAllProjectTemplates } from '../utils/projectTemplates';
 import { AdminTemplateManagerModal } from './AdminTemplateManagerModal';
 import { ProjectFinancialsModal } from './ProjectFinancialsModal';
 import { ProjectDetailModal } from './ProjectDetailModal';
+import { copyToClipboard } from '../utils/clipboard';
 import { 
   FolderPlus, 
   Calendar, 
@@ -29,9 +30,19 @@ import {
   Copy,
   Eye,
   Archive,
-  ArchiveRestore
+  ArchiveRestore,
+  Filter,
+  Lock
 } from 'lucide-react';
 import { getClients, registerClientIfNew, getVatRates } from '../utils/variableSettings';
+
+const getTodayIsoDate = (): string => {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
 
 interface ProjectsOverviewProps {
   projects: Project[];
@@ -70,6 +81,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
   // Tab filter: Active vs Archived projects
   const [activeTab, setActiveTab] = useState<'active' | 'archived'>('active');
+  const [projectStatusFilter, setProjectStatusFilter] = useState<'all' | 'critical' | 'blocked' | 'in_progress' | 'completed'>('all');
 
   // Read-only project details viewer
   const [viewingProject, setViewingProject] = useState<Project | null>(null);
@@ -86,9 +98,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<Priority>('normal');
   const [status, setStatus] = useState<'active' | 'planning' | 'on_hold' | 'completed'>('active');
-  const [startDate, setStartDate] = useState('2026-10-24');
+  const [startDate, setStartDate] = useState(getTodayIsoDate);
   const [durationDays, setDurationDays] = useState<number>(60);
-  const [dueDate, setDueDate] = useState('2026-12-23');
+  const [dueDate, setDueDate] = useState(() => calculateDueDate(getTodayIsoDate(), 60));
   const [budget, setBudget] = useState('100 000 PLN');
   const [projectValue, setProjectValue] = useState<number>(100000);
   const [projectVatRate, setProjectVatRate] = useState<number>(23);
@@ -159,15 +171,16 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     const templates = loadAllProjectTemplates();
     setAvailableTemplates(templates);
 
+    const today = getTodayIsoDate();
     if (preselectedTemplate) {
       setSelectedTemplateId(preselectedTemplate.id);
       setName(preselectedTemplate.name);
       setDescription(preselectedTemplate.description);
       setPriority(preselectedTemplate.defaultPriority);
       setStatus('active');
-      setStartDate('2026-10-24');
+      setStartDate(today);
       setDurationDays(preselectedTemplate.defaultDurationDays);
-      setDueDate(calculateDueDate('2026-10-24', preselectedTemplate.defaultDurationDays));
+      setDueDate(calculateDueDate(today, preselectedTemplate.defaultDurationDays));
       setBudget(preselectedTemplate.defaultBudget || '180 000 PLN');
       setProjectValue(180000);
       setProjectVatRate(23);
@@ -177,9 +190,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
       setDescription('');
       setPriority('normal');
       setStatus('active');
-      setStartDate('2026-10-24');
+      setStartDate(today);
       setDurationDays(60);
-      setDueDate('2026-12-23');
+      setDueDate(calculateDueDate(today, 60));
       setBudget('150 000 PLN');
       setProjectValue(150000);
       setProjectVatRate(23);
@@ -343,9 +356,64 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   };
 
   const demoProjectsCount = projects.filter((p) => p.isDemo).length;
-  const activeProjects = projects.filter((p) => !p.isArchived);
-  const archivedProjects = projects.filter((p) => p.isArchived);
-  const displayedProjects = activeTab === 'active' ? activeProjects : archivedProjects;
+  const activeProjects = useMemo(() => projects.filter((p) => !p.isArchived), [projects]);
+  const archivedProjects = useMemo(() => projects.filter((p) => p.isArchived), [projects]);
+
+  const criticalProjectsCount = useMemo(() => {
+    return activeProjects.filter((p) => {
+      const pTasks = tasks.filter((t) => t.projectId === p.id);
+      return p.priority === 'critical' || pTasks.some((t) => t.priority === 'critical' && t.status !== 'done');
+    }).length;
+  }, [activeProjects, tasks]);
+
+  const blockedProjectsCount = useMemo(() => {
+    return activeProjects.filter((p) => {
+      const pTasks = tasks.filter((t) => t.projectId === p.id);
+      return p.status === 'on_hold' || pTasks.some((t) => t.status === 'blocked');
+    }).length;
+  }, [activeProjects, tasks]);
+
+  const inProgressProjectsCount = useMemo(() => {
+    return activeProjects.filter((p) => {
+      const pTasks = tasks.filter((t) => t.projectId === p.id);
+      return p.status === 'active' || pTasks.some((t) => t.status === 'in_progress');
+    }).length;
+  }, [activeProjects, tasks]);
+
+  const completedProjectsCount = useMemo(() => {
+    return activeProjects.filter((p) => {
+      const pTasks = tasks.filter((t) => t.projectId === p.id);
+      return p.status === 'completed' || (pTasks.length > 0 && pTasks.every((t) => t.status === 'done'));
+    }).length;
+  }, [activeProjects, tasks]);
+
+  const displayedProjects = useMemo(() => {
+    let list = activeTab === 'active' ? activeProjects : archivedProjects;
+    if (activeTab === 'active') {
+      if (projectStatusFilter === 'critical') {
+        list = list.filter((p) => {
+          const pTasks = tasks.filter((t) => t.projectId === p.id);
+          return p.priority === 'critical' || pTasks.some((t) => t.priority === 'critical' && t.status !== 'done');
+        });
+      } else if (projectStatusFilter === 'blocked') {
+        list = list.filter((p) => {
+          const pTasks = tasks.filter((t) => t.projectId === p.id);
+          return p.status === 'on_hold' || pTasks.some((t) => t.status === 'blocked');
+        });
+      } else if (projectStatusFilter === 'in_progress') {
+        list = list.filter((p) => {
+          const pTasks = tasks.filter((t) => t.projectId === p.id);
+          return p.status === 'active' || pTasks.some((t) => t.status === 'in_progress');
+        });
+      } else if (projectStatusFilter === 'completed') {
+        list = list.filter((p) => {
+          const pTasks = tasks.filter((t) => t.projectId === p.id);
+          return p.status === 'completed' || (pTasks.length > 0 && pTasks.every((t) => t.status === 'done'));
+        });
+      }
+    }
+    return list;
+  }, [activeTab, activeProjects, archivedProjects, projectStatusFilter, tasks]);
 
   return (
     <div className="space-y-6">
@@ -386,33 +454,120 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         </div>
       </div>
 
-      {/* Tabs: Aktywne projekty vs Archiwum Projektów */}
-      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
-        <button
-          type="button"
-          onClick={() => setActiveTab('active')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
-            activeTab === 'active'
-              ? 'bg-sky-600 text-white shadow-xs'
-              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-          }`}
-        >
-          <Building2 className="w-3.5 h-3.5" />
-          <span>Aktywne projekty ({activeProjects.length})</span>
-        </button>
+      {/* Tabs: Aktywne projekty vs Projekty archiwalne */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('active');
+              setProjectStatusFilter('all');
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'active'
+                ? 'bg-sky-600 text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Building2 className="w-3.5 h-3.5" />
+            <span>Aktywne projekty ({activeProjects.length})</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('archived')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
-            activeTab === 'archived'
-              ? 'bg-purple-600 text-white shadow-xs'
-              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-          }`}
-        >
-          <Archive className="w-3.5 h-3.5" />
-          <span>Archiwum projektów ({archivedProjects.length})</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('archived')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'archived'
+                ? 'bg-purple-600 text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Archive className="w-3.5 h-3.5" />
+            <span>Projekty archiwalne ({archivedProjects.length})</span>
+          </button>
+        </div>
+
+        {/* Quick status filters for active projects: Krytyczne, Zablokowane, W toku, Ukończone */}
+        {activeTab === 'active' && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mr-1 flex items-center gap-1">
+              <Filter className="w-3 h-3" />
+              <span>Filtruj stan projektów:</span>
+            </span>
+
+            <button
+              type="button"
+              onClick={() => setProjectStatusFilter('all')}
+              className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+                projectStatusFilter === 'all'
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              Wszystkie ({activeProjects.length})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setProjectStatusFilter('critical')}
+              className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
+                projectStatusFilter === 'critical'
+                  ? 'bg-rose-600 text-white shadow-xs'
+                  : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/40 hover:bg-rose-100'
+              }`}
+            >
+              <span>🔴 Krytyczne ({criticalProjectsCount})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setProjectStatusFilter('blocked')}
+              className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
+                projectStatusFilter === 'blocked'
+                  ? 'bg-amber-600 text-white shadow-xs'
+                  : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900/40 hover:bg-amber-100'
+              }`}
+            >
+              <span>🔒 Zablokowane ({blockedProjectsCount})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setProjectStatusFilter('in_progress')}
+              className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
+                projectStatusFilter === 'in_progress'
+                  ? 'bg-sky-600 text-white shadow-xs'
+                  : 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-900/40 hover:bg-sky-100'
+              }`}
+            >
+              <span>⚡ W toku ({inProgressProjectsCount})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setProjectStatusFilter('completed')}
+              className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
+                projectStatusFilter === 'completed'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/40 hover:bg-emerald-100'
+              }`}
+            >
+              <span>✅ Ukończone ({completedProjectsCount})</span>
+            </button>
+          </div>
+        )}
+
+        {/* Informative message in Archive Tab */}
+        {activeTab === 'archived' && (
+          <div className="p-3 bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900/50 rounded-lg flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2 text-purple-900 dark:text-purple-200">
+              <Archive className="w-4 h-4 text-purple-600 shrink-0" />
+              <span>
+                <strong>Zakładka: Projekty archiwalne.</strong> Z poziomu tej zakładki możesz przywrócić projekt do aktywnych lub <strong>całkowicie i bezpowrotnie usunąć projekt z bazy</strong>.
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Projects Grid */}
@@ -467,6 +622,11 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                     {project.isDemo && (
                       <span className="text-[10px] text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.2 rounded">
                         Demo
+                      </span>
+                    )}
+                    {project.isArchived && (
+                      <span className="text-[10px] text-purple-700 bg-purple-100 dark:bg-purple-950/60 dark:text-purple-300 px-1.5 py-0.5 rounded font-semibold border border-purple-200 dark:border-purple-800 flex items-center gap-1">
+                        <Archive className="w-2.5 h-2.5" /> Archiwum
                       </span>
                     )}
                   </div>
@@ -575,9 +735,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                     </div>
                     <button
                       type="button"
-                      onClick={(e) => {
+                      onClick={async (e) => {
                         e.stopPropagation();
-                        navigator.clipboard.writeText(project.diskPath || '');
+                        await copyToClipboard(project.diskPath || '');
                         setCopiedProjectId(project.id);
                         setTimeout(() => setCopiedProjectId(null), 2000);
                       }}
@@ -691,36 +851,52 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                     <Download className="w-3.5 h-3.5" />
                   </button>
 
-                  {/* Archive button for administrator */}
-                  {currentUser.role === 'admin' && (
-                    project.isArchived ? (
+                  {/* Actions for archived vs active projects */}
+                  {project.isArchived && currentUser.role === 'admin' ? (
+                    <div className="flex items-center gap-1">
                       <button
                         onClick={() => handleRestoreProject(project)}
-                        className="p-1 text-purple-600 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded transition-colors"
+                        className="px-2 py-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/60 rounded flex items-center gap-1 transition-colors border border-emerald-200 dark:border-emerald-800"
                         title="Przywróć projekt z archiwum do bieżącej pracy"
                       >
-                        <ArchiveRestore className="w-3.5 h-3.5 text-emerald-600" />
+                        <ArchiveRestore className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <span>Przywróć</span>
                       </button>
-                    ) : (
-                      <button
-                        onClick={() => handleRequestArchive(project)}
-                        className="p-1 text-slate-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/40 rounded transition-colors"
-                        title="Przenieś projekt do archiwum (Tylko Administrator)"
-                      >
-                        <Archive className="w-3.5 h-3.5 text-purple-600" />
-                      </button>
-                    )
-                  )}
+                      {onDeleteProject && (
+                        <button
+                          onClick={() => setProjectToDelete(project)}
+                          className="px-2 py-1 text-[11px] font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60 rounded flex items-center gap-1 transition-colors border border-rose-200 dark:border-rose-800"
+                          title="Całkowicie usuń projekt z bazy danych"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                          <span>Usuń z bazy</span>
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      {/* Archive button for administrator */}
+                      {currentUser.role === 'admin' && (
+                        <button
+                          onClick={() => handleRequestArchive(project)}
+                          className="p-1 text-slate-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/40 rounded transition-colors"
+                          title="Przenieś projekt do archiwum (Tylko Administrator)"
+                        >
+                          <Archive className="w-3.5 h-3.5 text-purple-600" />
+                        </button>
+                      )}
 
-                  {/* Delete project button */}
-                  {onDeleteProject && (
-                    <button
-                      onClick={() => setProjectToDelete(project)}
-                      className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded transition-colors"
-                      title="Usuń projekt"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                      {/* Delete project button */}
+                      {onDeleteProject && (
+                        <button
+                          onClick={() => setProjectToDelete(project)}
+                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded transition-colors"
+                          title="Usuń projekt"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </>
                   )}
 
                   <button
@@ -828,36 +1004,60 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
       )}
 
       {/* Delete Confirmation Modal */}
-      {projectToDelete && (
-        <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-2xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 max-w-md w-full shadow-2xl space-y-3 animate-in fade-in zoom-in-95">
-            <div className="flex items-center gap-2.5 text-rose-600 dark:text-rose-400">
-              <Trash2 className="w-5 h-5 shrink-0" />
-              <h4 className="text-sm font-bold text-slate-900 dark:text-white">Usuń projekt</h4>
-            </div>
-            <p className="text-xs text-slate-600 dark:text-slate-400">
-              Czy na pewno chcesz bezpowrotnie usunąć temat <strong>{projectToDelete.key}: {projectToDelete.name}</strong> oraz wszystkie powiązane z nim zadania i pozycje kosztorysu?
-            </p>
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button
-                onClick={() => setProjectToDelete(null)}
-                className="px-3 py-1.5 rounded text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                Anuluj
-              </button>
-              <button
-                onClick={() => {
-                  if (onDeleteProject) onDeleteProject(projectToDelete.id);
-                  setProjectToDelete(null);
-                }}
-                className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-semibold shadow-xs"
-              >
-                Tak, usuń projekt
-              </button>
+      {projectToDelete && (() => {
+        const projTasks = tasks.filter((t) => t.projectId === projectToDelete.id);
+        const incompleteCount = projTasks.filter((t) => t.status !== 'done').length;
+
+        return (
+          <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-2xs flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 max-w-md w-full shadow-2xl space-y-3 animate-in fade-in zoom-in-95">
+              <div className="flex items-center gap-2.5 text-rose-600 dark:text-rose-400">
+                <Trash2 className="w-5 h-5 shrink-0" />
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                  {projectToDelete.isArchived ? 'Całkowite usunięcie projektu z archiwum' : 'Usuń projekt'}
+                </h4>
+              </div>
+
+              {incompleteCount > 0 && (
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 rounded-lg flex items-start gap-2.5 text-xs text-rose-900 dark:text-rose-200">
+                  <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <span className="font-bold block">
+                      ⚠️ Uwaga: Projekt posiada {incompleteCount} nieukończonych zadań!
+                    </span>
+                    <p>
+                      Część zadań nie została oznaczona jako ukończona. Usunięcie projektu bezpowrotnie skasuje wszystkie powiązane zadania, pozycje kosztorysu i wyceny.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                Czy na pewno chcesz bezpowrotnie usunąć temat <strong>{projectToDelete.key}: {projectToDelete.name}</strong> oraz wszystkie powiązane z nim zadania i pozycje kosztorysu?
+              </p>
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setProjectToDelete(null)}
+                  className="px-3 py-1.5 rounded text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium"
+                >
+                  Anuluj
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onDeleteProject) onDeleteProject(projectToDelete.id);
+                    setProjectToDelete(null);
+                  }}
+                  className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-semibold shadow-xs"
+                >
+                  {projectToDelete.isArchived ? 'Tak, całkowicie usuń z bazy' : 'Tak, usuń projekt'}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Modal: Create or Edit Project */}
       {isModalOpen && (
@@ -1095,7 +1295,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                       <input
                         type="number"
                         min={1}
-                        max={1000}
+                        max={3650}
                         required
                         value={durationDays}
                         onChange={(e) => handleDurationDaysChange(Number(e.target.value))}

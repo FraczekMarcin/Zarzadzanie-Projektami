@@ -40,6 +40,7 @@ import { getAutoBackupConfig, saveAutoBackupConfig } from '../utils/autoBackup';
 import { DockerConfigFile, DOCKER_COMPOSE_YML, DOCKERFILE_CONTENT, ENV_EXAMPLE_CONTENT, INSTALL_SCRIPT_CONTENT } from '../data/dockerConfig';
 import { User, Project } from '../types';
 import { isDemoUser, isDemoProject } from '../utils/demoData';
+import { copyToClipboard } from '../utils/clipboard';
 import { 
   getVatRates, 
   saveVatRates, 
@@ -104,6 +105,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     message: string;
     lastChecked: string;
     latestSha?: string;
+    remoteVersion?: string;
   } | null>(null);
 
   // Auto-backup toggle state
@@ -195,7 +197,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       const sResp = await fetch(`/api/system/check-update?t=${Date.now()}`).catch(() => null);
       if (sResp && sResp.ok) {
         const sData = await sResp.json();
-        const hasUp = Boolean(sData.hasUpdate || (sData.remoteVersion && sData.remoteVersion !== CURRENT_APP_VERSION));
+        const remoteVer = sData.remoteVersion || CURRENT_APP_VERSION;
+        const hasUp = Boolean(sData.hasUpdate || (remoteVer && remoteVer !== CURRENT_APP_VERSION));
         
         if (onToggleUpdateSimulation) {
           onToggleUpdateSimulation(hasUp);
@@ -205,9 +208,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         setUpdateResult({
           status: hasUp ? 'update_available' : 'latest',
+          remoteVersion: remoteVer,
           message: hasUp
-            ? `Wykryto nowsze wydanie na GitHub: ${sData.remoteVersion} (Twoja wersja: ${sData.localVersion}).`
-            : `Twoja wersja (${sData.localVersion}) jest zgodna z najnowszym zatwierdzeniem w gałęzi main (${sData.latestSha || 'main'}). Brak nowszych aktualizacji.`,
+            ? `Wykryto nowsze wydanie na GitHub: ${remoteVer} (Twoja wersja: ${sData.localVersion || CURRENT_APP_VERSION}).`
+            : `Twoja wersja (${sData.localVersion || CURRENT_APP_VERSION}) jest zgodna z najnowszym zatwierdzeniem w gałęzi main (${sData.latestSha || 'main'}). Brak nowszych aktualizacji.`,
           lastChecked: new Date(sData.checkedAt || Date.now()).toLocaleString('pl-PL'),
           latestSha: sData.latestSha,
         });
@@ -289,10 +293,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const handleCopyCode = (text: string, key: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedKey(key);
-    setTimeout(() => setCopiedKey(null), 2500);
+  const handleCopyCode = async (text: string, key: string) => {
+    const success = await copyToClipboard(text);
+    if (success) {
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2500);
+    }
   };
 
   const handleToggleBackup = (enabled: boolean) => {
@@ -1370,49 +1376,62 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 {/* Status Banner */}
-                <div className={`p-4 rounded-xl border flex items-start gap-3.5 ${
-                  hasUpdateAvailable
-                    ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 ring-2 ring-rose-500/30'
-                    : 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800'
-                }`}>
-                  {hasUpdateAvailable ? (
-                    <AlertTriangle className="w-6 h-6 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5 animate-bounce" />
-                  ) : (
-                    <CheckCircle2 className="w-6 h-6 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                  )}
-                  <div className="flex-1 space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-slate-900 dark:text-white text-sm">
-                        {hasUpdateAvailable ? '🚀 Dostępna nowa aktualizacja oprogramowania!' : '✅ System jest w pełni zaktualizowany'}
-                      </span>
-                      <span className="text-[11px] text-slate-500 font-mono font-bold">
-                        Wydanie: {CURRENT_APP_VERSION}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-600 dark:text-slate-300">
-                      {updateResult ? updateResult.message : `Wersja ${CURRENT_APP_VERSION} jest zainstalowana na Twoim serwerze.`}
-                    </p>
-                    {updateResult?.lastChecked && (
-                      <span className="text-[10px] text-slate-400 block pt-0.5">
-                        Ostatnie sprawdzenie: {updateResult.lastChecked}
-                      </span>
-                    )}
+                {(() => {
+                  const isUpdateDetected = hasUpdateAvailable || updateResult?.status === 'update_available' || Boolean(updateResult?.remoteVersion && updateResult.remoteVersion !== CURRENT_APP_VERSION);
+                  return (
+                    <div className={`p-4 rounded-xl border flex items-start gap-3.5 ${
+                      isUpdateDetected
+                        ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 ring-2 ring-rose-500/30'
+                        : 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800'
+                    }`}>
+                      {isUpdateDetected ? (
+                        <AlertTriangle className="w-6 h-6 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5 animate-bounce" />
+                      ) : (
+                        <CheckCircle2 className="w-6 h-6 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                      )}
+                      <div className="flex-1 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-slate-900 dark:text-white text-sm">
+                            {isUpdateDetected ? '🚀 Dostępna nowa aktualizacja oprogramowania!' : '✅ System jest w pełni zaktualizowany'}
+                          </span>
+                          <span className="text-[11px] text-slate-500 font-mono font-bold">
+                            Wydanie: {CURRENT_APP_VERSION}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-600 dark:text-slate-300">
+                          {updateResult ? updateResult.message : `Wersja ${CURRENT_APP_VERSION} jest zainstalowana na Twoim serwerze.`}
+                        </p>
+                        {updateResult?.lastChecked && (
+                          <span className="text-[10px] text-slate-400 block pt-0.5">
+                            Ostatnie sprawdzenie: {updateResult.lastChecked}
+                          </span>
+                        )}
 
-                    {hasUpdateAvailable && (
-                      <div className="pt-2">
-                        <button
-                          type="button"
-                          onClick={handleRunUpdateNow}
-                          disabled={isUpdatingServer}
-                          className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold shadow-md transition-colors flex items-center gap-2"
-                        >
-                          <RefreshCw className={`w-3.5 h-3.5 ${isUpdatingServer ? 'animate-spin' : ''}`} />
-                          <span>{isUpdatingServer ? 'Aktualizowanie...' : 'Zaktualizuj z GitHub teraz'}</span>
-                        </button>
+                        {isUpdateDetected && (
+                          <div className="pt-2 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={handleRunUpdateNow}
+                              disabled={isUpdatingServer}
+                              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold shadow-md transition-colors flex items-center gap-2"
+                            >
+                              <RefreshCw className={`w-3.5 h-3.5 ${isUpdatingServer ? 'animate-spin' : ''}`} />
+                              <span>{isUpdatingServer ? 'Aktualizowanie...' : 'Zaktualizuj z GitHub teraz'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyCode(RECOMMENDED_UPDATE_COMMAND, 'rec-update')}
+                              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
+                            >
+                              {copiedKey === 'rec-update' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                              <span>{copiedKey === 'rec-update' ? 'Skopiowano polecenie!' : 'Kopiuj komendę terminala'}</span>
+                            </button>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                </div>
+                    </div>
+                  );
+                })()}
 
                 {updateServerMessage && (
                   <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-mono text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700">
@@ -1421,21 +1440,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 )}
 
                 {/* Recommended Terminal Update Command */}
-                <div className="p-4 bg-slate-900 text-slate-100 rounded-xl space-y-2.5 border border-slate-800">
+                <div className="p-4 bg-slate-900 text-slate-100 rounded-xl space-y-3 border border-slate-800">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-mono font-bold text-sky-400 flex items-center gap-1.5">
                       <Terminal className="w-4 h-4" />
                       <span>Oficjalne polecenie aktualizacji na serwerze Linux:</span>
                     </span>
                     <button
+                      type="button"
                       onClick={() => handleCopyCode(RECOMMENDED_UPDATE_COMMAND, 'rec-update')}
-                      className="flex items-center gap-1 text-[11px] bg-slate-800 hover:bg-slate-700 px-2.5 py-1 rounded-md text-slate-300 transition-colors"
+                      className="flex items-center gap-1.5 text-xs bg-sky-600 hover:bg-sky-500 px-3 py-1.5 rounded-lg text-white font-semibold transition-colors shadow-xs cursor-pointer"
                     >
-                      {copiedKey === 'rec-update' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedKey === 'rec-update' ? 'Skopiowano' : 'Kopiuj polecenie'}</span>
+                      {copiedKey === 'rec-update' ? <Check className="w-3.5 h-3.5 text-white" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedKey === 'rec-update' ? 'Skopiowano do schowka!' : 'Kopiuj polecenie'}</span>
                     </button>
                   </div>
-                  <pre className="font-mono text-xs bg-black/50 p-3 rounded-lg overflow-x-auto text-emerald-300 border border-slate-800">
+                  <pre className="font-mono text-xs bg-black/60 p-3 rounded-lg overflow-x-auto text-emerald-300 border border-slate-800 select-all">
                     {RECOMMENDED_UPDATE_COMMAND}
                   </pre>
                   <p className="text-[11px] text-slate-400">

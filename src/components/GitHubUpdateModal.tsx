@@ -16,6 +16,7 @@ import {
   HardDrive
 } from 'lucide-react';
 import { GITHUB_REPO_URL, CURRENT_APP_VERSION, INSTALL_TARGET_DIR } from '../data/dockerConfig';
+import { copyToClipboard } from '../utils/clipboard';
 
 interface GitHubUpdateModalProps {
   isOpen: boolean;
@@ -84,10 +85,12 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
 
   const terminalUpdateCommand = `cd ${INSTALL_TARGET_DIR} && git pull origin main && docker compose up -d --build`;
 
-  const handleCopyCommand = () => {
-    navigator.clipboard.writeText(terminalUpdateCommand);
-    setCopiedCmd(true);
-    setTimeout(() => setCopiedCmd(false), 2000);
+  const handleCopyCommand = async () => {
+    const success = await copyToClipboard(terminalUpdateCommand);
+    if (success) {
+      setCopiedCmd(true);
+      setTimeout(() => setCopiedCmd(false), 2000);
+    }
   };
 
   return (
