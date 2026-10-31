@@ -51,7 +51,7 @@ if (fs.existsSync(STATE_FILE)) {
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '2026-10-30 v0.3.6',
+    version: '2026-10-31 v0.3.7',
     timestamp: new Date().toISOString(),
     postgresStatus: process.env.DATABASE_URL ? 'configured' : 'standalone-json-db',
     persistedState: !!serverAppStateCache,
@@ -256,10 +256,62 @@ app.get('/api/calendar/all.ics', (_req, res) => {
   res.send(icsBody);
 });
 
+// Helper to read installed version from VERSION file or fallback
+function getLocalInstalledVersion(): string {
+  try {
+    const candidates = [
+      path.resolve(process.cwd(), 'VERSION'),
+      path.resolve(__dirname, 'VERSION'),
+      path.resolve(process.cwd(), 'Instalacja', 'VERSION'),
+      path.resolve(__dirname, '..', 'VERSION')
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        const v = fs.readFileSync(p, 'utf8').trim();
+        if (v && v.length > 2) return v;
+      }
+    }
+  } catch {}
+  return process.env.APP_VERSION || '2026-10-31 v0.3.7';
+}
+
+// Helper to determine if remote version is strictly newer than local version
+function isNewerVersion(remote: string, local: string): boolean {
+  if (!remote || !local) return false;
+  if (remote === local) return false;
+
+  const rMatch = remote.match(/(\d{4})[-.](\d{2})[-.](\d{2})/);
+  const lMatch = local.match(/(\d{4})[-.](\d{2})[-.](\d{2})/);
+  if (rMatch && lMatch) {
+    const rDate = parseInt(`${rMatch[1]}${rMatch[2]}${rMatch[3]}`, 10);
+    const lDate = parseInt(`${lMatch[1]}${lMatch[2]}${lMatch[3]}`, 10);
+    if (rDate > lDate) return true;
+    if (rDate < lDate) return false;
+  }
+
+  const rSem = remote.match(/v\s*(\d+)\.(\d+)(?:\.(\d+))?/i);
+  const lSem = local.match(/v\s*(\d+)\.(\d+)(?:\.(\d+))?/i);
+  if (rSem && lSem) {
+    const rMaj = parseInt(rSem[1] || '0', 10);
+    const rMin = parseInt(rSem[2] || '0', 10);
+    const rPat = parseInt(rSem[3] || '0', 10);
+
+    const lMaj = parseInt(lSem[1] || '0', 10);
+    const lMin = parseInt(lSem[2] || '0', 10);
+    const lPat = parseInt(lSem[3] || '0', 10);
+
+    if (rMaj !== lMaj) return rMaj > lMaj;
+    if (rMin !== lMin) return rMin > lMin;
+    return rPat > lPat;
+  }
+
+  return remote !== local;
+}
+
 // REAL GITHUB UPDATE CHECKER ENDPOINT
 app.get('/api/system/check-update', async (_req, res) => {
   try {
-    const localVersion = process.env.APP_VERSION || '2026-10-30 v0.3.6';
+    const localVersion = getLocalInstalledVersion();
     
     // 1. Sprawdź plik VERSION bezpośrednio z repozytorium GitHub
     let remoteVersion = localVersion;
@@ -282,7 +334,7 @@ app.get('/api/system/check-update', async (_req, res) => {
         try {
           const pJson = await pResp.json();
           if (pJson && pJson.version) {
-            remoteVersion = `2026-10-29 v ${pJson.version}`;
+            remoteVersion = `2026-10-31 v ${pJson.version}`;
             checkedSource = 'plik package.json na GitHub (gałąź main)';
           }
         } catch {}
@@ -314,7 +366,7 @@ app.get('/api/system/check-update', async (_req, res) => {
       commitMessage = cData.commit?.message || '';
     }
 
-    const hasUpdate = remoteVersion !== localVersion;
+    const hasUpdate = isNewerVersion(remoteVersion, localVersion);
 
     res.json({
       localVersion,
@@ -356,7 +408,7 @@ app.get('/api/system-info', (_req, res) => {
   res.json({
     name: 'Zarządzanie Projektami',
     description: 'System zarządzania projektami z wykresem Gantta, terminarzem i integracją Google Calendar na żywo',
-    version: '2026-10-30 v0.3.6',
+    version: '2026-10-31 v0.3.7',
     deployment: 'Docker & PostgreSQL Ready',
     features: [
       'Gantt Chart Interactive Timeline with Project Names on Bars',

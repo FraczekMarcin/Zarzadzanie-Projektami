@@ -1,4 +1,6 @@
 import { Project, Task, User, Comment, ActivityLog } from '../types';
+import { sanitizeUsersForBackup } from './authSecurity';
+import { CURRENT_APP_VERSION } from '../data/dockerConfig';
 
 export interface AutoBackupConfig {
   enabled: boolean;
@@ -79,12 +81,12 @@ export function createAutoBackupSnapshot(payload: {
   const filename = `zarzadzanie-projektami-autobackup-${dateSlug}_${timeSlug}.json`;
 
   const snapshotData = {
-    version: '2026-10-25 v 0.2.1',
+    version: CURRENT_APP_VERSION,
     exportedAt: timestamp,
     appName: 'Zarządzanie Projektami',
     projects: payload.projects,
     tasks: payload.tasks,
-    users: payload.users,
+    users: sanitizeUsersForBackup(payload.users),
     comments: payload.comments,
     activityLogs: payload.activityLogs,
   };

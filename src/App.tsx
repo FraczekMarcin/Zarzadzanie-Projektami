@@ -25,6 +25,8 @@ import { ThemeMode, getThemePreference, setThemePreference, initThemeListener } 
 import { CURRENT_APP_VERSION, GITHUB_REPO_URL } from './data/dockerConfig';
 import { isDemoUser, isDemoProject } from './utils/demoData';
 import { sortTasksByPriorityAndDueDate } from './utils/taskSorting';
+import { cascadeScheduleDates } from './utils/scheduleCascade';
+import { hashPassword } from './utils/authSecurity';
 import { 
   FolderKanban, 
   Calendar as CalendarIcon, 
@@ -448,8 +450,10 @@ export default function App() {
    * DEPENDENCY & TREE HIERARCHY ENGINE
    */
   const processDependencyRules = (currentTasks: Task[]): { updatedTasks: Task[]; triggeredEvents: string[] } => {
-    let tasksCopy = [...currentTasks];
-    const events: string[] = [];
+    // Krok 0: Kaskadowe dostosowanie dat kolejnych etapów (w dzień zakończenia poprzedzającego zadania)
+    const { updatedTasks: cascadedTasks, cascadedEvents } = cascadeScheduleDates(currentTasks);
+    let tasksCopy = [...cascadedTasks];
+    const events: string[] = [...cascadedEvents];
 
     // Step 1: Check all tasks with blockingTaskIds
     tasksCopy = tasksCopy.map((task) => {
@@ -469,7 +473,7 @@ export default function App() {
           }
         });
 
-        const newStartDate = addDaysToDate(latestBlockerDueDate, 1);
+        const newStartDate = latestBlockerDueDate;
         const taskDuration = task.durationDays || 7;
         const newDueDate = addDaysToDate(newStartDate, taskDuration - 1);
 
@@ -822,16 +826,43 @@ export default function App() {
   };
 
   // Update user password
-  const handleUpdateUserPassword = (userId: string, newPass: string) => {
+  const handleUpdateUserPassword = async (userId: string, newPass: string) => {
+    const passwordHash = await hashPassword(newPass);
     setUsers((prev) =>
-      prev.map((u) => (u.id === userId ? { ...u, password: newPass } : u))
+      prev.map((u) => {
+        if (u.id === userId) {
+          const { password, ...rest } = u;
+          return { ...rest, passwordHash };
+        }
+        return u;
+      })
     );
     if (currentUser && currentUser.id === userId) {
-      setCurrentUser((prev) => ({ ...prev, password: newPass }));
+      setCurrentUser((prev) => {
+        const { password, ...rest } = prev;
+        return { ...rest, passwordHash };
+      });
     }
-    logActivity('Zaktualizowano hasło dostępu użytkownika');
+    logActivity('Zaktualizowano i zahashowano (SHA-256) hasło dostępu użytkownika');
     setNotificationToast({
-      message: 'Hasło użytkownika zostało pomyślnie zaktualizowane.',
+      message: 'Hasło użytkownika zostało pomyślnie zaktualizowane i zabezpieczone (SHA-256).',
+      type: 'success',
+    });
+  };
+
+  // Update user 2FA configuration
+  const handleUpdateUser2FA = (userId: string, enabled: boolean, secret?: string) => {
+    setUsers((prev) =>
+      prev.map((u) => (u.id === userId ? { ...u, twoFactorEnabled: enabled, twoFactorSecret: secret } : u))
+    );
+    if (currentUser && currentUser.id === userId) {
+      setCurrentUser((prev) => ({ ...prev, twoFactorEnabled: enabled, twoFactorSecret: secret }));
+    }
+    logActivity(
+      `${currentUser?.name} ${enabled ? 'włączył' : 'wyłączył'} uwierzytelnianie dwuskładnikowe Google Authenticator`
+    );
+    setNotificationToast({
+      message: `Uwierzytelnianie dwuskładnikowe 2FA zostało ${enabled ? 'włączone' : 'wyłączone'}.`,
       type: 'success',
     });
   };

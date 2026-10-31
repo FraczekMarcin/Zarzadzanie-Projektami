@@ -39,6 +39,7 @@ import {
 } from '../utils/autoBackup';
 import { INSTALL_TARGET_DIR, CURRENT_APP_VERSION } from '../data/dockerConfig';
 import { copyToClipboard } from '../utils/clipboard';
+import { sanitizeUsersForBackup, DEMO_ADMIN_PASSWORD_HASH } from '../utils/authSecurity';
 
 interface ArchiveBackupModalProps {
   isOpen: boolean;
@@ -136,7 +137,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
       },
       projects,
       tasks,
-      users,
+      users: sanitizeUsersForBackup(users),
       comments,
       activityLogs,
     };
@@ -153,8 +154,19 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
 
     sql += `BEGIN;\n\n`;
 
+    // Users (Tylko zakodowane hashe haseł!)
+    sql += `-- Tabela: users (hasła wyłącznie jako bezpieczny hash SHA-256)\n`;
+    const safeUsers = sanitizeUsersForBackup(users);
+    safeUsers.forEach((u) => {
+      const cleanName = u.name.replace(/'/g, "''");
+      const cleanEmail = u.email.replace(/'/g, "''");
+      const cleanDept = (u.department || '').replace(/'/g, "''");
+      const pHash = u.passwordHash || DEMO_ADMIN_PASSWORD_HASH;
+      sql += `INSERT INTO users (id, name, email, role, department, password_hash, two_factor_enabled, is_approved) VALUES ('${u.id}', '${cleanName}', '${cleanEmail}', '${u.role}', '${cleanDept}', '${pHash}', ${u.twoFactorEnabled ? 'TRUE' : 'FALSE'}, ${u.isApproved !== false ? 'TRUE' : 'FALSE'}) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role, password_hash = EXCLUDED.password_hash;\n`;
+    });
+
     // Projects
-    sql += `-- Tabela: projects\n`;
+    sql += `\n-- Tabela: projects\n`;
     projects.forEach((p) => {
       const cleanDesc = (p.description || '').replace(/'/g, "''");
       const cleanName = p.name.replace(/'/g, "''");

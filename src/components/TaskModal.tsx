@@ -143,10 +143,28 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   };
 
   const toggleBlockingTask = (taskId: string) => {
+    let nextBlocking: string[];
     if (blockingTaskIds.includes(taskId)) {
-      setBlockingTaskIds(blockingTaskIds.filter((id) => id !== taskId));
+      nextBlocking = blockingTaskIds.filter((id) => id !== taskId);
     } else {
-      setBlockingTaskIds([...blockingTaskIds, taskId]);
+      nextBlocking = [...blockingTaskIds, taskId];
+    }
+    setBlockingTaskIds(nextBlocking);
+
+    // Zgodnie z wymaganiem: przy dodawaniu zadania blokowanego przez inne dostosuj datę
+    // poprzez propozycję daty w dzień zakończenia poprzedzającego zadania
+    if (nextBlocking.length > 0) {
+      const blockers = allTasks.filter((t) => nextBlocking.includes(t.id));
+      let maxBlockerDueDate = '';
+      for (const b of blockers) {
+        if (b.dueDate && (!maxBlockerDueDate || b.dueDate > maxBlockerDueDate)) {
+          maxBlockerDueDate = b.dueDate;
+        }
+      }
+      if (maxBlockerDueDate) {
+        setStartDate(maxBlockerDueDate);
+        setDueDate(calculateDueDate(maxBlockerDueDate, durationDays));
+      }
     }
   };
 
