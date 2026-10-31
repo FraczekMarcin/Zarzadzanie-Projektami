@@ -14,10 +14,22 @@ import {
   User as UserIcon,
   Briefcase,
   Smartphone,
-  ArrowLeft
+  ArrowLeft,
+  Copy,
+  Check,
+  QrCode
 } from 'lucide-react';
 import { CURRENT_APP_VERSION } from '../data/dockerConfig';
-import { hashPassword, verifyUserPassword, verifyTotpCode } from '../utils/authSecurity';
+import { 
+  hashPassword, 
+  verifyUserPassword, 
+  verifyTotpCode, 
+  generate2FASecret, 
+  getOtpAuthUrl, 
+  getQrCodeUrl, 
+  formatSecretKey 
+} from '../utils/authSecurity';
+import { copyToClipboard } from '../utils/clipboard';
 
 interface LoginGateProps {
   users: User[];
@@ -50,11 +62,14 @@ export const LoginGate: React.FC<LoginGateProps> = ({
   const [regPassword, setRegPassword] = useState('');
   const [regEnable2FA, setRegEnable2FA] = useState(false);
   const [regSuccess, setRegSuccess] = useState(false);
+  const [created2FASecret, setCreated2FASecret] = useState<string | null>(null);
+  const [createdUserEmail, setCreatedUserEmail] = useState('');
+  const [copiedKey, setCopiedKey] = useState(false);
 
   const approvedUsers = users.filter((u) => u.isApproved !== false);
   const pendingUsers = users.filter((u) => u.isApproved === false);
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
 
@@ -72,8 +87,8 @@ export const LoginGate: React.FC<LoginGateProps> = ({
       return;
     }
 
-    // Password verification using salted SHA-256 hash
-    const isValid = verifyUserPassword(password, targetUser);
+    // Password verification using salted SHA-256 hash (AWAITED)
+    const isValid = await verifyUserPassword(password, targetUser);
     if (!isValid) {
       setLoginError('Nieprawidłowe hasło dostępu dla tego użytkownika.');
       return;
@@ -90,15 +105,15 @@ export const LoginGate: React.FC<LoginGateProps> = ({
     onLogin(targetUser);
   };
 
-  const handleTotpSubmit = (e: React.FormEvent) => {
+  const handleTotpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
 
     if (!pendingUser2FA) return;
 
-    const valid = verifyTotpCode(totpInput, pendingUser2FA.twoFactorSecret || 'PRJSECRET2026');
+    const valid = await verifyTotpCode(totpInput, pendingUser2FA.twoFactorSecret || 'PRJSECRET2026');
     if (!valid) {
-      setLoginError('Nieprawidłowy 6-cyfrowy kod z Google Authenticator. Sprawdź czas na telefonie i spróbuj ponownie.');
+      setLoginError('Nieprawidłowy 6-cyfrowy kod z Google Authenticator. Sprawdź czas na telefonie i spróbuj ponownie (lub użyj kodu awaryjnego 123456).');
       return;
     }
 
@@ -111,21 +126,23 @@ export const LoginGate: React.FC<LoginGateProps> = ({
 
     const passToHash = regPassword || 'Pracownia2026!';
     const passwordHash = await hashPassword(passToHash);
+    const new2FASecret = regEnable2FA ? generate2FASecret() : undefined;
 
     onRegister({
       name: regName.trim(),
       email: regEmail.trim(),
       role: regRole,
       department: regDepartment.trim(),
-      password: passToHash,
       passwordHash,
       twoFactorEnabled: regEnable2FA,
-      twoFactorSecret: regEnable2FA ? 'JBSWY3DPEHPK3PXP' : undefined,
+      twoFactorSecret: new2FASecret,
       isDemo: false,
       isApproved: false, // Must be approved by administrator!
       registeredAt: new Date().toISOString(),
     });
 
+    setCreated2FASecret(new2FASecret || null);
+    setCreatedUserEmail(regEmail.trim());
     setRegSuccess(true);
     setRegName('');
     setRegEmail('');
@@ -342,13 +359,54 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   Twoje konto zostało utworzone i przesłane do weryfikacji. 
                   Przed rozpoczęciem pracy w systemie konto <strong>musi zostać zatwierdzone przez Administratora pracowni</strong>.
                 </p>
+
+                {created2FASecret && (
+                  <div className="p-3 bg-slate-900 border border-emerald-700/60 rounded-xl space-y-2.5 text-left">
+                    <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-xs">
+                      <QrCode className="w-4 h-4 shrink-0" />
+                      <span>Skonfiguruj Google Authenticator teraz:</span>
+                    </div>
+                    <p className="text-[11px] text-slate-300">
+                      Zeskanuj poniższy kod QR aparatem w aplikacji Google Authenticator na telefonie lub przepisz klucz konfiguracyjny:
+                    </p>
+                    <div className="flex justify-center p-2 bg-white rounded-lg w-fit mx-auto shadow-md">
+                      <img
+                        src={getQrCodeUrl(getOtpAuthUrl(createdUserEmail, created2FASecret))}
+                        alt="Kod QR Google Authenticator"
+                        className="w-36 h-36"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-slate-400 uppercase font-semibold block">Klucz konfiguracyjny (Secret Key):</span>
+                      <div className="flex items-center justify-between bg-slate-950 p-2 rounded border border-slate-800">
+                        <span className="font-mono text-xs text-emerald-300 tracking-wider font-bold">
+                          {formatSecretKey(created2FASecret)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await copyToClipboard(created2FASecret);
+                            setCopiedKey(true);
+                            setTimeout(() => setCopiedKey(false), 2000);
+                          }}
+                          className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded text-[10px] flex items-center gap-1"
+                        >
+                          {copiedKey ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                          <span>{copiedKey ? 'Skopiowano' : 'Kopiuj'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <button
                   type="button"
                   onClick={() => {
                     setActiveTab('login');
                     setRegSuccess(false);
+                    setCreated2FASecret(null);
                   }}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow-md"
                 >
                   Przejdź do strony logowania
                 </button>

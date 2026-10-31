@@ -8,7 +8,7 @@ export const INITIAL_USERS: User[] = [
     role: 'admin',
     department: 'Główny Architekt & Zarząd Pracowni',
     initials: 'MF',
-    password: 'admin2026',
+    passwordHash: 'sha256:86ea62c5ba0e6cf87b182765caff5b00c80980c528b86fea84c023372bfd2034',
     isDemo: true,
   },
   {
@@ -18,7 +18,7 @@ export const INITIAL_USERS: User[] = [
     role: 'project_manager',
     department: 'Koordynacja Formalnoprawna & KPA',
     initials: 'AN',
-    password: 'admin2026',
+    passwordHash: 'sha256:86ea62c5ba0e6cf87b182765caff5b00c80980c528b86fea84c023372bfd2034',
     isDemo: true,
   },
   {
@@ -28,7 +28,7 @@ export const INITIAL_USERS: User[] = [
     role: 'developer',
     department: 'Pracownia Konstrukcji Budowlanych',
     initials: 'TW',
-    password: 'admin2026',
+    passwordHash: 'sha256:86ea62c5ba0e6cf87b182765caff5b00c80980c528b86fea84c023372bfd2034',
     isDemo: true,
   },
   {
@@ -38,7 +38,7 @@ export const INITIAL_USERS: User[] = [
     role: 'developer',
     department: 'Pracownia Instalacji Sanitarnych & HVAC',
     initials: 'KM',
-    password: 'admin2026',
+    passwordHash: 'sha256:86ea62c5ba0e6cf87b182765caff5b00c80980c528b86fea84c023372bfd2034',
     isDemo: true,
   },
   {
@@ -48,7 +48,7 @@ export const INITIAL_USERS: User[] = [
     role: 'developer',
     department: 'Pracownia Elektryczna & BMS',
     initials: 'PZ',
-    password: 'admin2026',
+    passwordHash: 'sha256:86ea62c5ba0e6cf87b182765caff5b00c80980c528b86fea84c023372bfd2034',
     isDemo: true,
   },
 ];
