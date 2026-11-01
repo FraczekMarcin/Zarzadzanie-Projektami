@@ -1183,35 +1183,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 )}
 
-                {/* Cleanup demo items card */}
-                <div className="p-4 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 rounded-xl space-y-3">
-                  <div className="flex items-center gap-2 text-rose-700 dark:text-rose-400">
-                    <Trash2 className="w-4 h-4" />
-                    <span className="font-bold text-xs">Czyszczenie Danych Pokazowych (Wdrożenie Produkcyjne)</span>
-                  </div>
-                  <p className="text-xs text-rose-800 dark:text-rose-300">
-                    Po instalacji aplikacji możesz jednym kliknięciem usunąć pokazowe tematy, zadania i konta demo, aby rozpocząć pracę na czystej bazie pracowni.
-                  </p>
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {onDeleteDemoUsers && (
-                      <button
-                        onClick={onDeleteDemoUsers}
-                        className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-semibold shadow-xs transition-colors"
-                      >
-                        Usuń pokazowe konta ({demoUsersCount})
-                      </button>
-                    )}
-                    {onDeleteAllDemoData && (
-                      <button
-                        onClick={onDeleteAllDemoData}
-                        className="px-3.5 py-1.5 bg-rose-700 hover:bg-rose-800 text-white rounded text-xs font-semibold shadow-xs transition-colors"
-                      >
-                        Usuń tematy demo ({demoProjectsCount})
-                      </button>
-                    )}
-                  </div>
-                </div>
-
                 {/* Approved User accounts list */}
                 <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
                   <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">

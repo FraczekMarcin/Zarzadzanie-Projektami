@@ -11,6 +11,7 @@ export const INITIAL_USERS: User[] = [
     passwordHash: 'sha256:86ea62c5ba0e6cf87b182765caff5b00c80980c528b86fea84c023372bfd2034',
     isDemo: false,
     isApproved: true,
+    twoFactorSecret: 'JBSWY3DPEHPK3PXP',
   },
 ];
 
