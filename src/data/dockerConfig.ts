@@ -7,14 +7,14 @@ export interface DockerConfigFile {
 }
 
 export const GITHUB_REPO_URL = 'https://github.com/FraczekMarcin/Zarzadzanie-Projektami';
-export const CURRENT_APP_VERSION = '2026-10-31 v0.3.7';
+export const CURRENT_APP_VERSION = '2026-10-31 v0.3.8';
 export const INSTALL_TARGET_DIR = '/opt/zarzadzanie-projektami';
 export const RAW_INSTALL_SCRIPT_URL = 'https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/Instalacja/install.sh';
 export const GITHUB_RAW_FALLBACK_URL = 'https://github.com/FraczekMarcin/Zarzadzanie-Projektami/raw/main/Instalacja/install.sh';
 
 export const DOCKER_COMPOSE_YML = `# ==============================================================================
 # Zarządzanie Projektami (Pracownia Projektowa / Budownictwo)
-# Wersja: 2026-10-31 v0.3.7
+# Wersja: 2026-10-31 v0.3.8
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Lokalizacja docelowa na serwerze: /opt/zarzadzanie-projektami
 # ==============================================================================

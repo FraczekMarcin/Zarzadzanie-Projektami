@@ -193,8 +193,19 @@ export async function generateTotpCode(secret: string, timeOffsetWindows = 0): P
 
 /**
  * Weryfikacja 6-cyfrowego kodu Google Authenticator z tolerancją zegara (±30s)
+ * Odporna na kolejność parametrów (secret vs enteredCode)
  */
-export async function verifyTotpCode(secret: string, enteredCode: string): Promise<boolean> {
+export async function verifyTotpCode(param1: string, param2: string): Promise<boolean> {
+  let secret = (param1 || '').trim();
+  let enteredCode = (param2 || '').trim();
+
+  // Zabezpieczenie przed zamianą argumentów (kod 6 cyfr vs klucz Base32)
+  if (/^\d{6}$/.test(secret) && enteredCode.length > 6) {
+    const temp = secret;
+    secret = enteredCode;
+    enteredCode = temp;
+  }
+
   const cleanCode = enteredCode.replace(/\s+/g, '').trim();
   if (cleanCode.length !== 6) return false;
 

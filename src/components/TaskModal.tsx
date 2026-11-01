@@ -151,6 +151,17 @@ export const TaskModal: React.FC<TaskModalProps> = ({
     }
     setBlockingTaskIds(nextBlocking);
 
+    // Zgodnie z wymaganiem: jeśli zadanie jest blokowane przez inne zmień status wykonania na zablokowane
+    const hasUnfinished = nextBlocking.some((id) => {
+      const b = allTasks.find((t) => t.id === id);
+      return b && b.status !== 'done';
+    });
+    if (hasUnfinished && status !== 'done') {
+      setStatus('blocked');
+    } else if (!hasUnfinished && status === 'blocked') {
+      setStatus('to_do');
+    }
+
     // Zgodnie z wymaganiem: przy dodawaniu zadania blokowanego przez inne dostosuj datę
     // poprzez propozycję daty w dzień zakończenia poprzedzającego zadania
     if (nextBlocking.length > 0) {
@@ -329,7 +340,19 @@ export const TaskModal: React.FC<TaskModalProps> = ({
               <label className="block font-semibold text-slate-700 mb-1">Status wykonania</label>
               <select
                 value={status}
-                onChange={(e) => setStatus(e.target.value as TaskStatus)}
+                onChange={(e) => {
+                  const val = e.target.value as TaskStatus;
+                  const hasUnfinished = blockingTaskIds.some((id) => {
+                    const b = allTasks.find((t) => t.id === id);
+                    return b && b.status !== 'done';
+                  });
+                  if (hasUnfinished && val !== 'blocked' && val !== 'done') {
+                    alert('To zadanie ma nieukończone zadania blokujące. Status wykonania musi pozostać: "Zablokowane", dopóki poprzedzające zadania nie zostaną zakończone.');
+                    setStatus('blocked');
+                    return;
+                  }
+                  setStatus(val);
+                }}
                 className="w-full border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
               >
                 <option value="to_do">Do zrobienia</option>

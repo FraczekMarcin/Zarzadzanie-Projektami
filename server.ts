@@ -51,7 +51,7 @@ if (fs.existsSync(STATE_FILE)) {
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '2026-10-31 v0.3.7',
+    version: '2026-10-31 v0.3.8',
     timestamp: new Date().toISOString(),
     postgresStatus: process.env.DATABASE_URL ? 'configured' : 'standalone-json-db',
     persistedState: !!serverAppStateCache,
@@ -272,7 +272,7 @@ function getLocalInstalledVersion(): string {
       }
     }
   } catch {}
-  return process.env.APP_VERSION || '2026-10-31 v0.3.7';
+  return process.env.APP_VERSION || '2026-10-31 v0.3.8';
 }
 
 // Helper to determine if remote version is strictly newer than local version
@@ -305,7 +305,8 @@ function isNewerVersion(remote: string, local: string): boolean {
     return rPat > lPat;
   }
 
-  return remote !== local;
+  // Jeśli brak przewagi numerycznej/daty, to NIE jest nowsza wersja
+  return false;
 }
 
 // REAL GITHUB UPDATE CHECKER ENDPOINT
@@ -408,7 +409,7 @@ app.get('/api/system-info', (_req, res) => {
   res.json({
     name: 'Zarządzanie Projektami',
     description: 'System zarządzania projektami z wykresem Gantta, terminarzem i integracją Google Calendar na żywo',
-    version: '2026-10-31 v0.3.7',
+    version: '2026-10-31 v0.3.8',
     deployment: 'Docker & PostgreSQL Ready',
     features: [
       'Gantt Chart Interactive Timeline with Project Names on Bars',
@@ -421,7 +422,22 @@ app.get('/api/system-info', (_req, res) => {
   });
 });
 
-// Robust static file serving
+// Vite dev middleware or static file serving
+if (process.env.NODE_ENV !== 'production') {
+  try {
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+    console.log('[Server] Mounted Vite development middlewares on port ' + PORT);
+  } catch (viteErr) {
+    console.warn('[Server] Could not initialize Vite dev middleware:', viteErr);
+  }
+}
+
+// Robust static file serving for production
 const candidateDistPaths = [
   path.resolve(__dirname),
   path.resolve(__dirname, 'dist'),

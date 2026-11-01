@@ -74,15 +74,13 @@ export default function App() {
     }
   });
 
-  // Persistence state with auto-migration to prevent legacy crash
+  // Persistence state with complete removal of demo data
   const [users, setUsers] = useState<User[]>(() => {
     try {
       const saved = localStorage.getItem('oph_users');
       const list: User[] = saved ? JSON.parse(saved) : INITIAL_USERS;
-      return list.map((u) => ({
-        ...u,
-        isDemo: isDemoUser(u),
-      }));
+      const cleanList = list.filter((u) => !u.isDemo);
+      return cleanList.length > 0 ? cleanList : INITIAL_USERS;
     } catch {
       return INITIAL_USERS;
     }
@@ -91,7 +89,11 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User>(() => {
     try {
       const saved = localStorage.getItem('oph_current_user');
-      return saved ? JSON.parse(saved) : INITIAL_USERS[0];
+      if (saved) {
+        const u = JSON.parse(saved);
+        if (!u.isDemo) return u;
+      }
+      return INITIAL_USERS[0];
     } catch {
       return INITIAL_USERS[0];
     }
@@ -100,12 +102,14 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>(() => {
     try {
       const saved = localStorage.getItem('oph_projects');
-      const parsed: Project[] = saved ? JSON.parse(saved) : INITIAL_PROJECTS;
-      return parsed.map((p: any) => ({
+      if (!saved) return INITIAL_PROJECTS;
+      const parsed: Project[] = JSON.parse(saved);
+      const cleanList = parsed.filter((p: any) => !p.isDemo);
+      return cleanList.map((p: any) => ({
         ...p,
         priority: p.priority === 'medium' ? 'normal' : (p.priority || 'normal'),
         durationDays: p.durationDays || 30,
-        isDemo: isDemoProject(p),
+        isDemo: false,
       }));
     } catch {
       return INITIAL_PROJECTS;
@@ -117,7 +121,8 @@ export default function App() {
       const saved = localStorage.getItem('oph_tasks');
       if (!saved) return INITIAL_TASKS;
       const parsed = JSON.parse(saved);
-      return parsed.map((t: any) => ({
+      const cleanList = parsed.filter((t: any) => !t.isDemo);
+      return cleanList.map((t: any) => ({
         ...t,
         priority: t.priority === 'medium' ? 'normal' : (t.priority || 'normal'),
         durationDays: t.durationDays || 7,
@@ -491,7 +496,7 @@ export default function App() {
       }
 
       // Rule: If any blocker is NOT done and task was not marked as done, ensure it stays blocked
-      if (!allBlockersDone && (task.status === 'in_progress' || task.status === 'to_do')) {
+      if (!allBlockersDone && task.status !== 'done') {
         return {
           ...task,
           status: 'blocked',
@@ -1031,6 +1036,7 @@ export default function App() {
         users={users}
         onLogin={handleLoginSuccess}
         onRegister={handleRegisterUser}
+        onUpdateUserPassword={handleUpdateUserPassword}
       />
     );
   }

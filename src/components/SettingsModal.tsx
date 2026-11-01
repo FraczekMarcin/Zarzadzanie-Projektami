@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { ThemeMode, getThemePreference, setThemePreference } from '../utils/theme';
 import { CURRENT_APP_VERSION, GITHUB_REPO_URL } from '../data/dockerConfig';
+import { isNewerVersion } from '../utils/versionCheck';
 import { getAutoBackupConfig, saveAutoBackupConfig } from '../utils/autoBackup';
 import { DockerConfigFile, DOCKER_COMPOSE_YML, DOCKERFILE_CONTENT, ENV_EXAMPLE_CONTENT, INSTALL_SCRIPT_CONTENT } from '../data/dockerConfig';
 import { User, Project } from '../types';
@@ -197,8 +198,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       const sResp = await fetch(`/api/system/check-update?t=${Date.now()}`).catch(() => null);
       if (sResp && sResp.ok) {
         const sData = await sResp.json();
-        const remoteVer = sData.remoteVersion || CURRENT_APP_VERSION;
-        const hasUp = Boolean(sData.hasUpdate || (remoteVer && remoteVer !== CURRENT_APP_VERSION));
+        const remoteVer = (sData.remoteVersion || '').trim() || CURRENT_APP_VERSION;
+        const hasUp = isNewerVersion(remoteVer, CURRENT_APP_VERSION);
         
         if (onToggleUpdateSimulation) {
           onToggleUpdateSimulation(hasUp);
@@ -225,7 +226,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         const text = await rawResp.text();
         const match = text.match(/CURRENT_APP_VERSION\s*=\s*['"]([^'"]+)['"]/);
         const remoteVer = match && match[1] ? match[1].trim() : CURRENT_APP_VERSION;
-        const hasUp = remoteVer !== CURRENT_APP_VERSION;
+        const hasUp = isNewerVersion(remoteVer, CURRENT_APP_VERSION);
 
         if (onToggleUpdateSimulation) {
           onToggleUpdateSimulation(hasUp);
@@ -1377,7 +1378,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 {/* Status Banner */}
                 {(() => {
-                  const isUpdateDetected = hasUpdateAvailable || updateResult?.status === 'update_available' || Boolean(updateResult?.remoteVersion && updateResult.remoteVersion !== CURRENT_APP_VERSION);
+                  const isUpdateDetected = updateResult?.remoteVersion
+                    ? isNewerVersion(updateResult.remoteVersion, CURRENT_APP_VERSION)
+                    : (hasUpdateAvailable && updateResult?.status === 'update_available');
                   return (
                     <div className={`p-4 rounded-xl border flex items-start gap-3.5 ${
                       isUpdateDetected

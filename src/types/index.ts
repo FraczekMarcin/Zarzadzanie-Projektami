@@ -144,7 +144,7 @@ export interface Task {
 export interface ActivityLog {
   id: string;
   taskId?: string;
-  projectId: string;
+  projectId?: string;
   userId: string;
   action: string;
   timestamp: string;

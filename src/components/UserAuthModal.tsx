@@ -16,6 +16,7 @@ import {
   Eye,
   EyeOff
 } from 'lucide-react';
+import { verifyUserPassword, hashPassword } from '../utils/authSecurity';
 
 interface UserAuthModalProps {
   isOpen: boolean;
@@ -78,32 +79,35 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
     setPasswordError(null);
   };
 
-  const handleConfirmLogin = (e: React.FormEvent) => {
+  const handleConfirmLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!targetUser) return;
 
-    const validPassword = targetUser.password || 'admin2026';
-    if (enteredPassword.trim() === validPassword.trim()) {
+    const isValid = await verifyUserPassword(enteredPassword, targetUser);
+    if (isValid) {
       onSwitchUser(targetUser);
       setTargetUser(null);
       setEnteredPassword('');
       setPasswordError(null);
       onClose();
     } else {
-      setPasswordError('Nieprawidłowe hasło. Dla kont demo domyślne hasło to: admin2026');
+      setPasswordError('Nieprawidłowe hasło dostępu dla wybranego użytkownika.');
     }
   };
 
-  const handleCreateUser = (e: React.FormEvent) => {
+  const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim()) return;
 
+    const passToHash = password.trim() || 'Pracownia2026!';
+    const passwordHash = await hashPassword(passToHash);
+
     onAddUser({
-      name,
-      email,
+      name: name.trim(),
+      email: email.trim(),
       role,
-      department,
-      password: password.trim() || 'haslo123',
+      department: department.trim(),
+      passwordHash,
       isDemo: false,
     });
 

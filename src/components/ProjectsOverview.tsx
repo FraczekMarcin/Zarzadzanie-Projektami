@@ -44,6 +44,30 @@ const getTodayIsoDate = (): string => {
   return `${y}-${m}-${d}`;
 };
 
+const calculateDueDate = (start: string, days: number): string => {
+  try {
+    const d = new Date(start + 'T00:00:00');
+    d.setDate(d.getDate() + Math.max(1, days) - 1);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  } catch {
+    return start;
+  }
+};
+
+const calculateDays = (start: string, end: string): number => {
+  try {
+    const d1 = new Date(start + 'T00:00:00').getTime();
+    const d2 = new Date(end + 'T00:00:00').getTime();
+    const diff = Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1;
+    return Math.max(1, diff);
+  } catch {
+    return 1;
+  }
+};
+
 interface ProjectsOverviewProps {
   projects: Project[];
   tasks: Task[];
@@ -123,30 +147,6 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   const isCodeAvailable = isProjectCodeAvailable(projectCode, projects, editingProject?.id);
   const isCodeFormatValid = isValidProjectCodeFormat(projectCode);
   const isFormValid = name.trim().length > 0 && isCodeAvailable && isCodeFormatValid;
-
-  const calculateDueDate = (start: string, days: number): string => {
-    try {
-      const d = new Date(start + 'T00:00:00');
-      d.setDate(d.getDate() + Math.max(1, days) - 1);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${y}-${m}-${day}`;
-    } catch {
-      return start;
-    }
-  };
-
-  const calculateDays = (start: string, end: string): number => {
-    try {
-      const d1 = new Date(start + 'T00:00:00').getTime();
-      const d2 = new Date(end + 'T00:00:00').getTime();
-      const diff = Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1;
-      return Math.max(1, diff);
-    } catch {
-      return 1;
-    }
-  };
 
   const handleStartDateChange = (newStart: string) => {
     setStartDate(newStart);

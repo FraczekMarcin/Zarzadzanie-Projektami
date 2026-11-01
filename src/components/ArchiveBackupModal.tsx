@@ -281,26 +281,50 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
   // 3. Trigger Google Drive Backup
   const handleBackupToGoogleDrive = () => {
     setIsGdriveSyncing(true);
-    setGdriveStatus('Nawiązywanie połączenia z Google Drive API...');
+    setGdriveStatus('Nawiązywanie połączenia z Google Drive API i przygotowywanie zrzutu danych...');
 
     setTimeout(() => {
       const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
-      const filename = `zarzadzanie-projektami-${new Date().toISOString().slice(0, 10)}.json`;
+      const datePart = new Date().toISOString().slice(0, 10);
+      const filename = `zarzadzanie-projektami-gdrive-${datePart}.json`;
 
-      setGdriveStatus(`Zapisano pomyślnie w folderze: "${gdriveFolder}" (ID: 1x9F-gd-zarzadzanie-proj)`);
+      // 1. Zapisz w migawkach auto-backup
+      const snapshot = createAutoBackupSnapshot({
+        projects,
+        tasks,
+        users,
+        comments,
+        activityLogs,
+      });
+
+      // 2. Pobierz plik na dysk użytkownika
+      const data = createBackupPayload();
+      const str = JSON.stringify(data, null, 2);
+      const blob = new Blob([str], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
       setIsGdriveSyncing(false);
+      setGdriveStatus(`Pomyślnie utworzono i wyeksportowano plik kopii zapasowej "${filename}". Przygotowano do synchronizacji w folderze Dysku Google: "${gdriveFolder}".`);
 
       const newEntry = {
         id: `bk-${Date.now()}`,
         date: nowStr,
         destination: 'Google Drive',
         filename,
-        size: '315 KB',
+        size: formatBytes(blob.size),
         status: 'success',
         recordsCount: `${projects.length} projektów, ${tasks.length} zadań`,
       };
 
       setBackupHistory((prev) => [newEntry, ...prev]);
+      setSnapshots(getAutoBackupSnapshots());
       onLogActivity('Utworzono kopię zapasową na Google Drive', undefined, filename);
     }, 1200);
   };
@@ -818,6 +842,16 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                     <Download className="w-3.5 h-3.5 text-slate-500" />
                     <span>Pobierz plik archiwum na dysk</span>
                   </button>
+
+                  <a
+                    href="https://drive.google.com/drive/my-drive"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-medium px-4 py-2.5 rounded-lg transition-colors border border-slate-300"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 text-sky-600" />
+                    <span>Otwórz Dysk Google</span>
+                  </a>
                 </div>
               </div>
             </div>

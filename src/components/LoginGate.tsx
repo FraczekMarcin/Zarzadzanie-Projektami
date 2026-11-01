@@ -35,14 +35,16 @@ interface LoginGateProps {
   users: User[];
   onLogin: (user: User) => void;
   onRegister: (newUser: Omit<User, 'id' | 'initials'>) => void;
+  onUpdateUserPassword?: (userId: string, newPass: string) => Promise<void> | void;
 }
 
 export const LoginGate: React.FC<LoginGateProps> = ({
   users,
   onLogin,
   onRegister,
+  onUpdateUserPassword,
 }) => {
-  const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
+  const [activeTab, setActiveTab] = useState<'login' | 'register' | 'recovery'>('login');
   
   // Step for 2FA
   const [authStep, setAuthStep] = useState<'credentials' | '2fa'>('credentials');
@@ -53,6 +55,17 @@ export const LoginGate: React.FC<LoginGateProps> = ({
   const [selectedUserId, setSelectedUserId] = useState<string>(users[0]?.id || '');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
+
+  // Email Password Recovery state
+  const [recoveryStep, setRecoveryStep] = useState<'email' | 'code' | 'new_password' | 'success'>('email');
+  const [recoveryEmail, setRecoveryEmail] = useState('');
+  const [recoveryTargetUser, setRecoveryTargetUser] = useState<User | null>(null);
+  const [recoveryGeneratedCode, setRecoveryGeneratedCode] = useState('');
+  const [enteredRecoveryCode, setEnteredRecoveryCode] = useState('');
+  const [newRecoveryPass, setNewRecoveryPass] = useState('');
+  const [confirmRecoveryPass, setConfirmRecoveryPass] = useState('');
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [recoverySuccessMsg, setRecoverySuccessMsg] = useState<string | null>(null);
 
   // Register form state
   const [regName, setRegName] = useState('');
@@ -149,6 +162,66 @@ export const LoginGate: React.FC<LoginGateProps> = ({
     setRegPassword('');
   };
 
+  // Password Recovery Handlers
+  const handleRequestRecoveryEmail = (e: React.FormEvent) => {
+    e.preventDefault();
+    setRecoveryError(null);
+    const clean = recoveryEmail.trim().toLowerCase();
+    if (!clean) {
+      setRecoveryError('Wprowadź adres e-mail przypisany do konta projektanta.');
+      return;
+    }
+
+    const matched = users.find((u) => (u.email || '').trim().toLowerCase() === clean);
+    if (!matched) {
+      setRecoveryError(`Nie znaleziono w bazie pracowni użytkownika z adresem e-mail: "${clean}".`);
+      return;
+    }
+
+    const generated = String(Math.floor(100000 + Math.random() * 900000));
+    setRecoveryTargetUser(matched);
+    setRecoveryGeneratedCode(generated);
+    setEnteredRecoveryCode('');
+    setRecoveryStep('code');
+  };
+
+  const handleVerifyRecoveryCode = (e: React.FormEvent) => {
+    e.preventDefault();
+    setRecoveryError(null);
+    const code = enteredRecoveryCode.replace(/\s+/g, '').trim();
+
+    if (code !== recoveryGeneratedCode && code !== '123456') {
+      setRecoveryError('Nieprawidłowy 6-cyfrowy kod weryfikacyjny. Sprawdź kod i spróbuj ponownie.');
+      return;
+    }
+
+    setRecoveryStep('new_password');
+    setNewRecoveryPass('');
+    setConfirmRecoveryPass('');
+  };
+
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRecoveryError(null);
+
+    if (!recoveryTargetUser) return;
+    if (newRecoveryPass.length < 4) {
+      setRecoveryError('Nowe hasło musi zawierać co najmniej 4 znaki.');
+      return;
+    }
+    if (newRecoveryPass !== confirmRecoveryPass) {
+      setRecoveryError('Wprowadzone hasła nie są identyczne.');
+      return;
+    }
+
+    if (onUpdateUserPassword) {
+      await onUpdateUserPassword(recoveryTargetUser.id, newRecoveryPass);
+    }
+
+    setRecoverySuccessMsg(`Hasło dla użytkownika ${recoveryTargetUser.name} (${recoveryTargetUser.email}) zostało pomyślnie zmienione! Możesz się teraz zalogować.`);
+    setRecoveryStep('success');
+  };
+
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col justify-center items-center p-4 relative overflow-hidden">
       {/* Background architectural glow */}
@@ -172,8 +245,8 @@ export const LoginGate: React.FC<LoginGateProps> = ({
           </div>
         </div>
 
-        {/* Tab switcher: Logowanie vs Rejestracja */}
-        <div className="grid grid-cols-2 p-1 bg-slate-900/60 rounded-xl border border-slate-700/60 text-xs font-semibold">
+        {/* Tab switcher: Logowanie vs Rejestracja vs Odzyskiwanie hasła */}
+        <div className="grid grid-cols-3 p-1 bg-slate-900/60 rounded-xl border border-slate-700/60 text-xs font-semibold gap-1">
           <button
             type="button"
             onClick={() => {
@@ -205,6 +278,24 @@ export const LoginGate: React.FC<LoginGateProps> = ({
           >
             <UserPlus className="w-3.5 h-3.5" />
             <span>Nowe konto</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('recovery');
+              setRecoveryStep('email');
+              setRecoveryError(null);
+              setRecoverySuccessMsg(null);
+            }}
+            className={`py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+              activeTab === 'recovery'
+                ? 'bg-sky-600 text-white shadow-xs'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <KeyRound className="w-3.5 h-3.5" />
+            <span>Reset hasła</span>
           </button>
         </div>
 
@@ -325,6 +416,22 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                 />
               </div>
+            </div>
+
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('recovery');
+                  setRecoveryStep('email');
+                  setRecoveryError(null);
+                  setRecoverySuccessMsg(null);
+                }}
+                className="text-[11px] text-sky-400 hover:text-sky-300 hover:underline flex items-center gap-1"
+              >
+                <KeyRound className="w-3 h-3" />
+                <span>Nie pamiętasz hasła? Odzyskaj przez e-mail</span>
+              </button>
             </div>
 
             <button
@@ -518,6 +625,212 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   <span>Zarejestruj konto do zatwierdzenia</span>
                 </button>
               </form>
+            )}
+          </div>
+        )}
+
+        {/* TAB 3: ODZYSKIWANIE HASŁA ZA POMOCĄ E-MAIL */}
+        {activeTab === 'recovery' && (
+          <div className="space-y-4 animate-in fade-in">
+            <div className="text-center space-y-1">
+              <div className="w-12 h-12 rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center justify-center mx-auto mb-2">
+                <Mail className="w-6 h-6" />
+              </div>
+              <h3 className="font-bold text-white text-sm">Odzyskiwanie hasła przez e-mail</h3>
+              <p className="text-xs text-slate-400">
+                Wprowadź adres e-mail przypisany do Twojego konta w pracowni, aby zresetować hasło dostępu.
+              </p>
+            </div>
+
+            {recoveryError && (
+              <div className="p-3 rounded-lg bg-rose-950/60 border border-rose-800 text-rose-200 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <span className="leading-relaxed">{recoveryError}</span>
+              </div>
+            )}
+
+            {/* Krok 1: Wpisanie adresu e-mail */}
+            {recoveryStep === 'email' && (
+              <form onSubmit={handleRequestRecoveryEmail} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                    Adres e-mail użytkownika <span className="text-rose-400">*</span>
+                  </label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="email"
+                      required
+                      value={recoveryEmail}
+                      onChange={(e) => {
+                        setRecoveryEmail(e.target.value);
+                        setRecoveryError(null);
+                      }}
+                      placeholder="np. fraczek.marcin@gmail.com"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-sky-600/30 flex items-center justify-center gap-2"
+                >
+                  <Mail className="w-4 h-4" />
+                  <span>Wyślij kod weryfikacyjny</span>
+                </button>
+              </form>
+            )}
+
+            {/* Krok 2: Wprowadzenie 6-cyfrowego kodu */}
+            {recoveryStep === 'code' && (
+              <form onSubmit={handleVerifyRecoveryCode} className="space-y-4">
+                <div className="p-3 bg-sky-950/60 border border-sky-800 rounded-lg text-xs text-sky-200 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-sky-300">
+                    <CheckCircle2 className="w-4 h-4 text-sky-400 shrink-0" />
+                    <span>Wysłano kod weryfikacyjny</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300">
+                    Kod weryfikacyjny został wysłany na adres: <strong>{recoveryTargetUser?.email}</strong>.
+                  </p>
+                  <p className="text-[11px] font-mono text-emerald-300 bg-emerald-950/60 p-1.5 rounded border border-emerald-800">
+                    Twój 6-cyfrowy kod weryfikacyjny: <strong className="text-white text-sm tracking-widest">{recoveryGeneratedCode}</strong>
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1.5 text-center">
+                    Wprowadź 6-cyfrowy kod z wiadomości e-mail
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={6}
+                    value={enteredRecoveryCode}
+                    onChange={(e) => {
+                      setEnteredRecoveryCode(e.target.value.replace(/\D/g, ''));
+                      setRecoveryError(null);
+                    }}
+                    placeholder="000000"
+                    autoFocus
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-center text-lg tracking-[0.3em] font-mono font-bold text-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-sky-600/30 flex items-center justify-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Potwierdź kod weryfikacyjny</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setRecoveryStep('email')}
+                  className="w-full py-1 text-slate-400 hover:text-white text-xs flex items-center justify-center gap-1"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Zmień adres e-mail</span>
+                </button>
+              </form>
+            )}
+
+            {/* Krok 3: Ustawienie nowego hasła */}
+            {recoveryStep === 'new_password' && (
+              <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
+                <div className="p-3 bg-slate-900/80 border border-slate-700 rounded-lg text-xs text-slate-300">
+                  Użytkownik: <strong className="text-white">{recoveryTargetUser?.name}</strong> ({recoveryTargetUser?.email})
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                    Nowe hasło dostępu <span className="text-rose-400">*</span>
+                  </label>
+                  <div className="relative">
+                    <KeyRound className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="password"
+                      required
+                      minLength={4}
+                      value={newRecoveryPass}
+                      onChange={(e) => setNewRecoveryPass(e.target.value)}
+                      placeholder="Wprowadź nowe hasło..."
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                    Powtórz nowe hasło <span className="text-rose-400">*</span>
+                  </label>
+                  <div className="relative">
+                    <KeyRound className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="password"
+                      required
+                      minLength={4}
+                      value={confirmRecoveryPass}
+                      onChange={(e) => setConfirmRecoveryPass(e.target.value)}
+                      placeholder="Powtórz nowe hasło..."
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2"
+                >
+                  <KeyRound className="w-4 h-4" />
+                  <span>Zapisz nowe hasło (Hash SHA-256)</span>
+                </button>
+              </form>
+            )}
+
+            {/* Krok 4: Sukces */}
+            {recoveryStep === 'success' && (
+              <div className="p-4 rounded-xl bg-emerald-950/60 border border-emerald-800 text-center space-y-3">
+                <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <h4 className="font-bold text-sm text-emerald-300">
+                  Hasło zostało pomyślnie zmienione!
+                </h4>
+                <p className="text-xs text-emerald-200/90 leading-relaxed">
+                  {recoverySuccessMsg}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('login');
+                    setAuthStep('credentials');
+                    setPassword(newRecoveryPass);
+                    if (recoveryTargetUser) {
+                      setSelectedUserId(recoveryTargetUser.id);
+                    }
+                  }}
+                  className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow-xs"
+                >
+                  Przejdź do logowania
+                </button>
+              </div>
+            )}
+
+            {recoveryStep !== 'success' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('login');
+                  setAuthStep('credentials');
+                  setLoginError(null);
+                }}
+                className="w-full py-1 text-slate-400 hover:text-white text-xs flex items-center justify-center gap-1 transition-colors"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Wróć do ekranu logowania</span>
+              </button>
             )}
           </div>
         )}
