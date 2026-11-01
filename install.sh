@@ -15,7 +15,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 echo -e "${BLUE}=================================================================${NC}"
-echo -e "${GREEN}  🏗️  Zarządzanie Projektami - Instalator (Wersja 2026-10-30 v0.3.5)${NC}"
+echo -e "${GREEN}  🏗️  Zarządzanie Projektami - Instalator (Wersja 2026-11-01 v0.3.9)${NC}"
 echo -e "${BLUE}  Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami${NC}"
 echo -e "${BLUE}=================================================================${NC}"
 
@@ -94,7 +94,7 @@ if [ ! -f .env ]; then
     cat <<EOF > .env
 PORT=3000
 NODE_ENV=production
-APP_VERSION=2026-10-30 v0.3.5
+APP_VERSION=2026-11-01 v0.3.9
 POSTGRES_USER=zarzadzanie
 POSTGRES_PASSWORD=${DB_PASS}
 POSTGRES_DB=zarzadzanie_db
@@ -283,7 +283,7 @@ SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
 
 echo -e "${GREEN}=================================================================${NC}"
 echo -e "${GREEN}  ✅ WDROŻENIE ZAKOŃCZONE SUKCESEM!${NC}"
-echo -e "${GREEN}  Wersja: 2026-10-30 v0.3.5${NC}"
+echo -e "${GREEN}  Wersja: 2026-11-01 v0.3.9${NC}"
 echo -e "${GREEN}=================================================================${NC}"
 echo -e "Aplikacja działa i jest dostępna pod:"
 echo -e "  👉 ${YELLOW}http://${SERVER_IP}:3000${NC} lub ${YELLOW}http://localhost:3000${NC}"
