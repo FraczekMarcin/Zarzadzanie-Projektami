@@ -25,11 +25,15 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV APP_VERSION="2026-10-30 v0.3.5"
+ENV DATA_DIR=/app/data
+ENV APP_VERSION="2026-11-02 v0.4.0"
 
 # Użytkownik o ograniczonych uprawnieniach (Security best practice)
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S appuser -u 1001 -G nodejs
+
+# Tworzenie i uprawnienia do trwałego katalogu danych
+RUN mkdir -p /app/data && chown -R appuser:nodejs /app/data
 
 # Kopiowanie skompilowanego frontendu i serwera (zaledwie 650 KB!)
 COPY --chown=appuser:nodejs --from=builder /app/dist ./dist

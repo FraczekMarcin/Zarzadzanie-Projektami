@@ -10,25 +10,61 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '10mb' }));
 
 // Persistent shared database directory for all clients
-const DATA_DIR = process.env.DATA_DIR || path.resolve(__dirname, 'data');
+const isProduction = process.env.NODE_ENV === 'production';
+const DATA_DIR = process.env.DATA_DIR || (isProduction ? '/app/data' : path.resolve(process.cwd(), 'data'));
 const STATE_FILE = path.join(DATA_DIR, 'app_state.json');
 
+console.log(`[Server] Ścieżka katalogu danych (DATA_DIR): ${DATA_DIR} (tryb: ${isProduction ? 'produkcja' : 'development'})`);
+
 // Ensure data directory exists
-if (!fs.existsSync(DATA_DIR)) {
-  try {
+try {
+  if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-  } catch (err) {
-    console.warn('Could not create data dir:', err);
   }
+} catch (err: any) {
+  console.error(`[Server FATAL] Nie można utworzyć katalogu danych "${DATA_DIR}": ${err.message}`);
+  process.exit(1);
+}
+
+// Sprawdź zapisywalność DATA_DIR (zapis i usunięcie pliku testowego)
+const testFilePath = path.join(DATA_DIR, `.write_check_${Date.now()}`);
+try {
+  fs.writeFileSync(testFilePath, 'ok', 'utf-8');
+  fs.unlinkSync(testFilePath);
+  console.log(`[Server] Potwierdzono uprawnienia do zapisu w katalogu: ${DATA_DIR}`);
+} catch (err: any) {
+  console.error(`[Server FATAL] Brak uprawnień do zapisu w katalogu danych "${DATA_DIR}": ${err.message}`);
+  console.error(`[Server FATAL] Upewnij się, że katalog istnieje i posiada odpowiednie uprawnienia zapisu dla użytkownika uruchamiającego serwer.`);
+  process.exit(1);
 }
 
 // In-memory cache for live synchronization and Google Calendar iCal feeds
 let serverAppStateCache: any = null;
 let serverTasksCache: any[] = [];
 let serverUsersCache: any[] = [];
+
+// Kolejka atomowych i asynchronicznych zapisów stanu
+let writeQueue: Promise<void> = Promise.resolve();
+
+function saveStateAtomicAsync(): Promise<void> {
+  const doWrite = async () => {
+    try {
+      const tmpFile = path.join(DATA_DIR, 'app_state.json.tmp');
+      const content = JSON.stringify(serverAppStateCache);
+      await fs.promises.writeFile(tmpFile, content, 'utf-8');
+      await fs.promises.rename(tmpFile, STATE_FILE);
+    } catch (writeErr) {
+      console.error('[Server] Błąd atomowego zapisu stanu do pliku:', writeErr);
+      throw writeErr;
+    }
+  };
+
+  writeQueue = writeQueue.then(doWrite, doWrite);
+  return writeQueue;
+}
 
 // Load existing state on server startup
 if (fs.existsSync(STATE_FILE)) {
@@ -51,10 +87,11 @@ if (fs.existsSync(STATE_FILE)) {
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '2026-10-31 v0.3.8',
+    version: '2026-11-02 v0.4.0',
     timestamp: new Date().toISOString(),
     postgresStatus: process.env.DATABASE_URL ? 'configured' : 'standalone-json-db',
     persistedState: !!serverAppStateCache,
+    dataDir: DATA_DIR,
   });
 });
 
@@ -75,7 +112,7 @@ app.get('/api/state', (_req, res) => {
   res.json({ initialized: false, state: null });
 });
 
-app.post('/api/state', (req, res) => {
+app.post('/api/state', async (req, res) => {
   try {
     const state = req.body;
     serverAppStateCache = {
@@ -90,11 +127,7 @@ app.post('/api/state', (req, res) => {
       serverUsersCache = state.users;
     }
 
-    try {
-      fs.writeFileSync(STATE_FILE, JSON.stringify(serverAppStateCache, null, 2), 'utf-8');
-    } catch (writeErr) {
-      console.error('[Server] Failed to write to disk:', writeErr);
-    }
+    await saveStateAtomicAsync();
 
     res.json({ success: true, timestamp: serverAppStateCache.updatedAt });
   } catch (err: any) {

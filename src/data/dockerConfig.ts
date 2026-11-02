@@ -56,13 +56,14 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      APP_VERSION: "2026-10-31 v0.3.7"
+      DATA_DIR: /app/data
+      APP_VERSION: "2026-11-02 v0.4.0"
       DATABASE_URL: postgres://\${POSTGRES_USER:-zarzadzanie}:\${POSTGRES_PASSWORD:-TwojeBezpieczneHaslo2026!}@db:5432/\${POSTGRES_DB:-zarzadzanie_db}
       APP_SECRET: \${APP_SECRET:-sekretna-fraza-szyfrowania-zarzadzanie-projektami-2026}
     ports:
       - "\${APP_PORT:-3000}:3000"
     volumes:
-      - ./data:/app/data
+      - zarzadzanie_app_data:/app/data
     networks:
       - zarzadzanie_net
 
@@ -86,6 +87,8 @@ services:
 volumes:
   zarzadzanie_postgres_data:
     driver: local
+  zarzadzanie_app_data:
+    driver: local
 
 networks:
   zarzadzanie_net:
@@ -94,7 +97,7 @@ networks:
 
 export const DOCKERFILE_CONTENT = `# ==========================================
 # Zarządzanie Projektami - Dockerfile
-# Wersja: 2026-10-30 v0.3.5
+# Wersja: 2026-11-02 v0.4.0
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Ścieżka: Instalacja/Dockerfile
 # ==========================================
@@ -119,11 +122,15 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV APP_VERSION="2026-10-30 v0.3.5"
+ENV DATA_DIR=/app/data
+ENV APP_VERSION="2026-11-02 v0.4.0"
 
 # Użytkownik o ograniczonych uprawnieniach (Security best practice)
 RUN addgroup -g 1001 -S nodejs && \\
     adduser -S appuser -u 1001 -G nodejs
+
+# Tworzenie i uprawnienia do trwałego katalogu danych
+RUN mkdir -p /app/data && chown -R appuser:nodejs /app/data
 
 # Kopiowanie skompilowanego frontendu i serwera (zaledwie 650 KB!)
 COPY --chown=appuser:nodejs --from=builder /app/dist ./dist
