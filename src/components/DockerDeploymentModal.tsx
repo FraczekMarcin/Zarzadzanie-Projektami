@@ -35,7 +35,7 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const [copied, setCopied] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'one_command' | 'files' | 'guide' | 'postgres' | 'persistence'>('one_command');
+  const [activeTab, setActiveTab] = useState<'one_command' | 'files' | 'guide' | 'storage' | 'persistence'>('one_command');
 
   if (!isOpen) return null;
 
@@ -100,7 +100,7 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
                 </span>
               </h3>
               <p className="text-xs text-slate-500">
-                Instalacja 1-poleceniem w katalogu <code className="font-mono text-slate-700 font-semibold">{INSTALL_TARGET_DIR}</code> z automatycznymi kopiami zapasowymi i PostgreSQL 16.
+                Instalacja 1-poleceniem w katalogu <code className="font-mono text-slate-700 font-semibold">{INSTALL_TARGET_DIR}</code> z automatycznymi kopiami zapasowymi i trwałym wolumenem danych.
               </p>
             </div>
           </div>
@@ -162,15 +162,15 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
           </button>
 
           <button
-            onClick={() => setActiveTab('postgres')}
+            onClick={() => setActiveTab('storage')}
             className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
-              activeTab === 'postgres'
+              activeTab === 'storage'
                 ? 'border-sky-600 text-sky-700 font-semibold'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
           >
             <Database className="w-4 h-4" />
-            <span>Architektura PostgreSQL 16</span>
+            <span>Trwałość danych (JSON + Wolumen)</span>
           </button>
 
           <button
@@ -534,7 +534,7 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
                   <span className="font-semibold text-slate-900">Umieść pobrane pliki w katalogu</span>
                 </div>
                 <p className="text-slate-600">
-                  Wklej pliki: <code className="font-mono bg-slate-100 px-1 rounded">docker-compose.yml</code>, <code className="font-mono bg-slate-100 px-1 rounded">init.sql</code>, <code className="font-mono bg-slate-100 px-1 rounded">Dockerfile</code>, <code className="font-mono bg-slate-100 px-1 rounded">backup.sh</code> oraz <code className="font-mono bg-slate-100 px-1 rounded">.env.production</code>.
+                  Wklej pliki: <code className="font-mono bg-slate-100 px-1 rounded">docker-compose.yml</code>, <code className="font-mono bg-slate-100 px-1 rounded">Dockerfile</code>, <code className="font-mono bg-slate-100 px-1 rounded">backup.sh</code> oraz <code className="font-mono bg-slate-100 px-1 rounded">.env.production</code>.
                 </p>
               </div>
 
@@ -543,13 +543,13 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
                   <span className="w-5 h-5 rounded-full bg-slate-900 text-white font-bold flex items-center justify-center text-[10px]">
                     3
                   </span>
-                  <span className="font-semibold text-slate-900">Uruchom usługi w tle (Docker Compose)</span>
+                  <span className="font-semibold text-slate-900">Uruchom aplikację w tle (Docker Compose)</span>
                 </div>
                 <div className="bg-slate-900 text-slate-200 p-3 rounded font-mono text-xs overflow-x-auto">
                   docker compose up -d
                 </div>
                 <p className="text-slate-500 text-[11px]">
-                  PostgreSQL zostanie automatycznie zainicjalizowany ze schematem tabel z pliku init.sql.
+                  Aplikacja uruchomi się z trwałym wolumenem danych <code className="font-mono">zarzadzanie_app_data</code> montowanym w <code className="font-mono">/app/data</code>.
                 </p>
               </div>
 
@@ -561,51 +561,51 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
                   <span className="font-semibold text-slate-900">Wykonywanie automatycznych kopii zapasowych (Backup)</span>
                 </div>
                 <p className="text-slate-600">
-                  Możesz utworzyć zadanie w cronie, aby codziennie o 2:00 w nocy wykonywać zrzut bazy:
+                  Możesz utworzyć zadanie w cronie, aby codziennie o 2:00 w nocy archiwizować stan pracowni:
                 </p>
                 <div className="bg-slate-900 text-slate-200 p-3 rounded font-mono text-xs overflow-x-auto">
-                  docker exec -t zarzadzanie_db pg_dump -U zarzadzanie zarzadzanie_db | gzip &gt; /opt/zarzadzanie-projektami/backups/backup_$(date +\%Y\%m\%d).sql.gz
+                  sudo /opt/zarzadzanie-projektami/backup.sh
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* Tab Content: PostgreSQL Architecture */}
-        {activeTab === 'postgres' && (
+        {/* Tab Content: Storage Architecture */}
+        {activeTab === 'storage' && (
           <div className="flex-1 p-6 overflow-y-auto space-y-4 text-xs text-slate-800">
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-              <h4 className="text-sm font-bold text-slate-900 mb-2">Relacyjny model danych PostgreSQL 16</h4>
+              <h4 className="text-sm font-bold text-slate-900 mb-2">Trwały model danych JSON (app_state.json) & Wolumeny Docker</h4>
               <p className="text-slate-600 leading-relaxed mb-4">
-                Schemat został zoptymalizowany pod kątem szybkiego generowania wykresów Gantta, terminarzy oraz obsługi transakcyjnej dla wielu użytkowników równocześnie (row-level locking).
+                Stan pracowni (projekty, zadania, powiązania Gantta, użytkownicy i finanse) zapisywany jest atomowo w pliku <code className="font-mono text-slate-900 bg-white px-1 py-0.5 rounded border border-slate-200">app_state.json</code> w trwałym wolumenie.
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="bg-white p-3 rounded border border-slate-200">
-                  <span className="font-mono font-bold text-sky-700 block mb-1">TABLE projects</span>
+                  <span className="font-mono font-bold text-sky-700 block mb-1">Atomowy zapis asynchroniczny</span>
                   <p className="text-slate-500 text-[11px]">
-                    Klucze projektów, statusy, priorytety, budżety i terminy bazowe.
+                    Zapis odbywa się do pliku tymczasowego <code className="font-mono text-slate-800">app_state.json.tmp</code> z asynchronicznym przemianowaniem, chroniąc przed uszkodzeniem przy nagłym restarcie.
                   </p>
                 </div>
 
                 <div className="bg-white p-3 rounded border border-slate-200">
-                  <span className="font-mono font-bold text-sky-700 block mb-1">TABLE tasks (Work Packages)</span>
+                  <span className="font-mono font-bold text-sky-700 block mb-1">Kolejka FIFO dla transakcji</span>
                   <p className="text-slate-500 text-[11px]">
-                    Zadania, kamienie milowe, błędy z indeksami <code className="font-mono text-slate-800">idx_tasks_dates</code> dla błyskawicznego terminarza.
+                    Kolejka obietnic w Node.js zapobiega kolizjom i nakładaniu się równoległych zapisów z wielu stanowisk w biurze.
                   </p>
                 </div>
 
                 <div className="bg-white p-3 rounded border border-slate-200">
-                  <span className="font-mono font-bold text-sky-700 block mb-1">TABLE task_dependencies</span>
+                  <span className="font-mono font-bold text-sky-700 block mb-1">Pamięć podręczna (In-Memory Cache)</span>
                   <p className="text-slate-500 text-[11px]">
-                    Relacje Gantta typu Finish-to-Start zapobiegające cyklom.
+                    Błyskawiczne odpowiedzi dla feedów iCal (<code className="font-mono text-slate-800">/api/calendar/*.ics</code>) i synchronizacji bez opóźnień I/O.
                   </p>
                 </div>
 
                 <div className="bg-white p-3 rounded border border-slate-200">
-                  <span className="font-mono font-bold text-sky-700 block mb-1">TABLE activity_logs</span>
+                  <span className="font-mono font-bold text-sky-700 block mb-1">Automatyczne kopie (backup.sh)</span>
                   <p className="text-slate-500 text-[11px]">
-                    Dziennik audytowy rejestrujący każdą edycję, zmianę statusu i komentarz członków zespołu.
+                    Skrypt weryfikuje integralność narzędziem <code className="font-mono text-slate-800">jq empty</code> oraz <code className="font-mono text-slate-800">gzip -t</code> i zachowuje min. 7 ostatnich kopii.
                   </p>
                 </div>
               </div>
@@ -623,13 +623,13 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
               </div>
               <div>
                 <h4 className="text-base font-bold text-emerald-900 mb-1">
-                  Czy po aktualizacji kontenerów Docker dane w bazie PostgreSQL pozostaną?
+                  Czy po aktualizacji kontenerów Docker dane projektów pozostaną?
                 </h4>
                 <p className="text-emerald-800 text-sm font-semibold mb-2">
                   TAK — dane są w 100% bezpieczne i zachowywane na dysku serwera.
                 </p>
                 <p className="text-emerald-800 text-xs leading-relaxed">
-                  Docker oddziela bezstanową logikę aplikacji od danych bazy za pomocą dedykowanego wolumenu <code className="bg-emerald-100 px-1.5 py-0.5 rounded font-mono text-emerald-950 font-bold">postgres_data</code>. Nawet po całkowitym usunięciu kontenerów i pobraniu nowej wersji obrazu, Twoje projekty, zadania i historia pozostają nienaruszone.
+                  Docker oddziela bezstanową logikę aplikacji od danych bazy za pomocą dedykowanego wolumenu <code className="bg-emerald-100 px-1.5 py-0.5 rounded font-mono text-emerald-950 font-bold">zarzadzanie_app_data</code> montowanego w katalogu <code className="font-mono text-emerald-950 font-bold">/app/data</code>. Nawet po całkowitej przebudowie kontenera Twoje projekty, zadania i historia pozostają nienaruszone.
                 </p>
               </div>
             </div>
@@ -641,20 +641,19 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
                 <span>Dlaczego dane nie znikają? (Mechanizm Docker Named Volume)</span>
               </h5>
               <p className="text-slate-600">
-                W pliku <code className="font-mono text-slate-800 bg-slate-100 px-1 py-0.5 rounded">docker-compose.yml</code> usługa bazy danych korzysta z konfiguracji:
+                W pliku <code className="font-mono text-slate-800 bg-slate-100 px-1 py-0.5 rounded">docker-compose.yml</code> usługa korzysta z konfiguracji:
               </p>
               <div className="bg-slate-900 text-slate-100 font-mono text-[11px] p-3 rounded-lg overflow-x-auto">
                 <span className="text-purple-400">services</span>:<br />
-                &nbsp;&nbsp;<span className="text-purple-400">db</span>:<br />
-                &nbsp;&nbsp;&nbsp;&nbsp;<span className="text-sky-300">image</span>: postgres:16-alpine<br />
+                &nbsp;&nbsp;<span className="text-purple-400">app</span>:<br />
                 &nbsp;&nbsp;&nbsp;&nbsp;<span className="text-sky-300">volumes</span>:<br />
-                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- <span className="text-amber-300">postgres_data</span>:/var/lib/postgresql/data<br />
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- <span className="text-amber-300">zarzadzanie_app_data</span>:/app/data<br />
                 <br />
                 <span className="text-purple-400">volumes</span>:<br />
-                &nbsp;&nbsp;<span className="text-amber-300">postgres_data</span>: <span className="text-slate-400"># Wolumen trwały zarządzany przez system hosta</span>
+                &nbsp;&nbsp;<span className="text-amber-300">zarzadzanie_app_data</span>: <span className="text-slate-400"># Trwały wolumen zarządzany przez Docker na hoście</span>
               </div>
               <p className="text-slate-600 text-[11px]">
-                Fizyczne pliki bazy danych znajdują się w katalogu systemowym Docker hosta (np. <code className="font-mono text-slate-800">/var/lib/docker/volumes/zarzadzanie_postgres_data/_data</code>) i nie podlegają skasowaniu przy restarcie lub podmianie kontenerów.
+                Fizyczny plik bazy <code className="font-mono text-slate-800">app_state.json</code> znajduje się w trwałym katalogu wolumenu Dockera i nie podlega skasowaniu przy restarcie lub aktualizacji kontenera.
               </p>
             </div>
 
@@ -689,10 +688,10 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
                 Zalecana dobra praktyka: Kopia zapasowa przed aktualizacją
               </span>
               <p className="text-[11px] text-slate-600 mb-2">
-                Przed dużą aktualizacją możesz wykonać 1-komendowy zrzut bazy PostgreSQL do pliku:
+                Przed dużą aktualizacją możesz wykonać 1-komendową kopię zapasową pliku stanu:
               </p>
               <div className="bg-slate-900 text-slate-200 font-mono text-[11px] p-2.5 rounded">
-                docker exec -t zarzadzanie_db pg_dump -U zarzadzanie zarzadzanie_db &gt; backup_przed_upgradem_$(date +%Y%m%d).sql
+                sudo /opt/zarzadzanie-projektami/backup.sh
               </div>
             </div>
           </div>

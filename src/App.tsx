@@ -200,13 +200,13 @@ export default function App() {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'theme' | 'update' | 'docker' | 'users' | 'backup' | 'variables'>('theme');
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => getThemePreference());
-  const [isBackupActive, setIsBackupActive] = useState<boolean>(() => {
-    try {
-      return getAutoBackupConfig().enabled;
-    } catch {
-      return false;
-    }
-  });
+  const [serverBackupStatus, setServerBackupStatus] = useState<{
+    active: boolean;
+    lastBackup: { filename: string; timestamp: string; ageHours: number; size: number } | null;
+    maxAgeHours: number;
+    message?: string;
+  } | null>(null);
+  const [isBackupActive, setIsBackupActive] = useState<boolean>(false);
 
   // Initialize theme listener on mount
   useEffect(() => {
@@ -235,15 +235,36 @@ export default function App() {
     } catch {}
   }, []);
 
-  // Keep backup status in sync with localStorage config
+  // Odpytuj endpoint /api/backup/status - wskaźnik zielony tylko gdy najnowsza kopia na serwerze <= 36h
   useEffect(() => {
-    const syncBackupState = () => {
+    let isMounted = true;
+    const fetchBackupStatus = async () => {
       try {
-        setIsBackupActive(getAutoBackupConfig().enabled);
-      } catch {}
+        const res = await fetch('/api/backup/status');
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted) {
+            setServerBackupStatus(data);
+            setIsBackupActive(Boolean(data.active));
+          }
+        } else {
+          if (isMounted) {
+            setIsBackupActive(false);
+          }
+        }
+      } catch {
+        if (isMounted) {
+          setIsBackupActive(false);
+        }
+      }
     };
-    const interval = setInterval(syncBackupState, 4000);
-    return () => clearInterval(interval);
+
+    fetchBackupStatus();
+    const interval = setInterval(fetchBackupStatus, 15000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   // Sync to local storage
@@ -1155,7 +1176,7 @@ export default function App() {
 
         {/* Zone 3: Primary Actions & User Auth */}
         <div className="flex items-center gap-2 shrink-0">
-          {/* Symbol archiwizacji: zielony gdy aktywny, czerwony mrugający gdy nieustawiony */}
+          {/* Symbol archiwizacji: zielony gdy kopia na serwerze <= 36h, czerwony gdy brak lub przeterminowana */}
           <button
             onClick={() => {
               setSettingsTab('backup');
@@ -1168,13 +1189,15 @@ export default function App() {
             }`}
             title={
               isBackupActive
-                ? 'Archiwizacja bazy: WŁĄCZONA i aktywna (kopie w tle)'
-                : 'UWAGA! Archiwizacja NIE jest ustawiona! Kliknij, aby skonfigurować automatyczne kopie zapasowe'
+                ? `Kopia zapasowa na serwerze: Aktywna (ostatnia: ${serverBackupStatus?.lastBackup ? `${serverBackupStatus.lastBackup.ageHours}h temu, ${serverBackupStatus.lastBackup.filename}` : 'w ciągu 36h'})`
+                : serverBackupStatus?.lastBackup
+                ? `UWAGA! Ostatnia kopia na serwerze ma ${serverBackupStatus.lastBackup.ageHours}h (przekroczono limit 36h)! Kliknij, aby sprawdzić.`
+                : 'UWAGA! Brak aktualnej kopii zapasowej na serwerze (w ciągu ostatnich 36h)! Kliknij, aby skonfigurować.'
             }
           >
             <Cloud className={`w-3.5 h-3.5 ${isBackupActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`} />
             <span className="hidden sm:inline">
-              {isBackupActive ? 'Kopia: Aktywna' : 'Archiwizacja: Brak!'}
+              {isBackupActive ? 'Kopia: Aktywna' : 'Kopia: Brak (<36h)'}
             </span>
             <span
               className={`w-2 h-2 rounded-full ${

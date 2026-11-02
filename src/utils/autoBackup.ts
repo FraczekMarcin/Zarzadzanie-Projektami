@@ -150,38 +150,78 @@ export function formatBytes(bytes: number): string {
 }
 
 /**
- * Generates ready-to-run Linux cron script for host server Docker PostgreSQL automatic backups
+ * Generates ready-to-run Linux cron script for host server Docker automatic backups of app_state.json
  */
 export function generateLinuxCronBackupScript(): string {
   return `#!/usr/bin/env bash
 # ==============================================================================
-# Zarządzanie Projektami - Skrypt Automatycznej Kopii Zapasowej PostgreSQL
-# Wersja: 2026-10-25 v 0.2.1
+# Zarządzanie Projektami - Kopia Zapasowa Pliku Stanu (app_state.json)
+# Wersja: 2026-11-02 v 0.4.0
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
+# Ścieżka docelowa: /opt/zarzadzanie-projektami/backup.sh
 # ==============================================================================
-set -e
+set -Eeuo pipefail
 
-BACKUP_DIR="/opt/zarzadzanie-projektami/backups"
-TIMESTAMP=$(date +"%Y-%m-%d_%H%M%S")
-FILENAME="zarzadzanie_db_backup_\${TIMESTAMP}.sql.gz"
-CONTAINER_NAME="zarzadzanie_db"
-DB_NAME="zarzadzanie_db"
-DB_USER="zarzadzanie"
+INSTALL_DIR="\${INSTALL_DIR:-/opt/zarzadzanie-projektami}"
+BACKUP_DIR="\${BACKUP_DIR:-\${INSTALL_DIR}/backups}"
+CONTAINER_NAME="\${CONTAINER_NAME:-zarzadzanie_app}"
+TIMESTAMP=\$(date +"%Y-%m-%d_%H%M%S")
+FILENAME="app_state_\${TIMESTAMP}.json.gz"
+TARGET_GZ="\${BACKUP_DIR}/\${FILENAME}"
+TMP_JSON="\${BACKUP_DIR}/.app_state_\${TIMESTAMP}.tmp.json"
+TMP_GZ="\${BACKUP_DIR}/.app_state_\${TIMESTAMP}.tmp.gz"
+MIN_KEEP=7
 RETENTION_DAYS=14
 
-# 1. Upewnij się, że katalog kopii istnieje
+cleanup() {
+    rm -f "\$TMP_JSON" "\$TMP_GZ" 2>/dev/null || true
+}
+trap cleanup EXIT ERR
+
 mkdir -p "\$BACKUP_DIR"
 
-# 2. Wykonaj zrzut bazy z kontenera Docker i skompresuj gzipem
-echo "[$(date)] Rozpoczynanie automatycznej kopii bazy PostgreSQL..."
-docker exec -t "\$CONTAINER_NAME" pg_dump -U "\$DB_USER" "\$DB_NAME" | gzip > "\$BACKUP_DIR/\$FILENAME"
+if ! docker inspect --type=container "\$CONTAINER_NAME" >/dev/null 2>&1; then
+    echo "[\$(date '+%Y-%m-%d %H:%M:%S')] BŁĄD: Kontener '\$CONTAINER_NAME' nie istnieje lub nie jest dostępny!" >&2
+    exit 1
+fi
 
-# 3. Ustaw bezpieczne uprawnienia pliku (tylko odczyt właściciela)
-chmod 600 "\$BACKUP_DIR/\$FILENAME"
+docker exec "\$CONTAINER_NAME" cat /app/data/app_state.json > "\$TMP_JSON"
 
-# 4. Automatyczna retencja: usuwanie kopii starszych niż 14 dni
-find "\$BACKUP_DIR" -type f -name "zarzadzanie_db_backup_*.sql.gz" -mtime +\$RETENTION_DAYS -delete
+if [ ! -f "\$TMP_JSON" ] || [ \$(wc -c < "\$TMP_JSON" | tr -d ' ') -le 100 ]; then
+    echo "[\$(date '+%Y-%m-%d %H:%M:%S')] BŁĄD: Plik stanu jest pusty lub zbyt mały!" >&2
+    exit 1
+fi
 
-echo "[$(date)] Kopia zapasowa utworzona pomyślnie: \$BACKUP_DIR/\$FILENAME"
+if command -v jq >/dev/null 2>&1; then
+    if ! jq empty "\$TMP_JSON" >/dev/null 2>&1; then
+        echo "[\$(date '+%Y-%m-%d %H:%M:%S')] BŁĄD: Niepoprawny format JSON!" >&2
+        exit 1
+    fi
+fi
+
+gzip -c "\$TMP_JSON" > "\$TMP_GZ"
+
+if ! gzip -t "\$TMP_GZ" >/dev/null 2>&1; then
+    echo "[\$(date '+%Y-%m-%d %H:%M:%S')] BŁĄD: Test integralności gzip -t nie powiódł się!" >&2
+    exit 1
+fi
+
+mv "\$TMP_GZ" "\$TARGET_GZ"
+chmod 600 "\$TARGET_GZ"
+rm -f "\$TMP_JSON"
+
+mapfile -t ALL_BACKUPS < <(find "\$BACKUP_DIR" -maxdepth 1 -type f -name "app_state_*.json.gz" | sort -r)
+COUNT=\${#ALL_BACKUPS[@]}
+
+if [ "\$COUNT" -gt "\$MIN_KEEP" ]; then
+    for ((i=MIN_KEEP; i<COUNT; i++)); do
+        OLD_FILE="\${ALL_BACKUPS[\$i]}"
+        if [ -n "\$(find "\$OLD_FILE" -mtime +\$RETENTION_DAYS -print 2>/dev/null)" ]; then
+            rm -f "\$OLD_FILE"
+        fi
+    done
+fi
+
+echo "[\$(date '+%Y-%m-%d %H:%M:%S')] Kopia zapasowa gotowa: \$TARGET_GZ"
 `;
 }

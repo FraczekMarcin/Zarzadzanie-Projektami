@@ -247,7 +247,7 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
               <div className="bg-slate-950 text-slate-200 rounded-lg p-3 font-mono text-[11px] space-y-1 overflow-x-auto">
                 <div className="text-slate-500 font-sans text-[10px]"># Komenda terminala na serwerze produkcyjnym Linux:</div>
                 <div className="text-sky-300">cd {INSTALL_TARGET_DIR}</div>
-                <div className="text-emerald-400">docker exec -t zarzadzanie_db pg_dump -U zarzadzanie zarzadzanie_db | gzip &gt; backups/backup_pre.sql.gz</div>
+                <div className="text-emerald-400">sudo ./backup.sh</div>
                 <div className="text-amber-300">git pull origin main</div>
                 <div className="text-emerald-300 font-bold">docker compose up -d --build</div>
               </div>

@@ -1,7 +1,7 @@
 # 🏗️ Zarządzanie Projektami (Pracownia Projektowa / Budownictwo)
 
-[![Wersja](https://img.shields.io/badge/Wersja-2026--10--28%20v%200.3.2-emerald.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
-[![Docker](https://img.shields.io/badge/Docker-PostgreSQL%2016-blue.svg)](https://www.docker.com/)
+[![Wersja](https://img.shields.io/badge/Wersja-2026--11--02%20v%200.4.0-emerald.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
+[![Docker](https://img.shields.io/badge/Docker-App%20Data%20Volume-blue.svg)](https://www.docker.com/)
 [![Licencja](https://img.shields.io/badge/Licencja-MIT-green.svg)](LICENSE)
 [![GitHub](https://img.shields.io/badge/GitHub-FraczekMarcin%2FZarzadzanie--Projektami-purple.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
 
@@ -11,7 +11,7 @@ Nowoczesny, kompleksowy system zarządzania projektami architektonicznymi, inży
 
 ## ⚡ Szybka instalacja (Linux VPS / NAS / Serwer dedykowany)
 
-Wszystkie pliki instalacyjne znajdują się w dedykowanym katalogu **`Instalacja/`**. Skrypt automatycznie sprawdza i instaluje silnik Docker, generuje bezpieczne hasła bazy PostgreSQL, tworzy katalog `/opt/zarzadzanie-projektami`, konfiguruje trwałe wolumeny oraz uruchamia automatyczny harmonogram kopii zapasowych (Cron codziennie o 02:00).
+Wszystkie pliki instalacyjne znajdują się w dedykowanym katalogu **`Instalacja/`**. Skrypt automatycznie sprawdza i instaluje silnik Docker, tworzy katalog `/opt/zarzadzanie-projektami`, konfiguruje trwały wolumen danych (`zarzadzanie_app_data`), atomowy zapis stanu `app_state.json` oraz uruchamia automatyczny harmonogram kopii zapasowych (Cron codziennie o 02:00).
 
 ### Wariant 1: Klonowanie Git (100% niezawodne na każdym serwerze)
 ```bash
@@ -91,8 +91,9 @@ Aplikacja natychmiast uruchomi się w kontenerach Docker i będzie dostępna pod
    - **Harmonogram automatyczny:** wbudowany automat wykonujący cykliczne migawki stanu (co 15 min, 1 godz., 6 godz. lub codziennie).
    - **Rotacja i retencja:** bezpieczne przechowywanie określonej liczby ostatnich kopii (np. 10 ostatnich) i usuwanie najstarszych.
    - **Jedno-klikowe przywracanie:** natychmiastowe odtworzenie całego stanu projektów z wybranej migawki.
-   - **Zadanie Linux Cron na serwerze:** automatyczny zrzut PostgreSQL do `/opt/zarzadzanie-projektami/backups/*.sql.gz` codziennie o 02:00.
-   - **Eksport do Google Drive & SFTP:** bezpieczna archiwizacja w chmurze lub na zewnętrznym serwerze backupowym.
+    - **Zadanie Linux Cron na serwerze:** automatyczna kopia stanu aplikacji do `/opt/zarzadzanie-projektami/backups/app_state_*.json.gz` codziennie o 02:00.
+    - **Wskaźnik stanu kopii w aplikacji:** wskaźnik "Kopia: Aktywna" w prawym górnym rogu jest zielony, gdy serwer posiada kopię zapasową nie starszą niż 36 godzin.
+    - **Eksport do Google Drive & SFTP:** bezpieczna archiwizacja w chmurze lub na zewnętrznym serwerze backupowym.
 
 ---
 
@@ -101,13 +102,13 @@ Aplikacja natychmiast uruchomi się w kontenerach Docker i będzie dostępna pod
 > **Pytanie: Czy po aktualizacji kontenerów Docker dane projektów pozostaną?**  
 > **Odpowiedź: TAK, w 100%!**
 
-Baza danych PostgreSQL zapisywana jest w niezależnym wolumenie Docker:
+Stan bazy projektów zapisywany jest atomowo w pliku `app_state.json` w dedykowanym, trwałym wolumenie Docker:
 ```yaml
 volumes:
-  zarzadzanie_postgres_data:
+  zarzadzanie_app_data:
     driver: local
 ```
-Fizyczne pliki bazy danych znajdują się w trwałym katalogu hosta (`/var/lib/docker/volumes/zarzadzanie_postgres_data/_data`). Podczas aktualizacji Docker podmienia jedynie warstwę kodu aplikacji, a wolumen bazy danych pozostaje **nienaruszony**.
+Katalog danych `/app/data` jest montowany bezpośrednio w kontenerze `zarzadzanie_app`. Podczas aktualizacji Docker wymienia jedynie obraz kodu aplikacji, a wolumen `zarzadzanie_app_data` z plikiem bazy `app_state.json` pozostaje **nienaruszony**.
 
 ### Bezpieczna procedura aktualizacji do najnowszej wersji:
 
@@ -128,16 +129,54 @@ docker compose up -d --build
 
 ---
 
+## 🔄 Przywracanie stanu z kopii zapasowej krok po kroku
+
+W razie potrzeby odtworzenia stanu pracowni z archiwalnej kopii:
+
+1. **Sprawdź dostępne kopie zapasowe:**
+   ```bash
+   ls -lh /opt/zarzadzanie-projektami/backups/
+   ```
+   Kopie zapisywane są w formacie `app_state_YYYY-MM-DD_HHMMSS.json.gz`.
+
+2. **Rozpakuj wybraną kopię do pliku tymczasowego:**
+   ```bash
+   gzip -dc /opt/zarzadzanie-projektami/backups/app_state_2026-11-02_020000.json.gz > /tmp/restore_state.json
+   ```
+
+3. **Zweryfikuj integralność pliku JSON (upewnij się, że plik nie jest uszkodzony):**
+   ```bash
+   jq empty /tmp/restore_state.json
+   ```
+   *(Brak błędów oznacza, że plik JSON jest w 100% poprawny)*.
+
+4. **Wgraj plik stanu do działającego kontenera aplikacji:**
+   ```bash
+   docker cp /tmp/restore_state.json zarzadzanie_app:/app/data/app_state.json
+   ```
+
+5. **Zrestartuj kontener aplikacji, aby wczytać odtworzony stan:**
+   ```bash
+   cd /opt/zarzadzanie-projektami
+   docker compose restart app
+   ```
+
+6. **Usuń rozpakowany plik tymczasowy:**
+   ```bash
+   rm -f /tmp/restore_state.json
+   ```
+
+---
+
 ## 📂 Struktura katalogu `/opt/zarzadzanie-projektami`
 
 ```text
 /opt/zarzadzanie-projektami/
-├── backups/                   # Zarchiwizowane zrzuty bazy danych (*.sql.gz)
-├── .env                       # Unikalne hasła PostgreSQL i klucze sesji (chmod 600)
-├── backup.sh                  # Skrypt automatycznej kopii zapasowej z retencją 14 dni
-├── docker-compose.yml         # Konfiguracja usług: app + PostgreSQL 16 + pgAdmin
+├── backups/                   # Zarchiwizowane zrzuty stanu bazy (app_state_*.json.gz)
+├── .env                       # Klucze sesji i konfiguracja środowiska (chmod 600)
+├── backup.sh                  # Skrypt automatycznej kopii zapasowej z walidacją i retencją
+├── docker-compose.yml         # Konfiguracja usługi app i trwałego wolumenu zarzadzanie_app_data
 ├── Dockerfile                 # Wieloetapowy build aplikacji produkcyjnej (Alpine Linux)
-├── init.sql                   # Schemat relacyjny bazy danych (tabele, relacje, indeksy)
 ├── install.sh                 # Samodzielny instalator 1-poleceniem
 └── README.md                  # Dokumentacja techniczna i wdrożeniowa
 ```
@@ -148,11 +187,11 @@ docker compose up -d --build
 
 Instalator automatycznie tworzy wpis w pliku `/etc/cron.d/zarzadzanie-projektami-backup`:
 ```cron
-# Codzienny zrzut bazy PostgreSQL o 02:00 w nocy z kompresją gzip i 14-dniową retencją
+# Codzienna kopia zapasowa pliku app_state.json o 02:00 w nocy (kompresja gzip, walidacja, retencja min. 7 kopii)
 0 2 * * * root /opt/zarzadzanie-projektami/backup.sh >/dev/null 2>&1
 ```
 
-Ręczne wykonanie kopii bazy w dowolnym momencie:
+Ręczne wykonanie kopii stanu w dowolnym momencie:
 ```bash
 sudo /opt/zarzadzanie-projektami/backup.sh
 ```

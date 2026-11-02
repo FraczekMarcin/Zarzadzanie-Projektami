@@ -89,10 +89,94 @@ app.get('/api/health', (_req, res) => {
     status: 'ok',
     version: '2026-11-02 v0.4.0',
     timestamp: new Date().toISOString(),
-    postgresStatus: process.env.DATABASE_URL ? 'configured' : 'standalone-json-db',
+    storage: 'JSON Database (app_state.json)',
     persistedState: !!serverAppStateCache,
     dataDir: DATA_DIR,
   });
+});
+
+// Endpoint statusu kopii zapasowej (wymóg: aktywny tylko gdy najnowsza kopia <= 36h)
+app.get('/api/backup/status', (_req, res) => {
+  try {
+    const candidateDirs = [
+      process.env.BACKUP_DIR,
+      '/opt/zarzadzanie-projektami/backups',
+      path.resolve(DATA_DIR, '..', 'backups'),
+      path.resolve(DATA_DIR, 'backups'),
+      path.resolve(process.cwd(), 'backups'),
+    ].filter(Boolean) as string[];
+
+    interface BackupFileInfo {
+      filePath: string;
+      filename: string;
+      mtime: Date;
+      size: number;
+    }
+
+    const foundBackups: BackupFileInfo[] = [];
+    const scannedDirs: string[] = [];
+
+    for (const dir of candidateDirs) {
+      if (fs.existsSync(dir)) {
+        scannedDirs.push(dir);
+        try {
+          const files = fs.readdirSync(dir);
+          for (const file of files) {
+            if (file.endsWith('.tmp') || file.startsWith('.')) continue;
+            if (file.startsWith('app_state_') || file.endsWith('.json.gz') || file.endsWith('.sql.gz')) {
+              const fullPath = path.join(dir, file);
+              const stat = fs.statSync(fullPath);
+              if (stat.isFile()) {
+                foundBackups.push({
+                  filePath: fullPath,
+                  filename: file,
+                  mtime: stat.mtime,
+                  size: stat.size,
+                });
+              }
+            }
+          }
+        } catch (readErr) {
+          console.warn(`[Server] Błąd odczytu katalogu kopii "${dir}":`, readErr);
+        }
+      }
+    }
+
+    if (foundBackups.length === 0) {
+      return res.json({
+        active: false,
+        lastBackup: null,
+        maxAgeHours: 36,
+        scannedDirs,
+        message: 'Brak kopii zapasowej na serwerze',
+      });
+    }
+
+    // Sortowanie malejąco po dacie modyfikacji (najnowszy pierwszy)
+    foundBackups.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+    const newest = foundBackups[0];
+    const ageMs = Date.now() - newest.mtime.getTime();
+    const ageHours = Math.max(0, ageMs / (1000 * 60 * 60));
+    const isRecent = ageHours <= 36;
+
+    res.json({
+      active: isRecent,
+      lastBackup: {
+        filename: newest.filename,
+        timestamp: newest.mtime.toISOString(),
+        ageHours: Math.round(ageHours * 10) / 10,
+        size: newest.size,
+      },
+      totalBackups: foundBackups.length,
+      maxAgeHours: 36,
+      message: isRecent
+        ? 'Ostatnia kopia wykonana pomyślnie w ciągu ostatnich 36h'
+        : `Ostatnia kopia zapasowa jest starsza niż 36h (${Math.round(ageHours)}h temu)`,
+    });
+  } catch (err: any) {
+    console.error('[Server] Błąd pobierania statusu kopii zapasowej:', err);
+    res.status(500).json({ active: false, error: err.message });
+  }
 });
 
 // SHARED DATABASE ENDPOINTS (Solves: accessing from other computers showing demo data)
@@ -443,7 +527,7 @@ app.get('/api/system-info', (_req, res) => {
     name: 'Zarządzanie Projektami',
     description: 'System zarządzania projektami z wykresem Gantta, terminarzem i integracją Google Calendar na żywo',
     version: '2026-10-31 v0.3.8',
-    deployment: 'Docker & PostgreSQL Ready',
+    deployment: 'Docker & Trwały Wolumen AppData Ready',
     features: [
       'Gantt Chart Interactive Timeline with Project Names on Bars',
       'Dependency & Blocker Engine',

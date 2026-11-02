@@ -1,9 +1,9 @@
 # 📦 Katalog Instalacja - Zarządzanie Projektami
 
-**Wersja:** `2026-10-25 v 0.2.1`  
+**Wersja:** `2026-11-02 v0.4.0`  
 **Repozytorium:** [https://github.com/FraczekMarcin/Zarzadzanie-Projektami](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
 
-Katalog zawiera wszystkie niezbędne pliki wdrożeniowe dla środowiska Docker i PostgreSQL 16.
+Katalog zawiera wszystkie niezbędne pliki wdrożeniowe dla środowiska Docker z trwałym wolumenem danych.
 
 ---
 
@@ -30,9 +30,8 @@ sudo bash install.sh
 ---
 
 ## 📂 Zawartość katalogu `Instalacja`:
-* `install.sh` - Automatyczny skrypt instalacyjny (instaluje Docker, generuje klucze, startuje bazę)
-* `docker-compose.yml` - Orkiestracja kontenerów (app + PostgreSQL 16 + pgAdmin 4 + wolumen `zarzadzanie_postgres_data`)
-* `Dockerfile` - Multi-stage build obrazu aplikacji produkcyjnej
-* `init.sql` - Schemat relacyjny bazy danych (projekty, etapy, zadania, użytkownicy)
-* `backup.sh` - Skrypt automatycznej kopii zapasowej (gzip + 14-dniowa retencja)
+* `install.sh` - Automatyczny skrypt instalacyjny (instaluje Docker, generuje klucze, startuje kontener aplikacji)
+* `docker-compose.yml` - Orkiestracja kontenera `app` z trwałym wolumenem `zarzadzanie_app_data`
+* `Dockerfile` - Multi-stage build obrazu aplikacji produkcyjnej (Alpine Linux)
+* `backup.sh` - Skrypt automatycznej kopii zapasowej pliku `app_state.json` (gzip + walidacja + retencja min. 7 kopii)
 * `.env.production` - Wzorzec zmiennych środowiskowych
