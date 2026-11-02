@@ -14,6 +14,8 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import { isApproachingOfficialDeadline, getBusinessDaysRemaining } from '../utils/businessDays';
+import { getTodayIso } from '../utils/today';
+import { isPolishHoliday } from '../utils/polishHolidays';
 
 interface CalendarViewProps {
   tasks: Task[];
@@ -39,8 +41,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   onSelectTask,
   onOpenNewTaskWithDate,
 }) => {
-  // Current calendar view date: defaulting to October 2026
-  const [currentDate, setCurrentDate] = useState<Date>(new Date('2026-10-01T00:00:00'));
+  // Current calendar view date: start from current month
+  const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
 
   const activeProject = useMemo(() => {
     return projects.find((p) => p.id === selectedProjectId);
@@ -66,7 +68,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   };
 
   const setToday = () => {
-    setCurrentDate(new Date('2026-10-01T00:00:00'));
+    setCurrentDate(new Date());
   };
 
   // Calendar cells generation (Monday to Sunday)
@@ -124,7 +126,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     return days;
   }, [year, month]);
 
-  const todayStr = '2026-10-24';
+  const todayStr = getTodayIso();
 
   const handleExportAllToIcs = () => {
     const pName = activeProject ? activeProject.name : 'Wszystkie Projekty';
@@ -211,6 +213,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           );
 
           const isToday = day.dateStr === todayStr;
+          const isHoliday = isPolishHoliday(day.dateStr);
 
           return (
             <div
@@ -219,22 +222,34 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               className={`min-h-[110px] p-2 relative group flex flex-col justify-between transition-colors ${
                 !day.isCurrentMonth
                   ? 'bg-slate-50/60 dark:bg-slate-950/60 text-slate-400 dark:text-slate-500'
+                  : isHoliday
+                  ? 'bg-rose-50/30 dark:bg-rose-950/20 text-slate-800 dark:text-slate-200'
                   : 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200'
               } ${isToday ? 'ring-2 ring-inset ring-sky-500 bg-sky-50/20 dark:bg-sky-950/40' : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/60'}`}
             >
               {/* Day Number Header */}
               <div className="flex items-center justify-between mb-1.5">
-                <span
-                  className={`text-xs font-mono tabular-nums ${
-                    isToday
-                      ? 'bg-sky-600 text-white font-bold w-5 h-5 rounded-full flex items-center justify-center'
-                      : day.isCurrentMonth
-                      ? 'text-slate-700 dark:text-slate-200 font-semibold'
-                      : 'text-slate-400 dark:text-slate-500'
-                  }`}
-                >
-                  {day.dayNum}
-                </span>
+                <div className="flex items-center gap-1">
+                  <span
+                    className={`text-xs font-mono tabular-nums ${
+                      isToday
+                        ? 'bg-sky-600 text-white font-bold w-5 h-5 rounded-full flex items-center justify-center'
+                        : isHoliday
+                        ? 'text-rose-600 dark:text-rose-400 font-bold'
+                        : day.isCurrentMonth
+                        ? 'text-slate-700 dark:text-slate-200 font-semibold'
+                        : 'text-slate-400 dark:text-slate-500'
+                    }`}
+                    title={isHoliday ? 'Święto ustawowo wolne od pracy' : undefined}
+                  >
+                    {day.dayNum}
+                  </span>
+                  {isHoliday && day.isCurrentMonth && (
+                    <span className="text-[9px] font-sans font-semibold text-rose-600 dark:text-rose-400">
+                      Święto
+                    </span>
+                  )}
+                </div>
 
                 <button
                   onClick={(e) => {
@@ -259,9 +274,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   const isOfficialWarning = isApproachingOfficialDeadline(task);
                   const businessDaysRemaining = getBusinessDaysRemaining(task.dueDate);
 
-                  let badgeColor = 'bg-slate-100 text-slate-800 border-slate-200';
+                  let badgeColor = 'bg-slate-100 text-slate-800 border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700';
                   if (isBlocked) {
                     badgeColor = 'task-blocked-style border-slate-300';
+                  } else if (isOverdue) {
+                    badgeColor = 'bg-rose-50/90 text-rose-900 border-rose-300 dark:bg-rose-950/60 dark:text-rose-200 dark:border-rose-800';
                   } else if (task.priority === 'critical') {
                     badgeColor = 'bg-rose-50 text-rose-800 border-rose-200';
                   } else if (task.priority === 'high') {
@@ -283,6 +300,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                             isMilestone ? 'font-semibold' : ''
                           } ${isOfficialWarning ? 'animate-official-deadline' : ''}`}
                           title={`${task.code} - ${task.title} [${taskProj ? taskProj.name : ''}] (${task.status})${
+                            isOverdue ? ' [PRZETERMINOWANE]' : ''
+                          }${
                             task.isOfficialDeadline ? ` [Termin urzędowy: pozostało ${businessDaysRemaining} dni roboczych]` : ''
                           }`}
                         >
@@ -292,7 +311,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                             {task.isOfficialDeadline && (
                               <ShieldAlert className={`w-2.5 h-2.5 shrink-0 ${isOfficialWarning ? 'text-rose-600 animate-pulse' : 'text-indigo-600'}`} />
                             )}
-                            {isOverdue && isDueToday && (
+                            {isOverdue && (
                               <span title="Termin przekroczony!">
                                 <AlertCircle className="w-2.5 h-2.5 text-rose-600 shrink-0" />
                               </span>

@@ -17,6 +17,7 @@ import { ArchiveBackupModal } from './components/ArchiveBackupModal';
 import { GitHubUpdateModal } from './components/GitHubUpdateModal';
 import { SettingsModal, SettingsTab } from './components/SettingsModal';
 import { LoginGate } from './components/LoginGate';
+import { getTodayIso, addDaysIso } from './utils/today';
 import { instantiateTasksFromTemplate } from './utils/projectTemplates';
 import { getNextProjectCode } from './utils/projectCode';
 import { downloadIcsFile } from './utils/calendar';
@@ -441,8 +442,8 @@ export default function App() {
       priority,
       status: task.status || 'to_do',
       durationDays: task.durationDays || 7,
-      startDate: task.startDate || '2026-10-24',
-      dueDate: task.dueDate || '2026-10-31',
+      startDate: task.startDate || getTodayIso(),
+      dueDate: task.dueDate || addDaysIso(getTodayIso(), 7),
       progress: task.progress !== undefined ? task.progress : 0,
       blockingTaskIds: Array.isArray(task.blockingTaskIds) ? task.blockingTaskIds : (task.dependencies || []),
       dependencies: Array.isArray(task.dependencies) ? task.dependencies : (task.blockingTaskIds || []),
@@ -471,7 +472,7 @@ export default function App() {
       // Rule: If all blockers are done, unlock task (transition from 'blocked' to 'in_progress')
       // and adjust start date to the latest finish date of blockers!
       if (allBlockersDone && task.status === 'blocked') {
-        let latestBlockerDueDate = task.startDate || '2026-10-24';
+        let latestBlockerDueDate = task.startDate || getTodayIso();
         blockers.forEach((b) => {
           if (b.dueDate && b.dueDate > latestBlockerDueDate) {
             latestBlockerDueDate = b.dueDate;
@@ -1609,7 +1610,7 @@ export default function App() {
       <GitHubUpdateModal
         isOpen={isGitHubModalOpen}
         onClose={() => setIsGitHubModalOpen(false)}
-        currentVersion="2026-10-24 v 0.1"
+        currentVersion={CURRENT_APP_VERSION}
         latestVersion={CURRENT_APP_VERSION}
         onUpdateCompleted={() => {
           setNotificationToast({

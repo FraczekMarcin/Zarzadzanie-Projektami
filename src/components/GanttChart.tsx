@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Task, Project, User, Priority } from '../types';
 import { generateGoogleCalendarUrl } from '../utils/calendar';
 import { 
@@ -20,6 +20,8 @@ import {
   Briefcase
 } from 'lucide-react';
 import { isApproachingOfficialDeadline, getBusinessDaysRemaining } from '../utils/businessDays';
+import { getTodayIso, parseIsoDate } from '../utils/today';
+import { isPolishHoliday } from '../utils/polishHolidays';
 
 interface GanttChartProps {
   tasks: Task[];
@@ -50,32 +52,40 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     });
   }, [tasks, selectedProjectId, priorityFilter]);
 
+  const todayStr = getTodayIso();
+  const todayDate = useMemo(() => parseIsoDate(todayStr), [todayStr]);
+
   // Determine timeline boundary dates
   const { minDate, maxDate, totalDays, daysList, monthsList } = useMemo(() => {
-    let start = new Date('2026-10-01T00:00:00');
-    let end = new Date('2026-12-15T00:00:00');
+    let earliest = new Date(todayDate.getTime());
+    let latest = new Date(todayDate.getTime());
 
     filteredTasks.forEach((t) => {
-      const s = new Date(t.startDate + 'T00:00:00');
-      const e = new Date(t.dueDate + 'T00:00:00');
-      if (s < start) start = s;
-      if (e > end) end = e;
+      if (t.startDate) {
+        const s = parseIsoDate(t.startDate);
+        if (s < earliest) earliest = s;
+        if (s > latest) latest = s;
+      }
+      if (t.dueDate) {
+        const e = parseIsoDate(t.dueDate);
+        if (e < earliest) earliest = e;
+        if (e > latest) latest = e;
+      }
     });
 
-    const minD = new Date(start);
-    minD.setDate(minD.getDate() - 2);
-    const maxD = new Date(end);
-    maxD.setDate(maxD.getDate() + 5);
+    // min: początek miesiąca przed najwcześniejszą datą lub dziś
+    const minD = new Date(earliest.getFullYear(), earliest.getMonth() - 1, 1);
 
-    const diffTime = maxD.getTime() - minD.getTime();
-    const count = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    // max: koniec miesiąca po najpóźniejszej dacie
+    const maxD = new Date(latest.getFullYear(), latest.getMonth() + 2, 0);
 
-    const days: { date: Date; dateStr: string; dayNum: number; dayName: string; isWeekend: boolean }[] = [];
+    const days: { date: Date; dateStr: string; dayNum: number; dayName: string; isWeekend: boolean; isHoliday?: boolean }[] = [];
     const monthsMap = new Map<string, { label: string; daysCount: number }>();
 
-    for (let i = 0; i < count; i++) {
-      const cur = new Date(minD);
-      cur.setDate(minD.getDate() + i);
+    const cur = new Date(minD.getFullYear(), minD.getMonth(), minD.getDate(), 12, 0, 0);
+    const endTarget = new Date(maxD.getFullYear(), maxD.getMonth(), maxD.getDate(), 12, 0, 0);
+
+    while (cur <= endTarget) {
       const year = cur.getFullYear();
       const month = String(cur.getMonth() + 1).padStart(2, '0');
       const day = String(cur.getDate()).padStart(2, '0');
@@ -83,12 +93,14 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       const dayOfWeek = cur.getDay();
 
       const dayNames = ['Nd', 'Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'So'];
+      const isHoliday = isPolishHoliday(cur);
       days.push({
-        date: cur,
+        date: new Date(cur),
         dateStr,
         dayNum: cur.getDate(),
         dayName: dayNames[dayOfWeek],
         isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
+        isHoliday,
       });
 
       const monthKey = `${year}-${month}`;
@@ -104,25 +116,48 @@ export const GanttChart: React.FC<GanttChartProps> = ({
         const item = monthsMap.get(monthKey)!;
         item.daysCount += 1;
       }
+
+      cur.setDate(cur.getDate() + 1);
     }
 
     return {
       minDate: minD,
       maxDate: maxD,
-      totalDays: count,
+      totalDays: days.length,
       daysList: days,
       monthsList: Array.from(monthsMap.values()),
     };
-  }, [filteredTasks]);
+  }, [filteredTasks, todayDate]);
 
-  const todayStr = '2026-10-24';
-  const todayOffsetDays = Math.floor(
-    (new Date(todayStr + 'T00:00:00').getTime() - minDate.getTime()) / (1000 * 60 * 60 * 24)
+  const todayIdx = daysList.findIndex((d) => d.dateStr === todayStr);
+  const todayOffsetDays = todayIdx !== -1 ? todayIdx : Math.floor(
+    (todayDate.getTime() - minDate.getTime()) / (1000 * 60 * 60 * 24)
   );
-  const todayPercent = (todayOffsetDays / totalDays) * 100;
+  const todayPercent = totalDays > 0 ? (todayOffsetDays / totalDays) * 100 : 0;
+
+  const todayPolishMonthsShort = [
+    'sty', 'lut', 'mar', 'kwi', 'maj', 'cze',
+    'lip', 'sie', 'wrz', 'paź', 'lis', 'gru'
+  ];
+  const todayLabel = `Dziś (${todayDate.getDate()} ${todayPolishMonthsShort[todayDate.getMonth()]})`;
 
   const dayColWidth = zoomLevel === 'days' ? 38 : 22;
   const chartWidthPx = Math.max(860, totalDays * dayColWidth);
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const todayLineRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (scrollContainerRef.current) {
+        const container = scrollContainerRef.current;
+        const todayPx = (todayOffsetDays / totalDays) * chartWidthPx;
+        const targetScroll = Math.max(0, todayPx - container.clientWidth / 2 + 168);
+        container.scrollTo({ left: targetScroll, behavior: 'smooth' });
+      }
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [totalDays, chartWidthPx, todayOffsetDays]);
 
   const getPriorityBadge = (priority: Priority) => {
     switch (priority) {
@@ -213,7 +248,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       </div>
 
       {/* Main Gantt Split Container */}
-      <div className="flex overflow-x-auto select-none" style={{ maxHeight: 'calc(100vh - 280px)' }}>
+      <div ref={scrollContainerRef} className="flex overflow-x-auto select-none" style={{ maxHeight: 'calc(100vh - 280px)' }}>
         {/* Left Column: Tasks Metadata & Hierarchy */}
         <div className="w-84 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 sticky left-0 z-20 shadow-[2px_0_5px_rgba(0,0,0,0.03)]">
           {/* Table Header */}
@@ -231,6 +266,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                 const assignee = users.find((u) => u.id === task.assigneeId);
                 const taskProject = projects.find((p) => p.id === task.projectId);
                 const isBlocked = task.status === 'blocked';
+                const isOverdue = task.dueDate < todayStr && task.status !== 'done';
                 const isOfficialWarning = isApproachingOfficialDeadline(task);
                 const businessDaysRemaining = getBusinessDaysRemaining(task.dueDate);
 
@@ -254,6 +290,15 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                         <span className={`text-xs font-medium truncate ${isBlocked ? 'text-slate-700 dark:text-slate-200 font-semibold' : 'text-slate-800 dark:text-slate-200'}`} title={task.title}>
                           {task.title}
                         </span>
+                        {isOverdue && (
+                          <span
+                            className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1 rounded border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 shrink-0"
+                            title="Zadanie przeterminowane!"
+                          >
+                            <AlertTriangle className="w-2.5 h-2.5 text-rose-600" />
+                            <span>Po terminie</span>
+                          </span>
+                        )}
                         {task.isOfficialDeadline && (
                           <span
                             className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1 rounded border shrink-0 ${
@@ -327,8 +372,9 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                   key={idx}
                   style={{ width: `${(1 / totalDays) * 100}%` }}
                   className={`border-r border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center shrink-0 ${
-                    d.isWeekend ? 'bg-slate-200/40 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500' : ''
+                    d.isWeekend || d.isHoliday ? 'bg-slate-200/40 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500' : ''
                   } ${d.dateStr === todayStr ? 'bg-amber-100/70 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 font-bold' : ''}`}
+                  title={d.isHoliday ? `Święto ustawowe (${d.dateStr})` : undefined}
                 >
                   <span>{d.dayNum}</span>
                   <span className="text-[8px] font-sans uppercase text-slate-400 dark:text-slate-500">{d.dayName}</span>
@@ -342,11 +388,12 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             {/* Today indicator vertical line */}
             {todayOffsetDays >= 0 && todayOffsetDays <= totalDays && (
               <div
+                ref={todayLineRef}
                 className="absolute top-0 bottom-0 pointer-events-none z-10 flex flex-col items-center"
                 style={{ left: `${todayPercent}%` }}
               >
                 <div className="bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap -translate-y-1">
-                  Dziś (24 paź)
+                  {todayLabel}
                 </div>
                 <div className="w-[1.5px] h-full bg-red-500/80 dashed" />
               </div>
@@ -354,16 +401,17 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
             {/* Tasks Gantt Bars */}
             {filteredTasks.map((task) => {
-              const startD = new Date(task.startDate + 'T00:00:00');
-              const dueD = new Date(task.dueDate + 'T00:00:00');
-              const startOffset = Math.floor((startD.getTime() - minDate.getTime()) / (1000 * 60 * 60 * 24));
-              const durationDays = Math.max(1, Math.floor((dueD.getTime() - startD.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+              const sIdx = daysList.findIndex((d) => d.dateStr === task.startDate);
+              const eIdx = daysList.findIndex((d) => d.dateStr === task.dueDate);
+              const startOffset = sIdx !== -1 ? sIdx : Math.max(0, Math.floor((parseIsoDate(task.startDate).getTime() - minDate.getTime()) / (1000 * 60 * 60 * 24)));
+              const durationDays = eIdx !== -1 && eIdx >= startOffset ? eIdx - startOffset + 1 : Math.max(1, task.durationDays || 1);
 
-              const leftPercent = Math.max(0, (startOffset / totalDays) * 100);
-              const widthPercent = Math.min(100 - leftPercent, (durationDays / totalDays) * 100);
+              const leftPercent = totalDays > 0 ? Math.max(0, (startOffset / totalDays) * 100) : 0;
+              const widthPercent = totalDays > 0 ? Math.min(100 - leftPercent, (durationDays / totalDays) * 100) : 0;
 
               const isMilestone = task.type === 'milestone';
               const isBlocked = task.status === 'blocked';
+              const isOverdue = task.dueDate < todayStr && task.status !== 'done';
               const isOfficialWarning = isApproachingOfficialDeadline(task);
               const businessDaysRemaining = getBusinessDaysRemaining(task.dueDate);
               const project = projects.find((p) => p.id === task.projectId);
@@ -386,6 +434,8 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                       <div className={`w-6 h-6 rotate-45 shadow-sm border flex items-center justify-center hover:scale-110 transition-transform ${
                         isBlocked
                           ? 'task-blocked-style border-rose-400'
+                          : isOverdue
+                          ? 'bg-rose-600 border-rose-700 ring-2 ring-rose-400'
                           : 'bg-amber-500 border-amber-600'
                       }`}>
                         <Diamond className="w-3.5 h-3.5 text-white -rotate-45" />
@@ -393,9 +443,11 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                       <span className={`ml-2 text-xs font-semibold px-1.5 py-0.5 rounded border whitespace-nowrap shadow-xs ${
                         isBlocked
                           ? 'task-blocked-style text-slate-800 border-slate-300'
+                          : isOverdue
+                          ? 'bg-rose-50 text-rose-900 border-rose-300 font-bold'
                           : 'bg-amber-50/90 text-amber-900 border-amber-200'
                       }`}>
-                        {task.title} {project && <span className="opacity-75 font-normal text-[10px]">[{project.key}: {project.name}]</span>}
+                        {task.title} {isOverdue && <span className="text-rose-600 font-bold ml-1">(Po terminie)</span>} {project && <span className="opacity-75 font-normal text-[10px]">[{project.key}: {project.name}]</span>}
                       </span>
                     </div>
                   ) : (
@@ -408,6 +460,8 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                       className={`absolute h-9 rounded-md cursor-pointer transition-all hover:ring-2 hover:ring-sky-400 shadow-xs flex items-center overflow-hidden border text-white text-[11px] font-medium group/bar ${
                         isBlocked
                           ? 'task-blocked-style border-slate-400 !text-slate-800'
+                          : isOverdue
+                          ? 'border-rose-500 ring-2 ring-rose-500/80 bg-slate-800'
                           : 'border-slate-300/80 bg-slate-700'
                       } ${isOfficialWarning ? 'animate-official-deadline' : ''}`}
                     >
@@ -418,6 +472,8 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                           className={`h-full absolute left-0 top-0 transition-all ${
                             task.status === 'done'
                               ? 'bg-emerald-600'
+                              : isOverdue
+                              ? 'bg-rose-600'
                               : task.priority === 'critical'
                               ? 'bg-rose-600'
                               : 'bg-sky-600'
@@ -433,6 +489,11 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                             {task.isOfficialDeadline && (
                               <ShieldAlert className="w-3 h-3 text-rose-600 shrink-0" />
                             )}
+                            {isOverdue && (
+                              <span className="bg-rose-600 text-white text-[9px] font-bold px-1 rounded shrink-0 mr-1" title="Zadanie przeterminowane!">
+                                Po terminie
+                              </span>
+                            )}
                             <span className="truncate drop-shadow-xs font-semibold text-[11px]">{task.title}</span>
                           </div>
                           {project && (
@@ -442,7 +503,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                           )}
                         </div>
                         <span className="font-mono tabular-nums text-[10px] ml-1.5 opacity-90 shrink-0 self-center">
-                          {task.durationDays || 1}d
+                          {durationDays}d
                         </span>
                       </div>
                     </div>

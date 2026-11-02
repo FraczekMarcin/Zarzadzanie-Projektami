@@ -209,8 +209,8 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
                 </div>
                 <p className="text-[11px] text-rose-900/90 mt-1 leading-relaxed">
                   {isApproachingOfficialDeadline(task)
-                    ? '⚠️ Uwaga! Do upływu terminu urzędowego pozostały mniej niż 3 dni robocze (bez sobót i niedziel). Całe zadanie mruga na listach i harmonogramie, aby zapobiec uchybieniu terminu!'
-                    : `Zadanie oznaczone jako termin urzędowy. Mruganie rozpocznie się automatycznie na 3 dni robocze przed ${task.dueDate}.`}
+                    ? '⚠️ Uwaga! Do upływu terminu urzędowego pozostały 3 dni robocze lub mniej (z wyłączeniem sobót, niedziel i polskich świąt ustawowych). Całe zadanie mruga na listach i harmonogramie, aby zapobiec uchybieniu terminu!'
+                    : `Zadanie oznaczone jako termin urzędowy. Mruganie rozpocznie się automatycznie na 3 dni robocze przed ${task.dueDate} (dni robocze z pominięciem świąt).`}
                 </p>
               </div>
             </div>

@@ -22,6 +22,7 @@ import {
   FileText
 } from 'lucide-react';
 import { isApproachingOfficialDeadline, getBusinessDaysRemaining } from '../utils/businessDays';
+import { getTodayIso } from '../utils/today';
 
 interface KanbanViewProps {
   tasks: Task[];
@@ -245,7 +246,7 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
                     colTasks.map((task) => {
                       const assignee = users.find((u) => u.id === task.assigneeId);
                       const project = projects.find((p) => p.id === task.projectId);
-                      const isOverdue = task.dueDate < '2026-10-24' && task.status !== 'done';
+                      const isOverdue = task.dueDate < getTodayIso() && task.status !== 'done';
                       const isBlocked = task.status === 'blocked';
                       const isOfficialWarning = isApproachingOfficialDeadline(task);
                       const businessDaysRemaining = getBusinessDaysRemaining(task.dueDate);

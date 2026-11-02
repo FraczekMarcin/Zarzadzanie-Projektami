@@ -22,6 +22,7 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import { isApproachingOfficialDeadline, getBusinessDaysRemaining } from '../utils/businessDays';
+import { getTodayIso } from '../utils/today';
 
 interface TaskListViewProps {
   tasks: Task[];
@@ -332,7 +333,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                 const assignee = users.find((u) => u.id === task.assigneeId);
                 const project = projects.find((p) => p.id === task.projectId);
                 const priorityMeta = getPriorityStyle(task.priority);
-                const isOverdue = task.dueDate < '2026-10-24' && task.status !== 'done';
+                const isOverdue = task.dueDate < getTodayIso() && task.status !== 'done';
                 const isBlocked = task.status === 'blocked';
                 const isOfficialWarning = isApproachingOfficialDeadline(task);
                 const businessDaysRemaining = getBusinessDaysRemaining(task.dueDate);
@@ -377,6 +378,12 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                             <span>Blokada</span>
                           </span>
                         )}
+                        {isOverdue && (
+                          <span className="text-[10px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 px-1.5 py-0.5 rounded border border-rose-300 dark:border-rose-800 flex items-center gap-0.5" title="Zadanie przeterminowane!">
+                            <AlertTriangle className="w-2.5 h-2.5" />
+                            <span>Po terminie</span>
+                          </span>
+                        )}
                       </div>
                       {project && (
                         <div className="text-[11px] text-slate-400">
@@ -411,7 +418,12 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                     </td>
 
                     <td className={`py-2.5 px-3 font-mono ${isOverdue ? 'text-rose-600 dark:text-rose-400 font-bold' : 'text-slate-600 dark:text-slate-400'}`}>
-                      {task.dueDate}
+                      <div className="flex items-center gap-1.5">
+                        <span>{task.dueDate}</span>
+                        {isOverdue && (
+                          <span className="text-[9px] font-sans font-bold text-rose-600 dark:text-rose-400">(! )</span>
+                        )}
+                      </div>
                     </td>
 
                     <td className="py-2.5 px-3 text-right">
