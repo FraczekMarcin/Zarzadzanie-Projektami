@@ -40,7 +40,7 @@ COPY --chown=appuser:nodejs --from=builder /app/dist ./dist
 
 # Instalacja wyłącznie serwera express (zaledwie 2.4 MB bez zbędnych 250 MB devDependencies)
 RUN npm --prefix /app init -y && \
-    npm --prefix /app install --no-package-lock --no-audit express@^4.21.2 && \
+    npm --prefix /app install --no-package-lock --no-audit express@^4.21.2 nodemailer@^10.3.1 dotenv@^17.2.3 && \
     npm cache clean --force
 
 # Dodaj deklarację ESM ("type": "module") do package.json w kontenerze
