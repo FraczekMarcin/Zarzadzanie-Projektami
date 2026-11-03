@@ -235,12 +235,51 @@ export default function App() {
     } catch {}
   }, []);
 
+  // Weryfikacja aktywnej sesji HTTP w ciasteczku na starcie aplikacji
+  useEffect(() => {
+    let isMounted = true;
+    fetch('/api/auth/me', { credentials: 'same-origin' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!isMounted) return;
+        if (data && data.authenticated && data.user) {
+          setIsAuthenticated(true);
+          setCurrentUser(data.user);
+          localStorage.setItem('oph_is_authenticated', 'true');
+        } else {
+          setIsAuthenticated(false);
+          localStorage.removeItem('oph_is_authenticated');
+        }
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setIsAuthenticated(false);
+        localStorage.removeItem('oph_is_authenticated');
+      });
+
+    // Pobierz publiczną listę profili dla ekranu logowania (bez hashy haseł)
+    fetch('/api/auth/setup-status', { credentials: 'same-origin' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!isMounted || !data) return;
+        if (Array.isArray(data.users) && data.users.length > 0) {
+          setUsers(data.users);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   // Odpytuj endpoint /api/backup/status - wskaźnik zielony tylko gdy najnowsza kopia na serwerze <= 36h
   useEffect(() => {
+    if (!isAuthenticated) return;
     let isMounted = true;
     const fetchBackupStatus = async () => {
       try {
-        const res = await fetch('/api/backup/status');
+        const res = await fetch('/api/backup/status', { credentials: 'same-origin' });
         if (res.ok) {
           const data = await res.json();
           if (isMounted) {
@@ -265,7 +304,7 @@ export default function App() {
       isMounted = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [isAuthenticated]);
 
   // Sync to local storage
   useEffect(() => {
@@ -288,11 +327,19 @@ export default function App() {
     localStorage.setItem('oph_activity', JSON.stringify(activityLogs));
   }, [activityLogs]);
 
-  // Multi-device server state synchronization (guarantees other computers see identical database)
+  // Multi-device server state synchronization (wymaga autoryzacji sesyjnej)
   useEffect(() => {
+    if (!isAuthenticated) return;
     let isMounted = true;
-    fetch('/api/state')
-      .then((res) => (res.ok ? res.json() : null))
+    fetch('/api/state', { credentials: 'same-origin' })
+      .then((res) => {
+        if (res.status === 401) {
+          setIsAuthenticated(false);
+          localStorage.removeItem('oph_is_authenticated');
+          return null;
+        }
+        return res.ok ? res.json() : null;
+      })
       .then((data) => {
         if (!isMounted || !data) return;
         if (data.initialized && data.state) {
@@ -317,20 +364,6 @@ export default function App() {
             setComments(s.comments);
             localStorage.setItem('oph_comments', JSON.stringify(s.comments));
           }
-        } else {
-          // Push initial client state to server if server state file is empty
-          fetch('/api/state', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              initialized: true,
-              projects,
-              tasks,
-              users,
-              comments,
-              activityLogs,
-            }),
-          }).catch(() => {});
         }
       })
       .catch((err) => {
@@ -339,14 +372,16 @@ export default function App() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [isAuthenticated]);
 
-  // Debounced server state persistence on any database mutation
+  // Debounced server state persistence on any database mutation (wymaga sesji, 401 wyrzuca do logowania)
   useEffect(() => {
+    if (!isAuthenticated) return;
     const timer = setTimeout(() => {
       try {
         fetch('/api/state', {
           method: 'POST',
+          credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             initialized: true,
@@ -356,11 +391,16 @@ export default function App() {
             comments,
             activityLogs,
           }),
+        }).then((res) => {
+          if (res.status === 401) {
+            setIsAuthenticated(false);
+            localStorage.removeItem('oph_is_authenticated');
+          }
         }).catch(() => {});
       } catch {}
     }, 1200);
     return () => clearTimeout(timer);
-  }, [projects, tasks, users, comments, activityLogs]);
+  }, [isAuthenticated, projects, tasks, users, comments, activityLogs]);
 
   // Periodic Auto-Backup Engine
   useEffect(() => {
@@ -757,22 +797,45 @@ export default function App() {
     handleSelectTask(task);
   };
 
-  const handleAddUser = (newUserData: Omit<User, 'id' | 'initials'>) => {
-    const initials = newUserData.name
-      .split(' ')
-      .map((n) => n[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2);
+  const handleAddUser = async (newUserData: Omit<User, 'id' | 'initials'>) => {
+    try {
+      const res = await fetch('/api/users', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newUserData.name,
+          email: newUserData.email,
+          role: newUserData.role,
+          department: newUserData.department,
+          password: newUserData.password || 'HasloPracowni2026!',
+          twoFactorEnabled: newUserData.twoFactorEnabled,
+          twoFactorSecret: newUserData.twoFactorSecret,
+        }),
+      });
 
-    const newUser: User = {
-      ...newUserData,
-      id: `usr-${Date.now()}`,
-      initials,
-    };
-    setUsers((prev) => [...prev, newUser]);
-    setCurrentUser(newUser);
-    logActivity(`Utworzono nowe konto użytkownika: ${newUser.name} (${newUser.role})`);
+      if (!res.ok) {
+        const err = await res.json();
+        setNotificationToast({
+          message: err.error || 'Nie udało się dodać użytkownika.',
+          type: 'info',
+        });
+        return;
+      }
+
+      const data = await res.json();
+      setUsers((prev) => [...prev, data.user]);
+      logActivity(`Utworzono nowe konto użytkownika: ${data.user.name} (${data.user.role})`);
+      setNotificationToast({
+        message: `Użytkownik ${data.user.name} został pomyślnie dodany i zabezpieczony scrypt.`,
+        type: 'success',
+      });
+    } catch {
+      setNotificationToast({
+        message: 'Błąd połączenia z serwerem podczas dodawania użytkownika.',
+        type: 'info',
+      });
+    }
   };
 
   // Delete project and all its tasks
@@ -810,17 +873,7 @@ export default function App() {
     setUsers((prev) => {
       const nonDemo = prev.filter((u) => !isDemoUser(u));
       if (nonDemo.length === 0) {
-        const defaultAdmin: User = {
-          id: `usr-${Date.now()}`,
-          name: 'Administrator',
-          email: 'admin@pracownia.pl',
-          role: 'admin',
-          department: 'Główny Projektant',
-          initials: 'AD',
-          isDemo: false,
-        };
-        setCurrentUser(defaultAdmin);
-        return [defaultAdmin];
+        return prev;
       }
       if (isDemoUser(currentUser)) {
         setCurrentUser(nonDemo[0]);
@@ -834,8 +887,8 @@ export default function App() {
     });
   };
 
-  // Delete specific user
-  const handleDeleteUser = (userId: string) => {
+  // Delete specific user via server endpoint
+  const handleDeleteUser = async (userId: string) => {
     if (currentUser && currentUser.id === userId) {
       setNotificationToast({
         message: 'Nie możesz usunąć aktualnie aktywnego użytkownika.',
@@ -844,58 +897,91 @@ export default function App() {
       return;
     }
     const user = users.find((u) => u.id === userId);
-    setUsers((prev) => prev.filter((u) => u.id !== userId));
-    logActivity(`Usunięto użytkownika ${user?.name || userId}`);
-    setNotificationToast({
-      message: `Użytkownik ${user?.name} został usunięty.`,
-      type: 'info',
-    });
-  };
-
-  // Update user password
-  const handleUpdateUserPassword = async (userId: string, newPass: string) => {
-    const passwordHash = await hashPassword(newPass);
-    setUsers((prev) =>
-      prev.map((u) => {
-        if (u.id === userId) {
-          const { password, ...rest } = u;
-          return { ...rest, passwordHash };
-        }
-        return u;
-      })
-    );
-    if (currentUser && currentUser.id === userId) {
-      setCurrentUser((prev) => {
-        const { password, ...rest } = prev;
-        return { ...rest, passwordHash };
+    try {
+      const res = await fetch(`/api/users/${userId}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+      if (res.ok) {
+        setUsers((prev) => prev.filter((u) => u.id !== userId));
+        logActivity(`Usunięto użytkownika ${user?.name || userId}`);
+        setNotificationToast({
+          message: `Użytkownik ${user?.name || userId} został usunięty.`,
+          type: 'info',
+        });
+      } else {
+        const err = await res.json();
+        setNotificationToast({
+          message: err.error || 'Błąd usuwania użytkownika.',
+          type: 'info',
+        });
+      }
+    } catch {
+      setNotificationToast({
+        message: 'Błąd połączenia z serwerem.',
+        type: 'info',
       });
     }
-    logActivity('Zaktualizowano i zahashowano (SHA-256) hasło dostępu użytkownika');
-    setNotificationToast({
-      message: 'Hasło użytkownika zostało pomyślnie zaktualizowane i zabezpieczone (SHA-256).',
-      type: 'success',
-    });
   };
 
-  // Update user 2FA configuration
-  const handleUpdateUser2FA = (userId: string, enabled: boolean, secret?: string) => {
-    setUsers((prev) =>
-      prev.map((u) => (u.id === userId ? { ...u, twoFactorEnabled: enabled, twoFactorSecret: secret } : u))
-    );
-    if (currentUser && currentUser.id === userId) {
-      setCurrentUser((prev) => ({ ...prev, twoFactorEnabled: enabled, twoFactorSecret: secret }));
+  // Update user password via server scrypt endpoint
+  const handleUpdateUserPassword = async (userId: string, newPass: string) => {
+    try {
+      const res = await fetch(`/api/users/${userId}/password`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPassword: newPass }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Błąd podczas zmiany hasła');
+      }
+      logActivity('Zaktualizowano hasło dostępu użytkownika (zabezpieczone scrypt)');
+      setNotificationToast({
+        message: 'Hasło użytkownika zostało pomyślnie zaktualizowane na serwerze (scrypt).',
+        type: 'success',
+      });
+    } catch (e: any) {
+      setNotificationToast({
+        message: e.message || 'Nie udało się zmienić hasła.',
+        type: 'info',
+      });
     }
-    logActivity(
-      `${currentUser?.name} ${enabled ? 'włączył' : 'wyłączył'} uwierzytelnianie dwuskładnikowe Google Authenticator`
-    );
-    setNotificationToast({
-      message: `Uwierzytelnianie dwuskładnikowe 2FA zostało ${enabled ? 'włączone' : 'wyłączone'}.`,
-      type: 'success',
-    });
   };
 
-  // Logout handler - returns completely to login gate
-  const handleLogout = () => {
+  // Update user 2FA configuration via server endpoint
+  const handleUpdateUser2FA = async (userId: string, enabled: boolean, secret?: string) => {
+    try {
+      const res = await fetch(`/api/users/${userId}/2fa`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ twoFactorEnabled: enabled, twoFactorSecret: secret }),
+      });
+      if (res.ok) {
+        setUsers((prev) =>
+          prev.map((u) => (u.id === userId ? { ...u, twoFactorEnabled: enabled, twoFactorSecret: secret } : u))
+        );
+        if (currentUser && currentUser.id === userId) {
+          setCurrentUser((prev) => ({ ...prev, twoFactorEnabled: enabled, twoFactorSecret: secret }));
+        }
+        logActivity(
+          `${currentUser?.name} ${enabled ? 'włączył' : 'wyłączył'} uwierzytelnianie dwuskładnikowe Google Authenticator`
+        );
+        setNotificationToast({
+          message: `Uwierzytelnianie dwuskładnikowe 2FA zostało ${enabled ? 'włączone' : 'wyłączone'}.`,
+          type: 'success',
+        });
+      }
+    } catch {}
+  };
+
+  // Logout handler - calls server logout and returns completely to login gate
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+    } catch {}
     setIsAuthenticated(false);
     try {
       localStorage.removeItem('oph_is_authenticated');
@@ -908,6 +994,19 @@ export default function App() {
     });
   };
 
+  // Helper to refresh public user profiles
+  const refreshUsersList = async () => {
+    try {
+      const res = await fetch('/api/auth/setup-status', { credentials: 'same-origin' });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.users)) {
+          setUsers(data.users);
+        }
+      }
+    } catch {}
+  };
+
   // Login handler
   const handleLoginSuccess = (user: User) => {
     setCurrentUser(user);
@@ -916,6 +1015,21 @@ export default function App() {
       localStorage.setItem('oph_is_authenticated', 'true');
       localStorage.setItem('oph_current_user', JSON.stringify(user));
     } catch {}
+
+    // Synchronize latest state immediately
+    fetch('/api/state', { credentials: 'same-origin' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.state) {
+          if (Array.isArray(data.state.projects)) setProjects(data.state.projects);
+          if (Array.isArray(data.state.tasks)) setTasks(data.state.tasks);
+          if (Array.isArray(data.state.users)) setUsers(data.state.users);
+          if (Array.isArray(data.state.activityLogs)) setActivityLogs(data.state.activityLogs);
+          if (Array.isArray(data.state.comments)) setComments(data.state.comments);
+        }
+      })
+      .catch(() => {});
+
     logActivity(`${user.name} zalogował się do systemu`);
     setNotificationToast({
       message: `Zalogowano jako ${user.name}. Dobrej pracy w pracowni!`,
@@ -923,101 +1037,76 @@ export default function App() {
     });
   };
 
-  // Registration handler with administrator approval requirement
-  const handleRegisterUser = (newUserData: Omit<User, 'id' | 'initials'>) => {
-    const initials = newUserData.name
-      .split(' ')
-      .map((n) => n[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2) || 'UZ';
+  // Registration handler via server endpoint
+  const handleRegisterUser = async (newUserData: Omit<User, 'id' | 'initials'>) => {
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newUserData.name,
+          email: newUserData.email,
+          role: newUserData.role,
+          department: newUserData.department,
+          password: newUserData.password || 'HasloPracowni2026!',
+          twoFactorEnabled: newUserData.twoFactorEnabled,
+          twoFactorSecret: newUserData.twoFactorSecret,
+        }),
+      });
 
-    const newUser: User = {
-      ...newUserData,
-      id: `usr-${Date.now()}`,
-      initials,
-      isApproved: false, // Requires Administrator confirmation!
-    };
-
-    setUsers((prev) => {
-      const next = [...prev, newUser];
-      try {
-        fetch('/api/state', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            initialized: true,
-            projects,
-            tasks,
-            users: next,
-            comments,
-            activityLogs,
-          }),
-        }).catch(() => {});
-      } catch {}
-      return next;
-    });
-
-    logActivity(`Nowa rejestracja konta: ${newUser.name} (${newUser.email}) - oczekuje na zatwierdzenie przez Administratora`);
-    setNotificationToast({
-      message: `Wniosek rejestracji użytkownika ${newUser.name} został zarejestrowany. Administrator musi zatwierdzić konto przed pierwszym logowaniem.`,
-      type: 'info',
-    });
+      if (res.ok) {
+        await refreshUsersList();
+        logActivity(`Nowa rejestracja konta: ${newUserData.name} (${newUserData.email}) - oczekuje na zatwierdzenie przez Administratora`);
+        setNotificationToast({
+          message: `Wniosek rejestracji użytkownika ${newUserData.name} został zarejestrowany. Administrator musi zatwierdzić konto przed pierwszym logowaniem.`,
+          type: 'info',
+        });
+      }
+    } catch {}
   };
 
-  // Administrator approval handlers
-  const handleApproveUser = (userId: string) => {
+  // Administrator approval handlers via dedicated endpoints
+  const handleApproveUser = async (userId: string) => {
     const user = users.find((u) => u.id === userId);
-    setUsers((prev) => {
-      const next = prev.map((u) => (u.id === userId ? { ...u, isApproved: true } : u));
-      try {
-        fetch('/api/state', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            initialized: true,
-            projects,
-            tasks,
-            users: next,
-            comments,
-            activityLogs,
-          }),
-        }).catch(() => {});
-      } catch {}
-      return next;
-    });
-    logActivity(`Administrator zatwierdził konto użytkownika: ${user?.name || userId}`);
-    setNotificationToast({
-      message: `Konto ${user?.name} zostało pomyślnie zatwierdzone. Użytkownik ma teraz dostęp do systemu.`,
-      type: 'success',
-    });
+    try {
+      const res = await fetch(`/api/users/${userId}/approve`, {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+      if (res.ok) {
+        setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, isApproved: true } : u)));
+        logActivity(`Administrator zatwierdził konto użytkownika: ${user?.name || userId}`);
+        setNotificationToast({
+          message: `Konto ${user?.name || userId} zostało pomyślnie zatwierdzone. Użytkownik ma teraz dostęp do systemu.`,
+          type: 'success',
+        });
+      } else {
+        const err = await res.json();
+        setNotificationToast({
+          message: err.error || 'Błąd zatwierdzania konta.',
+          type: 'info',
+        });
+      }
+    } catch {}
   };
 
-  const handleRejectUser = (userId: string) => {
+  const handleRejectUser = async (userId: string) => {
     const user = users.find((u) => u.id === userId);
-    setUsers((prev) => {
-      const next = prev.filter((u) => u.id !== userId);
-      try {
-        fetch('/api/state', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            initialized: true,
-            projects,
-            tasks,
-            users: next,
-            comments,
-            activityLogs,
-          }),
-        }).catch(() => {});
-      } catch {}
-      return next;
-    });
-    logActivity(`Administrator odrzucił wniosek rejestracji użytkownika: ${user?.name || userId}`);
-    setNotificationToast({
-      message: `Wniosek rejestracyjny ${user?.name} został odrzucony i usunięty.`,
-      type: 'info',
-    });
+    try {
+      const res = await fetch(`/api/users/${userId}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+      if (res.ok) {
+        setUsers((prev) => prev.filter((u) => u.id !== userId));
+        logActivity(`Administrator odrzucił wniosek rejestracji użytkownika: ${user?.name || userId}`);
+        setNotificationToast({
+          message: `Wniosek rejestracyjny ${user?.name || userId} został odrzucony i usunięty.`,
+          type: 'info',
+        });
+      }
+    } catch {}
   };
 
   // Quick theme toggle
@@ -1059,6 +1148,7 @@ export default function App() {
         onLogin={handleLoginSuccess}
         onRegister={handleRegisterUser}
         onUpdateUserPassword={handleUpdateUserPassword}
+        onRefreshUsers={refreshUsersList}
       />
     );
   }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, UserRole } from '../types';
 import { 
   Building2, 
@@ -17,26 +17,24 @@ import {
   ArrowLeft,
   Copy,
   Check,
-  QrCode
+  QrCode,
+  ShieldAlert
 } from 'lucide-react';
 import { CURRENT_APP_VERSION } from '../data/dockerConfig';
 import { 
-  hashPassword, 
-  verifyUserPassword, 
-  verifyTotpCode, 
   generate2FASecret, 
   getOtpAuthUrl, 
   getQrCodeUrl, 
-  formatSecretKey,
-  DEFAULT_2FA_SECRET
+  formatSecretKey
 } from '../utils/authSecurity';
 import { copyToClipboard } from '../utils/clipboard';
 
 interface LoginGateProps {
   users: User[];
   onLogin: (user: User) => void;
-  onRegister: (newUser: Omit<User, 'id' | 'initials'>) => void;
+  onRegister?: (newUser: Omit<User, 'id' | 'initials'>) => void;
   onUpdateUserPassword?: (userId: string, newPass: string) => Promise<void> | void;
+  onRefreshUsers?: () => Promise<void> | void;
 }
 
 export const LoginGate: React.FC<LoginGateProps> = ({
@@ -44,9 +42,20 @@ export const LoginGate: React.FC<LoginGateProps> = ({
   onLogin,
   onRegister,
   onUpdateUserPassword,
+  onRefreshUsers,
 }) => {
   const [activeTab, setActiveTab] = useState<'login' | 'register' | 'recovery'>('login');
   
+  // Setup admin wizard state (triggered when no users exist)
+  const [requiresAdminSetup, setRequiresAdminSetup] = useState<boolean>(false);
+  const [adminName, setAdminName] = useState('');
+  const [adminEmail, setAdminEmail] = useState('');
+  const [adminDepartment, setAdminDepartment] = useState('Główny Architekt & Zarząd Pracowni');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminConfirmPassword, setAdminConfirmPassword] = useState('');
+  const [adminSetupError, setAdminSetupError] = useState<string | null>(null);
+  const [isAdminSubmitting, setIsAdminSubmitting] = useState(false);
+
   // Step for 2FA
   const [authStep, setAuthStep] = useState<'credentials' | '2fa'>('credentials');
   const [pendingUser2FA, setPendingUser2FA] = useState<User | null>(null);
@@ -58,6 +67,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
   const [selectedUserId, setSelectedUserId] = useState<string>(users[0]?.id || '');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   // Email Password Recovery state
   const [recoveryStep, setRecoveryStep] = useState<'email' | 'code' | 'new_password' | 'success'>('email');
@@ -81,10 +91,83 @@ export const LoginGate: React.FC<LoginGateProps> = ({
   const [created2FASecret, setCreated2FASecret] = useState<string | null>(null);
   const [createdUserEmail, setCreatedUserEmail] = useState('');
   const [copiedKey, setCopiedKey] = useState(false);
+  const [regError, setRegError] = useState<string | null>(null);
+  const [isRegistering, setIsRegistering] = useState(false);
+
+  // Check setup status from server on mount
+  useEffect(() => {
+    fetch('/api/auth/setup-status', { credentials: 'same-origin' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.requiresAdminSetup) {
+          setRequiresAdminSetup(true);
+        } else if (users.length === 0) {
+          setRequiresAdminSetup(true);
+        }
+      })
+      .catch(() => {
+        if (users.length === 0) {
+          setRequiresAdminSetup(true);
+        }
+      });
+  }, [users.length]);
+
+  useEffect(() => {
+    if (!selectedUserId && users.length > 0) {
+      const firstApproved = users.find((u) => u.isApproved !== false) || users[0];
+      setSelectedUserId(firstApproved.id);
+    }
+  }, [users, selectedUserId]);
 
   const approvedUsers = users.filter((u) => u.isApproved !== false);
   const pendingUsers = users.filter((u) => u.isApproved === false);
 
+  // Initial Admin Setup Submission
+  const handleAdminSetupSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAdminSetupError(null);
+
+    if (adminPassword.length < 12) {
+      setAdminSetupError('Hasło administratora musi zawierać co najmniej 12 znaków.');
+      return;
+    }
+    if (adminPassword !== adminConfirmPassword) {
+      setAdminSetupError('Hasła nie są identyczne.');
+      return;
+    }
+
+    setIsAdminSubmitting(true);
+    try {
+      const res = await fetch('/api/auth/setup-admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          name: adminName.trim(),
+          email: adminEmail.trim(),
+          department: adminDepartment.trim() || 'Główny Architekt & Zarząd Pracowni',
+          password: adminPassword,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setAdminSetupError(data.error || 'Nie udało się utworzyć konta administratora.');
+        setIsAdminSubmitting(false);
+        return;
+      }
+
+      setRequiresAdminSetup(false);
+      if (onRefreshUsers) await onRefreshUsers();
+      onLogin(data.user);
+    } catch {
+      setAdminSetupError('Błąd połączenia z serwerem podczas konfiguracji administratora.');
+    } finally {
+      setIsAdminSubmitting(false);
+    }
+  };
+
+  // Login submission using server-side scrypt authentication
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
@@ -95,75 +178,142 @@ export const LoginGate: React.FC<LoginGateProps> = ({
       return;
     }
 
-    // Check if user is approved by administrator
-    if (targetUser.isApproved === false) {
-      setLoginError(
-        `Konto "${targetUser.name}" oczekuje na zatwierdzenie przez Administratora pracowni. Przed rozpoczęciem pracy w systemie administrator musi potwierdzić Twoje konto.`
-      );
-      return;
-    }
+    setIsLoggingIn(true);
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          userId: selectedUserId,
+          password,
+        }),
+      });
 
-    // Password verification using salted SHA-256 hash (AWAITED)
-    const isValid = await verifyUserPassword(password, targetUser);
-    if (!isValid) {
-      setLoginError('Nieprawidłowe hasło dostępu dla tego użytkownika.');
-      return;
-    }
+      const data = await res.json();
 
-    // Two-factor authentication check (Google Authenticator)
-    if (targetUser.twoFactorEnabled) {
-      setPendingUser2FA(targetUser);
-      setAuthStep('2fa');
-      setTotpInput('');
-      return;
-    }
+      if (res.status === 429) {
+        setLoginError(data.error || 'Zbyt wiele nieudanych prób logowania. Konto lub adres IP zablokowany na 15 minut.');
+        setIsLoggingIn(false);
+        return;
+      }
 
-    onLogin(targetUser);
+      if (!res.ok) {
+        setLoginError(data.error || 'Nieprawidłowe hasło dostępu dla tego użytkownika.');
+        setIsLoggingIn(false);
+        return;
+      }
+
+      // If 2FA is required by server
+      if (data.require2FA) {
+        setPendingUser2FA(targetUser);
+        setAuthStep('2fa');
+        setTotpInput('');
+        setIsLoggingIn(false);
+        return;
+      }
+
+      // Login success
+      onLogin(data.user);
+    } catch {
+      setLoginError('Błąd połączenia z serwerem logowania.');
+    } finally {
+      setIsLoggingIn(false);
+    }
   };
 
+  // 2FA Verification via Server
   const handleTotpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
 
     if (!pendingUser2FA) return;
 
-    const secret = pendingUser2FA.twoFactorSecret || DEFAULT_2FA_SECRET;
-    const valid = await verifyTotpCode(secret, totpInput);
-    if (!valid) {
-      setLoginError('Nieprawidłowy 6-cyfrowy kod z Google Authenticator. Sprawdź poniższy kod QR / klucz konfiguracji w aplikacji telefonu (lub użyj kodu awaryjnego: 123456).');
+    setIsLoggingIn(true);
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          userId: pendingUser2FA.id,
+          password,
+          totpCode: totpInput.trim(),
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.status === 429) {
+        setLoginError(data.error || 'Zbyt wiele nieudanych prób logowania. Konto lub adres IP zablokowany na 15 minut.');
+        setIsLoggingIn(false);
+        return;
+      }
+
+      if (!res.ok) {
+        setLoginError(data.error || 'Nieprawidłowy 6-cyfrowy kod z Google Authenticator.');
+        setIsLoggingIn(false);
+        return;
+      }
+
+      onLogin(data.user);
+    } catch {
+      setLoginError('Błąd połączenia z serwerem podczas weryfikacji 2FA.');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  // Registration submission via Server API
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRegError(null);
+    if (!regName.trim() || !regEmail.trim()) return;
+
+    if (regPassword.length < 8) {
+      setRegError('Hasło musi zawierać co najmniej 8 znaków.');
       return;
     }
 
-    onLogin(pendingUser2FA);
-  };
-
-  const handleRegisterSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!regName.trim() || !regEmail.trim()) return;
-
-    const passToHash = regPassword || 'Pracownia2026!';
-    const passwordHash = await hashPassword(passToHash);
     const new2FASecret = regEnable2FA ? generate2FASecret() : undefined;
+    setIsRegistering(true);
 
-    onRegister({
-      name: regName.trim(),
-      email: regEmail.trim(),
-      role: regRole,
-      department: regDepartment.trim(),
-      passwordHash,
-      twoFactorEnabled: regEnable2FA,
-      twoFactorSecret: new2FASecret,
-      isDemo: false,
-      isApproved: false, // Must be approved by administrator!
-      registeredAt: new Date().toISOString(),
-    });
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          name: regName.trim(),
+          email: regEmail.trim(),
+          role: regRole,
+          department: regDepartment.trim(),
+          password: regPassword,
+          twoFactorEnabled: regEnable2FA,
+          twoFactorSecret: new2FASecret,
+        }),
+      });
 
-    setCreated2FASecret(new2FASecret || null);
-    setCreatedUserEmail(regEmail.trim());
-    setRegSuccess(true);
-    setRegName('');
-    setRegEmail('');
-    setRegPassword('');
+      const data = await res.json();
+      if (!res.ok) {
+        setRegError(data.error || 'Rejestracja nie powiodła się.');
+        setIsRegistering(false);
+        return;
+      }
+
+      if (onRefreshUsers) await onRefreshUsers();
+
+      setCreated2FASecret(new2FASecret || null);
+      setCreatedUserEmail(regEmail.trim());
+      setRegSuccess(true);
+      setRegName('');
+      setRegEmail('');
+      setRegPassword('');
+    } catch {
+      setRegError('Błąd połączenia z serwerem podczas rejestracji.');
+    } finally {
+      setIsRegistering(false);
+    }
   };
 
   // Password Recovery Handlers
@@ -209,8 +359,8 @@ export const LoginGate: React.FC<LoginGateProps> = ({
     setRecoveryError(null);
 
     if (!recoveryTargetUser) return;
-    if (newRecoveryPass.length < 4) {
-      setRecoveryError('Nowe hasło musi zawierać co najmniej 4 znaki.');
+    if (newRecoveryPass.length < 8) {
+      setRecoveryError('Nowe hasło musi zawierać co najmniej 8 znaków.');
       return;
     }
     if (newRecoveryPass !== confirmRecoveryPass) {
@@ -222,9 +372,149 @@ export const LoginGate: React.FC<LoginGateProps> = ({
       await onUpdateUserPassword(recoveryTargetUser.id, newRecoveryPass);
     }
 
-    setRecoverySuccessMsg(`Hasło dla użytkownika ${recoveryTargetUser.name} (${recoveryTargetUser.email}) zostało pomyślnie zmienione! Możesz się teraz zalogować.`);
+    setRecoverySuccessMsg(`Hasło dla użytkownika ${recoveryTargetUser.name} (${recoveryTargetUser.email}) zostało pomyślnie zaktualizowane! Możesz się teraz zalogować.`);
     setRecoveryStep('success');
   };
+
+  // If system has no administrator / users: render the Initial Administrator Setup Wizard
+  if (requiresAdminSetup) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col justify-center items-center p-4 relative overflow-hidden">
+        <div className="absolute -top-40 -left-40 w-96 h-96 bg-amber-600/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-sky-600/20 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="w-full max-w-lg bg-slate-800/95 backdrop-blur-md rounded-2xl border border-amber-500/40 shadow-2xl p-6 sm:p-8 relative z-10 space-y-6">
+          <div className="text-center space-y-2">
+            <div className="inline-flex p-3 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/30 shadow-xs mb-1">
+              <ShieldAlert className="w-9 h-9" />
+            </div>
+            <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+              Kreator Konfiguracji Administratora
+            </h1>
+            <p className="text-xs text-slate-300 leading-relaxed max-w-md mx-auto">
+              Wykryto pierwsze uruchomienie systemu lub brak konta administratora. 
+              Utwórz główne konto z uprawnieniami administracyjnymi, aby rozpocząć zarządzanie pracownią.
+            </p>
+            <div className="inline-block px-2.5 py-0.5 rounded-full bg-slate-700/60 text-slate-300 font-mono text-[10px] border border-slate-600">
+              Wydanie {CURRENT_APP_VERSION}
+            </div>
+          </div>
+
+          {adminSetupError && (
+            <div className="p-3 rounded-lg bg-rose-950/70 border border-rose-800 text-rose-200 text-xs flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <span className="leading-relaxed">{adminSetupError}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleAdminSetupSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">
+                Imię i Nazwisko Administratora <span className="text-rose-400">*</span>
+              </label>
+              <div className="relative">
+                <UserIcon className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  required
+                  value={adminName}
+                  onChange={(e) => setAdminName(e.target.value)}
+                  placeholder="np. Marcin Frączek"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">
+                Adres e-mail <span className="text-rose-400">*</span>
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="email"
+                  required
+                  value={adminEmail}
+                  onChange={(e) => setAdminEmail(e.target.value)}
+                  placeholder="np. admin@pracownia.pl"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">
+                Dział / Rola w Pracowni
+              </label>
+              <div className="relative">
+                <Briefcase className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={adminDepartment}
+                  onChange={(e) => setAdminDepartment(e.target.value)}
+                  placeholder="np. Główny Architekt & Zarząd Pracowni"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-medium text-slate-300">
+                  Hasło Administratora (min. 12 znaków) <span className="text-rose-400">*</span>
+                </label>
+                <span className={`text-[11px] font-mono font-semibold ${adminPassword.length >= 12 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {adminPassword.length}/12 znaków
+                </span>
+              </div>
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="password"
+                  required
+                  minLength={12}
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  placeholder="Wprowadź silne hasło (min. 12 znaków)..."
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                />
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1">
+                Hasło zostanie zabezpieczone serwerowym algorytmem scrypt z unikalną solą kryptograficzną.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">
+                Powtórz hasło <span className="text-rose-400">*</span>
+              </label>
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="password"
+                  required
+                  minLength={12}
+                  value={adminConfirmPassword}
+                  onChange={(e) => setAdminConfirmPassword(e.target.value)}
+                  placeholder="Powtórz hasło administratora..."
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isAdminSubmitting || adminPassword.length < 12}
+              className="w-full py-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-amber-600/30 flex items-center justify-center gap-2 mt-4"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span>{isAdminSubmitting ? 'Inicjalizacja...' : 'Utwórz konto Administratora i przejdź do systemu'}</span>
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col justify-center items-center p-4 relative overflow-hidden">
@@ -273,6 +563,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
             onClick={() => {
               setActiveTab('register');
               setLoginError(null);
+              setRegError(null);
             }}
             className={`py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
               activeTab === 'register'
@@ -303,7 +594,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
           </button>
         </div>
 
-        {/* TAB 1: LOGOWANIE */}
+        {/* TAB 1: LOGOWANIE (2FA STEP) */}
         {activeTab === 'login' && authStep === '2fa' && (
           <form onSubmit={handleTotpSubmit} className="space-y-4 animate-in fade-in">
             <div className="text-center space-y-1">
@@ -339,69 +630,13 @@ export const LoginGate: React.FC<LoginGateProps> = ({
               />
             </div>
 
-            {/* Expandable 2FA Key and QR Code section */}
-            {(() => {
-              const currentSecret = pendingUser2FA?.twoFactorSecret || DEFAULT_2FA_SECRET;
-              return (
-                <div className="p-3 bg-slate-900/90 border border-slate-700 rounded-xl space-y-2">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-slate-300 flex items-center gap-1.5">
-                      <QrCode className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Konfiguracja Google Authenticator</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setShow2FADetails(!show2FADetails)}
-                      className="text-sky-400 hover:text-sky-300 underline font-medium"
-                    >
-                      {show2FADetails ? 'Ukryj kod QR' : 'Pokaż kod QR i klucz'}
-                    </button>
-                  </div>
-
-                  {show2FADetails && (
-                    <div className="pt-2 border-t border-slate-800 space-y-3 animate-in fade-in">
-                      <div className="flex justify-center p-2 bg-white rounded-lg w-fit mx-auto shadow-md">
-                        <img
-                          src={getQrCodeUrl(getOtpAuthUrl(pendingUser2FA?.email || 'admin@pracownia.pl', currentSecret))}
-                          alt="QR Code Google Authenticator"
-                          className="w-32 h-32"
-                        />
-                      </div>
-                      <div className="space-y-1 text-center">
-                        <span className="text-[10px] text-slate-400 uppercase font-semibold block">
-                          Klucz konfiguracyjny (wpisz w telefonie):
-                        </span>
-                        <div className="font-mono text-xs text-emerald-300 tracking-wider font-bold bg-slate-950 p-2 rounded border border-slate-800 flex items-center justify-between">
-                          <span>{formatSecretKey(currentSecret)}</span>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              await copyToClipboard(currentSecret);
-                              setCopiedLoginKey(true);
-                              setTimeout(() => setCopiedLoginKey(false), 2000);
-                            }}
-                            className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-white rounded text-[10px] flex items-center gap-1"
-                          >
-                            {copiedLoginKey ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                            <span>{copiedLoginKey ? 'Skopiowano' : 'Kopiuj'}</span>
-                          </button>
-                        </div>
-                        <p className="text-[10px] text-slate-400 leading-relaxed pt-1">
-                          W aplikacji <strong>Google Authenticator</strong> kliknij <strong className="text-white">(+)</strong> &rarr; <strong className="text-white">„Wpisz klucz konfiguracji”</strong>, wpisz nazwę <em>Zarzadzanie Projektami</em> i wklej powyższy klucz.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
             <button
               type="submit"
-              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2"
+              disabled={isLoggingIn || totpInput.length < 6}
+              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2"
             >
               <ShieldCheck className="w-4 h-4" />
-              <span>Zweryfikuj kod i wejdź</span>
+              <span>{isLoggingIn ? 'Weryfikacja...' : 'Zweryfikuj kod i wejdź'}</span>
             </button>
 
             <button
@@ -465,13 +700,14 @@ export const LoginGate: React.FC<LoginGateProps> = ({
 
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center justify-between">
-                <span>Hasło (opcjonalne w trybie roboczym)</span>
-                <span className="text-[10px] text-slate-500">Zaszyfrowane w bazie danych (Hash)</span>
+                <span>Hasło dostępu</span>
+                <span className="text-[10px] text-emerald-400 font-medium">Bezpieczne scrypt (Serwer)</span>
               </label>
               <div className="relative">
                 <KeyRound className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="password"
+                  required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Wpisz hasło..."
@@ -498,10 +734,11 @@ export const LoginGate: React.FC<LoginGateProps> = ({
 
             <button
               type="submit"
-              className="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-sky-600/30 flex items-center justify-center gap-2"
+              disabled={isLoggingIn}
+              className="w-full py-2.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-sky-600/30 flex items-center justify-center gap-2"
             >
               <UserCheck className="w-4 h-4" />
-              <span>Zaloguj do pracowni</span>
+              <span>{isLoggingIn ? 'Logowanie...' : 'Zaloguj do pracowni'}</span>
             </button>
 
             {pendingUsers.length > 0 && (
@@ -589,6 +826,13 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   </span>
                 </div>
 
+                {regError && (
+                  <div className="p-3 rounded-lg bg-rose-950/70 border border-rose-800 text-rose-200 text-xs flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                    <span>{regError}</span>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1">Imię i Nazwisko *</label>
                   <div className="relative">
@@ -647,15 +891,16 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Hasło dostępu *</label>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Hasło dostępu (min. 8 znaków) *</label>
                   <div className="relative">
                     <KeyRound className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                       type="password"
                       required
+                      minLength={8}
                       value={regPassword}
                       onChange={(e) => setRegPassword(e.target.value)}
-                      placeholder="Utwórz bezpieczne hasło..."
+                      placeholder="Utwórz bezpieczne hasło (min. 8 znaków)..."
                       className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                     />
                   </div>
@@ -681,10 +926,11 @@ export const LoginGate: React.FC<LoginGateProps> = ({
 
                 <button
                   type="submit"
-                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 mt-2"
+                  disabled={isRegistering}
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 mt-2"
                 >
                   <UserPlus className="w-4 h-4" />
-                  <span>Zarejestruj konto do zatwierdzenia</span>
+                  <span>{isRegistering ? 'Rejestrowanie...' : 'Zarejestruj konto do zatwierdzenia'}</span>
                 </button>
               </form>
             )}
@@ -814,10 +1060,10 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                     <input
                       type="password"
                       required
-                      minLength={4}
+                      minLength={8}
                       value={newRecoveryPass}
                       onChange={(e) => setNewRecoveryPass(e.target.value)}
-                      placeholder="Wprowadź nowe hasło..."
+                      placeholder="Wprowadź nowe hasło (min. 8 znaków)..."
                       className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                     />
                   </div>
@@ -832,7 +1078,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                     <input
                       type="password"
                       required
-                      minLength={4}
+                      minLength={8}
                       value={confirmRecoveryPass}
                       onChange={(e) => setConfirmRecoveryPass(e.target.value)}
                       placeholder="Powtórz nowe hasło..."
@@ -846,7 +1092,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2"
                 >
                   <KeyRound className="w-4 h-4" />
-                  <span>Zapisz nowe hasło (Hash SHA-256)</span>
+                  <span>Zapisz nowe hasło</span>
                 </button>
               </form>
             )}

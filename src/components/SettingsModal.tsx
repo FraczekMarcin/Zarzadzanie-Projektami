@@ -195,7 +195,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
     try {
       // 1. Try server endpoint which checks real remote github file and commits
-      const sResp = await fetch(`/api/system/check-update?t=${Date.now()}`).catch(() => null);
+      const sResp = await fetch(`/api/system/check-update?t=${Date.now()}`, { credentials: 'same-origin' }).catch(() => null);
       if (sResp && sResp.ok) {
         const sData = await sResp.json();
         const remoteVer = (sData.remoteVersion || '').trim() || CURRENT_APP_VERSION;
@@ -278,20 +278,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleRunUpdateNow = async () => {
     setIsUpdatingServer(true);
-    setUpdateServerMessage('Wysyłanie polecenia aktualizacji do serwera...');
-    try {
-      const resp = await fetch('/api/system/run-update', { method: 'POST' });
-      const data = await resp.json();
-      if (data.success) {
-        setUpdateServerMessage('✅ Sukces: Pomyślnie zaktualizowano repozytorium na serwerze! Odśwież stronę po przebudowaniu kontenera.');
-      } else {
-        setUpdateServerMessage(data.message || 'Wymagane wykonanie polecenia w terminalu serwera (opis poniżej).');
-      }
-    } catch {
-      setUpdateServerMessage('Aplikacja działa w kontenerze Docker. Wykonaj zalecane polecenie w terminalu serwera.');
-    } finally {
+    setUpdateServerMessage('Aktualizacja ze względów bezpieczeństwa wykonywana jest bezpośrednio w terminalu serwera (polecenie poniżej).');
+    setTimeout(() => {
       setIsUpdatingServer(false);
-    }
+    }, 600);
   };
 
   const handleCopyCode = async (text: string, key: string) => {

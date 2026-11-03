@@ -10,9 +10,6 @@ import { User } from '../types';
 
 const SALT = 'zarzadzanie_projektami_salt_2026';
 
-// Domyślny hash SHA-256 dla hasła 'admin2026'
-export const DEMO_ADMIN_PASSWORD_HASH = 'sha256:86ea62c5ba0e6cf87b182765caff5b00c80980c528b86fea84c023372bfd2034';
-
 // Konwersja bufora na ciąg heksadecymalny
 function bufferToHex(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
@@ -22,11 +19,11 @@ function bufferToHex(buffer: ArrayBuffer): string {
 }
 
 /**
- * Haszowanie hasła z użyciem bezpiecznego Web Crypto API SHA-256
+ * Haszowanie hasła z użyciem Web Crypto API SHA-256 (dla wstecznej kompatybilności rejestracji)
  */
 export async function hashPassword(password: string): Promise<string> {
   const trimmed = (password || '').trim();
-  if (!trimmed) return DEMO_ADMIN_PASSWORD_HASH;
+  if (!trimmed) return '';
 
   try {
     const salted = `${SALT}:${trimmed}:${SALT}`;
@@ -35,12 +32,12 @@ export async function hashPassword(password: string): Promise<string> {
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
     return `sha256:${bufferToHex(hashBuffer)}`;
   } catch {
-    return DEMO_ADMIN_PASSWORD_HASH;
+    return '';
   }
 }
 
 /**
- * Bezpieczna weryfikacja hasła użytkownika (obsługuje hashe SHA-256 oraz legacy)
+ * Weryfikacja hasła użytkownika po stronie klienta (obsługuje hashe SHA-256)
  */
 export async function verifyUserPassword(password: string, user: User): Promise<boolean> {
   const trimmed = (password || '').trim();
@@ -48,47 +45,26 @@ export async function verifyUserPassword(password: string, user: User): Promise<
 
   const inputHash = await hashPassword(trimmed);
 
-  // 1. Sprawdź zapisany hash SHA-256
   if (user.passwordHash) {
-    if (user.passwordHash === inputHash) return true;
-    // Fallback dla kont demo z hasłem 'admin2026'
-    if (user.isDemo && (trimmed === 'admin2026' || trimmed === 'admin')) {
-      return true;
-    }
-    return false;
+    return user.passwordHash === inputHash;
   }
 
-  // 2. Weryfikacja hasła jawnego (z automatyczną migracją)
-  const legacyPass = user.password || (user.isDemo ? 'admin2026' : 'Pracownia2026!');
-  if (legacyPass === trimmed) {
-    return true;
-  }
-
-  // Fallback dla kont demo
-  if (user.isDemo && (trimmed === 'admin2026' || trimmed === 'admin')) {
-    return true;
+  if (user.password) {
+    return user.password === trimmed;
   }
 
   return false;
 }
 
 /**
- * Usuwa jawne hasło i gwarantuje obecność bezpiecznego hasha SHA-256 przed zapisem w kopii zapasowej
+ * Usuwa jawne hasło i przygotowuje użytkowników przed zapisem w kopii zapasowej
  */
 export function sanitizeUsersForBackup(users: User[]): User[] {
   return (users || []).map((u) => {
-    // Całkowite wyczyszczenie pola jawnego hasła
     const { password, ...safeUser } = u;
-
-    // Upewnij się, że użytkownik ma wygenerowany hash hasła
-    let passwordHash = safeUser.passwordHash;
-    if (!passwordHash) {
-      passwordHash = DEMO_ADMIN_PASSWORD_HASH;
-    }
-
     return {
       ...safeUser,
-      passwordHash,
+      passwordHash: safeUser.passwordHash || '',
     };
   });
 }

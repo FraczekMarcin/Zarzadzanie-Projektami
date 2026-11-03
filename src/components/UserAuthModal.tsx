@@ -99,7 +99,13 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
     e.preventDefault();
     if (!name.trim() || !email.trim()) return;
 
-    const passToHash = password.trim() || 'Pracownia2026!';
+    const minLen = role === 'admin' ? 12 : 8;
+    if (!password.trim() || password.trim().length < minLen) {
+      setPasswordError(`Hasło dla roli ${role === 'admin' ? 'Administrator' : 'Użytkownik'} musi mieć co najmniej ${minLen} znaków.`);
+      return;
+    }
+
+    const passToHash = password.trim();
     const passwordHash = await hashPassword(passToHash);
 
     onAddUser({
@@ -114,6 +120,7 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
     setName('');
     setEmail('');
     setPassword('');
+    setPasswordError(null);
     setActiveTab('switch');
   };
 
@@ -277,7 +284,7 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
               <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-lg flex items-center justify-between text-xs text-amber-900 dark:text-amber-200">
                 <div className="flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-                  <span>Wykryto {demoUsersCount} użytkowników pokazowych (domyślne hasło: <strong>admin2026</strong>).</span>
+                  <span>Wykryto {demoUsersCount} użytkowników pokazowych.</span>
                 </div>
                 <button
                   onClick={onDeleteDemoUsers}
@@ -332,7 +339,7 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                         setEnteredPassword(e.target.value);
                         setPasswordError(null);
                       }}
-                      placeholder="Wprowadź hasło (demo: admin2026)"
+                      placeholder="Wprowadź hasło"
                       className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-md px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 pr-9 font-mono"
                     />
                     <button
