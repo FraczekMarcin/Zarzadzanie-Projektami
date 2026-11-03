@@ -1,16 +1,16 @@
 /**
- * Bezpieczeństwo uwierzytelniania:
- * - Haszowanie haseł algorytmem SHA-256 z unikalną solą pracowni
- * - Uwierzytelnianie dwuskładnikowe (2FA) Google Authenticator (RFC 6238 TOTP)
- * - Niezawodny dekoder Base32 wolny od błędów przepełnienia bitowego
- * - Bezpieczna sanityzacja użytkowników (usuwanie jawnych haseł z kopii zapasowych)
+ * Bezpieczeństwo uwierzytelniania pracowni:
+ * - Haszowanie haseł algorytmem SHA-256 z unikalną solą pracowni (wsparcie klienta)
+ * - Formatowanie linków otpauth (RFC 6238) dla skanerów aplikacji Google Authenticator
+ * - Lokalne generowanie kodów QR w przeglądarce bez żadnych zewnętrznych żądań sieciowych
+ * - Bezpieczna sanityzacja użytkowników
  */
 
+import QRCode from 'qrcode';
 import { User } from '../types';
 
 const SALT = 'zarzadzanie_projektami_salt_2026';
 
-// Konwersja bufora na ciąg heksadecymalny
 function bufferToHex(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   return Array.from(bytes)
@@ -19,7 +19,7 @@ function bufferToHex(buffer: ArrayBuffer): string {
 }
 
 /**
- * Haszowanie hasła z użyciem Web Crypto API SHA-256 (dla wstecznej kompatybilności rejestracji)
+ * Haszowanie hasła z użyciem Web Crypto API SHA-256
  */
 export async function hashPassword(password: string): Promise<string> {
   const trimmed = (password || '').trim();
@@ -70,18 +70,18 @@ export function sanitizeUsersForBackup(users: User[]): User[] {
 }
 
 /**
- * Generator losowego klucza Base32 dla Google Authenticator (RFC 4648)
+ * Generator losowego klucza Base32 (RFC 4648)
  */
 export function generate2FASecret(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
   let secret = '';
-  const randomBytes = new Uint8Array(16);
+  const randomBytes = new Uint8Array(20);
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
     crypto.getRandomValues(randomBytes);
   } else {
-    for (let i = 0; i < 16; i++) randomBytes[i] = Math.floor(Math.random() * 256);
+    for (let i = 0; i < 20; i++) randomBytes[i] = Math.floor(Math.random() * 256);
   }
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < 20; i++) {
     secret += chars[randomBytes[i] % chars.length];
   }
   return secret;
@@ -95,132 +95,33 @@ export function formatSecretKey(secret: string): string {
 }
 
 /**
- * Prawidłowy dekoder Base32 zgodny z RFC 4648 bez przepełnienia bitowego w JS
- */
-function base32ToBytes(base32: string): Uint8Array {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  const clean = base32.toUpperCase().replace(/[\s-]/g, '').replace(/=+$/, '');
-  let bits = 0;
-  let value = 0;
-  const bytes: number[] = [];
-
-  for (let i = 0; i < clean.length; i++) {
-    const idx = alphabet.indexOf(clean[i]);
-    if (idx === -1) continue;
-    value = (value << 5) | idx;
-    bits += 5;
-    if (bits >= 8) {
-      bytes.push((value >>> (bits - 8)) & 255);
-      bits -= 8;
-      value = value & ((1 << bits) - 1); // Zabezpieczenie przed przepełnieniem 32-bitowym w JS
-    }
-  }
-
-  return new Uint8Array(bytes);
-}
-
-/**
- * Generowanie 6-cyfrowego kodu TOTP zgodnego z Google Authenticator (RFC 6238)
- */
-export async function generateTotpCode(secret: string, timeOffsetWindows = 0): Promise<string> {
-  try {
-    const keyBytes = base32ToBytes(secret);
-    if (keyBytes.length === 0) return '000000';
-
-    const epoch = Math.floor(Date.now() / 1000);
-    const counter = Math.floor(epoch / 30) + timeOffsetWindows;
-
-    // 8-bajtowy bufor dla licznika (big-endian)
-    const counterBuffer = new ArrayBuffer(8);
-    const counterView = new DataView(counterBuffer);
-    counterView.setUint32(0, Math.floor(counter / 0x100000000));
-    counterView.setUint32(4, counter & 0xffffffff);
-
-    const rawKeyBuffer = keyBytes.buffer.slice(
-      keyBytes.byteOffset,
-      keyBytes.byteOffset + keyBytes.byteLength
-    ) as ArrayBuffer;
-
-    // Import klucza HMAC-SHA1
-    const cryptoKey = await crypto.subtle.importKey(
-      'raw',
-      rawKeyBuffer,
-      { name: 'HMAC', hash: 'SHA-1' },
-      false,
-      ['sign']
-    );
-
-    const signature = await crypto.subtle.sign('HMAC', cryptoKey, counterBuffer);
-    const sigBytes = new Uint8Array(signature);
-
-    const offset = sigBytes[sigBytes.length - 1] & 0x0f;
-    const binary =
-      ((sigBytes[offset] & 0x7f) << 24) |
-      ((sigBytes[offset + 1] & 0xff) << 16) |
-      ((sigBytes[offset + 2] & 0xff) << 8) |
-      (sigBytes[offset + 3] & 0xff);
-
-    const otp = binary % 1000000;
-    return otp.toString().padStart(6, '0');
-  } catch {
-    return '123456';
-  }
-}
-
-export const DEFAULT_2FA_SECRET = 'JBSWY3DPEHPK3PXP';
-
-/**
- * Weryfikacja 6-cyfrowego kodu Google Authenticator z tolerancją zegara (±120s)
- * Odporna na spacje, myślniki i kolejność parametrów (secret vs enteredCode)
- */
-export async function verifyTotpCode(param1: string, param2: string): Promise<boolean> {
-  let secret = (param1 || '').trim();
-  let enteredCode = (param2 || '').trim();
-
-  // Zabezpieczenie przed zamianą argumentów (kod 6 cyfr vs klucz Base32)
-  if (/^\d{6}$/.test(secret) && enteredCode.length > 6) {
-    const temp = secret;
-    secret = enteredCode;
-    enteredCode = temp;
-  }
-
-  // Sanityzacja wprowadzonego 6-cyfrowego kodu
-  const cleanCode = enteredCode.replace(/[\s-]/g, '').trim();
-  if (cleanCode.length !== 6) return false;
-
-  // Kod testowy/awaryjny dla wygody użytkownika
-  if (cleanCode === '123456') return true;
-
-  // Sanityzacja klucza Base32 ze spacji i myślników
-  const cleanSecret = secret.replace(/[\s-]/g, '').toUpperCase() || DEFAULT_2FA_SECRET;
-
-  // Sprawdź okno bieżące oraz ±4 okna 30-sekundowe (tolerancja ±120s na rozbieżność zegara)
-  for (let offset = -4; offset <= 4; offset++) {
-    const validCode = await generateTotpCode(cleanSecret, offset);
-    if (validCode === cleanCode) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * Generuje w 100% zgodny z RFC 6238 link otpauth dla skanera aplikacji Google Authenticator
- * Używa formatu US-ASCII bez znaków diakrytycznych dla pełnej zgodności z iOS i Android
+ * Generuje w 100% zgodny z RFC 6238 link otpauth dla Google Authenticator
  */
 export function getOtpAuthUrl(userEmail: string, secret: string): string {
   const cleanEmail = (userEmail || 'admin@pracownia.pl').trim();
   const issuer = 'Zarzadzanie Projektami';
-  const cleanSecret = (secret || DEFAULT_2FA_SECRET).replace(/[\s-]/g, '').toUpperCase();
+  const cleanSecret = (secret || '').replace(/[\s-]/g, '').toUpperCase();
   const label = encodeURIComponent(`${issuer}:${cleanEmail}`);
   return `otpauth://totp/${label}?secret=${cleanSecret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
 }
 
 /**
- * Generuje adres URL kodu QR do zeskanowania aparatem telefonu w Google Authenticator
+ * Generuje kod QR lokalnie w przeglądarce jako Data URL (PNG),
+ * bez wysyłania jakichkolwiek zapytań do zewnętrznych serwisów (np. api.qrserver.com).
  */
-export function getQrCodeUrl(otpauthUrl: string, size = 180): string {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=8&data=${encodeURIComponent(otpauthUrl)}`;
+export async function generateQrCodeDataUrl(text: string, size = 180): Promise<string> {
+  try {
+    return await QRCode.toDataURL(text, {
+      width: size,
+      margin: 2,
+      color: {
+        dark: '#0f172a',
+        light: '#ffffff',
+      },
+      errorCorrectionLevel: 'M',
+    });
+  } catch (err) {
+    console.error('Błąd lokalnego generowania kodu QR:', err);
+    return '';
+  }
 }
-

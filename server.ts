@@ -3,6 +3,8 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+import nodemailer from 'nodemailer';
+import 'dotenv/config';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,7 +28,7 @@ app.use(express.json({ limit: '10mb' }));
 
 // Persistent shared database directory for all clients
 const isProduction = process.env.NODE_ENV === 'production';
-const DATA_DIR = process.env.DATA_DIR || (isProduction ? '/app/data' : path.resolve(process.cwd(), 'data'));
+const DATA_DIR = process.env.DATA_DIR || (process.env.NODE_ENV === 'production' ? '/app/data' : './data');
 const STATE_FILE = path.join(DATA_DIR, 'app_state.json');
 const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
 
@@ -337,7 +339,11 @@ function resetFailedLogin(userId: string, clientIp: string) {
   failedLogins.delete(`ip:${clientIp}`);
 }
 
-// Dekoder Base32 i weryfikacja 2FA Google Authenticator (RFC 6238)
+// ==============================================================================
+// 2b. OBSŁUGA TOTP (RFC 6238, HMAC-SHA1), KODY ZAPASOWE & RESET HASŁA SMTP
+// ==============================================================================
+
+// Dekoder Base32 zgodny z RFC 4648
 function base32ToBuffer(base32: string): Buffer {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
   const clean = (base32 || '').toUpperCase().replace(/[\s-]/g, '').replace(/=+$/, '');
@@ -359,46 +365,139 @@ function base32ToBuffer(base32: string): Buffer {
   return Buffer.from(bytes);
 }
 
-function verifyTotp(secret: string, enteredCode: string): boolean {
-  if (!secret || !enteredCode) return false;
-  const cleanCode = enteredCode.replace(/[\s-]/g, '').trim();
-  if (cleanCode.length !== 6) return false;
+// Generator losowego klucza Base32 (20 bajtów = 32 znaki Base32)
+function generateBase32Secret(byteLength = 20): string {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  const randomBytes = crypto.randomBytes(byteLength);
+  let result = '';
+  for (let i = 0; i < randomBytes.length; i++) {
+    result += alphabet[randomBytes[i] % alphabet.length];
+  }
+  return result;
+}
 
-  const key = base32ToBuffer(secret);
-  if (key.length === 0) return false;
+// Generowanie 8 jednorazowych kodów zapasowych i ich hashy SHA-256
+function generate8BackupCodes(): { codes: string[]; hashes: string[] } {
+  const codes: string[] = [];
+  const hashes: string[] = [];
+  for (let i = 0; i < 8; i++) {
+    const raw = crypto.randomBytes(4).toString('hex').toUpperCase();
+    const formatted = `${raw.slice(0, 4)}-${raw.slice(4)}`;
+    codes.push(formatted);
+    hashes.push(crypto.createHash('sha256').update(raw).digest('hex'));
+  }
+  return { codes, hashes };
+}
+
+// Obliczenie 6-cyfrowego kodu TOTP dla danego kroku czasowego
+function calculateTotpForStep(secretBase32: string, step: number): string {
+  const key = base32ToBuffer(secretBase32);
+  const buf = Buffer.alloc(8);
+  buf.writeBigInt64BE(BigInt(step));
+
+  const hmac = crypto.createHmac('sha1', key).update(buf).digest();
+  const hmacOffset = hmac[hmac.length - 1] & 0x0f;
+  const binary =
+    ((hmac[hmacOffset] & 0x7f) << 24) |
+    ((hmac[hmacOffset + 1] & 0xff) << 16) |
+    ((hmac[hmacOffset + 2] & 0xff) << 8) |
+    (hmac[hmacOffset + 3] & 0xff);
+
+  return (binary % 1000000).toString().padStart(6, '0');
+}
+
+/**
+ * Weryfikacja kodu TOTP na serwerze (RFC 6238, HMAC-SHA1).
+ * Okno tolerancji: wyłącznie ±1 krok (30 s w tył, bieżący, 30 s w przód).
+ * Ochrona przed replay attack: kod dla kroku <= lastUsedStep jest natychmiast odrzucany.
+ * Zwraca numer dopasowanego kroku lub null.
+ */
+function verifyTotpStrict(secretBase32: string, enteredCode: string, lastUsedStep?: number): number | null {
+  if (!secretBase32 || !enteredCode) return null;
+  const cleanCode = enteredCode.replace(/[\s-]/g, '').trim();
+  if (!/^\d{6}$/.test(cleanCode)) return null;
+
+  const key = base32ToBuffer(secretBase32);
+  if (key.length === 0) return null;
 
   const epoch = Math.floor(Date.now() / 1000);
   const currentStep = Math.floor(epoch / 30);
 
-  for (let offset = -4; offset <= 4; offset++) {
+  // Okno ściśle ±1 (kroki: currentStep - 1, currentStep, currentStep + 1)
+  for (let offset = -1; offset <= 1; offset++) {
     const step = currentStep + offset;
-    const buf = Buffer.alloc(8);
-    buf.writeBigInt64BE(BigInt(step));
-
-    const hmac = crypto.createHmac('sha1', key).update(buf).digest();
-    const hmacOffset = hmac[hmac.length - 1] & 0x0f;
-    const binary =
-      ((hmac[hmacOffset] & 0x7f) << 24) |
-      ((hmac[hmacOffset + 1] & 0xff) << 16) |
-      ((hmac[hmacOffset + 2] & 0xff) << 8) |
-      (hmac[hmacOffset + 3] & 0xff);
-
-    const otp = (binary % 1000000).toString().padStart(6, '0');
-    if (otp === cleanCode) {
-      return true;
+    // Ochrona przed ponownym użyciem tego samego kodu
+    if (typeof lastUsedStep === 'number' && step <= lastUsedStep) {
+      continue;
+    }
+    const expectedOtp = calculateTotpForStep(secretBase32, step);
+    if (crypto.timingSafeEqual(Buffer.from(cleanCode), Buffer.from(expectedOtp))) {
+      return step;
     }
   }
+
+  return null;
+}
+
+// Weryfikacja i unieważnienie jednorazowego kodu zapasowego
+function verifyAndConsumeBackupCode(user: any, enteredCode: string): boolean {
+  if (!user || !Array.isArray(user.twoFactorBackupCodes) || user.twoFactorBackupCodes.length === 0) {
+    return false;
+  }
+  const cleanCode = enteredCode.replace(/[\s-]/g, '').toUpperCase().trim();
+  if (cleanCode.length < 6) return false;
+
+  const candidateHash = crypto.createHash('sha256').update(cleanCode).digest('hex');
+
+  const idx = user.twoFactorBackupCodes.findIndex((storedHash: string) => {
+    try {
+      return crypto.timingSafeEqual(Buffer.from(storedHash), Buffer.from(candidateHash));
+    } catch {
+      return false;
+    }
+  });
+
+  if (idx !== -1) {
+    // Usunięcie zużytego kodu zapasowego (jednorazowy użytek)
+    user.twoFactorBackupCodes.splice(idx, 1);
+    return true;
+  }
+
   return false;
 }
 
-// Sanityzacja użytkownika - usunięcie passwordHash, password, totpSecret, twoFactorSecret
+// Magazyn tokenów resetowania hasła (pamięć serwera, 10 minut ważności)
+interface PasswordResetToken {
+  email: string;
+  userId: string;
+  codeHash: string;
+  expiresAt: number;
+  attempts: number;
+  verifiedTicket?: string;
+}
+const passwordResetTokens = new Map<string, PasswordResetToken>();
+
+function isSmtpConfigured(): boolean {
+  return Boolean(process.env.SMTP_HOST && process.env.SMTP_HOST.trim().length > 0);
+}
+
+// Sanityzacja użytkownika - usunięcie wszelkich sekretów i haseł
 function sanitizeUser(u: any) {
   if (!u) return u;
-  const { passwordHash, password, totpSecret, twoFactorSecret, ...rest } = u;
+  const { 
+    passwordHash, 
+    password, 
+    totpSecret, 
+    twoFactorSecret, 
+    twoFactorBackupCodes, 
+    pending2FA,
+    ...rest 
+  } = u;
   return {
     ...rest,
     hasPassword: Boolean(passwordHash || password),
     twoFactorEnabled: Boolean(u.twoFactorEnabled),
+    backupCodesCount: Array.isArray(twoFactorBackupCodes) ? twoFactorBackupCodes.length : 0,
   };
 }
 
@@ -443,6 +542,180 @@ app.get('/api/health', (_req, res) => {
     persistedState: !!serverAppStateCache,
     dataDir: DATA_DIR,
   });
+});
+
+// ==============================================================================
+// 4a. ENDPOINTY RESETOWANIA HASŁA PRZEZ E-MAIL (SMTP / NODEMAILER)
+// ==============================================================================
+
+// GET /api/auth/password-reset/status (Sprawdzenie czy SMTP jest skonfigurowany)
+app.get('/api/auth/password-reset/status', (_req, res) => {
+  const enabled = isSmtpConfigured();
+  res.json({
+    enabled,
+    message: enabled
+      ? 'Resetowanie hasła przez e-mail jest aktywne'
+      : 'Funkcja resetowania hasła przez e-mail jest wyłączona (brak konfiguracji serwera SMTP). Skontaktuj się z administratorem pracowni.',
+  });
+});
+
+// POST /api/auth/password-reset/request (Generowanie losowego kodu 6 cyfr, ważność 10 min, max 5 prób)
+app.post('/api/auth/password-reset/request', async (req, res) => {
+  try {
+    if (!isSmtpConfigured()) {
+      return res.status(400).json({
+        error: 'Funkcja resetowania hasła przez e-mail jest wyłączona. Skontaktuj się z administratorem pracowni.',
+      });
+    }
+
+    const { email } = req.body || {};
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const standardMessage =
+      'Jeśli podany adres e-mail istnieje w bazie pracowni, wysłano na niego 6-cyfrowy kod weryfikacyjny. Kod jest ważny przez 10 minut.';
+
+    if (!cleanEmail) {
+      return res.json({ success: true, message: standardMessage });
+    }
+
+    const targetUser = (serverUsersCache || []).find((u) => (u.email || '').trim().toLowerCase() === cleanEmail);
+
+    if (targetUser) {
+      const code = crypto.randomInt(100000, 1000000).toString();
+      const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+
+      passwordResetTokens.set(cleanEmail, {
+        email: cleanEmail,
+        userId: targetUser.id,
+        codeHash,
+        expiresAt: Date.now() + 10 * 60 * 1000, // 10 minut
+        attempts: 0,
+      });
+
+      // Wysłanie wiadomości przez SMTP
+      try {
+        const port = parseInt(process.env.SMTP_PORT || '587', 10);
+        const transporter = nodemailer.createTransport({
+          host: process.env.SMTP_HOST,
+          port,
+          secure: port === 465,
+          auth: process.env.SMTP_USER
+            ? {
+                user: process.env.SMTP_USER,
+                pass: process.env.SMTP_PASS || '',
+              }
+            : undefined,
+        });
+
+        await transporter.sendMail({
+          from: process.env.SMTP_FROM || '"Zarządzanie Projektami" <noreply@pracownia.pl>',
+          to: cleanEmail,
+          subject: 'Kod weryfikacyjny resetu hasła - Zarządzanie Projektami',
+          text: `Twój jednorazowy 6-cyfrowy kod do zresetowania hasła to: ${code}\n\nKod jest ważny przez 10 minut (maksymalnie 5 prób weryfikacji).\nJeśli to nie Ty prosiłeś o reset hasła, zignoruj tę wiadomość.`,
+          html: `<div style="font-family: sans-serif; padding: 24px; color: #1e293b; max-width: 480px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px;">
+            <h2 style="color: #0284c7; margin-top: 0;">Zarządzanie Projektami</h2>
+            <p style="font-size: 14px; line-height: 1.5;">Otrzymaliśmy prośbę o zresetowanie hasła dla Twojego profilu w pracowni.</p>
+            <p style="font-size: 13px; font-weight: bold; margin-bottom: 8px;">Twój 6-cyfrowy kod weryfikacyjny:</p>
+            <div style="font-size: 32px; font-family: monospace; font-weight: bold; letter-spacing: 6px; color: #0f172a; padding: 14px 20px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; width: fit-content;">${code}</div>
+            <p style="font-size: 12px; color: #64748b; margin-top: 18px; line-height: 1.4;">Kod jest ważny przez <strong>10 minut</strong> (maksymalnie 5 prób weryfikacji). Jeśli to nie Ty prosiłeś o zmianę hasła, zignoruj tę wiadomość.</p>
+          </div>`,
+        });
+        console.log(`[Server Auth] Wysłano kod resetu hasła na adres e-mail: ${cleanEmail}`);
+      } catch (mailErr: any) {
+        console.error(`[Server Auth] Błąd wysyłania e-maila SMTP na adres ${cleanEmail}:`, mailErr.message);
+      }
+    }
+
+    // Odpowiedź API nigdy nie zawiera kodu ani informacji, czy e-mail istnieje (zawsze ta sama wiadomość)
+    res.json({ success: true, message: standardMessage });
+  } catch (err: any) {
+    console.error('[Server Auth] Błąd resetu hasła request:', err);
+    res.json({
+      success: true,
+      message: 'Jeśli podany adres e-mail istnieje w bazie pracowni, wysłano na niego 6-cyfrowy kod weryfikacyjny. Kod jest ważny przez 10 minut.',
+    });
+  }
+});
+
+// POST /api/auth/password-reset/verify (Weryfikacja kodu z ograniczeniem do 5 prób)
+app.post('/api/auth/password-reset/verify', (req, res) => {
+  const { email, code } = req.body || {};
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  const cleanCode = String(code || '').replace(/[\s-]/g, '').trim();
+
+  const token = passwordResetTokens.get(cleanEmail);
+  if (!token || token.expiresAt < Date.now()) {
+    return res.status(400).json({ error: 'Kod weryfikacyjny wygasł lub nie został wygenerowany. Poproś o nowy kod.' });
+  }
+
+  if (token.attempts >= 5) {
+    passwordResetTokens.delete(cleanEmail);
+    return res.status(429).json({ error: 'Przekroczono maksymalną liczbę prób (5). Poproś o nowy kod resetu hasła.' });
+  }
+
+  token.attempts += 1;
+  const enteredHash = crypto.createHash('sha256').update(cleanCode).digest('hex');
+  const isMatch = crypto.timingSafeEqual(Buffer.from(enteredHash), Buffer.from(token.codeHash));
+
+  if (!isMatch) {
+    const remaining = 5 - token.attempts;
+    if (remaining <= 0) {
+      passwordResetTokens.delete(cleanEmail);
+      return res.status(429).json({ error: 'Przekroczono limit 5 prób weryfikacji. Poproś o nowy kod resetu.' });
+    }
+    return res.status(400).json({ error: `Nieprawidłowy kod weryfikacyjny. Pozostało prób: ${remaining}` });
+  }
+
+  const verifiedTicket = crypto.randomBytes(32).toString('hex');
+  token.verifiedTicket = verifiedTicket;
+  res.json({ success: true, verifiedTicket });
+});
+
+// POST /api/auth/password-reset/confirm (Zatwierdzenie nowego hasła)
+app.post('/api/auth/password-reset/confirm', async (req, res) => {
+  try {
+    const { email, verifiedTicket, newPassword } = req.body || {};
+    const cleanEmail = String(email || '').trim().toLowerCase();
+
+    const token = passwordResetTokens.get(cleanEmail);
+    if (!token || !token.verifiedTicket || token.verifiedTicket !== verifiedTicket || token.expiresAt < Date.now()) {
+      return res.status(400).json({ error: 'Sesja resetowania hasła wygasła lub jest nieprawidłowa. Rozpocznij procedurę od nowa.' });
+    }
+
+    const targetUser = (serverUsersCache || []).find((u) => u.id === token.userId);
+    if (!targetUser) {
+      return res.status(404).json({ error: 'Użytkownik nie istnieje w systemie.' });
+    }
+
+    const minLen = targetUser.role === 'admin' ? 12 : 8;
+    if (!newPassword || String(newPassword).length < minLen) {
+      return res.status(400).json({ error: `Nowe hasło musi zawierać co najmniej ${minLen} znaków.` });
+    }
+
+    const newHash = await hashPasswordScrypt(String(newPassword));
+    targetUser.passwordHash = newHash;
+    delete targetUser.password;
+
+    // Unieważnij wszystkie dotychczasowe sesje użytkownika
+    for (const [sToken, s] of sessions.entries()) {
+      if (s.userId === targetUser.id) {
+        sessions.delete(sToken);
+      }
+    }
+    saveSessionsAsync();
+
+    passwordResetTokens.delete(cleanEmail);
+    serverAppStateCache = {
+      ...(serverAppStateCache || {}),
+      users: serverUsersCache,
+      updatedAt: new Date().toISOString(),
+    };
+    await saveStateAtomicAsync();
+
+    res.json({ success: true, message: 'Hasło zostało pomyślnie zmienione. Możesz się teraz zalogować nowym hasłem.' });
+  } catch (err: any) {
+    console.error('[Server Auth] Błąd confirm password reset:', err);
+    res.status(500).json({ error: 'Błąd zapisu nowego hasła' });
+  }
 });
 
 // Setup status & Public user profiles for login dropdown
@@ -500,24 +773,42 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Nieprawidłowe hasło dostępu' });
     }
 
-    // 2FA Google Authenticator Check
+    // 2FA Google Authenticator Check & Jednorazowe kody zapasowe
     if (user.twoFactorEnabled) {
       if (!totpCode) {
         return res.json({
           require2FA: true,
-          message: 'Wymagany 6-cyfrowy kod Google Authenticator',
+          message: 'Wymagany 6-cyfrowy kod Google Authenticator lub jednorazowy kod zapasowy',
         });
       }
-      const secret = user.twoFactorSecret || 'JBSWY3DPEHPK3PXP';
-      const isTotpValid = verifyTotp(secret, String(totpCode)) || totpCode === '123456';
-      if (!isTotpValid) {
+
+      let authSuccess = false;
+
+      // 1. Sprawdzenie kodu TOTP (RFC 6238, HMAC-SHA1, tolerancja ±1 krok, blokada replay attack)
+      if (user.twoFactorSecret) {
+        const matchedStep = verifyTotpStrict(user.twoFactorSecret, String(totpCode), user.lastTotpCounter);
+        if (matchedStep !== null) {
+          user.lastTotpCounter = matchedStep;
+          authSuccess = true;
+          await saveStateAtomicAsync();
+        }
+      }
+
+      // 2. Jeśli kod TOTP nie pasował, sprawdź czy to jeden z 8 jednorazowych kodów zapasowych
+      if (!authSuccess && verifyAndConsumeBackupCode(user, String(totpCode))) {
+        authSuccess = true;
+        await saveStateAtomicAsync();
+        console.log(`[Server Auth] Użytkownik ${user.name} (${user.id}) zalogował się za pomocą jednorazowego kodu zapasowego.`);
+      }
+
+      if (!authSuccess) {
         registerFailedLogin(String(userId), clientIp);
         if (isRateLimited(String(userId), clientIp)) {
           return res.status(429).json({
             error: 'Zbyt wiele nieudanych prób logowania. Konto lub adres IP zablokowany na 15 minut.',
           });
         }
-        return res.status(401).json({ error: 'Nieprawidłowy 6-cyfrowy kod 2FA' });
+        return res.status(401).json({ error: 'Nieprawidłowy kod 2FA lub kod zapasowy' });
       }
     }
 
@@ -621,7 +912,7 @@ app.post('/api/auth/setup-admin', async (req, res) => {
 // POST /api/auth/register (Rejestracja nowego użytkownika - oczekuje na zatwierdzenie admina)
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { name, email, password, role, department, twoFactorEnabled, twoFactorSecret } = req.body || {};
+    const { name, email, password, role, department, twoFactorEnabled } = req.body || {};
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Wymagane imię, e-mail i hasło.' });
     }
@@ -637,6 +928,26 @@ app.post('/api/auth/register', async (req, res) => {
     }
 
     const passwordHash = await hashPasswordScrypt(String(password));
+
+    // Generowanie sekretu TOTP i 8 kodów zapasowych wyłącznie po stronie serwera
+    let twoFactorData: { secret: string; otpAuthUrl: string; backupCodes: string[] } | null = null;
+    let server2FASecret: string | undefined = undefined;
+    let backupCodeHashes: string[] = [];
+
+    if (Boolean(twoFactorEnabled)) {
+      server2FASecret = generateBase32Secret(20);
+      const { codes, hashes } = generate8BackupCodes();
+      backupCodeHashes = hashes;
+      const cleanEmail = String(email).trim().toLowerCase();
+      const issuer = 'Zarzadzanie Projektami';
+      const otpAuthUrl = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(cleanEmail)}?secret=${server2FASecret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
+      twoFactorData = {
+        secret: server2FASecret,
+        otpAuthUrl,
+        backupCodes: codes,
+      };
+    }
+
     const newUser = {
       id: `usr-${Date.now()}`,
       name: String(name).trim(),
@@ -646,7 +957,9 @@ app.post('/api/auth/register', async (req, res) => {
       initials: String(name).trim().split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || 'UZ',
       passwordHash,
       twoFactorEnabled: Boolean(twoFactorEnabled),
-      twoFactorSecret: twoFactorSecret || undefined,
+      twoFactorSecret: server2FASecret,
+      twoFactorBackupCodes: backupCodeHashes,
+      lastTotpCounter: 0,
       isDemo: false,
       isApproved: false, // Wymaga zatwierdzenia przez administratora
       registeredAt: new Date().toISOString(),
@@ -663,6 +976,7 @@ app.post('/api/auth/register', async (req, res) => {
     res.json({
       success: true,
       message: 'Wniosek rejestracyjny został zapisany. Administrator musi zatwierdzić konto.',
+      twoFactor: twoFactorData,
     });
   } catch (err: any) {
     console.error('[Server Auth] Błąd rejestracji:', err);
@@ -797,7 +1111,88 @@ app.post('/api/users/:userId/password', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/users/:userId/2fa (Admin lub właściciel konta)
+// POST /api/users/:userId/2fa/setup (Inicjalizacja 2FA - generuje sekret i 8 kodów zapasowych)
+app.post('/api/users/:userId/2fa/setup', requireAuth, async (req, res) => {
+  try {
+    const caller = (req as any).user;
+    const { userId } = req.params;
+    const targetUser = (serverUsersCache || []).find((u) => u.id === userId);
+    if (!targetUser) return res.status(404).json({ error: 'Użytkownik nie istnieje' });
+
+    if (caller.id !== userId && caller.role !== 'admin') {
+      return res.status(403).json({ error: 'Brak uprawnień do konfiguracji 2FA dla tego konta' });
+    }
+
+    const secret = generateBase32Secret(20);
+    const { codes, hashes } = generate8BackupCodes();
+    const cleanEmail = String(targetUser.email || '').trim().toLowerCase();
+    const issuer = 'Zarzadzanie Projektami';
+    const otpAuthUrl = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(cleanEmail)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
+
+    targetUser.pending2FA = {
+      secret,
+      backupCodeHashes: hashes,
+      createdAt: Date.now(),
+    };
+    await saveStateAtomicAsync();
+
+    // Sekret i kody zapasowe zwracane wyłącznie raz w tym wywołaniu setupu
+    res.json({
+      success: true,
+      secret,
+      otpAuthUrl,
+      backupCodes: codes,
+    });
+  } catch (err: any) {
+    console.error('[Server Auth] Błąd 2fa/setup:', err);
+    res.status(500).json({ error: 'Błąd generowania konfiguracji 2FA' });
+  }
+});
+
+// POST /api/users/:userId/2fa/confirm (Potwierdzenie 2FA kodem z aplikacji)
+app.post('/api/users/:userId/2fa/confirm', requireAuth, async (req, res) => {
+  try {
+    const caller = (req as any).user;
+    const { userId } = req.params;
+    const { code } = req.body || {};
+
+    const targetUser = (serverUsersCache || []).find((u) => u.id === userId);
+    if (!targetUser) return res.status(404).json({ error: 'Użytkownik nie istnieje' });
+
+    if (caller.id !== userId && caller.role !== 'admin') {
+      return res.status(403).json({ error: 'Brak uprawnień do konfiguracji 2FA dla tego konta' });
+    }
+
+    if (!targetUser.pending2FA || !targetUser.pending2FA.secret) {
+      return res.status(400).json({ error: 'Brak oczekującej konfiguracji 2FA. Zainicjuj procedurę ponownie.' });
+    }
+
+    const matchedStep = verifyTotpStrict(targetUser.pending2FA.secret, String(code));
+    if (matchedStep === null) {
+      return res.status(400).json({ error: 'Nieprawidłowy 6-cyfrowy kod weryfikacyjny z aplikacji Google Authenticator' });
+    }
+
+    targetUser.twoFactorEnabled = true;
+    targetUser.twoFactorSecret = targetUser.pending2FA.secret;
+    targetUser.twoFactorBackupCodes = targetUser.pending2FA.backupCodeHashes;
+    targetUser.lastTotpCounter = matchedStep;
+    delete targetUser.pending2FA;
+
+    serverAppStateCache = {
+      ...(serverAppStateCache || {}),
+      users: serverUsersCache,
+      updatedAt: new Date().toISOString(),
+    };
+    await saveStateAtomicAsync();
+
+    res.json({ success: true, twoFactorEnabled: true, backupCodesCount: targetUser.twoFactorBackupCodes.length });
+  } catch (err: any) {
+    console.error('[Server Auth] Błąd 2fa/confirm:', err);
+    res.status(500).json({ error: 'Błąd potwierdzenia 2FA' });
+  }
+});
+
+// POST /api/users/:userId/2fa (Włączenie/wyłączenie 2FA z bezpieczną walidacją)
 app.post('/api/users/:userId/2fa', requireAuth, async (req, res) => {
   try {
     const caller = (req as any).user;
@@ -812,16 +1207,26 @@ app.post('/api/users/:userId/2fa', requireAuth, async (req, res) => {
     }
 
     if (enabled) {
-      if (secret && code) {
-        const valid = verifyTotp(secret, String(code)) || code === '123456';
-        if (!valid) {
+      const secretToUse = secret || targetUser.twoFactorSecret || generateBase32Secret(20);
+      if (code) {
+        const matchedStep = verifyTotpStrict(secretToUse, String(code));
+        if (matchedStep === null) {
           return res.status(400).json({ error: 'Nieprawidłowy 6-cyfrowy kod z Google Authenticator' });
         }
+        targetUser.lastTotpCounter = matchedStep;
       }
       targetUser.twoFactorEnabled = true;
-      if (secret) targetUser.twoFactorSecret = secret;
+      targetUser.twoFactorSecret = secretToUse;
+      if (!Array.isArray(targetUser.twoFactorBackupCodes) || targetUser.twoFactorBackupCodes.length === 0) {
+        const { hashes } = generate8BackupCodes();
+        targetUser.twoFactorBackupCodes = hashes;
+      }
     } else {
       targetUser.twoFactorEnabled = false;
+      delete targetUser.twoFactorSecret;
+      delete targetUser.twoFactorBackupCodes;
+      delete targetUser.lastTotpCounter;
+      delete targetUser.pending2FA;
     }
 
     serverAppStateCache = {

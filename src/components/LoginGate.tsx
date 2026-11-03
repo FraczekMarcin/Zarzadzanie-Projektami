@@ -18,13 +18,13 @@ import {
   Copy,
   Check,
   QrCode,
-  ShieldAlert
+  ShieldAlert,
+  FileText,
+  Info
 } from 'lucide-react';
 import { CURRENT_APP_VERSION } from '../data/dockerConfig';
 import { 
-  generate2FASecret, 
-  getOtpAuthUrl, 
-  getQrCodeUrl, 
+  generateQrCodeDataUrl, 
   formatSecretKey
 } from '../utils/authSecurity';
 import { copyToClipboard } from '../utils/clipboard';
@@ -40,7 +40,6 @@ interface LoginGateProps {
 export const LoginGate: React.FC<LoginGateProps> = ({
   users,
   onLogin,
-  onRegister,
   onUpdateUserPassword,
   onRefreshUsers,
 }) => {
@@ -60,8 +59,6 @@ export const LoginGate: React.FC<LoginGateProps> = ({
   const [authStep, setAuthStep] = useState<'credentials' | '2fa'>('credentials');
   const [pendingUser2FA, setPendingUser2FA] = useState<User | null>(null);
   const [totpInput, setTotpInput] = useState('');
-  const [show2FADetails, setShow2FADetails] = useState(false);
-  const [copiedLoginKey, setCopiedLoginKey] = useState(false);
   
   // Login form state
   const [selectedUserId, setSelectedUserId] = useState<string>(users[0]?.id || '');
@@ -69,16 +66,18 @@ export const LoginGate: React.FC<LoginGateProps> = ({
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // Email Password Recovery state
+  // Email Password Recovery state (Strict SMTP)
+  const [isSmtpConfigured, setIsSmtpConfigured] = useState<boolean | null>(null);
+  const [smtpStatusMessage, setSmtpStatusMessage] = useState<string | null>(null);
   const [recoveryStep, setRecoveryStep] = useState<'email' | 'code' | 'new_password' | 'success'>('email');
   const [recoveryEmail, setRecoveryEmail] = useState('');
-  const [recoveryTargetUser, setRecoveryTargetUser] = useState<User | null>(null);
-  const [recoveryGeneratedCode, setRecoveryGeneratedCode] = useState('');
   const [enteredRecoveryCode, setEnteredRecoveryCode] = useState('');
+  const [recoveryVerifiedTicket, setRecoveryVerifiedTicket] = useState('');
   const [newRecoveryPass, setNewRecoveryPass] = useState('');
   const [confirmRecoveryPass, setConfirmRecoveryPass] = useState('');
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
-  const [recoverySuccessMsg, setRecoverySuccessMsg] = useState<string | null>(null);
+  const [recoveryInfoMsg, setRecoveryInfoMsg] = useState<string | null>(null);
+  const [isRecoveryLoading, setIsRecoveryLoading] = useState(false);
 
   // Register form state
   const [regName, setRegName] = useState('');
@@ -88,9 +87,11 @@ export const LoginGate: React.FC<LoginGateProps> = ({
   const [regPassword, setRegPassword] = useState('');
   const [regEnable2FA, setRegEnable2FA] = useState(false);
   const [regSuccess, setRegSuccess] = useState(false);
-  const [created2FASecret, setCreated2FASecret] = useState<string | null>(null);
-  const [createdUserEmail, setCreatedUserEmail] = useState('');
+  const [registered2FASecret, setRegistered2FASecret] = useState<string | null>(null);
+  const [registered2FABackupCodes, setRegistered2FABackupCodes] = useState<string[]>([]);
+  const [registeredQrDataUrl, setRegisteredQrDataUrl] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
+  const [copiedCodes, setCopiedCodes] = useState(false);
   const [regError, setRegError] = useState<string | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
 
@@ -111,6 +112,26 @@ export const LoginGate: React.FC<LoginGateProps> = ({
         }
       });
   }, [users.length]);
+
+  // Check SMTP status for password reset
+  const checkSmtpStatus = async () => {
+    try {
+      const res = await fetch('/api/auth/password-reset/status', { credentials: 'same-origin' });
+      if (res.ok) {
+        const data = await res.json();
+        setIsSmtpConfigured(Boolean(data.enabled));
+        setSmtpStatusMessage(data.message);
+      } else {
+        setIsSmtpConfigured(false);
+      }
+    } catch {
+      setIsSmtpConfigured(false);
+    }
+  };
+
+  useEffect(() => {
+    checkSmtpStatus();
+  }, []);
 
   useEffect(() => {
     if (!selectedUserId && users.length > 0) {
@@ -222,7 +243,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
     }
   };
 
-  // 2FA Verification via Server
+  // 2FA Verification via Server (strictly RFC 6238 or one of 8 backup codes)
   const handleTotpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
@@ -251,7 +272,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
       }
 
       if (!res.ok) {
-        setLoginError(data.error || 'Nieprawidłowy 6-cyfrowy kod z Google Authenticator.');
+        setLoginError(data.error || 'Nieprawidłowy 6-cyfrowy kod 2FA lub kod zapasowy.');
         setIsLoggingIn(false);
         return;
       }
@@ -264,7 +285,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
     }
   };
 
-  // Registration submission via Server API
+  // Registration submission via Server API (Server generates secret + 8 backup codes)
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegError(null);
@@ -275,7 +296,6 @@ export const LoginGate: React.FC<LoginGateProps> = ({
       return;
     }
 
-    const new2FASecret = regEnable2FA ? generate2FASecret() : undefined;
     setIsRegistering(true);
 
     try {
@@ -290,7 +310,6 @@ export const LoginGate: React.FC<LoginGateProps> = ({
           department: regDepartment.trim(),
           password: regPassword,
           twoFactorEnabled: regEnable2FA,
-          twoFactorSecret: new2FASecret,
         }),
       });
 
@@ -303,8 +322,18 @@ export const LoginGate: React.FC<LoginGateProps> = ({
 
       if (onRefreshUsers) await onRefreshUsers();
 
-      setCreated2FASecret(new2FASecret || null);
-      setCreatedUserEmail(regEmail.trim());
+      if (data.twoFactor) {
+        setRegistered2FASecret(data.twoFactor.secret);
+        setRegistered2FABackupCodes(data.twoFactor.backupCodes || []);
+        // Lokalne generowanie kodu QR bez zewnętrznych serwisów
+        const qr = await generateQrCodeDataUrl(data.twoFactor.otpAuthUrl);
+        setRegisteredQrDataUrl(qr);
+      } else {
+        setRegistered2FASecret(null);
+        setRegistered2FABackupCodes([]);
+        setRegisteredQrDataUrl(null);
+      }
+
       setRegSuccess(true);
       setRegName('');
       setRegEmail('');
@@ -316,49 +345,87 @@ export const LoginGate: React.FC<LoginGateProps> = ({
     }
   };
 
-  // Password Recovery Handlers
-  const handleRequestRecoveryEmail = (e: React.FormEvent) => {
+  // Password Recovery Handlers (Secure SMTP via server)
+  const handleRequestRecoveryEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     setRecoveryError(null);
     const clean = recoveryEmail.trim().toLowerCase();
     if (!clean) {
-      setRecoveryError('Wprowadź adres e-mail przypisany do konta projektanta.');
+      setRecoveryError('Wprowadź adres e-mail przypisany do konta pracowni.');
       return;
     }
 
-    const matched = users.find((u) => (u.email || '').trim().toLowerCase() === clean);
-    if (!matched) {
-      setRecoveryError(`Nie znaleziono w bazie pracowni użytkownika z adresem e-mail: "${clean}".`);
-      return;
-    }
+    setIsRecoveryLoading(true);
+    try {
+      const res = await fetch('/api/auth/password-reset/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ email: clean }),
+      });
 
-    const generated = String(Math.floor(100000 + Math.random() * 900000));
-    setRecoveryTargetUser(matched);
-    setRecoveryGeneratedCode(generated);
-    setEnteredRecoveryCode('');
-    setRecoveryStep('code');
+      const data = await res.json();
+      if (!res.ok) {
+        setRecoveryError(data.error || 'Wystąpił błąd podczas żądania resetu hasła.');
+        setIsRecoveryLoading(false);
+        return;
+      }
+
+      // Odpowiedź jest identyczna dla każdego adresu
+      setRecoveryInfoMsg(data.message);
+      setEnteredRecoveryCode('');
+      setRecoveryStep('code');
+    } catch {
+      setRecoveryError('Błąd połączenia z serwerem pocztowym.');
+    } finally {
+      setIsRecoveryLoading(false);
+    }
   };
 
-  const handleVerifyRecoveryCode = (e: React.FormEvent) => {
+  const handleVerifyRecoveryCode = async (e: React.FormEvent) => {
     e.preventDefault();
     setRecoveryError(null);
     const code = enteredRecoveryCode.replace(/\s+/g, '').trim();
 
-    if (code !== recoveryGeneratedCode && code !== '123456') {
-      setRecoveryError('Nieprawidłowy 6-cyfrowy kod weryfikacyjny. Sprawdź kod i spróbuj ponownie.');
+    if (!code || code.length !== 6) {
+      setRecoveryError('Wprowadź 6-cyfrowy kod otrzymany w wiadomości e-mail.');
       return;
     }
 
-    setRecoveryStep('new_password');
-    setNewRecoveryPass('');
-    setConfirmRecoveryPass('');
+    setIsRecoveryLoading(true);
+    try {
+      const res = await fetch('/api/auth/password-reset/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          email: recoveryEmail.trim(),
+          code,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setRecoveryError(data.error || 'Nieprawidłowy kod weryfikacyjny.');
+        setIsRecoveryLoading(false);
+        return;
+      }
+
+      setRecoveryVerifiedTicket(data.verifiedTicket);
+      setRecoveryStep('new_password');
+      setNewRecoveryPass('');
+      setConfirmRecoveryPass('');
+    } catch {
+      setRecoveryError('Błąd połączenia z serwerem podczas weryfikacji kodu.');
+    } finally {
+      setIsRecoveryLoading(false);
+    }
   };
 
   const handleResetPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setRecoveryError(null);
 
-    if (!recoveryTargetUser) return;
     if (newRecoveryPass.length < 8) {
       setRecoveryError('Nowe hasło musi zawierać co najmniej 8 znaków.');
       return;
@@ -368,12 +435,32 @@ export const LoginGate: React.FC<LoginGateProps> = ({
       return;
     }
 
-    if (onUpdateUserPassword) {
-      await onUpdateUserPassword(recoveryTargetUser.id, newRecoveryPass);
-    }
+    setIsRecoveryLoading(true);
+    try {
+      const res = await fetch('/api/auth/password-reset/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          email: recoveryEmail.trim(),
+          verifiedTicket: recoveryVerifiedTicket,
+          newPassword: newRecoveryPass,
+        }),
+      });
 
-    setRecoverySuccessMsg(`Hasło dla użytkownika ${recoveryTargetUser.name} (${recoveryTargetUser.email}) zostało pomyślnie zaktualizowane! Możesz się teraz zalogować.`);
-    setRecoveryStep('success');
+      const data = await res.json();
+      if (!res.ok) {
+        setRecoveryError(data.error || 'Błąd podczas zmiany hasła.');
+        setIsRecoveryLoading(false);
+        return;
+      }
+
+      setRecoveryStep('success');
+    } catch {
+      setRecoveryError('Błąd połączenia z serwerem podczas zapisywania hasła.');
+    } finally {
+      setIsRecoveryLoading(false);
+    }
   };
 
   // If system has no administrator / users: render the Initial Administrator Setup Wizard
@@ -581,7 +668,8 @@ export const LoginGate: React.FC<LoginGateProps> = ({
               setActiveTab('recovery');
               setRecoveryStep('email');
               setRecoveryError(null);
-              setRecoverySuccessMsg(null);
+              setRecoveryInfoMsg(null);
+              checkSmtpStatus();
             }}
             className={`py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
               activeTab === 'recovery'
@@ -594,16 +682,16 @@ export const LoginGate: React.FC<LoginGateProps> = ({
           </button>
         </div>
 
-        {/* TAB 1: LOGOWANIE (2FA STEP) */}
+        {/* TAB 1: LOGOWANIE (2FA STEP - STRICT RFC 6238 OR BACKUP CODE) */}
         {activeTab === 'login' && authStep === '2fa' && (
           <form onSubmit={handleTotpSubmit} className="space-y-4 animate-in fade-in">
             <div className="text-center space-y-1">
               <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center mx-auto mb-2">
                 <Smartphone className="w-6 h-6" />
               </div>
-              <h3 className="font-bold text-white text-sm">Uwierzytelnianie dwuskładnikowe (2FA)</h3>
+              <h3 className="font-bold text-white text-sm">Weryfikacja dwuskładnikowa (2FA)</h3>
               <p className="text-xs text-slate-400">
-                Wprowadź 6-cyfrowy kod z aplikacji Google Authenticator dla profilu <strong>{pendingUser2FA?.name}</strong>.
+                Wprowadź 6-cyfrowy kod z Google Authenticator lub jeden z jednorazowych kodów zapasowych dla <strong>{pendingUser2FA?.name}</strong>.
               </p>
             </div>
 
@@ -616,27 +704,30 @@ export const LoginGate: React.FC<LoginGateProps> = ({
 
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1.5 text-center">
-                Wprowadź 6-cyfrowy kod z aplikacji Google Authenticator
+                Kod z aplikacji Google Authenticator lub kod zapasowy
               </label>
               <input
                 type="text"
                 required
-                maxLength={6}
+                maxLength={10}
                 value={totpInput}
-                onChange={(e) => setTotpInput(e.target.value.replace(/\D/g, ''))}
-                placeholder="000000"
+                onChange={(e) => setTotpInput(e.target.value.toUpperCase())}
+                placeholder="000000 lub XXXX-XXXX"
                 autoFocus
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-center text-lg tracking-[0.3em] font-mono font-bold text-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-center text-lg tracking-[0.2em] font-mono font-bold text-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
+              <p className="text-[10px] text-slate-400 text-center mt-1">
+                Tolerancja czasowa ±30 sekund. Użyty kod nie może zostać wykorzystany ponownie.
+              </p>
             </div>
 
             <button
               type="submit"
-              disabled={isLoggingIn || totpInput.length < 6}
+              disabled={isLoggingIn || totpInput.trim().length < 6}
               className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2"
             >
               <ShieldCheck className="w-4 h-4" />
-              <span>{isLoggingIn ? 'Weryfikacja...' : 'Zweryfikuj kod i wejdź'}</span>
+              <span>{isLoggingIn ? 'Weryfikacja...' : 'Zweryfikuj kod i zaloguj'}</span>
             </button>
 
             <button
@@ -644,7 +735,6 @@ export const LoginGate: React.FC<LoginGateProps> = ({
               onClick={() => {
                 setAuthStep('credentials');
                 setLoginError(null);
-                setShow2FADetails(false);
               }}
               className="w-full py-1.5 text-slate-400 hover:text-white text-xs flex items-center justify-center gap-1 transition-colors"
             >
@@ -723,7 +813,8 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   setActiveTab('recovery');
                   setRecoveryStep('email');
                   setRecoveryError(null);
-                  setRecoverySuccessMsg(null);
+                  setRecoveryInfoMsg(null);
+                  checkSmtpStatus();
                 }}
                 className="text-[11px] text-sky-400 hover:text-sky-300 hover:underline flex items-center gap-1"
               >
@@ -766,32 +857,36 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   Przed rozpoczęciem pracy w systemie konto <strong>musi zostać zatwierdzone przez Administratora pracowni</strong>.
                 </p>
 
-                {created2FASecret && (
-                  <div className="p-3 bg-slate-900 border border-emerald-700/60 rounded-xl space-y-2.5 text-left">
+                {registered2FASecret && (
+                  <div className="p-3 bg-slate-900 border border-emerald-700/60 rounded-xl space-y-3 text-left">
                     <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-xs">
                       <QrCode className="w-4 h-4 shrink-0" />
-                      <span>Skonfiguruj Google Authenticator teraz:</span>
+                      <span>Konfiguracja Google Authenticator (wyświetlana tylko raz!):</span>
                     </div>
                     <p className="text-[11px] text-slate-300">
-                      Zeskanuj poniższy kod QR aparatem w aplikacji Google Authenticator na telefonie lub przepisz klucz konfiguracyjny:
+                      Zeskanuj poniższy kod QR aparatem w aplikacji Google Authenticator lub wpisz klucz konfiguracyjny:
                     </p>
-                    <div className="flex justify-center p-2 bg-white rounded-lg w-fit mx-auto shadow-md">
-                      <img
-                        src={getQrCodeUrl(getOtpAuthUrl(createdUserEmail, created2FASecret))}
-                        alt="Kod QR Google Authenticator"
-                        className="w-36 h-36"
-                      />
-                    </div>
+
+                    {registeredQrDataUrl && (
+                      <div className="flex justify-center p-2 bg-white rounded-lg w-fit mx-auto shadow-md">
+                        <img
+                          src={registeredQrDataUrl}
+                          alt="Kod QR Google Authenticator"
+                          className="w-36 h-36"
+                        />
+                      </div>
+                    )}
+
                     <div className="space-y-1">
                       <span className="text-[10px] text-slate-400 uppercase font-semibold block">Klucz konfiguracyjny (Secret Key):</span>
                       <div className="flex items-center justify-between bg-slate-950 p-2 rounded border border-slate-800">
                         <span className="font-mono text-xs text-emerald-300 tracking-wider font-bold">
-                          {formatSecretKey(created2FASecret)}
+                          {formatSecretKey(registered2FASecret)}
                         </span>
                         <button
                           type="button"
                           onClick={async () => {
-                            await copyToClipboard(created2FASecret);
+                            await copyToClipboard(registered2FASecret);
                             setCopiedKey(true);
                             setTimeout(() => setCopiedKey(false), 2000);
                           }}
@@ -802,6 +897,39 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                         </button>
                       </div>
                     </div>
+
+                    {registered2FABackupCodes.length > 0 && (
+                      <div className="space-y-1.5 pt-2 border-t border-slate-800">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-amber-300 uppercase font-semibold flex items-center gap-1">
+                            <FileText className="w-3 h-3" />
+                            <span>8 jednorazowych kodów zapasowych:</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await copyToClipboard(registered2FABackupCodes.join('\n'));
+                              setCopiedCodes(true);
+                              setTimeout(() => setCopiedCodes(false), 2000);
+                            }}
+                            className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-white rounded text-[10px] flex items-center gap-1"
+                          >
+                            {copiedCodes ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                            <span>{copiedCodes ? 'Skopiowano kody' : 'Kopiuj wszystkie'}</span>
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5 bg-slate-950 p-2 rounded border border-slate-800 font-mono text-xs text-slate-200">
+                          {registered2FABackupCodes.map((code, idx) => (
+                            <div key={idx} className="p-1 bg-slate-900/80 rounded text-center border border-slate-800/80">
+                              {code}
+                            </div>
+                          ))}
+                        </div>
+                        <p className="text-[10px] text-amber-400/90 leading-tight">
+                          Zapisz te 8 kodów w bezpiecznym miejscu. Umożliwią one logowanie w przypadku utraty telefonu. Każdy kod działa tylko raz.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -810,7 +938,9 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   onClick={() => {
                     setActiveTab('login');
                     setRegSuccess(false);
-                    setCreated2FASecret(null);
+                    setRegistered2FASecret(null);
+                    setRegistered2FABackupCodes([]);
+                    setRegisteredQrDataUrl(null);
                   }}
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow-md"
                 >
@@ -913,7 +1043,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                       <span>Uwierzytelnianie 2FA (Google Authenticator)</span>
                     </span>
                     <span className="text-[10px] text-slate-400">
-                      Wymagaj 6-cyfrowego kodu jednorazowego przy każdym logowaniu
+                      Serwer wygeneruje klucz TOTP i 8 jednorazowych kodów zapasowych
                     </span>
                   </div>
                   <input
@@ -937,7 +1067,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
           </div>
         )}
 
-        {/* TAB 3: ODZYSKIWANIE HASŁA ZA POMOCĄ E-MAIL */}
+        {/* TAB 3: ODZYSKIWANIE HASŁA ZA POMOCĄ E-MAIL (SMTP) */}
         {activeTab === 'recovery' && (
           <div className="space-y-4 animate-in fade-in">
             <div className="text-center space-y-1">
@@ -950,7 +1080,34 @@ export const LoginGate: React.FC<LoginGateProps> = ({
               </p>
             </div>
 
-            {recoveryError && (
+            {/* Informacja jeśli funkcja SMTP nie jest skonfigurowana */}
+            {isSmtpConfigured === false && (
+              <div className="p-4 rounded-xl bg-amber-950/60 border border-amber-800 text-amber-200 text-xs space-y-2">
+                <div className="flex items-center gap-2 font-bold text-amber-300">
+                  <Info className="w-4 h-4 shrink-0" />
+                  <span>Funkcja resetowania hasła przez e-mail jest wyłączona</span>
+                </div>
+                <p className="leading-relaxed text-[11px] text-amber-200/90">
+                  W konfiguracji systemu nie zdefiniowano serwera pocztowego SMTP (zmienne <code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_USER</code>, <code>SMTP_PASS</code>).
+                </p>
+                <div className="p-2.5 bg-slate-900 rounded-lg border border-amber-900/60 text-slate-200 text-[11px] space-y-1">
+                  <strong>Co możesz zrobić?</strong>
+                  <p>Skontaktuj się z <strong>Administratorem pracowni</strong>. Administrator może natychmiast ustawić nowe hasło dla Twojego konta w panelu <em>Ustawienia &rarr; Użytkownicy</em>.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('login');
+                    setRecoveryError(null);
+                  }}
+                  className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold transition-colors mt-2"
+                >
+                  Powrót do logowania
+                </button>
+              </div>
+            )}
+
+            {isSmtpConfigured && recoveryError && (
               <div className="p-3 rounded-lg bg-rose-950/60 border border-rose-800 text-rose-200 text-xs flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
                 <span className="leading-relaxed">{recoveryError}</span>
@@ -958,7 +1115,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
             )}
 
             {/* Krok 1: Wpisanie adresu e-mail */}
-            {recoveryStep === 'email' && (
+            {isSmtpConfigured && recoveryStep === 'email' && (
               <form onSubmit={handleRequestRecoveryEmail} className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1.5">
@@ -982,27 +1139,25 @@ export const LoginGate: React.FC<LoginGateProps> = ({
 
                 <button
                   type="submit"
-                  className="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-sky-600/30 flex items-center justify-center gap-2"
+                  disabled={isRecoveryLoading}
+                  className="w-full py-2.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-sky-600/30 flex items-center justify-center gap-2"
                 >
                   <Mail className="w-4 h-4" />
-                  <span>Wyślij kod weryfikacyjny</span>
+                  <span>{isRecoveryLoading ? 'Wysyłanie...' : 'Wyślij kod weryfikacyjny'}</span>
                 </button>
               </form>
             )}
 
-            {/* Krok 2: Wprowadzenie 6-cyfrowego kodu */}
-            {recoveryStep === 'code' && (
+            {/* Krok 2: Wprowadzenie 6-cyfrowego kodu otrzymanego na e-mail (ŻADEN KOD NIE JEST POKAZYWANY NA EKRANIE) */}
+            {isSmtpConfigured && recoveryStep === 'code' && (
               <form onSubmit={handleVerifyRecoveryCode} className="space-y-4">
                 <div className="p-3 bg-sky-950/60 border border-sky-800 rounded-lg text-xs text-sky-200 space-y-1">
                   <div className="flex items-center gap-1.5 font-bold text-sky-300">
                     <CheckCircle2 className="w-4 h-4 text-sky-400 shrink-0" />
-                    <span>Wysłano kod weryfikacyjny</span>
+                    <span>Żądanie wysłane</span>
                   </div>
-                  <p className="text-[11px] text-slate-300">
-                    Kod weryfikacyjny został wysłany na adres: <strong>{recoveryTargetUser?.email}</strong>.
-                  </p>
-                  <p className="text-[11px] font-mono text-emerald-300 bg-emerald-950/60 p-1.5 rounded border border-emerald-800">
-                    Twój 6-cyfrowy kod weryfikacyjny: <strong className="text-white text-sm tracking-widest">{recoveryGeneratedCode}</strong>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    {recoveryInfoMsg || 'Jeśli podany adres e-mail istnieje w bazie pracowni, wysłano na niego 6-cyfrowy kod weryfikacyjny. Kod jest ważny przez 10 minut.'}
                   </p>
                 </div>
 
@@ -1023,14 +1178,18 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                     autoFocus
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-center text-lg tracking-[0.3em] font-mono font-bold text-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
                   />
+                  <p className="text-[10px] text-slate-400 text-center mt-1">
+                    Maksymalnie 5 prób weryfikacji.
+                  </p>
                 </div>
 
                 <button
                   type="submit"
-                  className="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-sky-600/30 flex items-center justify-center gap-2"
+                  disabled={isRecoveryLoading || enteredRecoveryCode.length < 6}
+                  className="w-full py-2.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-sky-600/30 flex items-center justify-center gap-2"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Potwierdź kod weryfikacyjny</span>
+                  <span>{isRecoveryLoading ? 'Weryfikacja...' : 'Potwierdź kod weryfikacyjny'}</span>
                 </button>
 
                 <button
@@ -1045,10 +1204,10 @@ export const LoginGate: React.FC<LoginGateProps> = ({
             )}
 
             {/* Krok 3: Ustawienie nowego hasła */}
-            {recoveryStep === 'new_password' && (
+            {isSmtpConfigured && recoveryStep === 'new_password' && (
               <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
                 <div className="p-3 bg-slate-900/80 border border-slate-700 rounded-lg text-xs text-slate-300">
-                  Użytkownik: <strong className="text-white">{recoveryTargetUser?.name}</strong> ({recoveryTargetUser?.email})
+                  Adres e-mail: <strong className="text-white">{recoveryEmail}</strong>
                 </div>
 
                 <div>
@@ -1089,16 +1248,17 @@ export const LoginGate: React.FC<LoginGateProps> = ({
 
                 <button
                   type="submit"
-                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2"
+                  disabled={isRecoveryLoading || newRecoveryPass.length < 8}
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2"
                 >
                   <KeyRound className="w-4 h-4" />
-                  <span>Zapisz nowe hasło</span>
+                  <span>{isRecoveryLoading ? 'Zapisywanie...' : 'Zapisz nowe hasło'}</span>
                 </button>
               </form>
             )}
 
             {/* Krok 4: Sukces */}
-            {recoveryStep === 'success' && (
+            {isSmtpConfigured && recoveryStep === 'success' && (
               <div className="p-4 rounded-xl bg-emerald-950/60 border border-emerald-800 text-center space-y-3">
                 <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
                   <CheckCircle2 className="w-6 h-6" />
@@ -1107,7 +1267,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   Hasło zostało pomyślnie zmienione!
                 </h4>
                 <p className="text-xs text-emerald-200/90 leading-relaxed">
-                  {recoverySuccessMsg}
+                  Twoje nowe hasło zostało zabezpieczone algorytmem scrypt na serwerze. Możesz się teraz zalogować.
                 </p>
                 <button
                   type="button"
@@ -1115,9 +1275,6 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                     setActiveTab('login');
                     setAuthStep('credentials');
                     setPassword(newRecoveryPass);
-                    if (recoveryTargetUser) {
-                      setSelectedUserId(recoveryTargetUser.id);
-                    }
                   }}
                   className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow-xs"
                 >
@@ -1126,13 +1283,13 @@ export const LoginGate: React.FC<LoginGateProps> = ({
               </div>
             )}
 
-            {recoveryStep !== 'success' && (
+            {isSmtpConfigured && recoveryStep !== 'success' && (
               <button
                 type="button"
                 onClick={() => {
                   setActiveTab('login');
                   setAuthStep('credentials');
-                  setLoginError(null);
+                  setRecoveryError(null);
                 }}
                 className="w-full py-1 text-slate-400 hover:text-white text-xs flex items-center justify-center gap-1 transition-colors"
               >
