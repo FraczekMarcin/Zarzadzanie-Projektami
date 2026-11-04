@@ -585,7 +585,6 @@ app.get('/api/health', (_req, res) => {
     timestamp: new Date().toISOString(),
     storage: 'JSON Database (app_state.json)',
     persistedState: !!serverAppStateCache,
-    dataDir: DATA_DIR,
   });
 });
 
@@ -1077,43 +1076,79 @@ app.post('/api/state', requireAuth, async (req, res) => {
     const isAdmin = caller.role === 'admin';
     const isManager = caller.role === 'admin' || caller.role === 'project_manager';
 
-    if (!isAdmin) {
-      // 1. Zwykły użytkownik (nie admin) nie może zastąpić całych tablic projects/tasks pustymi
-      const curProjects = Array.isArray(serverAppStateCache?.projects) ? serverAppStateCache.projects : [];
-      if (curProjects.length > 0 && Array.isArray(incoming.projects) && incoming.projects.length === 0) {
-        return res.status(400).json({ error: 'Brak uprawnień do zastąpienia listy projektów pustą tablicą.' });
-      }
-
-      const curTasks = serverTasksCache || [];
-      if (curTasks.length > 0 && Array.isArray(incoming.tasks) && incoming.tasks.length === 0) {
-        return res.status(400).json({ error: 'Brak uprawnień do zastąpienia listy zadań pustą tablicą.' });
-      }
-
-      // 2. Zwykły użytkownik nie może usuwać cudzych rekordów
-      if (Array.isArray(incoming.tasks) && curTasks.length > 0) {
-        const incomingTaskIds = new Set(incoming.tasks.map((t: any) => t.id));
-        const removedTasks = curTasks.filter((t) => !incomingTaskIds.has(t.id));
-        for (const t of removedTasks) {
-          const isOwn = (t.assigneeId && t.assigneeId === caller.id) ||
-                        (t.creatorId && t.creatorId === caller.id) ||
-                        (!t.assigneeId && !t.creatorId);
-          if (!isOwn && !isManager) {
+    if (!isManager) {
+      // (a) Nie wolno usuwać projektów (odrzuć 400, jeśli zniknie którykolwiek id projektu)
+      if (Array.isArray(incoming.projects)) {
+        const curProjects = Array.isArray(serverAppStateCache?.projects) ? serverAppStateCache.projects : [];
+        if (curProjects.length > 0) {
+          const incomingProjectIds = new Set(incoming.projects.map((p: any) => p.id));
+          const removedProject = curProjects.find((p: any) => !incomingProjectIds.has(p.id));
+          if (removedProject) {
             return res.status(400).json({
-              error: `Brak uprawnień do usunięcia cudzego rekordu zadania: ${t.title || t.id}`,
+              error: `Brak uprawnień do usunięcia projektu: "${removedProject.name || removedProject.id}". Usuwanie projektów wymaga roli administratora lub kierownika projektu.`,
             });
           }
         }
       }
-    }
 
-    // 3. Odrzucaj 400, jeśli liczba zadań spada o >20% bez roli admin/kierownika
-    if (!isManager && Array.isArray(incoming.tasks)) {
-      const oldLen = (serverTasksCache || []).length;
-      const newLen = incoming.tasks.length;
-      if (oldLen > 0 && newLen < oldLen * 0.8) {
-        return res.status(400).json({
-          error: `Odrzucono próbę usunięcia ponad 20% zadań (${oldLen} -> ${newLen}) bez roli administratora lub kierownika projektu.`,
-        });
+      // (b) Nie wolno usuwać komentarzy ani wpisów activityLogs, które nie są własne (autor = caller)
+      if (Array.isArray(incoming.comments)) {
+        const curComments = Array.isArray(serverAppStateCache?.comments) ? serverAppStateCache.comments : [];
+        if (curComments.length > 0) {
+          const incomingCommentIds = new Set(incoming.comments.map((c: any) => c.id));
+          const removedComments = curComments.filter((c: any) => !incomingCommentIds.has(c.id));
+          for (const c of removedComments) {
+            if (c.userId !== caller.id) {
+              return res.status(400).json({
+                error: `Brak uprawnień do usunięcia cudzego komentarza (ID: ${c.id}).`,
+              });
+            }
+          }
+        }
+      }
+
+      if (Array.isArray(incoming.activityLogs)) {
+        const curActivity = Array.isArray(serverAppStateCache?.activityLogs) ? serverAppStateCache.activityLogs : [];
+        if (curActivity.length > 0) {
+          const incomingActivityIds = new Set(incoming.activityLogs.map((a: any) => a.id));
+          const removedActivity = curActivity.filter((a: any) => !incomingActivityIds.has(a.id));
+          for (const a of removedActivity) {
+            if (a.userId !== caller.id) {
+              return res.status(400).json({
+                error: `Brak uprawnień do usunięcia cudzego wpisu w dzienniku aktywności (ID: ${a.id}).`,
+              });
+            }
+          }
+        }
+      }
+
+      // (c) W regule "cudzych zadań": użyj reporterId zamiast creatorId; zadanie bez przypisanej osoby traktuj jako cudze
+      if (Array.isArray(incoming.tasks)) {
+        const curTasks = serverTasksCache || [];
+        if (curTasks.length > 0) {
+          const incomingTaskIds = new Set(incoming.tasks.map((t: any) => t.id));
+          const removedTasks = curTasks.filter((t: any) => !incomingTaskIds.has(t.id));
+          for (const t of removedTasks) {
+            // Własne wyłącznie gdy przypisane do callera LUB zgłoszone przez callera
+            // Zadanie bez przypisanej osoby (brak assigneeId) i ze zgłaszającym innym niż caller jest traktowane jako cudze
+            const isOwn = (t.assigneeId && t.assigneeId === caller.id) ||
+                          (t.reporterId && t.reporterId === caller.id);
+            if (!isOwn) {
+              return res.status(400).json({
+                error: `Brak uprawnień do usunięcia cudzego zadania: "${t.title || t.code || t.id}".`,
+              });
+            }
+          }
+        }
+
+        // Odrzucaj 400, jeśli liczba zadań spada o >20% bez roli admin/kierownika
+        const oldLen = (serverTasksCache || []).length;
+        const newLen = incoming.tasks.length;
+        if (oldLen > 0 && newLen < oldLen * 0.8) {
+          return res.status(400).json({
+            error: `Odrzucono próbę usunięcia ponad 20% zadań (${oldLen} -> ${newLen}) bez roli administratora lub kierownika projektu.`,
+          });
+        }
       }
     }
 

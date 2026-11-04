@@ -5,4 +5,4 @@ npm-debug.log*
 backups
 .env
 .env.production
-data/
+/data/
