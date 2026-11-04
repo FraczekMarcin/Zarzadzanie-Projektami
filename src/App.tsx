@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Task, Project, User, Priority, TaskStatus, ActivityLog, Comment, ProjectTemplate } from './types';
-import { INITIAL_USERS, INITIAL_PROJECTS, INITIAL_TASKS, INITIAL_ACTIVITY } from './data/initialData';
+import { INITIAL_PROJECTS, INITIAL_TASKS, INITIAL_ACTIVITY } from './data/initialData';
 import { GanttChart } from './components/GanttChart';
 import { CalendarView } from './components/CalendarView';
 import { TaskListView } from './components/TaskListView';
@@ -75,15 +75,21 @@ export default function App() {
     }
   });
 
-  // Persistence state with complete removal of demo data
+  // Setup required state (detected from server /api/auth/setup-status)
+  const [setupRequired, setSetupRequired] = useState<boolean | null>(null);
+
+  // Persistence state with users loaded strictly from server
   const [users, setUsers] = useState<User[]>(() => {
     try {
       const saved = localStorage.getItem('oph_users');
-      const list: User[] = saved ? JSON.parse(saved) : INITIAL_USERS;
-      const cleanList = list.filter((u) => !u.isDemo);
-      return cleanList.length > 0 ? cleanList : INITIAL_USERS;
+      if (saved) {
+        const list: User[] = JSON.parse(saved);
+        const cleanList = list.filter((u) => !u.isDemo);
+        return cleanList;
+      }
+      return [];
     } catch {
-      return INITIAL_USERS;
+      return [];
     }
   });
 
@@ -92,12 +98,17 @@ export default function App() {
       const saved = localStorage.getItem('oph_current_user');
       if (saved) {
         const u = JSON.parse(saved);
-        if (!u.isDemo) return u;
+        if (!u.isDemo && u.id) return u;
       }
-      return INITIAL_USERS[0];
-    } catch {
-      return INITIAL_USERS[0];
-    }
+    } catch {}
+    return {
+      id: '',
+      name: '',
+      email: '',
+      role: 'admin',
+      department: '',
+      initials: '',
+    };
   });
 
   const [projects, setProjects] = useState<Project[]>(() => {
@@ -257,13 +268,19 @@ export default function App() {
         localStorage.removeItem('oph_is_authenticated');
       });
 
-    // Pobierz publiczną listę profili dla ekranu logowania (bez hashy haseł)
+    // Pobierz status konfiguracji oraz publiczną listę profili dla ekranu logowania (bez hashy haseł)
     fetch('/api/auth/setup-status', { credentials: 'same-origin' })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!isMounted || !data) return;
-        if (Array.isArray(data.users) && data.users.length > 0) {
+        if (typeof data.setupRequired === 'boolean') {
+          setSetupRequired(data.setupRequired);
+        }
+        if (Array.isArray(data.users)) {
           setUsers(data.users);
+          try {
+            localStorage.setItem('oph_users', JSON.stringify(data.users));
+          } catch {}
         }
       })
       .catch(() => {});
@@ -1145,6 +1162,7 @@ export default function App() {
     return (
       <LoginGate
         users={users}
+        setupRequired={setupRequired !== null ? setupRequired : undefined}
         onLogin={handleLoginSuccess}
         onRegister={handleRegisterUser}
         onUpdateUserPassword={handleUpdateUserPassword}

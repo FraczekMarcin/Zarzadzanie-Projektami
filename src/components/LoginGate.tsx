@@ -35,6 +35,7 @@ interface LoginGateProps {
   onRegister?: (newUser: Omit<User, 'id' | 'initials'>) => void;
   onUpdateUserPassword?: (userId: string, newPass: string) => Promise<void> | void;
   onRefreshUsers?: () => Promise<void> | void;
+  setupRequired?: boolean;
 }
 
 export const LoginGate: React.FC<LoginGateProps> = ({
@@ -42,11 +43,15 @@ export const LoginGate: React.FC<LoginGateProps> = ({
   onLogin,
   onUpdateUserPassword,
   onRefreshUsers,
+  setupRequired: propSetupRequired,
 }) => {
   const [activeTab, setActiveTab] = useState<'login' | 'register' | 'recovery'>('login');
   
-  // Setup admin wizard state (triggered when no users exist)
-  const [requiresAdminSetup, setRequiresAdminSetup] = useState<boolean>(false);
+  // Setup admin wizard state (triggered when setupRequired === true on server)
+  const [setupRequired, setSetupRequired] = useState<boolean>(() => {
+    if (typeof propSetupRequired === 'boolean') return propSetupRequired;
+    return users.length === 0;
+  });
   const [adminName, setAdminName] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
   const [adminDepartment, setAdminDepartment] = useState('Główny Architekt & Zarząd Pracowni');
@@ -95,22 +100,35 @@ export const LoginGate: React.FC<LoginGateProps> = ({
   const [regError, setRegError] = useState<string | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
 
+  // Sync propSetupRequired if updated externally
+  useEffect(() => {
+    if (typeof propSetupRequired === 'boolean') {
+      setSetupRequired(propSetupRequired);
+    }
+  }, [propSetupRequired]);
+
   // Check setup status from server on mount
   useEffect(() => {
+    let isMounted = true;
     fetch('/api/auth/setup-status', { credentials: 'same-origin' })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data && data.requiresAdminSetup) {
-          setRequiresAdminSetup(true);
+        if (!isMounted) return;
+        if (data && typeof data.setupRequired === 'boolean') {
+          setSetupRequired(data.setupRequired);
         } else if (users.length === 0) {
-          setRequiresAdminSetup(true);
+          setSetupRequired(true);
         }
       })
       .catch(() => {
+        if (!isMounted) return;
         if (users.length === 0) {
-          setRequiresAdminSetup(true);
+          setSetupRequired(true);
         }
       });
+    return () => {
+      isMounted = false;
+    };
   }, [users.length]);
 
   // Check SMTP status for password reset
@@ -178,7 +196,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
         return;
       }
 
-      setRequiresAdminSetup(false);
+      setSetupRequired(false);
       if (onRefreshUsers) await onRefreshUsers();
       onLogin(data.user);
     } catch {
@@ -464,7 +482,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
   };
 
   // If system has no administrator / users: render the Initial Administrator Setup Wizard
-  if (requiresAdminSetup) {
+  if (setupRequired) {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col justify-center items-center p-4 relative overflow-hidden">
         <div className="absolute -top-40 -left-40 w-96 h-96 bg-amber-600/20 rounded-full blur-3xl pointer-events-none" />

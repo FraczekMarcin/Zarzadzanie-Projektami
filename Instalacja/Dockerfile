@@ -11,7 +11,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install --legacy-peer-deps --no-audit
+RUN npm ci
 
 COPY . .
 RUN npm run build
@@ -38,7 +38,7 @@ RUN mkdir -p /app/data && chown -R appuser:nodejs /app/data
 # Kopiowanie skompilowanego frontendu i serwera (zaledwie 650 KB!)
 COPY --chown=appuser:nodejs --from=builder /app/dist ./dist
 
-# Instalacja wyłącznie serwera express (zaledwie 2.4 MB bez zbędnych 250 MB devDependencies)
+# Instalacja wyłącznie serwera express, nodemailer i dotenv (bez zbędnych 250 MB devDependencies)
 RUN npm --prefix /app init -y && \
     npm --prefix /app install --no-package-lock --no-audit express@^4.21.2 nodemailer@^10.3.1 dotenv@^17.2.3 && \
     npm cache clean --force
