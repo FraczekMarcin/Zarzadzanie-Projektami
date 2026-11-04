@@ -5,7 +5,7 @@
 # ==========================================
 
 # Etap 1: Budowanie aplikacji z kodu źródłowego
-FROM node:20-alpine AS builder
+FROM node:22-slim AS builder
 
 WORKDIR /app
 
