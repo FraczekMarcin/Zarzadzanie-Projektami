@@ -12,6 +12,22 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Konfiguracja trust proxy: x-forwarded-proto i x-forwarded-for ufaj TYLKO gdy ustawione TRUST_PROXY
+if (process.env.TRUST_PROXY) {
+  const tp = process.env.TRUST_PROXY.trim().toLowerCase();
+  if (tp === 'true' || tp === '1') {
+    app.set('trust proxy', true);
+  } else if (tp === 'false' || tp === '0') {
+    app.set('trust proxy', false);
+  } else if (/^\d+$/.test(tp)) {
+    app.set('trust proxy', parseInt(tp, 10));
+  } else {
+    app.set('trust proxy', process.env.TRUST_PROXY.trim());
+  }
+} else {
+  app.set('trust proxy', false);
+}
+
 // Nagłówki bezpieczeństwa HTTP (Security Headers & Content-Security-Policy)
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -163,8 +179,15 @@ function parseCookies(header?: string): Record<string, string> {
   return res;
 }
 
+function isRequestHttps(req: express.Request): boolean {
+  if (req.app.get('trust proxy')) {
+    return Boolean(req.secure || req.headers['x-forwarded-proto'] === 'https');
+  }
+  return Boolean(req.secure);
+}
+
 function setSessionCookie(req: express.Request, res: express.Response, token: string, maxAgeSec = 12 * 3600) {
-  const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  const isHttps = isRequestHttps(req);
   const cookieParts = [
     `zp_session=${encodeURIComponent(token)}`,
     'Path=/',
@@ -179,7 +202,7 @@ function setSessionCookie(req: express.Request, res: express.Response, token: st
 }
 
 function clearSessionCookie(req: express.Request, res: express.Response) {
-  const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  const isHttps = isRequestHttps(req);
   const cookieParts = [
     'zp_session=',
     'Path=/',
@@ -302,41 +325,63 @@ interface FailedLoginRec {
 const failedLogins = new Map<string, FailedLoginRec>();
 
 function getClientIp(req: express.Request): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string') {
-    return forwarded.split(',')[0].trim();
+  if (req.app.get('trust proxy')) {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (typeof forwarded === 'string') {
+      return forwarded.split(',')[0].trim();
+    }
+    return req.ip || req.socket.remoteAddress || '127.0.0.1';
   }
-  return req.ip || req.socket.remoteAddress || '127.0.0.1';
+  return req.socket.remoteAddress || req.ip || '127.0.0.1';
 }
 
-function isRateLimited(userId: string, clientIp: string): boolean {
+function isRateLimited(account: string, clientIp: string): boolean {
   const now = Date.now();
-  const keys = [`user:${userId}`, `ip:${clientIp}`];
-  for (const k of keys) {
-    const rec = failedLogins.get(k);
-    if (rec && rec.blockedUntil > now) {
-      return true;
-    }
+  const cleanAccount = String(account || '').trim().toLowerCase();
+
+  // 1. Sprawdź blokadę pary IP + konto (5 prób z tego IP na to konto)
+  const accountKey = `ip_user:${clientIp}:${cleanAccount}`;
+  const accRec = failedLogins.get(accountKey);
+  if (accRec && accRec.blockedUntil > now) {
+    return true;
   }
+
+  // 2. Sprawdź blokadę globalną adresu IP (15 prób z tego IP na jakiekolwiek konta)
+  const ipKey = `ip_global:${clientIp}`;
+  const ipRec = failedLogins.get(ipKey);
+  if (ipRec && ipRec.blockedUntil > now) {
+    return true;
+  }
+
   return false;
 }
 
-function registerFailedLogin(userId: string, clientIp: string) {
+function registerFailedLogin(account: string, clientIp: string) {
   const now = Date.now();
-  const keys = [`user:${userId}`, `ip:${clientIp}`];
-  for (const k of keys) {
-    const rec = failedLogins.get(k) || { attempts: 0, blockedUntil: 0 };
-    rec.attempts += 1;
-    if (rec.attempts >= 5) {
-      rec.blockedUntil = now + 15 * 60 * 1000; // Blokada 15 minut
-    }
-    failedLogins.set(k, rec);
+  const cleanAccount = String(account || '').trim().toLowerCase();
+
+  // Licznik dla pary IP + konto (5 błędnych logowań -> blokada 15 minut)
+  const accountKey = `ip_user:${clientIp}:${cleanAccount}`;
+  const accRec = failedLogins.get(accountKey) || { attempts: 0, blockedUntil: 0 };
+  accRec.attempts += 1;
+  if (accRec.attempts >= 5) {
+    accRec.blockedUntil = now + 15 * 60 * 1000;
   }
+  failedLogins.set(accountKey, accRec);
+
+  // Licznik globalny na adres IP (15 prób -> blokada IP na 15 minut)
+  const ipKey = `ip_global:${clientIp}`;
+  const ipRec = failedLogins.get(ipKey) || { attempts: 0, blockedUntil: 0 };
+  ipRec.attempts += 1;
+  if (ipRec.attempts >= 15) {
+    ipRec.blockedUntil = now + 15 * 60 * 1000;
+  }
+  failedLogins.set(ipKey, ipRec);
 }
 
-function resetFailedLogin(userId: string, clientIp: string) {
-  failedLogins.delete(`user:${userId}`);
-  failedLogins.delete(`ip:${clientIp}`);
+function resetFailedLogin(account: string, clientIp: string) {
+  const cleanAccount = String(account || '').trim().toLowerCase();
+  failedLogins.delete(`ip_user:${clientIp}:${cleanAccount}`);
 }
 
 // ==============================================================================
@@ -718,44 +763,54 @@ app.post('/api/auth/password-reset/confirm', async (req, res) => {
   }
 });
 
-// Setup status & Public user profiles for login dropdown
-app.get('/api/auth/setup-status', (_req, res) => {
+// Setup status: dla niezalogowanych zwraca TYLKO { setupRequired: boolean }
+app.get('/api/auth/setup-status', (req, res) => {
+  const session = getSessionFromReq(req);
+  const setupRequired = (serverUsersCache || []).length === 0;
+
+  if (!session) {
+    return res.json({ setupRequired });
+  }
+
   res.json({
-    setupRequired: (serverUsersCache || []).length === 0,
+    setupRequired,
     userCount: (serverUsersCache || []).length,
     users: (serverUsersCache || []).filter((u) => u.isApproved !== false).map(sanitizeUser),
   });
 });
 
-// POST /api/auth/login {userId, password, totpCode?}
+// POST /api/auth/login {email, userId, password, totpCode?}
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { userId, password, totpCode } = req.body || {};
+    const { userId, email, password, totpCode } = req.body || {};
+    const identifier = String(email || userId || '').trim();
     const clientIp = getClientIp(req);
 
-    if (!userId || !password) {
-      return res.status(400).json({ error: 'Wymagany identyfikator użytkownika i hasło' });
+    if (!identifier || !password) {
+      return res.status(400).json({ error: 'Wymagany adres e-mail i hasło dostępu' });
     }
 
     // Sprawdzenie blokady rate-limitu
-    if (isRateLimited(String(userId), clientIp)) {
+    if (isRateLimited(identifier, clientIp)) {
       return res.status(429).json({
         error: 'Zbyt wiele nieudanych prób logowania. Konto lub adres IP zablokowany na 15 minut.',
       });
     }
 
+    const AUTH_ERROR_MSG = 'Nieprawidłowy adres e-mail lub hasło';
+
     const user = (serverUsersCache || []).find(
-      (u) => u.id === userId || u.email?.toLowerCase() === String(userId).trim().toLowerCase()
+      (u) => (u.email && u.email.toLowerCase() === identifier.toLowerCase()) || u.id === identifier
     );
 
     if (!user) {
-      registerFailedLogin(String(userId), clientIp);
-      if (isRateLimited(String(userId), clientIp)) {
+      registerFailedLogin(identifier, clientIp);
+      if (isRateLimited(identifier, clientIp)) {
         return res.status(429).json({
           error: 'Zbyt wiele nieudanych prób logowania. Konto lub adres IP zablokowany na 15 minut.',
         });
       }
-      return res.status(401).json({ error: 'Nieprawidłowy użytkownik lub hasło' });
+      return res.status(401).json({ error: AUTH_ERROR_MSG });
     }
 
     if (user.isApproved === false) {
@@ -764,13 +819,13 @@ app.post('/api/auth/login', async (req, res) => {
 
     const isPasswordValid = await verifyAndMigratePassword(user, String(password));
     if (!isPasswordValid) {
-      registerFailedLogin(String(userId), clientIp);
-      if (isRateLimited(String(userId), clientIp)) {
+      registerFailedLogin(identifier, clientIp);
+      if (isRateLimited(identifier, clientIp)) {
         return res.status(429).json({
           error: 'Zbyt wiele nieudanych prób logowania. Konto lub adres IP zablokowany na 15 minut.',
         });
       }
-      return res.status(401).json({ error: 'Nieprawidłowe hasło dostępu' });
+      return res.status(401).json({ error: AUTH_ERROR_MSG });
     }
 
     // 2FA Google Authenticator Check & Jednorazowe kody zapasowe
@@ -802,8 +857,8 @@ app.post('/api/auth/login', async (req, res) => {
       }
 
       if (!authSuccess) {
-        registerFailedLogin(String(userId), clientIp);
-        if (isRateLimited(String(userId), clientIp)) {
+        registerFailedLogin(identifier, clientIp);
+        if (isRateLimited(identifier, clientIp)) {
           return res.status(429).json({
             error: 'Zbyt wiele nieudanych prób logowania. Konto lub adres IP zablokowany na 15 minut.',
           });
@@ -813,7 +868,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     // Pomyślne logowanie - resetowanie licznika błędnych prób
-    resetFailedLogin(String(userId), clientIp);
+    resetFailedLogin(identifier, clientIp);
 
     // Utworzenie tokena i sesji (12 h)
     const token = crypto.randomBytes(32).toString('hex');
@@ -952,7 +1007,7 @@ app.post('/api/auth/register', async (req, res) => {
       id: `usr-${Date.now()}`,
       name: String(name).trim(),
       email: String(email).trim().toLowerCase(),
-      role: role || 'developer',
+      role: 'developer', // Konto zawsze powstaje jako developer; rolę zmienia wyłącznie admin przy zatwierdzeniu
       department: department ? String(department).trim() : 'Projektant',
       initials: String(name).trim().split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || 'UZ',
       passwordHash,
@@ -1013,11 +1068,54 @@ app.get('/api/state', requireAuth, (_req, res) => {
   res.json({ initialized: false, state: null });
 });
 
-// POST /api/state: Wymaga sesji. Tylko admin może modyfikować listę użytkowników.
+// POST /api/state: Wymaga sesji. Walidacja uprawnień do modyfikacji bazy danych.
 app.post('/api/state', requireAuth, async (req, res) => {
   try {
     const caller = (req as any).user;
-    const incoming = req.body;
+    const incoming = req.body || {};
+
+    const isAdmin = caller.role === 'admin';
+    const isManager = caller.role === 'admin' || caller.role === 'project_manager';
+
+    if (!isAdmin) {
+      // 1. Zwykły użytkownik (nie admin) nie może zastąpić całych tablic projects/tasks pustymi
+      const curProjects = Array.isArray(serverAppStateCache?.projects) ? serverAppStateCache.projects : [];
+      if (curProjects.length > 0 && Array.isArray(incoming.projects) && incoming.projects.length === 0) {
+        return res.status(400).json({ error: 'Brak uprawnień do zastąpienia listy projektów pustą tablicą.' });
+      }
+
+      const curTasks = serverTasksCache || [];
+      if (curTasks.length > 0 && Array.isArray(incoming.tasks) && incoming.tasks.length === 0) {
+        return res.status(400).json({ error: 'Brak uprawnień do zastąpienia listy zadań pustą tablicą.' });
+      }
+
+      // 2. Zwykły użytkownik nie może usuwać cudzych rekordów
+      if (Array.isArray(incoming.tasks) && curTasks.length > 0) {
+        const incomingTaskIds = new Set(incoming.tasks.map((t: any) => t.id));
+        const removedTasks = curTasks.filter((t) => !incomingTaskIds.has(t.id));
+        for (const t of removedTasks) {
+          const isOwn = (t.assigneeId && t.assigneeId === caller.id) ||
+                        (t.creatorId && t.creatorId === caller.id) ||
+                        (!t.assigneeId && !t.creatorId);
+          if (!isOwn && !isManager) {
+            return res.status(400).json({
+              error: `Brak uprawnień do usunięcia cudzego rekordu zadania: ${t.title || t.id}`,
+            });
+          }
+        }
+      }
+    }
+
+    // 3. Odrzucaj 400, jeśli liczba zadań spada o >20% bez roli admin/kierownika
+    if (!isManager && Array.isArray(incoming.tasks)) {
+      const oldLen = (serverTasksCache || []).length;
+      const newLen = incoming.tasks.length;
+      if (oldLen > 0 && newLen < oldLen * 0.8) {
+        return res.status(400).json({
+          error: `Odrzucono próbę usunięcia ponad 20% zadań (${oldLen} -> ${newLen}) bez roli administratora lub kierownika projektu.`,
+        });
+      }
+    }
 
     // Tylko administrator może modyfikować tablicę użytkowników
     let nextUsers = serverUsersCache;
@@ -1675,8 +1773,8 @@ app.get('/api/system/check-update', requireAuth, async (_req, res) => {
   }
 });
 
-// API Info endpoint
-app.get('/api/system-info', (_req, res) => {
+// API Info endpoint (Wymaga sesji użytkownika)
+app.get('/api/system-info', requireAuth, (_req, res) => {
   res.json({
     name: 'Zarządzanie Projektami',
     description: 'System zarządzania projektami z wykresem Gantta, terminarzem i integracją Google Calendar na żywo',

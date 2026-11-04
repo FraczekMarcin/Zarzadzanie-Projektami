@@ -62,11 +62,11 @@ export const LoginGate: React.FC<LoginGateProps> = ({
 
   // Step for 2FA
   const [authStep, setAuthStep] = useState<'credentials' | '2fa'>('credentials');
-  const [pendingUser2FA, setPendingUser2FA] = useState<User | null>(null);
+  const [pendingLoginEmail, setPendingLoginEmail] = useState('');
   const [totpInput, setTotpInput] = useState('');
   
   // Login form state
-  const [selectedUserId, setSelectedUserId] = useState<string>(users[0]?.id || '');
+  const [loginEmail, setLoginEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -151,16 +151,6 @@ export const LoginGate: React.FC<LoginGateProps> = ({
     checkSmtpStatus();
   }, []);
 
-  useEffect(() => {
-    if (!selectedUserId && users.length > 0) {
-      const firstApproved = users.find((u) => u.isApproved !== false) || users[0];
-      setSelectedUserId(firstApproved.id);
-    }
-  }, [users, selectedUserId]);
-
-  const approvedUsers = users.filter((u) => u.isApproved !== false);
-  const pendingUsers = users.filter((u) => u.isApproved === false);
-
   // Initial Admin Setup Submission
   const handleAdminSetupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -211,9 +201,9 @@ export const LoginGate: React.FC<LoginGateProps> = ({
     e.preventDefault();
     setLoginError(null);
 
-    const targetUser = users.find((u) => u.id === selectedUserId);
-    if (!targetUser) {
-      setLoginError('Wybierz użytkownika z listy.');
+    const cleanEmail = loginEmail.trim().toLowerCase();
+    if (!cleanEmail) {
+      setLoginError('Wprowadź adres e-mail.');
       return;
     }
 
@@ -224,7 +214,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({
-          userId: selectedUserId,
+          email: cleanEmail,
           password,
         }),
       });
@@ -238,14 +228,14 @@ export const LoginGate: React.FC<LoginGateProps> = ({
       }
 
       if (!res.ok) {
-        setLoginError(data.error || 'Nieprawidłowe hasło dostępu dla tego użytkownika.');
+        setLoginError(data.error || 'Nieprawidłowy adres e-mail lub hasło.');
         setIsLoggingIn(false);
         return;
       }
 
       // If 2FA is required by server
       if (data.require2FA) {
-        setPendingUser2FA(targetUser);
+        setPendingLoginEmail(cleanEmail);
         setAuthStep('2fa');
         setTotpInput('');
         setIsLoggingIn(false);
@@ -266,7 +256,8 @@ export const LoginGate: React.FC<LoginGateProps> = ({
     e.preventDefault();
     setLoginError(null);
 
-    if (!pendingUser2FA) return;
+    const cleanEmail = pendingLoginEmail || loginEmail.trim().toLowerCase();
+    if (!cleanEmail) return;
 
     setIsLoggingIn(true);
     try {
@@ -275,7 +266,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({
-          userId: pendingUser2FA.id,
+          email: cleanEmail,
           password,
           totpCode: totpInput.trim(),
         }),
@@ -709,7 +700,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
               </div>
               <h3 className="font-bold text-white text-sm">Weryfikacja dwuskładnikowa (2FA)</h3>
               <p className="text-xs text-slate-400">
-                Wprowadź 6-cyfrowy kod z Google Authenticator lub jeden z jednorazowych kodów zapasowych dla <strong>{pendingUser2FA?.name}</strong>.
+                Wprowadź 6-cyfrowy kod z Google Authenticator lub jeden z jednorazowych kodów zapasowych dla konta <strong>{pendingLoginEmail}</strong>.
               </p>
             </div>
 
@@ -774,36 +765,22 @@ export const LoginGate: React.FC<LoginGateProps> = ({
 
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center justify-between">
-                <span>Wybierz profil użytkownika</span>
-                {approvedUsers.length > 0 && (
-                  <span className="text-[10px] text-slate-400">Aktywne konta: {approvedUsers.length}</span>
-                )}
+                <span>Adres e-mail <span className="text-rose-400">*</span></span>
               </label>
-              <select
-                value={selectedUserId}
-                onChange={(e) => {
-                  setSelectedUserId(e.target.value);
-                  setLoginError(null);
-                }}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
-              >
-                <optgroup label="Zatwierdzone konta pracowników">
-                  {approvedUsers.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name} — {u.department} ({u.role === 'admin' ? 'Administrator' : 'Projektant'}){u.twoFactorEnabled ? ' [2FA]' : ''}
-                    </option>
-                  ))}
-                </optgroup>
-                {pendingUsers.length > 0 && (
-                  <optgroup label="Konta oczekujące na zatwierdzenie admina">
-                    {pendingUsers.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        ⏳ {u.name} — (Oczekuje na akceptację)
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="email"
+                  required
+                  value={loginEmail}
+                  onChange={(e) => {
+                    setLoginEmail(e.target.value);
+                    setLoginError(null);
+                  }}
+                  placeholder="np. admin@pracownia.pl"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
             </div>
 
             <div>
@@ -849,13 +826,6 @@ export const LoginGate: React.FC<LoginGateProps> = ({
               <UserCheck className="w-4 h-4" />
               <span>{isLoggingIn ? 'Logowanie...' : 'Zaloguj do pracowni'}</span>
             </button>
-
-            {pendingUsers.length > 0 && (
-              <p className="text-[11px] text-amber-400/90 text-center flex items-center justify-center gap-1">
-                <Clock className="w-3.5 h-3.5" />
-                <span>W systemie zarejestrowano {pendingUsers.length} konto oczekujące na potwierdzenie.</span>
-              </p>
-            )}
           </form>
         )}
 
