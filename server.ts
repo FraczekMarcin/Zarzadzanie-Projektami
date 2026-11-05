@@ -74,7 +74,6 @@ try {
 
 // In-memory cache for live synchronization and Google Calendar iCal feeds
 let serverAppStateCache: any = null;
-let serverTasksCache: any[] = [];
 let serverUsersCache: any[] = [];
 
 // Kolejka atomowych i asynchronicznych zapisów stanu
@@ -126,7 +125,6 @@ function ensureStateStructure() {
     if (typeof p.revision !== 'number') p.revision = 1;
   }
 
-  serverTasksCache = serverAppStateCache.tasks;
   serverUsersCache = serverAppStateCache.users;
 }
 
@@ -143,7 +141,7 @@ if (fs.existsSync(STATE_FILE)) {
     const raw = fs.readFileSync(STATE_FILE, 'utf-8');
     serverAppStateCache = JSON.parse(raw);
     ensureStateStructure();
-    console.log(`[Server] Loaded persistent state from ${STATE_FILE} (${serverTasksCache.length} tasks, ${serverUsersCache.length} users, revision: ${serverAppStateCache.revision})`);
+    console.log(`[Server] Loaded persistent state from ${STATE_FILE} (${serverAppStateCache.tasks.length} tasks, ${serverUsersCache.length} users, revision: ${serverAppStateCache.revision})`);
   } catch (err) {
     console.error('[Server] Error reading app_state.json:', err);
   }
@@ -1109,6 +1107,19 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
     }
 
     const targetProject = (serverAppStateCache.projects || []).find((p: any) => p.id === body.projectId);
+    if (!targetProject) {
+      return res.status(404).json({ error: `Projekt o ID "${body.projectId}" nie istnieje.` });
+    }
+
+    // Walidacja ról i członkostwa w projekcie
+    const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
+    if (!isAdminOrManager) {
+      const isMember = Array.isArray(targetProject.memberIds) && targetProject.memberIds.includes(caller.id);
+      if (!isMember) {
+        return res.status(403).json({ error: 'Brak uprawnień: użytkownik nie jest członkiem tego projektu.' });
+      }
+    }
+
     const projKey = targetProject?.key || 'ZAD';
     const existingCount = (serverAppStateCache.tasks || []).filter((t: any) => t.projectId === body.projectId).length;
     const code = body.code || `${projKey}-${String(existingCount + 1).padStart(2, '0')}`;
@@ -1124,7 +1135,6 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
     };
 
     serverAppStateCache.tasks.unshift(newTask);
-    serverTasksCache = serverAppStateCache.tasks;
     const newRev = bumpStateRevision();
     await saveStateAtomicAsync();
 
@@ -1146,6 +1156,17 @@ app.patch('/api/tasks/:id', requireAuth, async (req, res) => {
     const task = (serverAppStateCache.tasks || []).find((t: any) => t.id === id);
     if (!task) {
       return res.status(404).json({ error: `Zadanie o ID "${id}" nie zostało znalezione.` });
+    }
+
+    // Walidacja uprawnień i członkostwa w projekcie
+    const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
+    if (!isAdminOrManager) {
+      const targetProject = (serverAppStateCache.projects || []).find((p: any) => p.id === task.projectId);
+      const isMember = targetProject && Array.isArray(targetProject.memberIds) && targetProject.memberIds.includes(caller.id);
+      const isAssigneeOrReporter = (task.assigneeId && task.assigneeId === caller.id) || (task.reporterId && task.reporterId === caller.id);
+      if (!isMember && !isAssigneeOrReporter) {
+        return res.status(403).json({ error: 'Brak uprawnień do edycji zadania w tym projekcie.' });
+      }
     }
 
     // Weryfikacja optymistycznej blokady (nagłówek If-Match lub pole expectedRevision)
@@ -1209,7 +1230,6 @@ app.delete('/api/tasks/:id', requireAuth, async (req, res) => {
     }
 
     serverAppStateCache.tasks = serverAppStateCache.tasks.filter((t: any) => t.id !== id);
-    serverTasksCache = serverAppStateCache.tasks;
     const newRev = bumpStateRevision();
     await saveStateAtomicAsync();
 
@@ -1224,16 +1244,23 @@ app.delete('/api/tasks/:id', requireAuth, async (req, res) => {
 app.post('/api/projects', requireAuth, async (req, res) => {
   try {
     ensureStateStructure();
+    const caller = (req as any).user;
     const body = req.body || {};
 
     if (!body.name) {
       return res.status(400).json({ error: 'Wymagana nazwa projektu.' });
     }
 
+    const members = Array.isArray(body.memberIds) ? body.memberIds : [caller.id];
+    if (!members.includes(caller.id)) {
+      members.push(caller.id);
+    }
+
     const newProject = {
       ...body,
       id: body.id || `prj-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       key: (body.key || 'PRJ').toUpperCase(),
+      memberIds: members,
       revision: 1,
     };
 
@@ -1252,12 +1279,21 @@ app.post('/api/projects', requireAuth, async (req, res) => {
 app.patch('/api/projects/:id', requireAuth, async (req, res) => {
   try {
     ensureStateStructure();
+    const caller = (req as any).user;
     const { id } = req.params;
     const patch = req.body || {};
 
     const project = (serverAppStateCache.projects || []).find((p: any) => p.id === id);
     if (!project) {
       return res.status(404).json({ error: `Projekt o ID "${id}" nie został znaleziony.` });
+    }
+
+    const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
+    if (!isAdminOrManager) {
+      const isMember = Array.isArray(project.memberIds) && project.memberIds.includes(caller.id);
+      if (!isMember) {
+        return res.status(403).json({ error: 'Brak uprawnień do edycji tego projektu.' });
+      }
     }
 
     const rawIfMatch = req.headers['if-match'] || (patch.expectedRevision !== undefined ? String(patch.expectedRevision) : null);
@@ -1312,7 +1348,6 @@ app.delete('/api/projects/:id', requireAuth, async (req, res) => {
     serverAppStateCache.projects.splice(projectIndex, 1);
     // Usunięcie również zadań powiązanych z usuwanym projektem
     serverAppStateCache.tasks = (serverAppStateCache.tasks || []).filter((t: any) => t.projectId !== id);
-    serverTasksCache = serverAppStateCache.tasks;
 
     const newRev = bumpStateRevision();
     await saveStateAtomicAsync();
@@ -1333,6 +1368,21 @@ app.post('/api/comments', requireAuth, async (req, res) => {
 
     if (!taskId || !content || !String(content).trim()) {
       return res.status(400).json({ error: 'Wymagane pola taskId oraz treść komentarza (content).' });
+    }
+
+    const task = (serverAppStateCache.tasks || []).find((t: any) => t.id === taskId);
+    if (!task) {
+      return res.status(404).json({ error: `Zadanie o ID "${taskId}" nie istnieje.` });
+    }
+
+    const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
+    if (!isAdminOrManager) {
+      const targetProject = (serverAppStateCache.projects || []).find((p: any) => p.id === task.projectId);
+      const isMember = targetProject && Array.isArray(targetProject.memberIds) && targetProject.memberIds.includes(caller.id);
+      const isAssigneeOrReporter = (task.assigneeId && task.assigneeId === caller.id) || (task.reporterId && task.reporterId === caller.id);
+      if (!isMember && !isAssigneeOrReporter) {
+        return res.status(403).json({ error: 'Brak uprawnień do komentowania zadania w tym projekcie.' });
+      }
     }
 
     const newComment = {
@@ -1423,7 +1473,7 @@ app.post('/api/state', requireAuth, async (req, res) => {
     const caller = (req as any).user;
     const incoming = req.body || {};
 
-    // Prompt 9: "POST /api/state: wyłącznie dla admina (import/przywracanie kopii), z wymaganym If-Match na revision stanu. Zwykły developer -> 403 Forbidden."
+    // Modyfikacja całego stanu wyłącznie dla administratora
     if (caller.role !== 'admin') {
       return res.status(403).json({
         error: 'Modyfikacja całego stanu aplikacji jest dozwolona wyłącznie dla Administratora (import/przywracanie kopii).',
@@ -1438,6 +1488,11 @@ app.post('/api/state', requireAuth, async (req, res) => {
       if (cleanMatch !== '*' && cleanMatch !== currentRev) {
         return res.status(409).json({
           error: 'Konflikt wersji stanu aplikacji (baza została zaktualizowana przez innego administratora).',
+          currentState: {
+            ...serverAppStateCache,
+            revision: serverAppStateCache.revision,
+            users: (serverAppStateCache.users || []).map(sanitizeUser),
+          },
           currentRevision: serverAppStateCache.revision,
         });
       }
@@ -1464,9 +1519,6 @@ app.post('/api/state', requireAuth, async (req, res) => {
       initialized: true,
       updatedAt: new Date().toISOString(),
     };
-    if (Array.isArray(incoming.tasks)) {
-      serverTasksCache = incoming.tasks;
-    }
     serverUsersCache = nextUsers;
 
     const newRev = bumpStateRevision();
