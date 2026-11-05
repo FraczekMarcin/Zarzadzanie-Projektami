@@ -94,35 +94,54 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
   const [ftpTestResult, setFtpTestResult] = useState<{ success: boolean; message: string; details?: string } | null>(null);
   const [isFtpUploading, setIsFtpUploading] = useState(false);
 
-  // Backup History
-  const [backupHistory, setBackupHistory] = useState([
-    {
-      id: 'bk-1',
-      date: '2026-10-25 02:00:00',
-      destination: 'Cron PostgreSQL (Docker host)',
-      filename: 'zarzadzanie_backup_2026-10-25_020000.sql.gz',
-      size: '340 KB',
-      status: 'success',
-      recordsCount: `${projects.length} projektów, ${tasks.length} zadań`,
-    },
-    {
-      id: 'bk-2',
-      date: '2026-10-24 07:00:00',
-      destination: 'Google Drive',
-      filename: 'zarzadzanie-projektami-2026-10-24.json',
-      size: '284 KB',
-      status: 'success',
-      recordsCount: `${projects.length} projektów, ${tasks.length} zadań`,
-    },
-  ]);
+  // Backup History & Server Status
+  const [backupHistory, setBackupHistory] = useState<Array<{
+    id: string;
+    date: string;
+    destination: string;
+    filename: string;
+    size: string;
+    status: string;
+    recordsCount: string;
+  }>>([]);
+  const [backupStatusMessage, setBackupStatusMessage] = useState<string | null>(null);
+  const [isBackupActive, setIsBackupActive] = useState<boolean | null>(null);
 
-  // Sync auto snapshots on modal open
+  // Sync auto snapshots on modal open and fetch real backup status from server
   useEffect(() => {
     if (isOpen) {
       setAutoConfig(getAutoBackupConfig());
       setSnapshots(getAutoBackupSnapshots());
+
+      // Pobieranie rzeczywistego statusu kopii zapasowych z /api/backup/status
+      fetch('/api/backup/status', { credentials: 'same-origin' })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (!data) return;
+          setIsBackupActive(Boolean(data.active));
+          setBackupStatusMessage(data.message || null);
+          if (data.lastBackup) {
+            const d = new Date(data.lastBackup.timestamp);
+            const dateStr = !isNaN(d.getTime()) ? d.toLocaleString('pl-PL') : data.lastBackup.timestamp;
+            const sizeStr = data.lastBackup.size ? `${Math.round(data.lastBackup.size / 1024)} KB` : 'N/A';
+            setBackupHistory([
+              {
+                id: 'server-active-bk',
+                date: dateStr,
+                destination: 'Serwer aplikacji (DATA_DIR / backups)',
+                filename: data.lastBackup.filename,
+                size: sizeStr,
+                status: 'success',
+                recordsCount: `${projects.length} projektów, ${tasks.length} zadań`,
+              },
+            ]);
+          } else {
+            setBackupHistory([]);
+          }
+        })
+        .catch(() => {});
     }
-  }, [isOpen]);
+  }, [isOpen, projects.length, tasks.length]);
 
   if (!isOpen) return null;
 
@@ -1053,6 +1072,17 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                 <span className="font-mono text-slate-700 font-bold">Pozycji: {backupHistory.length}</span>
               </div>
 
+              {backupStatusMessage && (
+                <div className={`p-3 rounded-lg border text-xs flex items-center gap-2 ${
+                  isBackupActive
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : 'bg-amber-50 border-amber-200 text-amber-800'
+                }`}>
+                  <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-600" />
+                  <span>{backupStatusMessage}</span>
+                </div>
+              )}
+
               <div className="border border-slate-200 rounded-lg overflow-hidden">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-100 text-slate-600 font-semibold uppercase text-[10px] tracking-wider border-b border-slate-200">
@@ -1065,24 +1095,32 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {backupHistory.map((item) => (
-                      <tr key={item.id} className="hover:bg-slate-50">
-                        <td className="py-2.5 px-3 font-mono text-slate-600">{item.date}</td>
-                        <td className="py-2.5 px-3 font-medium text-slate-900">
-                          <span className="inline-flex items-center gap-1">
-                            {item.destination.includes('Drive') ? (
-                              <Cloud className="w-3 h-3 text-sky-600" />
-                            ) : (
-                              <Server className="w-3 h-3 text-slate-600" />
-                            )}
-                            <span>{item.destination}</span>
-                          </span>
+                    {backupHistory.length > 0 ? (
+                      backupHistory.map((item) => (
+                        <tr key={item.id} className="hover:bg-slate-50">
+                          <td className="py-2.5 px-3 font-mono text-slate-600">{item.date}</td>
+                          <td className="py-2.5 px-3 font-medium text-slate-900">
+                            <span className="inline-flex items-center gap-1">
+                              {item.destination.includes('Drive') ? (
+                                <Cloud className="w-3 h-3 text-sky-600" />
+                              ) : (
+                                <Server className="w-3 h-3 text-slate-600" />
+                              )}
+                              <span>{item.destination}</span>
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-sky-700">{item.filename}</td>
+                          <td className="py-2.5 px-3 text-slate-600">{item.recordsCount}</td>
+                          <td className="py-2.5 px-3 text-right font-mono text-slate-700 font-semibold">{item.size}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="py-6 text-center text-slate-500 italic">
+                          Brak zarejestrowanych kopii zapasowych w katalogu serwera.
                         </td>
-                        <td className="py-2.5 px-3 font-mono text-sky-700">{item.filename}</td>
-                        <td className="py-2.5 px-3 text-slate-600">{item.recordsCount}</td>
-                        <td className="py-2.5 px-3 text-right font-mono text-slate-700 font-semibold">{item.size}</td>
                       </tr>
-                    ))}
+                    )}
                   </tbody>
                 </table>
               </div>

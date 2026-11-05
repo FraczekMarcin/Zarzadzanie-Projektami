@@ -161,24 +161,7 @@ export default function App() {
   const [comments, setComments] = useState<Comment[]>(() => {
     try {
       const saved = localStorage.getItem('oph_comments');
-      return saved
-        ? JSON.parse(saved)
-        : [
-            {
-              id: 'c-1',
-              taskId: 'tsk-103',
-              userId: 'usr-3',
-              content: 'Podpiąłem walidację tokenów JWT i role. Czekam na weryfikację QA.',
-              createdAt: '2026-10-23T11:20:00Z',
-            },
-            {
-              id: 'c-2',
-              taskId: 'tsk-105',
-              userId: 'usr-4',
-              content: 'Problem występuje przy zamówieniach powyżej 10 pozycji w walucie EUR.',
-              createdAt: '2026-10-24T08:15:00Z',
-            },
-          ];
+      return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
     }
@@ -227,18 +210,20 @@ export default function App() {
     return cleanup;
   }, []);
 
-  // Daily automated update check from GitHub repository
+  // Automatyczna weryfikacja aktualizacji przez serwerowy endpoint /api/system/check-update
   useEffect(() => {
     try {
       const lastCheck = localStorage.getItem('oph_last_daily_update_check');
       const now = Date.now();
-      const oneDayMs = 24 * 60 * 60 * 1000;
-      if (!lastCheck || now - Number(lastCheck) >= oneDayMs) {
+      const sixHoursMs = 6 * 60 * 60 * 1000;
+      if (!lastCheck || now - Number(lastCheck) >= sixHoursMs) {
         localStorage.setItem('oph_last_daily_update_check', String(now));
-        fetch('https://api.github.com/repos/FraczekMarcin/Zarzadzanie-Projektami/commits/main')
-          .then((res) => {
-            if (res.ok) {
-              console.log('Automatyczna weryfikacja aktualizacji: 2026-10-27 v 0.3.0 jest najnowsza.');
+        fetch('/api/system/check-update', { credentials: 'same-origin' })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data) => {
+            if (data?.hasUpdate) {
+              setHasUpdateAvailable(true);
+              localStorage.setItem('oph_update_available', 'true');
             }
           })
           .catch(() => {});

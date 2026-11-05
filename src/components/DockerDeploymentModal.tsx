@@ -81,7 +81,7 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
   const oneLinerGit = `git clone ${GITHUB_REPO_URL}.git && cd Zarzadzanie-Projektami/Instalacja && sudo bash install.sh`;
   const directAppUrl = typeof window !== 'undefined' ? `${window.location.origin}/install.sh` : '';
   const oneLinerDirect = `curl -fsSL ${directAppUrl} | sudo bash`;
-  const gitPushCommand = `git add .\ngit commit -m "Wydanie 2026-10-25 v 0.2.1: Katalog Instalacja z instalatorem"\ngit branch -M main\ngit push -u origin main`;
+  const gitPushCommand = `git add .\ngit commit -m "Wydanie ${CURRENT_APP_VERSION}: Katalog Instalacja z instalatorem"\ngit branch -M main\ngit push -u origin main`;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">

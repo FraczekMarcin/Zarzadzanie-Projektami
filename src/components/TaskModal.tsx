@@ -301,7 +301,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
               required
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="np. Przygotowanie schematów PostgreSQL i procedury kopii zapasowej"
+              placeholder="np. Projekt wykonawczy konstrukcji żelbetowej lub uzgodnienia z rzeczoznawcą ds. PPOŻ"
               className="w-full border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
             />
           </div>
@@ -547,7 +547,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
               type="text"
               value={tagsInput}
               onChange={(e) => setTagsInput(e.target.value)}
-              placeholder="np. Backend, PostgreSQL, Pilne"
+              placeholder="np. Architektura, Konstrukcja, PPOŻ, Pilne"
               className="w-full border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
             />
           </div>

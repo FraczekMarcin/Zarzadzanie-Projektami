@@ -194,7 +194,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setUpdateServerMessage(null);
 
     try {
-      // 1. Try server endpoint which checks real remote github file and commits
+      // Wyłącznie serwerowy endpoint /api/system/check-update (z pamięcią podręczną 6h)
       const sResp = await fetch(`/api/system/check-update?t=${Date.now()}`, { credentials: 'same-origin' }).catch(() => null);
       if (sResp && sResp.ok) {
         const sData = await sResp.json();
@@ -207,68 +207,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         localStorage.setItem('oph_update_available', hasUp ? 'true' : 'false');
         localStorage.setItem('oph_last_update_check_time', String(Date.now()));
 
+        const cacheNote = sData.cached ? ' (dane z pamięci podręcznej serwera, cache 6h)' : '';
         setUpdateResult({
           status: hasUp ? 'update_available' : 'latest',
           remoteVersion: remoteVer,
           message: hasUp
             ? `Wykryto nowsze wydanie na GitHub: ${remoteVer} (Twoja wersja: ${sData.localVersion || CURRENT_APP_VERSION}).`
-            : `Twoja wersja (${sData.localVersion || CURRENT_APP_VERSION}) jest zgodna z najnowszym zatwierdzeniem w gałęzi main (${sData.latestSha || 'main'}). Brak nowszych aktualizacji.`,
+            : `Twoja wersja (${sData.localVersion || CURRENT_APP_VERSION}) jest zgodna z najnowszym zatwierdzeniem w gałęzi main (${sData.latestSha || 'main'}). Brak nowszych aktualizacji${cacheNote}.`,
           lastChecked: new Date(sData.checkedAt || Date.now()).toLocaleString('pl-PL'),
           latestSha: sData.latestSha,
         });
-        setIsCheckingUpdate(false);
-        return;
-      }
-
-      // 2. Direct raw fallback check if server endpoint not reachable
-      const rawResp = await fetch(`https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/src/data/dockerConfig.ts?t=${Date.now()}`).catch(() => null);
-      if (rawResp && rawResp.ok) {
-        const text = await rawResp.text();
-        const match = text.match(/CURRENT_APP_VERSION\s*=\s*['"]([^'"]+)['"]/);
-        const remoteVer = match && match[1] ? match[1].trim() : CURRENT_APP_VERSION;
-        const hasUp = isNewerVersion(remoteVer, CURRENT_APP_VERSION);
-
-        if (onToggleUpdateSimulation) {
-          onToggleUpdateSimulation(hasUp);
-        }
-        localStorage.setItem('oph_update_available', hasUp ? 'true' : 'false');
-        localStorage.setItem('oph_last_update_check_time', String(Date.now()));
-
-        setUpdateResult({
-          status: hasUp ? 'update_available' : 'latest',
-          message: hasUp
-            ? `Wykryto nowsze wydanie na GitHub: ${remoteVer} (Twoja wersja: ${CURRENT_APP_VERSION}).`
-            : `Twoja wersja (${CURRENT_APP_VERSION}) jest aktualna.`,
-          lastChecked: new Date().toLocaleString('pl-PL'),
-        });
-        setIsCheckingUpdate(false);
-        return;
-      }
-
-      // 3. Fallback to commits API
-      const ghResp = await fetch('https://api.github.com/repos/FraczekMarcin/Zarzadzanie-Projektami/commits/main').catch(() => null);
-      if (ghResp && ghResp.ok) {
-        const cData = await ghResp.json();
-        const sha = (cData.sha || '').slice(0, 7);
-        setUpdateResult({
-          status: hasUpdateAvailable ? 'update_available' : 'latest',
-          message: hasUpdateAvailable 
-            ? `Dostępna jest nowa wersja oprogramowania na GitHub!` 
-            : `Twoja wersja (${CURRENT_APP_VERSION}) jest zgodna z zatwierdzeniem ${sha}.`,
-          lastChecked: new Date().toLocaleString('pl-PL'),
-          latestSha: sha,
-        });
       } else {
         setUpdateResult({
-          status: 'latest',
-          message: `Twoja wersja (${CURRENT_APP_VERSION}) jest aktualna.`,
+          status: 'error',
+          message: 'Nie udało się połączyć z serwerem aktualizacji. Sprawdź połączenie z serwerem.',
           lastChecked: new Date().toLocaleString('pl-PL'),
         });
       }
     } catch {
       setUpdateResult({
         status: 'error',
-        message: 'Nie udało się połączyć z serwerem aktualizacji. Sprawdź połączenie sieciowe.',
+        message: 'Wystąpił błąd podczas weryfikacji aktualizacji na serwerze.',
         lastChecked: new Date().toLocaleString('pl-PL'),
       });
     } finally {

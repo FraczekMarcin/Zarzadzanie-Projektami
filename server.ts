@@ -36,7 +36,7 @@ app.use((_req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader(
     'Content-Security-Policy',
-    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https: blob:; connect-src 'self' https://api.github.com https://raw.githubusercontent.com;"
+    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https: blob:; connect-src 'self';"
   );
   next();
 });
@@ -2086,9 +2086,37 @@ function isNewerVersion(remote: string, local: string): boolean {
   return false;
 }
 
-// Sprawdzanie aktualizacji z GitHub (Wymaga autoryzacji)
-app.get('/api/system/check-update', requireAuth, async (_req, res) => {
+// Pamięć podręczna sprawdzania aktualizacji na serwerze (cache 6 godzin)
+interface UpdateCheckCache {
+  data: {
+    localVersion: string;
+    remoteVersion: string;
+    hasUpdate: boolean;
+    checkedSource: string;
+    latestSha: string;
+    commitMessage: string;
+    checkedAt: string;
+    cached?: boolean;
+  };
+  cachedAt: number;
+}
+
+let serverUpdateCache: UpdateCheckCache | null = null;
+const UPDATE_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 godzin cache
+
+// Sprawdzanie aktualizacji z GitHub (Wymaga autoryzacji, cache serwerowy 6 h)
+app.get('/api/system/check-update', requireAuth, async (req, res) => {
   try {
+    const forceFresh = req.query.fresh === 'true' || req.query.fresh === '1';
+    const now = Date.now();
+
+    if (!forceFresh && serverUpdateCache && (now - serverUpdateCache.cachedAt < UPDATE_CACHE_TTL_MS)) {
+      return res.json({
+        ...serverUpdateCache.data,
+        cached: true,
+      });
+    }
+
     const localVersion = getLocalInstalledVersion();
     let remoteVersion = localVersion;
     let checkedSource = 'brak połączenia';
@@ -2130,7 +2158,7 @@ app.get('/api/system/check-update', requireAuth, async (_req, res) => {
 
     const hasUpdate = isNewerVersion(remoteVersion, localVersion);
 
-    res.json({
+    const resultData = {
       localVersion,
       remoteVersion,
       hasUpdate,
@@ -2138,8 +2166,23 @@ app.get('/api/system/check-update', requireAuth, async (_req, res) => {
       latestSha,
       commitMessage,
       checkedAt: new Date().toISOString(),
-    });
+      cached: false,
+    };
+
+    serverUpdateCache = {
+      data: resultData,
+      cachedAt: now,
+    };
+
+    res.json(resultData);
   } catch (err: any) {
+    if (serverUpdateCache) {
+      return res.json({
+        ...serverUpdateCache.data,
+        cached: true,
+        warning: 'Błąd połączenia z GitHub, użyto danych z pamięci podręcznej',
+      });
+    }
     res.status(500).json({ error: err.message });
   }
 });
