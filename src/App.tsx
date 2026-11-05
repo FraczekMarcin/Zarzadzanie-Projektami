@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Task, Project, User, Priority, TaskStatus, ActivityLog, Comment, ProjectTemplate } from './types';
 import { INITIAL_PROJECTS, INITIAL_TASKS, INITIAL_ACTIVITY } from './data/initialData';
 import { GanttChart } from './components/GanttChart';
@@ -344,80 +344,107 @@ export default function App() {
     localStorage.setItem('oph_activity', JSON.stringify(activityLogs));
   }, [activityLogs]);
 
-  // Multi-device server state synchronization (wymaga autoryzacji sesyjnej)
+  // Rewizja stanu na serwerze i referencje dla współbieżnej synchronizacji
+  const [stateRevision, setStateRevision] = useState<number>(0);
+  const stateRevisionRef = useRef<number>(0);
+  stateRevisionRef.current = stateRevision;
+  const editingTaskRef = useRef<Task | null>(null);
+  editingTaskRef.current = editingTask;
+
+  // Kolejka debouncingu 500 ms dla aktualizacji wielu pól jednego zadania
+  const taskPatchDebounceTimers = useRef<Map<string, { timer: any; patch: Partial<Task>; baseRevision: number }>>(new Map());
+
+  // Pobranie świeżego stanu z serwera (z zachowaniem otwartego formularza edycji)
+  const fetchFreshState = async (showNotification = false) => {
+    try {
+      const res = await fetch('/api/state', { credentials: 'same-origin' });
+      if (res.status === 401) {
+        setIsAuthenticated(false);
+        localStorage.removeItem('oph_is_authenticated');
+        return;
+      }
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.initialized && data.state) {
+        const s = data.state;
+        if (typeof s.revision === 'number') {
+          setStateRevision(s.revision);
+          stateRevisionRef.current = s.revision;
+        }
+        if (Array.isArray(s.users) && s.users.length > 0) {
+          setUsers(s.users);
+          localStorage.setItem('oph_users', JSON.stringify(s.users));
+        }
+        if (Array.isArray(s.projects)) {
+          setProjects(s.projects);
+          localStorage.setItem('oph_projects', JSON.stringify(s.projects));
+        }
+        if (Array.isArray(s.tasks)) {
+          const currentEditingId = editingTaskRef.current?.id;
+          setTasks((prevTasks) => {
+            if (!currentEditingId) return s.tasks;
+            // Nie nadpisuj pól zadania edytowanego obecnie w otwartym formularzu
+            return s.tasks.map((incomingTask: Task) => {
+              if (incomingTask.id === currentEditingId) {
+                const localTask = prevTasks.find((t) => t.id === currentEditingId);
+                return localTask || incomingTask;
+              }
+              return incomingTask;
+            });
+          });
+          localStorage.setItem('oph_tasks', JSON.stringify(s.tasks));
+        }
+        if (Array.isArray(s.activityLogs)) {
+          setActivityLogs(s.activityLogs);
+          localStorage.setItem('oph_activity', JSON.stringify(s.activityLogs));
+        }
+        if (Array.isArray(s.comments)) {
+          setComments(s.comments);
+          localStorage.setItem('oph_comments', JSON.stringify(s.comments));
+        }
+        if (showNotification) {
+          setNotificationToast({
+            message: 'Zmiany od innych użytkowników zostały pobrane',
+            type: 'info',
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Błąd odświeżania stanu z serwera:', err);
+    }
+  };
+
+  // Inicjalne pobranie stanu przy starcie sesji
   useEffect(() => {
     if (!isAuthenticated) return;
-    let isMounted = true;
-    fetch('/api/state', { credentials: 'same-origin' })
-      .then((res) => {
+    fetchFreshState(false);
+  }, [isAuthenticated]);
+
+  // Odświeżanie: klient co 15 s odpytuje lekki endpoint GET /api/state/revision
+  // Zatrzymanie odpytywania gdy karta w tle (document.hidden)
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const interval = setInterval(async () => {
+      if (document.hidden) return;
+      try {
+        const res = await fetch('/api/state/revision', { credentials: 'same-origin' });
         if (res.status === 401) {
           setIsAuthenticated(false);
           localStorage.removeItem('oph_is_authenticated');
-          return null;
+          return;
         }
-        return res.ok ? res.json() : null;
-      })
-      .then((data) => {
-        if (!isMounted || !data) return;
-        if (data.initialized && data.state) {
-          const s = data.state;
-          if (Array.isArray(s.users) && s.users.length > 0) {
-            setUsers(s.users);
-            localStorage.setItem('oph_users', JSON.stringify(s.users));
-          }
-          if (Array.isArray(s.projects)) {
-            setProjects(s.projects);
-            localStorage.setItem('oph_projects', JSON.stringify(s.projects));
-          }
-          if (Array.isArray(s.tasks)) {
-            setTasks(s.tasks);
-            localStorage.setItem('oph_tasks', JSON.stringify(s.tasks));
-          }
-          if (Array.isArray(s.activityLogs)) {
-            setActivityLogs(s.activityLogs);
-            localStorage.setItem('oph_activity', JSON.stringify(s.activityLogs));
-          }
-          if (Array.isArray(s.comments)) {
-            setComments(s.comments);
-            localStorage.setItem('oph_comments', JSON.stringify(s.comments));
-          }
+        if (!res.ok) return;
+        const data = await res.json();
+        if (typeof data.revision === 'number' && data.revision > stateRevisionRef.current) {
+          await fetchFreshState(true);
         }
-      })
-      .catch((err) => {
-        console.warn('Could not sync initial state from server:', err);
-      });
-    return () => {
-      isMounted = false;
-    };
-  }, [isAuthenticated]);
+      } catch (err) {
+        console.warn('Błąd odpytywania rewizji:', err);
+      }
+    }, 15000);
 
-  // Debounced server state persistence on any database mutation (wymaga sesji, 401 wyrzuca do logowania)
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    const timer = setTimeout(() => {
-      try {
-        fetch('/api/state', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            initialized: true,
-            projects,
-            tasks,
-            users,
-            comments,
-            activityLogs,
-          }),
-        }).then((res) => {
-          if (res.status === 401) {
-            setIsAuthenticated(false);
-            localStorage.removeItem('oph_is_authenticated');
-          }
-        }).catch(() => {});
-      } catch {}
-    }, 1200);
-    return () => clearTimeout(timer);
-  }, [isAuthenticated, projects, tasks, users, comments, activityLogs]);
+    return () => clearInterval(interval);
+  }, [isAuthenticated]);
 
   // Periodic Auto-Backup Engine
   useEffect(() => {
@@ -430,7 +457,6 @@ export default function App() {
         const last = config.lastBackupTime ? new Date(config.lastBackupTime).getTime() : 0;
         const intervalMs = (config.intervalMinutes || 60) * 60 * 1000;
 
-        // If never backed up or scheduled interval has elapsed
         if (!last || now - last >= intervalMs) {
           const snapshot = createAutoBackupSnapshot({
             projects,
@@ -458,16 +484,273 @@ export default function App() {
     };
   }, [projects, tasks, users, comments, activityLogs]);
 
-  // Push tasks to server endpoint for live Google Calendar subscription feed polling
-  useEffect(() => {
+  // ============================================================================
+  // OPERACJE NA ZASOBACH (POST / PATCH / DELETE) Z OBSŁUGĄ 409 I DEBOUNCEM 500MS
+  // ============================================================================
+
+  const saveTaskPatchToServer = async (taskId: string, patch: Partial<Task>, baseRevision?: number, retryCount = 0): Promise<void> => {
     try {
-      fetch('/api/calendar/push-tasks', {
+      const targetRev = baseRevision !== undefined ? baseRevision : 1;
+      const res = await fetch(`/api/tasks/${taskId}`, {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'If-Match': String(targetRev),
+        },
+        body: JSON.stringify(patch),
+      });
+
+      if (res.status === 401) {
+        setIsAuthenticated(false);
+        return;
+      }
+
+      if (res.status === 409) {
+        // Obsługa 409 Conflict: pobranie aktualnego zasobu, scalenie lokalnych zmian i ponowienie
+        const conflictData = await res.json();
+        const currentTask: Task = conflictData.currentTask;
+        if (currentTask && retryCount < 3) {
+          // Last-write-wins dla edytowanego pola
+          const mergedPatch: Partial<Task> = { ...patch };
+          setNotificationToast({
+            message: 'Zadanie zostało zmienione przez innego użytkownika, zastosowano Twoją wersję',
+            type: 'info',
+          });
+          await saveTaskPatchToServer(taskId, mergedPatch, currentTask.revision || 1, retryCount + 1);
+          return;
+        }
+      }
+
+      if (res.ok) {
+        const data = await res.json();
+        if (typeof data.revision === 'number') {
+          setStateRevision(data.revision);
+          stateRevisionRef.current = data.revision;
+        }
+        if (data.task) {
+          setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, ...data.task } : t)));
+        }
+      }
+    } catch (err) {
+      console.warn('Błąd zapisu zadania do API:', err);
+    }
+  };
+
+  const queueTaskPatch = (taskId: string, patch: Partial<Task>, baseRevision?: number) => {
+    const existing = taskPatchDebounceTimers.current.get(taskId);
+    if (existing) {
+      clearTimeout(existing.timer);
+      existing.patch = { ...existing.patch, ...patch };
+    } else {
+      taskPatchDebounceTimers.current.set(taskId, {
+        timer: null,
+        patch,
+        baseRevision: baseRevision || 1,
+      });
+    }
+
+    const record = taskPatchDebounceTimers.current.get(taskId)!;
+    record.timer = setTimeout(() => {
+      const queued = taskPatchDebounceTimers.current.get(taskId);
+      taskPatchDebounceTimers.current.delete(taskId);
+      if (queued) {
+        saveTaskPatchToServer(taskId, queued.patch, queued.baseRevision);
+      }
+    }, 500);
+  };
+
+  const createTaskOnServer = async (task: Task) => {
+    try {
+      const res = await fetch('/api/tasks', {
         method: 'POST',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tasks, users }),
-      }).catch(() => {});
+        body: JSON.stringify(task),
+      });
+      if (res.status === 401) {
+        setIsAuthenticated(false);
+        return;
+      }
+      if (res.ok) {
+        const data = await res.json();
+        if (typeof data.revision === 'number') {
+          setStateRevision(data.revision);
+          stateRevisionRef.current = data.revision;
+        }
+        if (data.task) {
+          setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, ...data.task } : t)));
+        }
+      }
+    } catch (err) {
+      console.warn('Błąd tworzenia zadania na serwerze:', err);
+    }
+  };
+
+  const deleteTaskOnServer = async (taskId: string) => {
+    try {
+      const res = await fetch(`/api/tasks/${taskId}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+      if (res.status === 401) {
+        setIsAuthenticated(false);
+        return;
+      }
+      if (!res.ok) {
+        const errData = await res.json();
+        setNotificationToast({
+          message: errData.error || 'Nie udało się usunąć zadania',
+          type: 'info',
+        });
+        await fetchFreshState(false);
+        return;
+      }
+      const data = await res.json();
+      if (typeof data.revision === 'number') {
+        setStateRevision(data.revision);
+        stateRevisionRef.current = data.revision;
+      }
+    } catch (err) {
+      console.warn('Błąd usuwania zadania z serwera:', err);
+    }
+  };
+
+  const createProjectOnServer = async (project: Project) => {
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(project),
+      });
+      if (res.status === 401) {
+        setIsAuthenticated(false);
+        return;
+      }
+      if (res.ok) {
+        const data = await res.json();
+        if (typeof data.revision === 'number') {
+          setStateRevision(data.revision);
+          stateRevisionRef.current = data.revision;
+        }
+        if (data.project) {
+          setProjects((prev) => prev.map((p) => (p.id === project.id ? { ...p, ...data.project } : p)));
+        }
+      }
+    } catch (err) {
+      console.warn('Błąd tworzenia projektu na serwerze:', err);
+    }
+  };
+
+  const patchProjectOnServer = async (projectId: string, patch: Partial<Project>, expectedRevision?: number) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'If-Match': String(expectedRevision || 1),
+        },
+        body: JSON.stringify(patch),
+      });
+      if (res.status === 401) {
+        setIsAuthenticated(false);
+        return;
+      }
+      if (res.status === 409) {
+        const conflict = await res.json();
+        if (conflict.currentProject) {
+          setNotificationToast({
+            message: 'Projekt został zmieniony przez innego użytkownika, zastosowano Twoją wersję',
+            type: 'info',
+          });
+          await patchProjectOnServer(projectId, patch, conflict.currentProject.revision || 1);
+          return;
+        }
+      }
+      if (res.ok) {
+        const data = await res.json();
+        if (typeof data.revision === 'number') {
+          setStateRevision(data.revision);
+          stateRevisionRef.current = data.revision;
+        }
+      }
+    } catch (err) {
+      console.warn('Błąd aktualizacji projektu na serwerze:', err);
+    }
+  };
+
+  const deleteProjectOnServer = async (projectId: string) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+      if (res.status === 401) {
+        setIsAuthenticated(false);
+        return;
+      }
+      if (!res.ok) {
+        const errData = await res.json();
+        setNotificationToast({
+          message: errData.error || 'Brak uprawnień do usunięcia projektu',
+          type: 'info',
+        });
+        await fetchFreshState(false);
+        return;
+      }
+      const data = await res.json();
+      if (typeof data.revision === 'number') {
+        setStateRevision(data.revision);
+        stateRevisionRef.current = data.revision;
+      }
+    } catch (err) {
+      console.warn('Błąd usuwania projektu na serwerze:', err);
+    }
+  };
+
+  const createCommentOnServer = async (comment: Comment) => {
+    try {
+      const res = await fetch('/api/comments', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(comment),
+      });
+      if (res.status === 401) {
+        setIsAuthenticated(false);
+        return;
+      }
+      if (res.ok) {
+        const data = await res.json();
+        if (typeof data.revision === 'number') {
+          setStateRevision(data.revision);
+          stateRevisionRef.current = data.revision;
+        }
+      }
+    } catch (err) {
+      console.warn('Błąd dodawania komentarza na serwerze:', err);
+    }
+  };
+
+  const createActivityOnServer = async (log: ActivityLog) => {
+    try {
+      const res = await fetch('/api/activity', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(log),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (typeof data.revision === 'number') {
+          setStateRevision(data.revision);
+          stateRevisionRef.current = data.revision;
+        }
+      }
     } catch {}
-  }, [tasks, users]);
+  };
 
   // Toast auto-dismiss
   useEffect(() => {
@@ -480,7 +763,7 @@ export default function App() {
   // Activity logger helper
   const logActivity = (action: string, taskId?: string, details?: string) => {
     const newLog: ActivityLog = {
-      id: `act-${Date.now()}`,
+      id: `act-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       projectId: selectedProjectId || projects[0]?.id || 'prj-1',
       taskId,
       userId: currentUser.id,
@@ -489,6 +772,7 @@ export default function App() {
       details,
     };
     setActivityLogs((prev) => [newLog, ...prev]);
+    createActivityOnServer(newLog);
   };
 
   /**
@@ -634,6 +918,7 @@ export default function App() {
         updatedAt: new Date().toISOString(),
       };
       newTaskList = tasks.map((t) => (t.id === editingTask.id ? updated : t));
+      queueTaskPatch(editingTask.id, taskData, editingTask.revision || 1);
       logActivity(
         `${currentUser.name} zaktualizował zadanie [${editingTask.code}]: ${updated.title}`,
         editingTask.id,
@@ -648,11 +933,13 @@ export default function App() {
         ...taskData,
         id: `tsk-${Date.now()}`,
         code,
+        revision: 1,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
 
       newTaskList = [newTask, ...tasks];
+      createTaskOnServer(newTask);
       logActivity(
         `${currentUser.name} utworzył nowe zadanie [${code}]: ${newTask.title}`,
         newTask.id,
@@ -686,6 +973,7 @@ export default function App() {
       if (selectedTaskDetail?.id === taskId) {
         setSelectedTaskDetail(null);
       }
+      deleteTaskOnServer(taskId);
       logActivity(`${currentUser.name} usunął zadanie [${taskToDelete.code}]`, taskId);
     }
   };
@@ -717,6 +1005,7 @@ export default function App() {
     const { updatedTasks, triggeredEvents } = processDependencyRules(newTaskList);
     setTasks(updatedTasks);
 
+    queueTaskPatch(taskId, { status: newStatus, progress }, task.revision || 1);
     logActivity(`${currentUser.name} zmienił status [${task.code}] na "${newStatus}"`, taskId);
 
     if (triggeredEvents.length > 0) {
@@ -746,6 +1035,8 @@ export default function App() {
     const { updatedTasks, triggeredEvents } = processDependencyRules(newTaskList);
     setTasks(updatedTasks);
 
+    queueTaskPatch(taskId, { progress, status }, task.revision || 1);
+
     if (triggeredEvents.length > 0) {
       triggeredEvents.forEach((evt) => logActivity(evt));
       setNotificationToast({ message: triggeredEvents[0], type: 'success' });
@@ -766,6 +1057,7 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
     setComments((prev) => [...prev, newComment]);
+    createCommentOnServer(newComment);
     logActivity(`${currentUser.name} dodał komentarz do zadania`, taskId, content);
   };
 
@@ -775,9 +1067,11 @@ export default function App() {
       ...newProjData,
       id: `prj-${Date.now()}`,
       key,
+      revision: 1,
     };
     setProjects((prev) => [...prev, newProject]);
     setSelectedProjectId(newProject.id);
+    createProjectOnServer(newProject);
 
     // If template was selected, instantiate blueprint tasks
     if (selectedTemplate && selectedTemplate.tasks && selectedTemplate.tasks.length > 0) {
@@ -789,6 +1083,7 @@ export default function App() {
       );
       const { updatedTasks } = processDependencyRules([...tasks, ...templateTasks]);
       setTasks(updatedTasks);
+      templateTasks.forEach((tt) => createTaskOnServer(tt));
       logActivity(
         `${currentUser.name} zarejestrował projekt [${newProject.key}] z szablonu "${selectedTemplate.name}" (${templateTasks.length} etapów)`,
         undefined,
@@ -805,7 +1100,23 @@ export default function App() {
 
   const handleUpdateProject = (updatedProject: Project) => {
     setProjects((prev) => prev.map((p) => (p.id === updatedProject.id ? updatedProject : p)));
+    patchProjectOnServer(updatedProject.id, updatedProject, updatedProject.revision || 1);
     logActivity(`${currentUser.name} zaktualizował projekt [${updatedProject.key}]: ${updatedProject.name}`);
+  };
+
+  const handleDeleteProject = (projectId: string) => {
+    const project = projects.find((p) => p.id === projectId);
+    setProjects((prev) => prev.filter((p) => p.id !== projectId));
+    setTasks((prev) => prev.filter((t) => t.projectId !== projectId));
+    if (selectedProjectId === projectId) {
+      setSelectedProjectId(null);
+    }
+    deleteProjectOnServer(projectId);
+    logActivity(`Usunięto projekt "${project?.name || projectId}" wraz ze wszystkimi zadaniami`);
+    setNotificationToast({
+      message: `Projekt [${project?.key || ''}] został bezpowrotnie usunięty.`,
+      type: 'info',
+    });
   };
 
   const handleNavigateToTaskAndProject = (projectId: string, task: Task) => {
@@ -855,20 +1166,6 @@ export default function App() {
     }
   };
 
-  // Delete project and all its tasks
-  const handleDeleteProject = (projectId: string) => {
-    const project = projects.find((p) => p.id === projectId);
-    setProjects((prev) => prev.filter((p) => p.id !== projectId));
-    setTasks((prev) => prev.filter((t) => t.projectId !== projectId));
-    if (selectedProjectId === projectId) {
-      setSelectedProjectId(null);
-    }
-    logActivity(`Usunięto projekt "${project?.name || projectId}" wraz ze wszystkimi zadaniami`);
-    setNotificationToast({
-      message: `Projekt [${project?.key || ''}] został bezpowrotnie usunięty.`,
-      type: 'info',
-    });
-  };
 
   // Delete all demo data (projects and their tasks)
   const handleDeleteAllDemoData = () => {

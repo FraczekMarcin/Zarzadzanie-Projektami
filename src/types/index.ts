@@ -111,6 +111,8 @@ export interface Project {
   isArchived?: boolean;
   archivedAt?: string;
   archivedBy?: string;
+  // Rewizja zasobu (współbieżna synchronizacja)
+  revision?: number;
 }
 
 export interface Task {
@@ -137,6 +139,8 @@ export interface Task {
   completedAt?: string;
   tags?: string[];
   costIds?: string[]; // Powiązane koszty
+  // Rewizja zasobu (współbieżna synchronizacja)
+  revision?: number;
   createdAt: string;
   updatedAt: string;
 }
