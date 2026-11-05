@@ -109,68 +109,14 @@ export function generateGoogleCalendarSubscribeUrl(feedUrl: string): string {
   return `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(feedUrl)}`;
 }
 
+import { buildIcs } from './icsBuilder';
+
 /**
- * Generates RFC 5545 compliant iCalendar (.ics) string.
+ * Generates RFC 5545 compliant iCalendar (.ics) string using buildIcs.
  * Compatible with Google Calendar (Import/Export & URL subscription), Apple Calendar, and Outlook.
  */
 export function generateIcsContent(tasks: Task[] = [], projectName: string = 'Zarządzanie Projektami'): string {
-  const now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-
-  const priorityMap: Record<string, number> = {
-    critical: 1,
-    high: 3,
-    normal: 5,
-    medium: 5,
-    low: 9,
-  };
-
-  const safeTasks = Array.isArray(tasks) ? tasks : [];
-
-  const events = safeTasks.map((t) => {
-    const start = toGCalDate(t.startDate || t.dueDate);
-    const end = getNextDayGCalDate(t.dueDate || t.startDate);
-    const prioNum = priorityMap[t.priority] || 5;
-
-    const desc = [
-      `Zadanie: ${t.code || ''} - ${t.title || ''}`,
-      `Priorytet: ${PRIORITY_LABELS[t.priority] || t.priority || 'Normalny'}`,
-      `Status: ${STATUS_LABELS[t.status] || t.status || 'Do zrobienia'}`,
-      `Czas trwania: ${t.durationDays || 1} dni`,
-      `Postep: ${t.progress || 0}%`,
-      t.description ? t.description.replace(/\n/g, '\\n') : '',
-    ].join('\\n');
-
-    const summary = `[${t.code || 'ZAD'}] ${(t.title || 'Zadanie').replace(/[,;]/g, ' ')}`;
-
-    return [
-      'BEGIN:VEVENT',
-      `UID:${t.id || Date.now()}@zarzadzanierp.local`,
-      `DTSTAMP:${now}`,
-      `DTSTART;VALUE=DATE:${start}`,
-      `DTEND;VALUE=DATE:${end}`,
-      `SUMMARY:${summary}`,
-      `DESCRIPTION:${desc}`,
-      `PRIORITY:${prioNum}`,
-      `STATUS:${t.status === 'done' ? 'COMPLETED' : 'CONFIRMED'}`,
-      'CLASS:PUBLIC',
-      'TRANSP:TRANSPARENT',
-      'END:VEVENT',
-    ].join('\r\n');
-  });
-
-  return [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'PRODID:-//Zarzadzanie Projektami//PL//EN',
-    'CALSCALE:GREGORIAN',
-    'METHOD:PUBLISH',
-    `X-WR-CALNAME:${projectName} - Terminarz Zadań`,
-    'X-WR-TIMEZONE:Europe/Warsaw',
-    'X-PUBLISHED-TTL:PT15M',
-    'REFRESH-INTERVAL;VALUE=DURATION:PT15M',
-    ...events,
-    'END:VCALENDAR',
-  ].join('\r\n');
+  return buildIcs(tasks as any, `${projectName} - Terminarz Zadań`);
 }
 
 /**

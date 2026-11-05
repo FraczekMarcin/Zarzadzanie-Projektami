@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
 import 'dotenv/config';
+import { buildIcs } from './src/utils/icsBuilder';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -569,6 +570,7 @@ function sanitizeUser(u: any) {
     twoFactorSecret, 
     twoFactorBackupCodes, 
     pending2FA,
+    calendarTokenHash,
     ...rest 
   } = u;
   return {
@@ -576,6 +578,7 @@ function sanitizeUser(u: any) {
     hasPassword: Boolean(passwordHash || password),
     twoFactorEnabled: Boolean(u.twoFactorEnabled),
     backupCodesCount: Array.isArray(twoFactorBackupCodes) ? twoFactorBackupCodes.length : 0,
+    hasCalendarToken: Boolean(calendarTokenHash),
   };
 }
 
@@ -1508,6 +1511,8 @@ app.post('/api/state', requireAuth, async (req, res) => {
           passwordHash: existing?.passwordHash || inUser.passwordHash,
           twoFactorSecret: existing?.twoFactorSecret || inUser.twoFactorSecret,
           twoFactorBackupCodes: existing?.twoFactorBackupCodes || inUser.twoFactorBackupCodes,
+          calendarTokenHash: existing?.calendarTokenHash || inUser.calendarTokenHash,
+          calendarTokenCreatedAt: existing?.calendarTokenCreatedAt || inUser.calendarTokenCreatedAt,
         };
       });
     }
@@ -1900,130 +1905,132 @@ app.get('/install.sh', (_req, res) => {
   res.status(404).send('#!/bin/bash\necho "install.sh not found"\nexit 1');
 });
 
-// RFC 5545 iCalendar live subscription feed for a specific user
-app.get('/api/calendar/user/:userId.ics', (req, res) => {
+// ==============================================================================
+// 8. SUBSKRYPCJA KALENDARZA RFC 5545 (Zabezpieczona prywatnym hashowanym tokenem)
+// ==============================================================================
+
+function getUserByCalendarToken(token: string) {
+  if (!token || typeof token !== 'string') return null;
+  const clean = token.trim();
+  if (clean.length < 16) return null;
+  const tokenHash = crypto.createHash('sha256').update(clean).digest('hex');
+  return (serverAppStateCache?.users || []).find((u: any) => u.calendarTokenHash === tokenHash && u.isApproved !== false) || null;
+}
+
+// GET /api/calendar/token (Sprawdzenie statusu tokenu zalogowanego użytkownika)
+app.get('/api/calendar/token', requireAuth, (req, res) => {
   ensureStateStructure();
-  const { userId } = req.params;
-  const user = (serverAppStateCache.users || []).find((u: any) => u.id === userId);
-  const userName = user ? user.name : 'Użytkownik';
-
-  const allTasks = serverAppStateCache.tasks || [];
-  const userTasks = allTasks.length > 0
-    ? allTasks.filter((t: any) => t.assigneeId === userId || !t.assigneeId)
-    : [];
-
-  const now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-  const toGCalDate = (dateStr: string) => (dateStr ? dateStr.replace(/-/g, '') : now.slice(0, 8));
-  const getNextDay = (dateStr: string) => {
-    try {
-      const d = new Date(dateStr + 'T00:00:00');
-      d.setDate(d.getDate() + 1);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${y}${m}${day}`;
-    } catch {
-      return toGCalDate(dateStr);
-    }
-  };
-
-  const events = userTasks.map((t: any) => {
-    const start = toGCalDate(t.startDate || t.dueDate);
-    const end = getNextDay(t.dueDate || t.startDate);
-    const summary = `[${t.code || 'ZAD'}] ${(t.title || 'Zadanie').replace(/[,;]/g, ' ')}`;
-    const desc = `Priorytet: ${t.priority || 'Normalny'}\\nStatus: ${t.status || 'W toku'}\\nCzas: ${t.durationDays || 1} dni\\n${(t.description || '').replace(/\n/g, '\\n')}`;
-
-    return [
-      'BEGIN:VEVENT',
-      `UID:${t.id}@zarzadzanierp.local`,
-      `DTSTAMP:${now}`,
-      `DTSTART;VALUE=DATE:${start}`,
-      `DTEND;VALUE=DATE:${end}`,
-      `SUMMARY:${summary}`,
-      `DESCRIPTION:${desc}`,
-      `STATUS:${t.status === 'done' ? 'COMPLETED' : 'CONFIRMED'}`,
-      'CLASS:PUBLIC',
-      'TRANSP:TRANSPARENT',
-      'END:VEVENT',
-    ].join('\r\n');
+  const caller = (req as any).user;
+  const user = (serverAppStateCache.users || []).find((u: any) => u.id === caller.id);
+  res.json({
+    hasToken: Boolean(user?.calendarTokenHash),
+    createdAt: user?.calendarTokenCreatedAt || null,
   });
+});
 
-  const icsBody = [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'PRODID:-//Zarzadzanie Projektami//PL//EN',
-    'CALSCALE:GREGORIAN',
-    'METHOD:PUBLISH',
-    `X-WR-CALNAME:${userName} - Moje Zadania (Zarządzanie Projektami)`,
-    'X-WR-TIMEZONE:Europe/Warsaw',
-    'X-PUBLISHED-TTL:PT15M',
-    'REFRESH-INTERVAL;VALUE=DURATION:PT15M',
-    ...events,
-    'END:VCALENDAR',
-  ].join('\r\n');
+// POST /api/calendar/token/generate (Wygenerowanie nowego prywatnego tokenu i zapisanie hasha SHA-256)
+app.post('/api/calendar/token/generate', requireAuth, async (req, res) => {
+  try {
+    ensureStateStructure();
+    const caller = (req as any).user;
+    const user = (serverAppStateCache.users || []).find((u: any) => u.id === caller.id);
+    if (!user) {
+      return res.status(404).json({ error: 'Użytkownik nie istnieje.' });
+    }
+
+    const rawToken = crypto.randomBytes(24).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const nowIso = new Date().toISOString();
+
+    user.calendarTokenHash = tokenHash;
+    user.calendarTokenCreatedAt = nowIso;
+
+    const userInCache = serverUsersCache.find((u) => u.id === caller.id);
+    if (userInCache) {
+      userInCache.calendarTokenHash = tokenHash;
+      userInCache.calendarTokenCreatedAt = nowIso;
+    }
+
+    await saveStateAtomicAsync();
+    res.json({ success: true, token: rawToken, createdAt: nowIso });
+  } catch (err: any) {
+    console.error('[Server Calendar] Błąd generowania tokenu:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/calendar/token (Odwołanie tokenu kalendarza)
+app.delete('/api/calendar/token', requireAuth, async (req, res) => {
+  try {
+    ensureStateStructure();
+    const caller = (req as any).user;
+    const user = (serverAppStateCache.users || []).find((u: any) => u.id === caller.id);
+    if (!user) {
+      return res.status(404).json({ error: 'Użytkownik nie istnieje.' });
+    }
+
+    delete user.calendarTokenHash;
+    delete user.calendarTokenCreatedAt;
+
+    const userInCache = serverUsersCache.find((u) => u.id === caller.id);
+    if (userInCache) {
+      delete userInCache.calendarTokenHash;
+      delete userInCache.calendarTokenCreatedAt;
+    }
+
+    await saveStateAtomicAsync();
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('[Server Calendar] Błąd odwoływania tokenu:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Stare publiczne adresy bez tokenu zwracają 404 Not Found
+app.get('/api/calendar/all.ics', (_req, res) => {
+  res.status(404).type('text/plain; charset=utf-8').send('Not Found: Dostęp do kalendarza wymaga prywatnego tokenu subskrypcji.');
+});
+
+app.get('/api/calendar/user/:userId.ics', (_req, res) => {
+  res.status(404).type('text/plain; charset=utf-8').send('Not Found: Dostęp do kalendarza wymaga prywatnego tokenu subskrypcji.');
+});
+
+// RFC 5545 iCalendar feed dla wszystkich zadań (z tokenem w URL)
+app.get('/api/calendar/:token/all.ics', (req, res) => {
+  ensureStateStructure();
+  const { token } = req.params;
+  const user = getUserByCalendarToken(token);
+  if (!user) {
+    return res.status(404).type('text/plain; charset=utf-8').send('Not Found: Nieprawidłowy lub wygasły token kalendarza.');
+  }
+
+  const allTasks = serverAppStateCache?.tasks || [];
+  const icsBody = buildIcs(allTasks, 'Wszystkie Projekty - Terminarz');
 
   res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
-  res.setHeader('Content-Disposition', `inline; filename="${userId}-kalendarz.ics"`);
+  res.setHeader('Content-Disposition', 'inline; filename="wszystkie-projekty.ics"');
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.send(icsBody);
 });
 
-// RFC 5545 iCalendar live subscription feed for all tasks
-app.get('/api/calendar/all.ics', (_req, res) => {
+// RFC 5545 iCalendar feed dla konkretnego użytkownika (z tokenem w URL)
+app.get('/api/calendar/:token/user/:userId.ics', (req, res) => {
   ensureStateStructure();
-  const now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-  const toGCalDate = (dateStr: string) => (dateStr ? dateStr.replace(/-/g, '') : now.slice(0, 8));
-  const getNextDay = (dateStr: string) => {
-    try {
-      const d = new Date(dateStr + 'T00:00:00');
-      d.setDate(d.getDate() + 1);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${y}${m}${day}`;
-    } catch {
-      return toGCalDate(dateStr);
-    }
-  };
+  const { token, userId } = req.params;
+  const authUser = getUserByCalendarToken(token);
+  if (!authUser) {
+    return res.status(404).type('text/plain; charset=utf-8').send('Not Found: Nieprawidłowy lub wygasły token kalendarza.');
+  }
+
+  const targetUser = (serverAppStateCache.users || []).find((u: any) => u.id === userId);
+  const userName = targetUser ? targetUser.name : 'Użytkownik';
 
   const allTasks = serverAppStateCache?.tasks || [];
-  const events = allTasks.map((t: any) => {
-    const start = toGCalDate(t.startDate || t.dueDate);
-    const end = getNextDay(t.dueDate || t.startDate);
-    const summary = `[${t.code || 'ZAD'}] ${(t.title || 'Zadanie').replace(/[,;]/g, ' ')}`;
-    const desc = `Priorytet: ${t.priority || 'Normalny'}\\nStatus: ${t.status || 'W toku'}\\nCzas: ${t.durationDays || 1} dni\\n${(t.description || '').replace(/\n/g, '\\n')}`;
-
-    return [
-      'BEGIN:VEVENT',
-      `UID:${t.id}@zarzadzanierp.local`,
-      `DTSTAMP:${now}`,
-      `DTSTART;VALUE=DATE:${start}`,
-      `DTEND;VALUE=DATE:${end}`,
-      `SUMMARY:${summary}`,
-      `DESCRIPTION:${desc}`,
-      `STATUS:${t.status === 'done' ? 'COMPLETED' : 'CONFIRMED'}`,
-      'CLASS:PUBLIC',
-      'TRANSP:TRANSPARENT',
-      'END:VEVENT',
-    ].join('\r\n');
-  });
-
-  const icsBody = [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'PRODID:-//Zarzadzanie Projektami//PL//EN',
-    'CALSCALE:GREGORIAN',
-    'METHOD:PUBLISH',
-    'X-WR-CALNAME:Wszystkie Projekty - Terminarz',
-    'X-WR-TIMEZONE:Europe/Warsaw',
-    'X-PUBLISHED-TTL:PT15M',
-    'REFRESH-INTERVAL;VALUE=DURATION:PT15M',
-    ...events,
-    'END:VCALENDAR',
-  ].join('\r\n');
+  const userTasks = allTasks.filter((t: any) => t.assigneeId === userId || (!t.assigneeId && authUser.id === userId));
+  const icsBody = buildIcs(userTasks, `${userName} - Moje Zadania`);
 
   res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
-  res.setHeader('Content-Disposition', 'inline; filename="wszystkie-projekty.ics"');
+  res.setHeader('Content-Disposition', `inline; filename="${userId}-kalendarz.ics"`);
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.send(icsBody);
 });

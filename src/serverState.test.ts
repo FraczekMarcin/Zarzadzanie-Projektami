@@ -324,4 +324,71 @@ describe('Współbieżna synchronizacja, operacje na zasobach i autoryzacja', ()
     expect(migratedState.tasks[0].revision).toBe(1);
     expect(migratedState.projects[0].revision).toBe(1);
   });
+
+  it('Bezpieczeństwo feedu kalendarza: anonim bez tokenu dostaje 404, prawidłowy token zwraca poprawny iCal', async () => {
+    const crypto = await import('crypto');
+    const { buildIcs } = await import('./utils/icsBuilder');
+    const ical = (await import('node-ical')).default;
+
+    // Symulacja bazy użytkowników i tokenów
+    const rawToken = crypto.randomBytes(24).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+    const users = [
+      { id: 'usr-1', name: 'Alicja Architekt', calendarTokenHash: tokenHash, isApproved: true },
+    ];
+
+    const tasks = [
+      {
+        id: 't-test',
+        code: 'PRJ-1',
+        title: 'Zadanie z polskimi znakami ąćęłńóśźż oraz a,b;c',
+        startDate: '2026-11-10',
+        dueDate: '2026-11-12',
+        status: 'done',
+        assigneeId: 'usr-1',
+      },
+    ];
+
+    const getUserByToken = (token?: string) => {
+      if (!token || token.length < 16) return null;
+      const h = crypto.createHash('sha256').update(token.trim()).digest('hex');
+      return users.find((u) => u.calendarTokenHash === h && u.isApproved !== false) || null;
+    };
+
+    const handleCalendarRequest = (token?: string) => {
+      if (!token) {
+        return { status: 404, body: 'Not Found: Dostęp do kalendarza wymaga prywatnego tokenu subskrypcji.' };
+      }
+      const user = getUserByToken(token);
+      if (!user) {
+        return { status: 404, body: 'Not Found: Nieprawidłowy lub wygasły token kalendarza.' };
+      }
+      const ics = buildIcs(tasks, 'Wszystkie Projekty - Terminarz');
+      return { status: 200, contentType: 'text/calendar; charset=utf-8', body: ics };
+    };
+
+    // 1. Anonimowe żądanie bez tokenu -> 404
+    const anonRes = handleCalendarRequest();
+    expect(anonRes.status).toBe(404);
+
+    // 2. Błędny token -> 404
+    const badTokenRes = handleCalendarRequest('invalid-token-1234567890');
+    expect(badTokenRes.status).toBe(404);
+
+    // 3. Poprawny token -> 200 z poprawnym iCal
+    const validRes = handleCalendarRequest(rawToken);
+    expect(validRes.status).toBe(200);
+    expect(validRes.contentType).toContain('text/calendar');
+    expect(validRes.body).toContain('BEGIN:VCALENDAR');
+    expect(validRes.body).toContain('STATUS:CONFIRMED');
+    expect(validRes.body).toContain('✓ ');
+    expect(validRes.body?.endsWith('\r\n')).toBe(true);
+
+    // Parsowanie przez node-ical
+    const parsed = ical.parseICS(validRes.body as string);
+    const events = Object.values(parsed).filter((e: any) => e.type === 'VEVENT');
+    expect(events.length).toBe(1);
+    expect((events[0] as any).summary).toContain('✓ [PRJ-1]');
+  });
 });

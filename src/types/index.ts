@@ -26,6 +26,8 @@ export interface User {
   twoFactorSecret?: string; // Klucz TOTP
   isDemo?: boolean;
   isApproved?: boolean; // Nowy użytkownik musi być zatwierdzony przez administratora
+  hasCalendarToken?: boolean; // Czy użytkownik wygenerował prywatny token kalendarza
+  calendarTokenCreatedAt?: string;
   registeredAt?: string;
 }
 
