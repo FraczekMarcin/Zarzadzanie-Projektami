@@ -173,15 +173,14 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
 
     sql += `BEGIN;\n\n`;
 
-    // Users (Tylko zakodowane hashe haseł!)
-    sql += `-- Tabela: users (hasła wyłącznie jako bezpieczny hash SHA-256)\n`;
+    // Users (Bez haseł ani skrótów haseł)
+    sql += `-- Tabela: users (bez haseł i skrótów haseł)\n`;
     const safeUsers = sanitizeUsersForBackup(users);
     safeUsers.forEach((u) => {
       const cleanName = u.name.replace(/'/g, "''");
       const cleanEmail = u.email.replace(/'/g, "''");
       const cleanDept = (u.department || '').replace(/'/g, "''");
-      const pHash = u.passwordHash || '';
-      sql += `INSERT INTO users (id, name, email, role, department, password_hash, two_factor_enabled, is_approved) VALUES ('${u.id}', '${cleanName}', '${cleanEmail}', '${u.role}', '${cleanDept}', '${pHash}', ${u.twoFactorEnabled ? 'TRUE' : 'FALSE'}, ${u.isApproved !== false ? 'TRUE' : 'FALSE'}) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role, password_hash = EXCLUDED.password_hash;\n`;
+      sql += `INSERT INTO users (id, name, email, role, department, two_factor_enabled, is_approved) VALUES ('${u.id}', '${cleanName}', '${cleanEmail}', '${u.role}', '${cleanDept}', ${u.twoFactorEnabled ? 'TRUE' : 'FALSE'}, ${u.isApproved !== false ? 'TRUE' : 'FALSE'}) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role;\n`;
     });
 
     // Projects

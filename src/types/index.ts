@@ -21,7 +21,6 @@ export interface User {
   department: string;
   initials: string;
   password?: string;
-  passwordHash?: string; // Hasło zahashowane SHA-256
   twoFactorEnabled?: boolean; // Google Authenticator 2FA
   twoFactorSecret?: string; // Klucz TOTP
   isDemo?: boolean;

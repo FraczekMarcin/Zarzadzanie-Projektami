@@ -27,7 +27,6 @@ import { CURRENT_APP_VERSION, GITHUB_REPO_URL } from './data/dockerConfig';
 import { isDemoUser, isDemoProject } from './utils/demoData';
 import { sortTasksByPriorityAndDueDate } from './utils/taskSorting';
 import { cascadeScheduleDates } from './utils/scheduleCascade';
-import { hashPassword } from './utils/authSecurity';
 import { 
   FolderKanban, 
   Calendar as CalendarIcon, 
@@ -1111,6 +1110,13 @@ export default function App() {
   };
 
   const handleAddUser = async (newUserData: Omit<User, 'id' | 'initials'>) => {
+    if (!newUserData.password || !newUserData.password.trim()) {
+      setNotificationToast({
+        message: 'Hasło jest wymagane do utworzenia konta użytkownika.',
+        type: 'info',
+      });
+      return;
+    }
     try {
       const res = await fetch('/api/users', {
         method: 'POST',
@@ -1121,7 +1127,7 @@ export default function App() {
           email: newUserData.email,
           role: newUserData.role,
           department: newUserData.department,
-          password: newUserData.password || 'HasloPracowni2026!',
+          password: newUserData.password.trim(),
           twoFactorEnabled: newUserData.twoFactorEnabled,
           twoFactorSecret: newUserData.twoFactorSecret,
         }),
@@ -1338,6 +1344,13 @@ export default function App() {
 
   // Registration handler via server endpoint
   const handleRegisterUser = async (newUserData: Omit<User, 'id' | 'initials'>) => {
+    if (!newUserData.password || !newUserData.password.trim()) {
+      setNotificationToast({
+        message: 'Hasło jest wymagane do rejestracji konta.',
+        type: 'info',
+      });
+      return;
+    }
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
@@ -1348,7 +1361,7 @@ export default function App() {
           email: newUserData.email,
           role: newUserData.role,
           department: newUserData.department,
-          password: newUserData.password || 'HasloPracowni2026!',
+          password: newUserData.password.trim(),
           twoFactorEnabled: newUserData.twoFactorEnabled,
           twoFactorSecret: newUserData.twoFactorSecret,
         }),

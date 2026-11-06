@@ -9,63 +9,14 @@
 import QRCode from 'qrcode';
 import { User } from '../types';
 
-const SALT = 'zarzadzanie_projektami_salt_2026';
-
-function bufferToHex(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-/**
- * Haszowanie hasła z użyciem Web Crypto API SHA-256
- */
-export async function hashPassword(password: string): Promise<string> {
-  const trimmed = (password || '').trim();
-  if (!trimmed) return '';
-
-  try {
-    const salted = `${SALT}:${trimmed}:${SALT}`;
-    const encoder = new TextEncoder();
-    const data = encoder.encode(salted);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    return `sha256:${bufferToHex(hashBuffer)}`;
-  } catch {
-    return '';
-  }
-}
-
-/**
- * Weryfikacja hasła użytkownika po stronie klienta (obsługuje hashe SHA-256)
- */
-export async function verifyUserPassword(password: string, user: User): Promise<boolean> {
-  const trimmed = (password || '').trim();
-  if (!trimmed) return false;
-
-  const inputHash = await hashPassword(trimmed);
-
-  if (user.passwordHash) {
-    return user.passwordHash === inputHash;
-  }
-
-  if (user.password) {
-    return user.password === trimmed;
-  }
-
-  return false;
-}
-
 /**
  * Usuwa jawne hasło i przygotowuje użytkowników przed zapisem w kopii zapasowej
  */
 export function sanitizeUsersForBackup(users: User[]): User[] {
   return (users || []).map((u) => {
-    const { password, ...safeUser } = u;
-    return {
-      ...safeUser,
-      passwordHash: safeUser.passwordHash || '',
-    };
+    const { password, ...safeUser } = u as any;
+    delete safeUser.passwordHash;
+    return safeUser as User;
   });
 }
 

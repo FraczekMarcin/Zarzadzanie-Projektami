@@ -16,7 +16,7 @@ import {
   Eye,
   EyeOff
 } from 'lucide-react';
-import { verifyUserPassword, hashPassword } from '../utils/authSecurity';
+
 
 interface UserAuthModalProps {
   isOpen: boolean;
@@ -83,19 +83,29 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
     e.preventDefault();
     if (!targetUser) return;
 
-    const isValid = await verifyUserPassword(enteredPassword, targetUser);
-    if (isValid) {
-      onSwitchUser(targetUser);
-      setTargetUser(null);
-      setEnteredPassword('');
-      setPasswordError(null);
-      onClose();
-    } else {
-      setPasswordError('Nieprawidłowe hasło dostępu dla wybranego użytkownika.');
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ email: targetUser.email, password: enteredPassword }),
+      });
+      if (res.ok) {
+        onSwitchUser(targetUser);
+        setTargetUser(null);
+        setEnteredPassword('');
+        setPasswordError(null);
+        onClose();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setPasswordError(data.error || 'Nieprawidłowy adres e-mail lub hasło.');
+      }
+    } catch {
+      setPasswordError('Błąd połączenia z serwerem podczas logowania.');
     }
   };
 
-  const handleCreateUser = async (e: React.FormEvent) => {
+  const handleCreateUser = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim()) return;
 
@@ -105,15 +115,12 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
       return;
     }
 
-    const passToHash = password.trim();
-    const passwordHash = await hashPassword(passToHash);
-
     onAddUser({
       name: name.trim(),
       email: email.trim(),
       role,
       department: department.trim(),
-      passwordHash,
+      password: password.trim(),
       isDemo: false,
     });
 
