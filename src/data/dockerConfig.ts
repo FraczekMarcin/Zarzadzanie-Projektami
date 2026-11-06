@@ -7,7 +7,7 @@ export interface DockerConfigFile {
 }
 
 export const GITHUB_REPO_URL = 'https://github.com/FraczekMarcin/Zarzadzanie-Projektami';
-export const CURRENT_APP_VERSION = '2026-11-02 v0.4.0';
+export const CURRENT_APP_VERSION = '2026-11-06 v0.4.1';
 export const INSTALL_TARGET_DIR = '/opt/zarzadzanie-projektami';
 export const RAW_INSTALL_SCRIPT_URL = 'https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/Instalacja/install.sh';
 export const GITHUB_RAW_FALLBACK_URL = 'https://github.com/FraczekMarcin/Zarzadzanie-Projektami/raw/main/Instalacja/install.sh';

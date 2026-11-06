@@ -11,6 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.disable('x-powered-by');
 const PORT = process.env.PORT || 3000;
 
 // Konfiguracja trust proxy: x-forwarded-proto i x-forwarded-for ufaj TYLKO gdy ustawione TRUST_PROXY
@@ -617,7 +618,7 @@ function requireAdmin(req: express.Request, res: express.Response, next: express
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '2026-11-02 v0.4.0',
+    version: '2026-11-06 v0.4.1',
     timestamp: new Date().toISOString(),
     storage: 'JSON Database (app_state.json)',
     persistedState: !!serverAppStateCache,
@@ -1889,21 +1890,6 @@ app.get('/api/backup/status', requireAuth, (_req, res) => {
   }
 });
 
-// Direct endpoint to download install.sh via curl
-app.get('/install.sh', (_req, res) => {
-  try {
-    const scriptPath = fs.existsSync(path.resolve(__dirname, 'install.sh'))
-      ? path.resolve(__dirname, 'install.sh')
-      : path.resolve(__dirname, '..', 'install.sh');
-    if (fs.existsSync(scriptPath)) {
-      res.setHeader('Content-Type', 'text/x-shellscript; charset=utf-8');
-      return res.sendFile(scriptPath);
-    }
-  } catch (err) {
-    console.error('Error serving install.sh:', err);
-  }
-  res.status(404).send('#!/bin/bash\necho "install.sh not found"\nexit 1');
-});
 
 // ==============================================================================
 // 8. SUBSKRYPCJA KALENDARZA RFC 5545 (Zabezpieczona prywatnym hashowanym tokenem)
@@ -2051,7 +2037,7 @@ function getLocalInstalledVersion(): string {
       }
     }
   } catch {}
-  return process.env.APP_VERSION || '2026-11-02 v0.4.0';
+  return process.env.APP_VERSION || '2026-11-06 v0.4.1';
 }
 
 function isNewerVersion(remote: string, local: string): boolean {
@@ -2192,7 +2178,7 @@ app.get('/api/system-info', requireAuth, (_req, res) => {
   res.json({
     name: 'Zarządzanie Projektami',
     description: 'System zarządzania projektami z wykresem Gantta, terminarzem i integracją Google Calendar na żywo',
-    version: '2026-11-02 v0.4.0',
+    version: '2026-11-06 v0.4.1',
     deployment: 'Docker & Trwały Wolumen AppData Ready',
     features: [
       'Gantt Chart Interactive Timeline with Project Names on Bars',
@@ -2218,34 +2204,33 @@ if (process.env.NODE_ENV !== 'production') {
   } catch (viteErr) {
     console.warn('[Server] Could not initialize Vite dev middleware:', viteErr);
   }
-}
+} else {
+  const staticDir = path.join(__dirname, 'public');
+  const indexPath = path.join(staticDir, 'index.html');
 
-// Robust static file serving for production
-const candidateDistPaths = [
-  path.resolve(__dirname),
-  path.resolve(__dirname, 'dist'),
-  path.resolve(process.cwd(), 'dist'),
-  path.resolve(process.cwd()),
-];
+  if (!fs.existsSync(indexPath)) {
+    console.error(`[Server FATAL] Brak pliku "${indexPath}". Zbuduj frontend (npm run build) przed uruchomieniem serwera produkcyjnego.`);
+    process.exit(1);
+  }
 
-const distPath = candidateDistPaths.find((p) => fs.existsSync(path.join(p, 'index.html'))) || path.resolve(__dirname, 'dist');
-console.log(`[Server] Serving static assets from: ${distPath}`);
+  console.log(`[Server] Serving static assets from: ${staticDir}`);
 
-app.use(express.static(distPath, { index: false, maxAge: '1h' }));
+  app.use(express.static(staticDir, {
+    index: false,
+    maxAge: '1h',
+    dotfiles: 'deny',
+  }));
 
-// Fallback to index.html for SPA client routing
-app.use((req, res, next) => {
-  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
-  if (req.path.startsWith('/api')) return next();
+  // Fallback to index.html for SPA client routing
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    if (req.path.startsWith('/api')) return next();
 
-  const indexPath = path.join(distPath, 'index.html');
-  if (fs.existsSync(indexPath)) {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     return res.sendFile(indexPath);
-  }
-  next();
-});
+  });
+}
 
 app.listen(PORT, () => {
   console.log(`Zarządzanie Projektami running on port ${PORT}`);
