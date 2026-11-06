@@ -6,6 +6,15 @@ import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
 import 'dotenv/config';
 import { buildIcs } from './src/utils/icsBuilder.js';
+import {
+  filterStateForUser,
+  filterProjectForUser,
+  canAccessProject,
+  canWrite,
+  hasForbiddenKeys,
+  pickAllowedTaskFields,
+  pickAllowedProjectFields,
+} from './src/utils/access.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1085,28 +1094,36 @@ app.get('/api/state/revision', (_req, res) => {
   res.json({ revision: serverAppStateCache?.revision || 0 });
 });
 
-// GET /api/state: Zwraca dane z polem revision oraz nagłówkiem ETag
-app.get('/api/state', requireAuth, (_req, res) => {
+// GET /api/state: Zwraca dane z polem revision oraz nagłówkiem ETag (przefiltrowane wg uprawnień)
+app.get('/api/state', requireAuth, (req, res) => {
   ensureStateStructure();
+  const caller = (req as any).user;
   const currentRevision = serverAppStateCache?.revision || 0;
   res.setHeader('ETag', `W/"rev-${currentRevision}"`);
 
+  const filtered = filterStateForUser(serverAppStateCache, caller);
   const sanitized = {
-    ...serverAppStateCache,
+    ...filtered,
     revision: currentRevision,
-    users: (serverAppStateCache.users || []).map(sanitizeUser),
+    users: (filtered.users || []).map(sanitizeUser),
   };
   return res.json({ initialized: true, state: sanitized });
 });
 
-// POST /api/tasks (Dodanie pojedynczego zadania)
+// POST /api/tasks (Dodanie pojedynczego zadania z whitelistą i autoryzacją)
 app.post('/api/tasks', requireAuth, async (req, res) => {
   try {
     ensureStateStructure();
     const caller = (req as any).user;
+    if (!canWrite(caller)) {
+      return res.status(403).json({ error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' });
+    }
+    if (hasForbiddenKeys(req.body)) {
+      return res.status(400).json({ error: 'Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).' });
+    }
     const body = req.body || {};
 
-    if (!body.title || !body.projectId) {
+    if (!body.title || !String(body.title).trim() || !body.projectId) {
       return res.status(400).json({ error: 'Wymagane pola zadania: title oraz projectId.' });
     }
 
@@ -1118,24 +1135,41 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
     // Walidacja ról i członkostwa w projekcie
     const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
     if (!isAdminOrManager) {
-      const isMember = Array.isArray(targetProject.memberIds) && targetProject.memberIds.includes(caller.id);
+      const isMember = canAccessProject(caller, targetProject);
       if (!isMember) {
         return res.status(403).json({ error: 'Brak uprawnień: użytkownik nie jest członkiem tego projektu.' });
       }
     }
 
+    let allowed: Record<string, any>;
+    try {
+      allowed = pickAllowedTaskFields(body, caller);
+    } catch (err: any) {
+      return res.status(400).json({ error: err.message });
+    }
+
     const projKey = targetProject?.key || 'ZAD';
     const existingCount = (serverAppStateCache.tasks || []).filter((t: any) => t.projectId === body.projectId).length;
-    const code = body.code || `${projKey}-${String(existingCount + 1).padStart(2, '0')}`;
+    const code = allowed.code || `${projKey}-${String(existingCount + 1).padStart(2, '0')}`;
 
+    const now = new Date().toISOString();
     const newTask = {
-      ...body,
-      id: body.id || `tsk-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      ...allowed,
+      id: crypto.randomUUID(),
+      projectId: targetProject.id,
       code,
-      reporterId: body.reporterId || caller.id,
+      title: String(body.title).trim(),
+      reporterId: caller.id,
+      type: allowed.type || 'task',
+      priority: allowed.priority || 'normal',
+      status: allowed.status || 'to_do',
+      progress: typeof allowed.progress === 'number' ? allowed.progress : 0,
+      startDate: allowed.startDate || now.slice(0, 10),
+      dueDate: allowed.dueDate || now.slice(0, 10),
+      durationDays: typeof allowed.durationDays === 'number' ? allowed.durationDays : 1,
       revision: 1,
-      createdAt: body.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
     };
 
     serverAppStateCache.tasks.unshift(newTask);
@@ -1149,12 +1183,18 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
   }
 });
 
-// PATCH /api/tasks/:id (Aktualizacja pól zadania z weryfikacją If-Match / revision)
+// PATCH /api/tasks/:id (Aktualizacja pól zadania z whitelistą i weryfikacją If-Match / revision)
 app.patch('/api/tasks/:id', requireAuth, async (req, res) => {
   try {
     ensureStateStructure();
     const { id } = req.params;
     const caller = (req as any).user;
+    if (!canWrite(caller)) {
+      return res.status(403).json({ error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' });
+    }
+    if (hasForbiddenKeys(req.body)) {
+      return res.status(400).json({ error: 'Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).' });
+    }
     const patch = req.body || {};
 
     const task = (serverAppStateCache.tasks || []).find((t: any) => t.id === id);
@@ -1173,6 +1213,17 @@ app.patch('/api/tasks/:id', requireAuth, async (req, res) => {
       }
     }
 
+    // Zmiana projectId zadania dozwolona wyłącznie dla admin / project_manager
+    if (patch.projectId !== undefined && patch.projectId !== task.projectId) {
+      if (!isAdminOrManager) {
+        return res.status(403).json({ error: 'Zmiana projektu zadania jest dozwolona wyłącznie dla roli administratora lub kierownika projektu.' });
+      }
+      const destProject = (serverAppStateCache.projects || []).find((p: any) => p.id === patch.projectId);
+      if (!destProject) {
+        return res.status(404).json({ error: `Projekt docelowy o ID "${patch.projectId}" nie istnieje.` });
+      }
+    }
+
     // Weryfikacja optymistycznej blokady (nagłówek If-Match lub pole expectedRevision)
     const rawIfMatch = req.headers['if-match'] || (patch.expectedRevision !== undefined ? String(patch.expectedRevision) : null);
     if (rawIfMatch) {
@@ -1187,12 +1238,15 @@ app.patch('/api/tasks/:id', requireAuth, async (req, res) => {
       }
     }
 
-    // Aktualizacja przekazanych pól (zabezpieczenie pól kluczowych)
-    const protectedFields = new Set(['id', 'createdAt']);
-    for (const key of Object.keys(patch)) {
-      if (!protectedFields.has(key) && key !== 'expectedRevision' && key !== 'revision') {
-        task[key] = patch[key];
-      }
+    let allowedUpdates: Record<string, any>;
+    try {
+      allowedUpdates = pickAllowedTaskFields(patch, caller);
+    } catch (err: any) {
+      return res.status(400).json({ error: err.message });
+    }
+
+    for (const [key, value] of Object.entries(allowedUpdates)) {
+      task[key] = value;
     }
 
     task.revision = (task.revision || 1) + 1;
@@ -1214,6 +1268,9 @@ app.delete('/api/tasks/:id', requireAuth, async (req, res) => {
     ensureStateStructure();
     const { id } = req.params;
     const caller = (req as any).user;
+    if (!canWrite(caller)) {
+      return res.status(403).json({ error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' });
+    }
 
     const task = (serverAppStateCache.tasks || []).find((t: any) => t.id === id);
     if (!task) {
@@ -1222,8 +1279,6 @@ app.delete('/api/tasks/:id', requireAuth, async (req, res) => {
 
     const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
     if (!isAdminOrManager) {
-      // Własne wyłącznie gdy przypisane do callera LUB zgłoszone przez callera
-      // Zadanie bez przypisanej osoby i z innym zgłaszającym traktowane jako cudze
       const isOwn = (task.assigneeId && task.assigneeId === caller.id) ||
                     (task.reporterId && task.reporterId === caller.id);
       if (!isOwn) {
@@ -1244,27 +1299,58 @@ app.delete('/api/tasks/:id', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/projects (Tworzenie nowego projektu)
+// POST /api/projects (Tworzenie nowego projektu z whitelistą i autoryzacją)
 app.post('/api/projects', requireAuth, async (req, res) => {
   try {
     ensureStateStructure();
     const caller = (req as any).user;
+    if (!canWrite(caller)) {
+      return res.status(403).json({ error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' });
+    }
+    if (hasForbiddenKeys(req.body)) {
+      return res.status(400).json({ error: 'Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).' });
+    }
     const body = req.body || {};
 
-    if (!body.name) {
+    if (!body.name || !String(body.name).trim()) {
       return res.status(400).json({ error: 'Wymagana nazwa projektu.' });
     }
 
-    const members = Array.isArray(body.memberIds) ? body.memberIds : [caller.id];
+    let allowed: Record<string, any>;
+    try {
+      allowed = pickAllowedProjectFields(body, caller);
+    } catch (err: any) {
+      return res.status(400).json({ error: err.message });
+    }
+
+    const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
+    let members: string[];
+    if (isAdminOrManager && Array.isArray(body.memberIds)) {
+      members = Array.from(new Set(body.memberIds));
+    } else {
+      members = [caller.id];
+    }
     if (!members.includes(caller.id)) {
       members.push(caller.id);
     }
 
+    const key = (isAdminOrManager && body.key ? String(body.key) : 'PRJ').toUpperCase().trim();
+    const now = new Date().toISOString();
+
     const newProject = {
-      ...body,
-      id: body.id || `prj-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      key: (body.key || 'PRJ').toUpperCase(),
+      ...allowed,
+      id: crypto.randomUUID(),
+      key,
+      name: String(body.name).trim(),
       memberIds: members,
+      description: allowed.description || '',
+      priority: allowed.priority || 'normal',
+      status: allowed.status || 'planning',
+      startDate: allowed.startDate || now.slice(0, 10),
+      dueDate: allowed.dueDate || now.slice(0, 10),
+      durationDays: typeof allowed.durationDays === 'number' ? allowed.durationDays : 30,
+      progress: typeof allowed.progress === 'number' ? allowed.progress : 0,
+      color: allowed.color || '#3b82f6',
       revision: 1,
     };
 
@@ -1272,18 +1358,28 @@ app.post('/api/projects', requireAuth, async (req, res) => {
     const newRev = bumpStateRevision();
     await saveStateAtomicAsync();
 
-    res.status(201).json({ success: true, project: newProject, revision: newRev });
+    res.status(201).json({
+      success: true,
+      project: filterProjectForUser(newProject, caller),
+      revision: newRev,
+    });
   } catch (err: any) {
     console.error('[Server API] Błąd tworzenia projektu:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// PATCH /api/projects/:id (Aktualizacja projektu z obsługą If-Match)
+// PATCH /api/projects/:id (Aktualizacja projektu z whitelistą i obsługą If-Match)
 app.patch('/api/projects/:id', requireAuth, async (req, res) => {
   try {
     ensureStateStructure();
     const caller = (req as any).user;
+    if (!canWrite(caller)) {
+      return res.status(403).json({ error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' });
+    }
+    if (hasForbiddenKeys(req.body)) {
+      return res.status(400).json({ error: 'Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).' });
+    }
     const { id } = req.params;
     const patch = req.body || {};
 
@@ -1300,6 +1396,13 @@ app.patch('/api/projects/:id', requireAuth, async (req, res) => {
       }
     }
 
+    // Zmiana memberIds oraz key projektu tylko dla admin / project_manager
+    if (!isAdminOrManager && (patch.memberIds !== undefined || patch.key !== undefined)) {
+      return res.status(403).json({
+        error: 'Zmiana memberIds oraz key projektu jest dozwolona wyłącznie dla roli administratora lub kierownika projektu.',
+      });
+    }
+
     const rawIfMatch = req.headers['if-match'] || (patch.expectedRevision !== undefined ? String(patch.expectedRevision) : null);
     if (rawIfMatch) {
       const cleanMatch = String(rawIfMatch).replace(/["W\/]/g, '').trim();
@@ -1307,23 +1410,32 @@ app.patch('/api/projects/:id', requireAuth, async (req, res) => {
       if (cleanMatch !== '*' && cleanMatch !== currentRev) {
         return res.status(409).json({
           error: 'Konflikt wersji projektu (został zmodyfikowany przez innego użytkownika).',
-          currentProject: project,
+          currentProject: filterProjectForUser(project, caller),
           revision: serverAppStateCache.revision,
         });
       }
     }
 
-    for (const key of Object.keys(patch)) {
-      if (key !== 'id' && key !== 'expectedRevision' && key !== 'revision') {
-        project[key] = patch[key];
-      }
+    let allowedUpdates: Record<string, any>;
+    try {
+      allowedUpdates = pickAllowedProjectFields(patch, caller);
+    } catch (err: any) {
+      return res.status(400).json({ error: err.message });
+    }
+
+    for (const [key, value] of Object.entries(allowedUpdates)) {
+      project[key] = value;
     }
 
     project.revision = (project.revision || 1) + 1;
     const newRev = bumpStateRevision();
     await saveStateAtomicAsync();
 
-    res.json({ success: true, project, revision: newRev });
+    res.json({
+      success: true,
+      project: filterProjectForUser(project, caller),
+      revision: newRev,
+    });
   } catch (err: any) {
     console.error('[Server API] Błąd aktualizacji projektu:', err);
     res.status(500).json({ error: err.message });
@@ -1335,6 +1447,9 @@ app.delete('/api/projects/:id', requireAuth, async (req, res) => {
   try {
     ensureStateStructure();
     const caller = (req as any).user;
+    if (!canWrite(caller)) {
+      return res.status(403).json({ error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' });
+    }
     const { id } = req.params;
 
     const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
@@ -1350,7 +1465,6 @@ app.delete('/api/projects/:id', requireAuth, async (req, res) => {
     }
 
     serverAppStateCache.projects.splice(projectIndex, 1);
-    // Usunięcie również zadań powiązanych z usuwanym projektem
     serverAppStateCache.tasks = (serverAppStateCache.tasks || []).filter((t: any) => t.projectId !== id);
 
     const newRev = bumpStateRevision();
@@ -1363,11 +1477,17 @@ app.delete('/api/projects/:id', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/comments (Dodanie komentarza)
+// POST /api/comments (Dodanie komentarza z autoryzacją)
 app.post('/api/comments', requireAuth, async (req, res) => {
   try {
     ensureStateStructure();
     const caller = (req as any).user;
+    if (!canWrite(caller)) {
+      return res.status(403).json({ error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' });
+    }
+    if (hasForbiddenKeys(req.body)) {
+      return res.status(400).json({ error: 'Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).' });
+    }
     const { taskId, content } = req.body || {};
 
     if (!taskId || !content || !String(content).trim()) {
@@ -1390,7 +1510,7 @@ app.post('/api/comments', requireAuth, async (req, res) => {
     }
 
     const newComment = {
-      id: req.body.id || `com-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      id: crypto.randomUUID(),
       taskId,
       userId: caller.id,
       content: String(content).trim(),
@@ -1413,6 +1533,9 @@ app.delete('/api/comments/:id', requireAuth, async (req, res) => {
   try {
     ensureStateStructure();
     const caller = (req as any).user;
+    if (!canWrite(caller)) {
+      return res.status(403).json({ error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' });
+    }
     const { id } = req.params;
 
     const comment = (serverAppStateCache.comments || []).find((c: any) => c.id === id);
@@ -1439,21 +1562,80 @@ app.delete('/api/comments/:id', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/activity (Rejestracja wpisu w dzienniku aktywności)
+// POST /api/activity (Rejestracja wpisu w dzienniku aktywności z walidacją projektu i limitów)
 app.post('/api/activity', requireAuth, async (req, res) => {
   try {
     ensureStateStructure();
     const caller = (req as any).user;
+    if (!canWrite(caller)) {
+      return res.status(403).json({ error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' });
+    }
+    if (hasForbiddenKeys(req.body)) {
+      return res.status(400).json({ error: 'Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).' });
+    }
     const body = req.body || {};
 
+    // projectId wymagany
+    if (!body.projectId || typeof body.projectId !== 'string' || !body.projectId.trim()) {
+      return res.status(400).json({ error: 'Wymagane pole: projectId.' });
+    }
+
+    const projectId = body.projectId.trim();
+    const project = (serverAppStateCache.projects || []).find((p: any) => p.id === projectId);
+    if (!project) {
+      return res.status(404).json({ error: `Projekt o ID "${projectId}" nie istnieje.` });
+    }
+
+    // Sprawdź dostęp użytkownika do projektu
+    if (!canAccessProject(caller, project)) {
+      return res.status(403).json({ error: 'Brak uprawnień do rejestracji aktywności w tym projekcie.' });
+    }
+
+    // action max 200 znaków
+    if (!body.action || typeof body.action !== 'string' || !body.action.trim()) {
+      return res.status(400).json({ error: 'Wymagane pole: action.' });
+    }
+    const action = body.action.trim();
+    if (action.length > 200) {
+      return res.status(400).json({ error: 'Pole action może mieć maksymalnie 200 znaków.' });
+    }
+
+    // details max 2000 znaków
+    let details: string | undefined;
+    if (body.details !== undefined && body.details !== null) {
+      if (typeof body.details !== 'string') {
+        return res.status(400).json({ error: 'Pole details musi być tekstem.' });
+      }
+      if (body.details.length > 2000) {
+        return res.status(400).json({ error: 'Pole details może mieć maksymalnie 2000 znaków.' });
+      }
+      details = body.details;
+    }
+
+    // taskId (jeśli podane) musi istnieć
+    let taskId: string | undefined;
+    if (body.taskId) {
+      if (typeof body.taskId !== 'string') {
+        return res.status(400).json({ error: 'Pole taskId musi być tekstem.' });
+      }
+      taskId = body.taskId.trim();
+      const task = (serverAppStateCache.tasks || []).find((t: any) => t.id === taskId);
+      if (!task) {
+        return res.status(404).json({ error: `Zadanie o ID "${taskId}" nie istnieje.` });
+      }
+      if (task.projectId !== projectId) {
+        return res.status(400).json({ error: `Zadanie "${taskId}" nie należy do projektu "${projectId}".` });
+      }
+    }
+
     const newLog = {
-      id: body.id || `act-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      projectId: body.projectId || 'prj-1',
-      taskId: body.taskId,
+      id: crypto.randomUUID(),
+      projectId,
+      taskId,
       userId: caller.id,
-      action: body.action || 'Aktywność',
-      timestamp: body.timestamp || new Date().toISOString(),
-      details: body.details,
+      action,
+      timestamp: new Date().toISOString(),
+      details,
     };
 
     serverAppStateCache.activityLogs.unshift(newLog);
@@ -1493,7 +1675,7 @@ app.post('/api/state', requireAuth, async (req, res) => {
         return res.status(409).json({
           error: 'Konflikt wersji stanu aplikacji (baza została zaktualizowana przez innego administratora).',
           currentState: {
-            ...serverAppStateCache,
+            ...filterStateForUser(serverAppStateCache, caller),
             revision: serverAppStateCache.revision,
             users: (serverAppStateCache.users || []).map(sanitizeUser),
           },
@@ -1981,7 +2163,7 @@ app.get('/api/calendar/user/:userId.ics', (_req, res) => {
   res.status(404).type('text/plain; charset=utf-8').send('Not Found: Dostęp do kalendarza wymaga prywatnego tokenu subskrypcji.');
 });
 
-// RFC 5545 iCalendar feed dla wszystkich zadań (z tokenem w URL)
+// RFC 5545 iCalendar feed dla wszystkich zadań (z tokenem w URL, przefiltrowany wg uprawnień właściciela tokenu)
 app.get('/api/calendar/:token/all.ics', (req, res) => {
   ensureStateStructure();
   const { token } = req.params;
@@ -1990,8 +2172,22 @@ app.get('/api/calendar/:token/all.ics', (req, res) => {
     return res.status(404).type('text/plain; charset=utf-8').send('Not Found: Nieprawidłowy lub wygasły token kalendarza.');
   }
 
+  const allProjects = serverAppStateCache?.projects || [];
   const allTasks = serverAppStateCache?.tasks || [];
-  const icsBody = buildIcs(allTasks, 'Wszystkie Projekty - Terminarz');
+
+  let visibleTasks: any[];
+  if (user.role === 'admin' || user.role === 'project_manager') {
+    visibleTasks = allTasks;
+  } else {
+    const accessibleProjectIds = new Set(
+      allProjects.filter((p: any) => canAccessProject(user, p)).map((p: any) => p.id)
+    );
+    visibleTasks = allTasks.filter(
+      (t: any) => accessibleProjectIds.has(t.projectId) || t.assigneeId === user.id || t.reporterId === user.id
+    );
+  }
+
+  const icsBody = buildIcs(visibleTasks, 'Wszystkie Projekty - Terminarz');
 
   res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
   res.setHeader('Content-Disposition', 'inline; filename="wszystkie-projekty.ics"');
@@ -2008,15 +2204,39 @@ app.get('/api/calendar/:token/user/:userId.ics', (req, res) => {
     return res.status(404).type('text/plain; charset=utf-8').send('Not Found: Nieprawidłowy lub wygasły token kalendarza.');
   }
 
+  // Działa tylko gdy userId jest właścicielem tokenu (admin może dla dowolnego)
+  if (authUser.id !== userId && authUser.role !== 'admin') {
+    return res.status(403).type('text/plain; charset=utf-8').send('Forbidden: Dostęp ograniczony wyłącznie do własnego kalendarza.');
+  }
+
   const targetUser = (serverAppStateCache.users || []).find((u: any) => u.id === userId);
   const userName = targetUser ? targetUser.name : 'Użytkownik';
 
+  const allProjects = serverAppStateCache?.projects || [];
   const allTasks = serverAppStateCache?.tasks || [];
-  const userTasks = allTasks.filter((t: any) => t.assigneeId === userId || (!t.assigneeId && authUser.id === userId));
+
+  let userTasks = allTasks.filter((t: any) => t.assigneeId === userId || (!t.assigneeId && authUser.id === userId));
+
+  if (authUser.role !== 'admin' && authUser.role !== 'project_manager') {
+    const accessibleProjectIds = new Set(
+      allProjects.filter((p: any) => canAccessProject(authUser, p)).map((p: any) => p.id)
+    );
+    userTasks = userTasks.filter(
+      (t: any) => accessibleProjectIds.has(t.projectId) || t.assigneeId === authUser.id || t.reporterId === authUser.id
+    );
+  }
+
   const icsBody = buildIcs(userTasks, `${userName} - Moje Zadania`);
 
+  // Nazwa pliku w Content-Disposition oczyszczona wyłącznie do [a-z0-9-]
+  const safeBaseName = (userId || 'kalendarz')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '') || 'kalendarz';
+
   res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
-  res.setHeader('Content-Disposition', `inline; filename="${userId}-kalendarz.ics"`);
+  res.setHeader('Content-Disposition', `inline; filename="${safeBaseName}.ics"`);
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.send(icsBody);
 });
