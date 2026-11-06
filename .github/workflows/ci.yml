@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test-and-build:
+    name: Lint, Test and Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Pobierz kod źródłowy (Checkout)
+        uses: actions/checkout@v4
+
+      - name: Konfiguracja Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Instalacja zależności (npm ci)
+        run: npm ci
+
+      - name: Weryfikacja typów TypeScript (lint)
+        run: npm run lint
+
+      - name: Testy jednostkowe i integracyjne (vitest)
+        run: npm test
+
+      - name: Budowanie aplikacji produkcyjnej (build)
+        run: npm run build

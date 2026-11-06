@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
 import 'dotenv/config';
-import { buildIcs } from './src/utils/icsBuilder';
+import { buildIcs } from './src/utils/icsBuilder.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

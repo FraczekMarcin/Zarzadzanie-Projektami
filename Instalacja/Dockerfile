@@ -38,13 +38,9 @@ RUN mkdir -p /app/data && chown -R appuser:nodejs /app/data
 # Kopiowanie skompilowanego frontendu i serwera (zaledwie 650 KB!)
 COPY --chown=appuser:nodejs --from=builder /app/dist ./dist
 
-# Instalacja wyłącznie serwera express, nodemailer i dotenv (bez zbędnych 250 MB devDependencies)
-RUN npm --prefix /app init -y && \
-    npm --prefix /app install --no-package-lock --no-audit express@^4.21.2 nodemailer@^10.3.1 dotenv@^17.2.3 && \
-    npm cache clean --force
-
-# Dodaj deklarację ESM ("type": "module") do package.json w kontenerze
-RUN node -e "const p = require('./package.json'); p.type = 'module'; require('fs').writeFileSync('./package.json', JSON.stringify(p, null, 2));"
+# Instalacja wyłącznie zależności produkcyjnych (express, nodemailer, dotenv)
+COPY --chown=appuser:nodejs package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
 
 USER appuser
 
