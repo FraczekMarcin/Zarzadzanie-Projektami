@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 
 
+import { TwoFactorManager } from './TwoFactorManager';
+
 interface UserAuthModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -27,7 +29,8 @@ interface UserAuthModalProps {
   onAddUser: (newUser: Omit<User, 'id' | 'initials'>) => void;
   onDeleteUser?: (userId: string) => void;
   onDeleteDemoUsers?: () => void;
-  onUpdateUserPassword?: (userId: string, newPass: string) => void;
+  onUpdateUserPassword?: (userId: string, newPass: string, currentPass?: string) => void;
+  onUserUpdated?: (updated: Partial<User>) => void;
   onLogout?: () => void;
   activityLogs: ActivityLog[];
   onOpenTemplateManager?: () => void;
@@ -43,11 +46,12 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
   onDeleteUser,
   onDeleteDemoUsers,
   onUpdateUserPassword,
+  onUserUpdated,
   onLogout,
   activityLogs,
   onOpenTemplateManager,
 }) => {
-  const [activeTab, setActiveTab] = useState<'switch' | 'new_user' | 'password' | 'logs'>('switch');
+  const [activeTab, setActiveTab] = useState<'switch' | 'new_user' | 'password' | '2fa' | 'logs'>('switch');
 
   // Password verification for switching
   const [targetUser, setTargetUser] = useState<User | null>(null);
@@ -63,6 +67,7 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
   const [department, setDepartment] = useState('Pracownia Konstrukcji Budowlanych');
 
   // Change password state
+  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordChangeSuccess, setPasswordChangeSuccess] = useState(false);
@@ -134,17 +139,31 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
   const handleChangePassword = (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser || !onUpdateUserPassword) return;
-    if (newPassword.length < 4) {
-      setPasswordError('Hasło musi mieć co najmniej 4 znaki');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setPasswordError('Hasła nie są identyczne');
+
+    if (!currentPassword) {
+      setPasswordError('Wprowadź dotychczasowe hasło');
       return;
     }
 
-    onUpdateUserPassword(currentUser.id, newPassword);
+    const minLen = currentUser.role === 'admin' ? 12 : 8;
+    if (newPassword.length < minLen) {
+      setPasswordError(
+        `Nowe hasło dla roli ${currentUser.role === 'admin' ? 'Administrator' : 'Użytkownik'} musi mieć co najmniej ${minLen} znaków.`
+      );
+      return;
+    }
+    if (newPassword.length > 128) {
+      setPasswordError('Nowe hasło może mieć maksymalnie 128 znaków.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Nowe hasła nie są identyczne');
+      return;
+    }
+
+    onUpdateUserPassword(currentUser.id, newPassword, currentPassword);
     setPasswordChangeSuccess(true);
+    setCurrentPassword('');
     setNewPassword('');
     setConfirmPassword('');
     setTimeout(() => setPasswordChangeSuccess(false), 3000);
@@ -264,6 +283,23 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
             >
               <KeyRound className="w-4 h-4" />
               <span>Zmień hasło</span>
+            </button>
+          )}
+
+          {currentUser && (
+            <button
+              onClick={() => {
+                setActiveTab('2fa');
+                setTargetUser(null);
+              }}
+              className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+                activeTab === '2fa'
+                  ? 'border-sky-600 text-sky-600 dark:text-sky-400 font-semibold'
+                  : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              <Shield className="w-4 h-4" />
+              <span>Weryfikacja 2FA</span>
             </button>
           )}
 
@@ -565,7 +601,26 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
             )}
 
             <div>
-              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Nowe hasło *</label>
+              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Dotychczasowe hasło *
+              </label>
+              <input
+                type="password"
+                required
+                value={currentPassword}
+                onChange={(e) => {
+                  setCurrentPassword(e.target.value);
+                  setPasswordError(null);
+                }}
+                placeholder="Wpisz swoje aktualne hasło"
+                className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-hidden focus:ring-1 focus:ring-sky-500 font-mono"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Nowe hasło * (min. {currentUser.role === 'admin' ? 12 : 8} znaków)
+              </label>
               <input
                 type="password"
                 required
@@ -607,6 +662,13 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
               </button>
             </div>
           </form>
+        )}
+
+        {/* Tab: 2FA Authentication */}
+        {activeTab === '2fa' && currentUser && (
+          <div className="p-6 overflow-y-auto flex-1">
+            <TwoFactorManager currentUser={currentUser} onUserUpdated={onUserUpdated} />
+          </div>
         )}
 
         {/* Tab 4: Audit Log */}

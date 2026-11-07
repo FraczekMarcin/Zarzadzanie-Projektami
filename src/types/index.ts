@@ -22,7 +22,7 @@ export interface User {
   initials: string;
   password?: string;
   twoFactorEnabled?: boolean; // Google Authenticator 2FA
-  twoFactorSecret?: string; // Klucz TOTP
+  backupCodesCount?: number;
   isDemo?: boolean;
   isApproved?: boolean; // Nowy użytkownik musi być zatwierdzony przez administratora
   hasCalendarToken?: boolean; // Czy użytkownik wygenerował prywatny token kalendarza

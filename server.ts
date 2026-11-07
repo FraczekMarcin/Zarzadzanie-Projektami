@@ -15,6 +15,14 @@ import {
   pickAllowedTaskFields,
   pickAllowedProjectFields,
 } from './src/utils/access.js';
+import {
+  generateBase32Secret,
+  generate10BackupCodes,
+  calculateTotpForStep,
+  verifyTotpStrict,
+  verifyAndConsumeBackupCode,
+  getOtpAuthUrl,
+} from './src/utils/totp.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -432,128 +440,11 @@ function resetFailedLogin(account: string, clientIp: string) {
 // 2b. OBSŁUGA TOTP (RFC 6238, HMAC-SHA1), KODY ZAPASOWE & RESET HASŁA SMTP
 // ==============================================================================
 
-// Dekoder Base32 zgodny z RFC 4648
-function base32ToBuffer(base32: string): Buffer {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  const clean = (base32 || '').toUpperCase().replace(/[\s-]/g, '').replace(/=+$/, '');
-  let bits = 0;
-  let value = 0;
-  const bytes: number[] = [];
+// Funkcje TOTP, kody zapasowe i linki otpauth wyodrębniono do ./src/utils/totp.ts
+// Dummy hash scrypt do eliminowania timing attacks przy logowaniu nieistniejącego użytkownika
+const DUMMY_SCRYPT_HASH =
+  'scrypt$16384$8$1$0123456789abcdef0123456789abcdef$0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
-  for (let i = 0; i < clean.length; i++) {
-    const idx = alphabet.indexOf(clean[i]);
-    if (idx === -1) continue;
-    value = (value << 5) | idx;
-    bits += 5;
-    if (bits >= 8) {
-      bytes.push((value >>> (bits - 8)) & 255);
-      bits -= 8;
-      value = value & ((1 << bits) - 1);
-    }
-  }
-  return Buffer.from(bytes);
-}
-
-// Generator losowego klucza Base32 (20 bajtów = 32 znaki Base32)
-function generateBase32Secret(byteLength = 20): string {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  const randomBytes = crypto.randomBytes(byteLength);
-  let result = '';
-  for (let i = 0; i < randomBytes.length; i++) {
-    result += alphabet[randomBytes[i] % alphabet.length];
-  }
-  return result;
-}
-
-// Generowanie 8 jednorazowych kodów zapasowych i ich hashy SHA-256
-function generate8BackupCodes(): { codes: string[]; hashes: string[] } {
-  const codes: string[] = [];
-  const hashes: string[] = [];
-  for (let i = 0; i < 8; i++) {
-    const raw = crypto.randomBytes(4).toString('hex').toUpperCase();
-    const formatted = `${raw.slice(0, 4)}-${raw.slice(4)}`;
-    codes.push(formatted);
-    hashes.push(crypto.createHash('sha256').update(raw).digest('hex'));
-  }
-  return { codes, hashes };
-}
-
-// Obliczenie 6-cyfrowego kodu TOTP dla danego kroku czasowego
-function calculateTotpForStep(secretBase32: string, step: number): string {
-  const key = base32ToBuffer(secretBase32);
-  const buf = Buffer.alloc(8);
-  buf.writeBigInt64BE(BigInt(step));
-
-  const hmac = crypto.createHmac('sha1', key).update(buf).digest();
-  const hmacOffset = hmac[hmac.length - 1] & 0x0f;
-  const binary =
-    ((hmac[hmacOffset] & 0x7f) << 24) |
-    ((hmac[hmacOffset + 1] & 0xff) << 16) |
-    ((hmac[hmacOffset + 2] & 0xff) << 8) |
-    (hmac[hmacOffset + 3] & 0xff);
-
-  return (binary % 1000000).toString().padStart(6, '0');
-}
-
-/**
- * Weryfikacja kodu TOTP na serwerze (RFC 6238, HMAC-SHA1).
- * Okno tolerancji: wyłącznie ±1 krok (30 s w tył, bieżący, 30 s w przód).
- * Ochrona przed replay attack: kod dla kroku <= lastUsedStep jest natychmiast odrzucany.
- * Zwraca numer dopasowanego kroku lub null.
- */
-function verifyTotpStrict(secretBase32: string, enteredCode: string, lastUsedStep?: number): number | null {
-  if (!secretBase32 || !enteredCode) return null;
-  const cleanCode = enteredCode.replace(/[\s-]/g, '').trim();
-  if (!/^\d{6}$/.test(cleanCode)) return null;
-
-  const key = base32ToBuffer(secretBase32);
-  if (key.length === 0) return null;
-
-  const epoch = Math.floor(Date.now() / 1000);
-  const currentStep = Math.floor(epoch / 30);
-
-  // Okno ściśle ±1 (kroki: currentStep - 1, currentStep, currentStep + 1)
-  for (let offset = -1; offset <= 1; offset++) {
-    const step = currentStep + offset;
-    // Ochrona przed ponownym użyciem tego samego kodu
-    if (typeof lastUsedStep === 'number' && step <= lastUsedStep) {
-      continue;
-    }
-    const expectedOtp = calculateTotpForStep(secretBase32, step);
-    if (crypto.timingSafeEqual(Buffer.from(cleanCode), Buffer.from(expectedOtp))) {
-      return step;
-    }
-  }
-
-  return null;
-}
-
-// Weryfikacja i unieważnienie jednorazowego kodu zapasowego
-function verifyAndConsumeBackupCode(user: any, enteredCode: string): boolean {
-  if (!user || !Array.isArray(user.twoFactorBackupCodes) || user.twoFactorBackupCodes.length === 0) {
-    return false;
-  }
-  const cleanCode = enteredCode.replace(/[\s-]/g, '').toUpperCase().trim();
-  if (cleanCode.length < 6) return false;
-
-  const candidateHash = crypto.createHash('sha256').update(cleanCode).digest('hex');
-
-  const idx = user.twoFactorBackupCodes.findIndex((storedHash: string) => {
-    try {
-      return crypto.timingSafeEqual(Buffer.from(storedHash), Buffer.from(candidateHash));
-    } catch {
-      return false;
-    }
-  });
-
-  if (idx !== -1) {
-    // Usunięcie zużytego kodu zapasowego (jednorazowy użytek)
-    user.twoFactorBackupCodes.splice(idx, 1);
-    return true;
-  }
-
-  return false;
-}
 
 // Magazyn tokenów resetowania hasła (pamięć serwera, 10 minut ważności)
 interface PasswordResetToken {
@@ -849,6 +740,8 @@ app.post('/api/auth/login', async (req, res) => {
     );
 
     if (!user) {
+      // Wyeliminowanie różnic czasowych (timing attacks): wykonaj dummy scrypt
+      await verifyPasswordScrypt(String(password), DUMMY_SCRYPT_HASH);
       registerFailedLogin(identifier, clientIp);
       if (isRateLimited(identifier, clientIp)) {
         return res.status(429).json({
@@ -874,7 +767,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     // 2FA Google Authenticator Check & Jednorazowe kody zapasowe
-    if (user.twoFactorEnabled) {
+    if (user.twoFactorEnabled || (user.pending2FA && user.pending2FA.secret)) {
       if (!totpCode) {
         return res.json({
           require2FA: true,
@@ -884,21 +777,31 @@ app.post('/api/auth/login', async (req, res) => {
 
       let authSuccess = false;
 
-      // 1. Sprawdzenie kodu TOTP (RFC 6238, HMAC-SHA1, tolerancja ±1 krok, blokada replay attack)
-      if (user.twoFactorSecret) {
+      // 1. Sprawdzenie kodu TOTP gdy 2FA jest już aktywne
+      if (user.twoFactorEnabled && user.twoFactorSecret) {
         const matchedStep = verifyTotpStrict(user.twoFactorSecret, String(totpCode), user.lastTotpCounter);
         if (matchedStep !== null) {
           user.lastTotpCounter = matchedStep;
           authSuccess = true;
           await saveStateAtomicAsync();
+        } else if (verifyAndConsumeBackupCode(user, String(totpCode))) {
+          authSuccess = true;
+          await saveStateAtomicAsync();
+          console.log(`[Server Auth] Użytkownik ${user.name} (${user.id}) zalogował się za pomocą jednorazowego kodu zapasowego.`);
         }
-      }
-
-      // 2. Jeśli kod TOTP nie pasował, sprawdź czy to jeden z 8 jednorazowych kodów zapasowych
-      if (!authSuccess && verifyAndConsumeBackupCode(user, String(totpCode))) {
-        authSuccess = true;
-        await saveStateAtomicAsync();
-        console.log(`[Server Auth] Użytkownik ${user.name} (${user.id}) zalogował się za pomocą jednorazowego kodu zapasowego.`);
+      } else if (user.pending2FA && user.pending2FA.secret) {
+        // 2. Pierwsze logowanie po rejestracji z 2FA: potwierdzenie pending2FA
+        const matchedStep = verifyTotpStrict(user.pending2FA.secret, String(totpCode));
+        if (matchedStep !== null) {
+          user.twoFactorEnabled = true;
+          user.twoFactorSecret = user.pending2FA.secret;
+          user.twoFactorBackupCodes = user.pending2FA.backupCodeHashes;
+          user.lastTotpCounter = matchedStep;
+          delete user.pending2FA;
+          authSuccess = true;
+          await saveStateAtomicAsync();
+          console.log(`[Server Auth] Użytkownik ${user.name} (${user.id}) potwierdził 2FA przy pierwszym logowaniu.`);
+        }
       }
 
       if (!authSuccess) {
@@ -968,7 +871,7 @@ app.post('/api/auth/setup-admin', async (req, res) => {
 
     const passwordHash = await hashPasswordScrypt(String(password));
     const adminUser = {
-      id: `usr-${Date.now()}`,
+      id: crypto.randomUUID(),
       name: String(name).trim(),
       email: String(email).trim().toLowerCase(),
       role: 'admin',
@@ -1020,45 +923,51 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ error: 'Hasło musi zawierać co najmniej 8 znaków.' });
     }
 
+    const cleanEmail = String(email).trim().toLowerCase();
     const existing = (serverUsersCache || []).find(
-      (u) => u.email?.toLowerCase() === String(email).trim().toLowerCase()
+      (u) => u.email?.toLowerCase() === cleanEmail
     );
     if (existing) {
-      return res.status(400).json({ error: 'Użytkownik o podanym adresie e-mail już istnieje w systemie.' });
+      // Ochrona przed enumeracją kont użytkowników: identyczny komunikat sukcesu
+      return res.json({
+        success: true,
+        message: 'Wniosek rejestracyjny został zapisany. Administrator musi zatwierdzić konto.',
+      });
     }
 
     const passwordHash = await hashPasswordScrypt(String(password));
 
-    // Generowanie sekretu TOTP i 8 kodów zapasowych wyłącznie po stronie serwera
+    // Generowanie sekretu TOTP i 10 kodów zapasowych po stronie serwera
+    // Rejestracja z checkboxem 2FA nie włącza 2FA od razu: zapisz jako pending2FA
     let twoFactorData: { secret: string; otpAuthUrl: string; backupCodes: string[] } | null = null;
-    let server2FASecret: string | undefined = undefined;
-    let backupCodeHashes: string[] = [];
+    let pending2FAData: { secret: string; backupCodeHashes: string[]; createdAt: number } | undefined = undefined;
 
     if (Boolean(twoFactorEnabled)) {
-      server2FASecret = generateBase32Secret(20);
-      const { codes, hashes } = generate8BackupCodes();
-      backupCodeHashes = hashes;
-      const cleanEmail = String(email).trim().toLowerCase();
-      const issuer = 'Zarzadzanie Projektami';
-      const otpAuthUrl = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(cleanEmail)}?secret=${server2FASecret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
+      const server2FASecret = generateBase32Secret(32);
+      const { codes, hashes } = generate10BackupCodes();
+      const otpAuthUrl = getOtpAuthUrl(cleanEmail, server2FASecret);
       twoFactorData = {
         secret: server2FASecret,
         otpAuthUrl,
         backupCodes: codes,
       };
+      pending2FAData = {
+        secret: server2FASecret,
+        backupCodeHashes: hashes,
+        createdAt: Date.now(),
+      };
     }
 
     const newUser = {
-      id: `usr-${Date.now()}`,
+      id: crypto.randomUUID(),
       name: String(name).trim(),
-      email: String(email).trim().toLowerCase(),
+      email: cleanEmail,
       role: 'developer', // Konto zawsze powstaje jako developer; rolę zmienia wyłącznie admin przy zatwierdzeniu
       department: department ? String(department).trim() : 'Projektant',
       initials: String(name).trim().split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || 'UZ',
       passwordHash,
-      twoFactorEnabled: Boolean(twoFactorEnabled),
-      twoFactorSecret: server2FASecret,
-      twoFactorBackupCodes: backupCodeHashes,
+      twoFactorEnabled: false, // Włączane dopiero po potwierdzeniu kodem przy pierwszym logowaniu lub w ustawieniach
+      pending2FA: pending2FAData,
       lastTotpCounter: 0,
       isDemo: false,
       isApproved: false, // Wymaga zatwierdzenia przez administratora
@@ -1728,9 +1637,13 @@ app.post('/api/users/:userId/password', requireAuth, async (req, res) => {
     const caller = (req as any).user;
     const { userId } = req.params;
     const { currentPassword, newPassword } = req.body || {};
+    const clientIp = getClientIp(req);
 
     if (!newPassword || String(newPassword).length < 8) {
       return res.status(400).json({ error: 'Nowe hasło musi zawierać co najmniej 8 znaków.' });
+    }
+    if (String(newPassword).length > 128) {
+      return res.status(400).json({ error: 'Hasło może mieć maksymalnie 128 znaków.' });
     }
 
     const targetUser = (serverUsersCache || []).find((u) => u.id === userId);
@@ -1745,14 +1658,25 @@ app.post('/api/users/:userId/password', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'Brak uprawnień do zmiany hasła innego użytkownika.' });
     }
 
-    if (isSelf && !isAdmin) {
+    // Właściciel konta (w tym administrator zmieniający własne hasło) MUSI podać currentPassword
+    if (isSelf) {
+      const rateLimitKey = `pwd_chg:${clientIp}:${userId}`;
+      if (isRateLimited(rateLimitKey, clientIp)) {
+        return res.status(429).json({
+          error: 'Zbyt wiele nieudanych prób wprowadzenia dotychczasowego hasła. Blokada na 15 minut.',
+        });
+      }
+
       if (!currentPassword) {
         return res.status(400).json({ error: 'Wymagane podanie dotychczasowego hasła.' });
       }
+
       const isCurrentValid = await verifyAndMigratePassword(targetUser, String(currentPassword));
       if (!isCurrentValid) {
+        registerFailedLogin(rateLimitKey, clientIp);
         return res.status(401).json({ error: 'Nieprawidłowe dotychczasowe hasło.' });
       }
+      resetFailedLogin(rateLimitKey, clientIp);
     }
 
     if (targetUser.role === 'admin' && String(newPassword).length < 12) {
@@ -1770,30 +1694,85 @@ app.post('/api/users/:userId/password', requireAuth, async (req, res) => {
     };
     await saveStateAtomicAsync();
 
-    res.json({ success: true, message: 'Hasło zostało pomyślnie zaktualizowane i zabezpieczone (scrypt).' });
+    // Zmiana hasła zrzuca stare sesje (401):
+    // Jeśli isSelf: unieważnij pozostałe sesje (poza bieżącą).
+    // Jeśli admin zmienia cudze hasło: unieważnij wszystkie sesje użytkownika.
+    const currentSession = getSessionFromReq(req);
+    for (const [token, session] of sessions.entries()) {
+      if (session.userId === targetUser.id) {
+        if (isSelf && token === currentSession?.token) {
+          continue;
+        }
+        sessions.delete(token);
+      }
+    }
+    saveSessionsAsync();
+
+    res.json({ success: true, message: 'Hasło zostało pomyślnie zaktualizowane.' });
   } catch (err: any) {
     console.error('[Server Auth] Błąd zmiany hasła:', err);
     res.status(500).json({ error: 'Błąd podczas zmiany hasła' });
   }
 });
 
-// POST /api/users/:userId/2fa/setup (Inicjalizacja 2FA - generuje sekret i 8 kodów zapasowych)
+// POST /api/users/:userId/2fa/setup (Inicjalizacja 2FA - generuje sekret i 10 kodów zapasowych)
 app.post('/api/users/:userId/2fa/setup', requireAuth, async (req, res) => {
   try {
     const caller = (req as any).user;
     const { userId } = req.params;
+    const { currentPassword, code } = req.body || {};
+    const clientIp = getClientIp(req);
+
+    // Admin może konfigurować cudze 2FA tylko przez reset (disable); użytkownik sam wykonuje setup
+    if (caller.id !== userId) {
+      return res.status(403).json({
+        error: 'Użytkownik musi samodzielnie skonfigurować 2FA na swoim urządzeniu. Administrator może jedynie zresetować 2FA.',
+      });
+    }
+
     const targetUser = (serverUsersCache || []).find((u) => u.id === userId);
     if (!targetUser) return res.status(404).json({ error: 'Użytkownik nie istnieje' });
 
-    if (caller.id !== userId && caller.role !== 'admin') {
-      return res.status(403).json({ error: 'Brak uprawnień do konfiguracji 2FA dla tego konta' });
+    const rateLimitKey = `2fa_setup:${clientIp}:${userId}`;
+    if (isRateLimited(rateLimitKey, clientIp)) {
+      return res.status(429).json({ error: 'Zbyt wiele prób. Blokada na 15 minut.' });
     }
 
-    const secret = generateBase32Secret(20);
-    const { codes, hashes } = generate8BackupCodes();
+    if (!currentPassword) {
+      return res.status(400).json({ error: 'Wymagane podanie bieżącego hasła' });
+    }
+
+    const isPassValid = await verifyAndMigratePassword(targetUser, String(currentPassword));
+    if (!isPassValid) {
+      registerFailedLogin(rateLimitKey, clientIp);
+      return res.status(401).json({ error: 'Nieprawidłowe hasło dostępu' });
+    }
+
+    // Gdy 2FA jest już włączone – wymaga także aktualnego kodu TOTP (lub kodu zapasowego)
+    if (targetUser.twoFactorEnabled) {
+      if (!code) {
+        return res.status(400).json({ error: 'Dla aktywnego 2FA wymagany jest aktualny kod weryfikacyjny z aplikacji' });
+      }
+      let codeValid = false;
+      if (targetUser.twoFactorSecret) {
+        const step = verifyTotpStrict(targetUser.twoFactorSecret, String(code), targetUser.lastTotpCounter);
+        if (step !== null) codeValid = true;
+      }
+      if (!codeValid && verifyAndConsumeBackupCode(targetUser, String(code))) {
+        codeValid = true;
+      }
+      if (!codeValid) {
+        registerFailedLogin(rateLimitKey, clientIp);
+        return res.status(401).json({ error: 'Nieprawidłowy aktualny kod 2FA lub kod zapasowy' });
+      }
+    }
+
+    resetFailedLogin(rateLimitKey, clientIp);
+
+    const secret = generateBase32Secret(32);
+    const { codes, hashes } = generate10BackupCodes();
     const cleanEmail = String(targetUser.email || '').trim().toLowerCase();
-    const issuer = 'Zarzadzanie Projektami';
-    const otpAuthUrl = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(cleanEmail)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
+    const otpAuthUrl = getOtpAuthUrl(cleanEmail, secret);
 
     targetUser.pending2FA = {
       secret,
@@ -1802,7 +1781,7 @@ app.post('/api/users/:userId/2fa/setup', requireAuth, async (req, res) => {
     };
     await saveStateAtomicAsync();
 
-    // Sekret i kody zapasowe zwracane wyłącznie raz w tym wywołaniu setupu
+    // Sekret i 10 kodów zapasowych zwracane wyłącznie raz w tym wywołaniu setupu
     res.json({
       success: true,
       secret,
@@ -1822,12 +1801,12 @@ app.post('/api/users/:userId/2fa/confirm', requireAuth, async (req, res) => {
     const { userId } = req.params;
     const { code } = req.body || {};
 
+    if (caller.id !== userId) {
+      return res.status(403).json({ error: 'Brak uprawnień do potwierdzenia konfiguracji 2FA dla tego konta' });
+    }
+
     const targetUser = (serverUsersCache || []).find((u) => u.id === userId);
     if (!targetUser) return res.status(404).json({ error: 'Użytkownik nie istnieje' });
-
-    if (caller.id !== userId && caller.role !== 'admin') {
-      return res.status(403).json({ error: 'Brak uprawnień do konfiguracji 2FA dla tego konta' });
-    }
 
     if (!targetUser.pending2FA || !targetUser.pending2FA.secret) {
       return res.status(400).json({ error: 'Brak oczekującej konfiguracji 2FA. Zainicjuj procedurę ponownie.' });
@@ -1851,49 +1830,90 @@ app.post('/api/users/:userId/2fa/confirm', requireAuth, async (req, res) => {
     };
     await saveStateAtomicAsync();
 
-    res.json({ success: true, twoFactorEnabled: true, backupCodesCount: targetUser.twoFactorBackupCodes.length });
+    // Po sukcesie unieważnij pozostałe sesje użytkownika (zostaw bieżącą)
+    const currentSession = getSessionFromReq(req);
+    for (const [token, session] of sessions.entries()) {
+      if (session.userId === targetUser.id && token !== currentSession?.token) {
+        sessions.delete(token);
+      }
+    }
+    saveSessionsAsync();
+
+    res.json({
+      success: true,
+      twoFactorEnabled: true,
+      backupCodesCount: targetUser.twoFactorBackupCodes.length,
+    });
   } catch (err: any) {
     console.error('[Server Auth] Błąd 2fa/confirm:', err);
     res.status(500).json({ error: 'Błąd potwierdzenia 2FA' });
   }
 });
 
-// POST /api/users/:userId/2fa (Włączenie/wyłączenie 2FA z bezpieczną walidacją)
-app.post('/api/users/:userId/2fa', requireAuth, async (req, res) => {
+// POST /api/users/:userId/2fa/disable (Bezpieczne wyłączenie 2FA: wymaga hasła i kodu)
+app.post('/api/users/:userId/2fa/disable', requireAuth, async (req, res) => {
   try {
     const caller = (req as any).user;
     const { userId } = req.params;
-    const { enabled, secret, code } = req.body || {};
+    const { currentPassword, code } = req.body || {};
+    const clientIp = getClientIp(req);
 
     const targetUser = (serverUsersCache || []).find((u) => u.id === userId);
     if (!targetUser) return res.status(404).json({ error: 'Użytkownik nie istnieje' });
 
-    if (caller.id !== userId && caller.role !== 'admin') {
-      return res.status(403).json({ error: 'Brak uprawnień do konfiguracji 2FA dla tego konta' });
+    const isSelf = caller.id === userId;
+    const isAdmin = caller.role === 'admin';
+
+    if (!isSelf && !isAdmin) {
+      return res.status(403).json({ error: 'Brak uprawnień do zarządzania 2FA dla tego konta' });
     }
 
-    if (enabled) {
-      const secretToUse = secret || targetUser.twoFactorSecret || generateBase32Secret(20);
-      if (code) {
-        const matchedStep = verifyTotpStrict(secretToUse, String(code));
-        if (matchedStep === null) {
-          return res.status(400).json({ error: 'Nieprawidłowy 6-cyfrowy kod z Google Authenticator' });
+    if (isSelf) {
+      const rateLimitKey = `2fa_disable:${clientIp}:${userId}`;
+      if (isRateLimited(rateLimitKey, clientIp)) {
+        return res.status(429).json({ error: 'Zbyt wiele prób. Blokada na 15 minut.' });
+      }
+
+      if (!currentPassword) {
+        return res.status(400).json({ error: 'Wymagane dotychczasowe hasło dostępu' });
+      }
+      const isPassValid = await verifyAndMigratePassword(targetUser, String(currentPassword));
+      if (!isPassValid) {
+        registerFailedLogin(rateLimitKey, clientIp);
+        return res.status(401).json({ error: 'Nieprawidłowe hasło dostępu' });
+      }
+
+      // Jeśli 2FA jest włączone, wymaga poprawnego kodu TOTP lub kodu zapasowego
+      if (targetUser.twoFactorEnabled) {
+        if (!code) {
+          return res.status(400).json({ error: 'Wymagany 6-cyfrowy kod z Google Authenticator lub kod zapasowy' });
         }
-        targetUser.lastTotpCounter = matchedStep;
+        let codeValid = false;
+        if (targetUser.twoFactorSecret) {
+          const step = verifyTotpStrict(targetUser.twoFactorSecret, String(code), targetUser.lastTotpCounter);
+          if (step !== null) codeValid = true;
+        }
+        if (!codeValid && verifyAndConsumeBackupCode(targetUser, String(code))) {
+          codeValid = true;
+        }
+
+        if (!codeValid) {
+          registerFailedLogin(rateLimitKey, clientIp);
+          return res.status(401).json({ error: 'Nieprawidłowy kod 2FA lub kod zapasowy' });
+        }
       }
-      targetUser.twoFactorEnabled = true;
-      targetUser.twoFactorSecret = secretToUse;
-      if (!Array.isArray(targetUser.twoFactorBackupCodes) || targetUser.twoFactorBackupCodes.length === 0) {
-        const { hashes } = generate8BackupCodes();
-        targetUser.twoFactorBackupCodes = hashes;
-      }
+
+      resetFailedLogin(rateLimitKey, clientIp);
     } else {
-      targetUser.twoFactorEnabled = false;
-      delete targetUser.twoFactorSecret;
-      delete targetUser.twoFactorBackupCodes;
-      delete targetUser.lastTotpCounter;
-      delete targetUser.pending2FA;
+      // Administrator resetuje cudze 2FA (np. w przypadku utraty urządzenia przez pracownika)
+      console.log(`[Server Auth] Administrator ${caller.name} (${caller.id}) zresetował 2FA dla ${targetUser.name} (${targetUser.id}).`);
     }
+
+    targetUser.twoFactorEnabled = false;
+    delete targetUser.twoFactorSecret;
+    delete targetUser.twoFactorBackupCodes;
+    delete targetUser.lastTotpCounter;
+    delete targetUser.pending2FA;
 
     serverAppStateCache = {
       ...(serverAppStateCache || {}),
@@ -1902,10 +1922,20 @@ app.post('/api/users/:userId/2fa', requireAuth, async (req, res) => {
     };
     await saveStateAtomicAsync();
 
-    res.json({ success: true, twoFactorEnabled: targetUser.twoFactorEnabled });
+    // W przypadku resetu cudzego konta przez administratora, unieważnij wszystkie sesje użytkownika
+    if (!isSelf) {
+      for (const [token, session] of sessions.entries()) {
+        if (session.userId === targetUser.id) {
+          sessions.delete(token);
+        }
+      }
+      saveSessionsAsync();
+    }
+
+    res.json({ success: true, twoFactorEnabled: false });
   } catch (err: any) {
-    console.error('[Server Auth] Błąd 2FA:', err);
-    res.status(500).json({ error: 'Błąd konfiguracji 2FA' });
+    console.error('[Server Auth] Błąd 2fa/disable:', err);
+    res.status(500).json({ error: 'Błąd wyłączania 2FA' });
   }
 });
 
@@ -1953,17 +1983,38 @@ app.post('/api/users', requireAdmin, async (req, res) => {
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Wymagane pola: imię, e-mail i hasło.' });
     }
-    const minLen = role === 'admin' ? 12 : 8;
+
+    const cleanEmail = String(email).trim().toLowerCase();
+    const existing = (serverUsersCache || []).find((u) => u.email?.toLowerCase() === cleanEmail);
+    if (existing) {
+      return res.status(400).json({ error: 'Użytkownik o podanym adresie e-mail już istnieje w systemie.' });
+    }
+
+    const ALLOWED_ROLES = ['admin', 'project_manager', 'developer', 'tester', 'viewer'];
+    const assignedRole = role || 'developer';
+    if (!ALLOWED_ROLES.includes(assignedRole)) {
+      return res.status(400).json({
+        error: `Nieprawidłowa rola użytkownika. Dozwolone: ${ALLOWED_ROLES.join(', ')}.`,
+      });
+    }
+
+    if (String(password).length > 128) {
+      return res.status(400).json({ error: 'Hasło może mieć maksymalnie 128 znaków.' });
+    }
+
+    const minLen = assignedRole === 'admin' ? 12 : 8;
     if (String(password).length < minLen) {
-      return res.status(400).json({ error: `Hasło dla roli ${role === 'admin' ? 'Administrator' : 'Użytkownik'} musi mieć co najmniej ${minLen} znaków.` });
+      return res.status(400).json({
+        error: `Hasło dla roli ${assignedRole === 'admin' ? 'Administrator' : 'Użytkownik'} musi mieć co najmniej ${minLen} znaków.`,
+      });
     }
 
     const passwordHash = await hashPasswordScrypt(String(password));
     const newUser = {
-      id: `usr-${Date.now()}`,
+      id: crypto.randomUUID(),
       name: String(name).trim(),
-      email: String(email).trim().toLowerCase(),
-      role: role || 'developer',
+      email: cleanEmail,
+      role: assignedRole,
       department: department ? String(department).trim() : 'Projektant',
       initials: String(name).trim().split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || 'UZ',
       passwordHash,

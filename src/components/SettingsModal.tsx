@@ -42,6 +42,7 @@ import { DockerConfigFile, DOCKER_COMPOSE_YML, DOCKERFILE_CONTENT, ENV_EXAMPLE_C
 import { User, Project } from '../types';
 import { isDemoUser, isDemoProject } from '../utils/demoData';
 import { copyToClipboard } from '../utils/clipboard';
+import { TwoFactorManager } from './TwoFactorManager';
 import { 
   getVatRates, 
   saveVatRates, 
@@ -74,6 +75,8 @@ interface SettingsModalProps {
   onOpenArchiveModal?: () => void;
   onApproveUser?: (userId: string) => void;
   onRejectUser?: (userId: string) => void;
+  onUserUpdated?: (updated: Partial<User>) => void;
+  onRefreshUsers?: () => void;
   initialTab?: SettingsTab;
 }
 
@@ -91,6 +94,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onOpenArchiveModal,
   onApproveUser,
   onRejectUser,
+  onUserUpdated,
+  onRefreshUsers,
   initialTab = 'theme',
 }) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
@@ -1060,12 +1065,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="space-y-5 max-w-3xl">
                 <div>
                   <h4 className="font-bold text-slate-900 dark:text-white text-base">
-                    Konta Użytkowników & Akceptacje Administratora
+                    Konta Użytkowników & Bezpieczeństwo Pracowni
                   </h4>
                   <p className="text-slate-500 dark:text-slate-400 text-xs">
-                    Zarządzaj zespołem projektantów, potwierdzaj nowo zarejestrowane konta oraz usuń dane demonstracyjne.
+                    Zarządzaj zespołem projektantów, uwierzytelnianiem dwuskładnikowym (2FA) oraz akceptacjami rejestracji.
                   </p>
                 </div>
+
+                {/* Two Factor Authentication Manager for Current User */}
+                <TwoFactorManager currentUser={currentUser} onUserUpdated={onUserUpdated} />
 
                 {/* Pending user approval section */}
                 {pendingUsers.length > 0 && (
@@ -1162,11 +1170,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             <span className="text-[11px] text-slate-500">{u.email} · {u.department} ({u.role === 'admin' ? 'Administrator' : 'Projektant'})</span>
                           </div>
                         </div>
-                        {u.isDemo && (
-                          <span className="px-2 py-0.5 rounded text-[10px] bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold">
-                            Konto demonstracyjne
-                          </span>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {u.twoFactorEnabled && (
+                            <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-semibold flex items-center gap-1">
+                              <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                              <span>2FA aktywne</span>
+                            </span>
+                          )}
+                          {currentUser?.role === 'admin' && u.id !== currentUser.id && u.twoFactorEnabled && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (window.confirm(`Czy na pewno chcesz zresetować 2FA dla użytkownika ${u.name}? Użytkownik będzie musiał ponownie przeprowadzić konfigurację.`)) {
+                                  try {
+                                    const res = await fetch(`/api/users/${u.id}/2fa/disable`, {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      credentials: 'same-origin',
+                                    });
+                                    if (res.ok && onRefreshUsers) onRefreshUsers();
+                                  } catch (err) {
+                                    console.error(err);
+                                  }
+                                }
+                              }}
+                              className="px-2 py-1 text-[11px] font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded transition-colors"
+                              title="Zresetuj 2FA użytkownika"
+                            >
+                              Resetuj 2FA
+                            </button>
+                          )}
+                          {u.isDemo && (
+                            <span className="px-2 py-0.5 rounded text-[10px] bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold">
+                              Konto demonstracyjne
+                            </span>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>

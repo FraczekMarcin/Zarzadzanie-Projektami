@@ -1129,7 +1129,6 @@ export default function App() {
           department: newUserData.department,
           password: newUserData.password.trim(),
           twoFactorEnabled: newUserData.twoFactorEnabled,
-          twoFactorSecret: newUserData.twoFactorSecret,
         }),
       });
 
@@ -1230,13 +1229,13 @@ export default function App() {
   };
 
   // Update user password via server scrypt endpoint
-  const handleUpdateUserPassword = async (userId: string, newPass: string) => {
+  const handleUpdateUserPassword = async (userId: string, newPass: string, currentPass?: string) => {
     try {
       const res = await fetch(`/api/users/${userId}/password`, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newPassword: newPass }),
+        body: JSON.stringify({ newPassword: newPass, currentPassword: currentPass }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -1253,33 +1252,6 @@ export default function App() {
         type: 'info',
       });
     }
-  };
-
-  // Update user 2FA configuration via server endpoint
-  const handleUpdateUser2FA = async (userId: string, enabled: boolean, secret?: string) => {
-    try {
-      const res = await fetch(`/api/users/${userId}/2fa`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ twoFactorEnabled: enabled, twoFactorSecret: secret }),
-      });
-      if (res.ok) {
-        setUsers((prev) =>
-          prev.map((u) => (u.id === userId ? { ...u, twoFactorEnabled: enabled, twoFactorSecret: secret } : u))
-        );
-        if (currentUser && currentUser.id === userId) {
-          setCurrentUser((prev) => ({ ...prev, twoFactorEnabled: enabled, twoFactorSecret: secret }));
-        }
-        logActivity(
-          `${currentUser?.name} ${enabled ? 'włączył' : 'wyłączył'} uwierzytelnianie dwuskładnikowe Google Authenticator`
-        );
-        setNotificationToast({
-          message: `Uwierzytelnianie dwuskładnikowe 2FA zostało ${enabled ? 'włączone' : 'wyłączone'}.`,
-          type: 'success',
-        });
-      }
-    } catch {}
   };
 
   // Logout handler - calls server logout and returns completely to login gate
@@ -1363,7 +1335,6 @@ export default function App() {
           department: newUserData.department,
           password: newUserData.password.trim(),
           twoFactorEnabled: newUserData.twoFactorEnabled,
-          twoFactorSecret: newUserData.twoFactorSecret,
         }),
       });
 
@@ -1970,6 +1941,13 @@ export default function App() {
         onDeleteUser={handleDeleteUser}
         onDeleteDemoUsers={handleDeleteDemoUsers}
         onUpdateUserPassword={handleUpdateUserPassword}
+        onUserUpdated={(updated) => {
+          if (currentUser) {
+            const next = { ...currentUser, ...updated };
+            setCurrentUser(next);
+            setUsers((prev) => prev.map((u) => (u.id === next.id ? { ...u, ...updated } : u)));
+          }
+        }}
         onLogout={handleLogout}
         activityLogs={activityLogs}
         onOpenTemplateManager={() => {
@@ -1999,6 +1977,14 @@ export default function App() {
         onOpenArchiveModal={() => setIsArchiveModalOpen(true)}
         onApproveUser={handleApproveUser}
         onRejectUser={handleRejectUser}
+        onUserUpdated={(updated) => {
+          if (currentUser) {
+            const next = { ...currentUser, ...updated };
+            setCurrentUser(next);
+            setUsers((prev) => prev.map((u) => (u.id === next.id ? { ...u, ...updated } : u)));
+          }
+        }}
+        onRefreshUsers={refreshUsersList}
         initialTab={settingsTab}
       />
 
