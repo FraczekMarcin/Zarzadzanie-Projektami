@@ -23,6 +23,7 @@ import {
   verifyAndConsumeBackupCode,
   getOtpAuthUrl,
 } from './src/utils/totp.js';
+import { createRateLimiter } from './src/utils/rateLimit.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -369,19 +370,62 @@ async function verifyAndMigratePassword(user: any, password: string): Promise<bo
   return false;
 }
 
-// Ograniczenie prób: 5 błędnych logowań na konto/IP -> blokada 15 minut (6. logowanie -> 429)
+// ==============================================================================
+// 2a. OGRANICZNIKI LICZBY ŻĄDAŃ (IN-MEMORY RATE LIMITERS)
+// ==============================================================================
+const passwordResetRequestEmailLimiter = createRateLimiter({ max: 3, windowMs: 60 * 60 * 1000 }); // 3 na godzinę na e-mail
+const passwordResetRequestIpLimiter = createRateLimiter({ max: 10, windowMs: 60 * 60 * 1000 }); // 10 na godzinę na IP
+const passwordResetVerifyIpLimiter = createRateLimiter({ max: 10, windowMs: 15 * 60 * 1000 }); // 10 na 15 minut na IP
+const registerIpLimiter = createRateLimiter({ max: 5, windowMs: 60 * 60 * 1000 }); // 5 na godzinę na IP
+const setupAdminIpLimiter = createRateLimiter({ max: 10, windowMs: 60 * 60 * 1000 }); // 10 na godzinę na IP
+
+// Helpery konfiguracji środowiskowej
+function isSelfRegistrationAllowed(): boolean {
+  if (process.env.ALLOW_SELF_REGISTRATION !== undefined) {
+    const val = process.env.ALLOW_SELF_REGISTRATION.trim().toLowerCase();
+    return val !== 'false' && val !== '0' && val !== 'no';
+  }
+  return true;
+}
+
+function getSetupToken(): string {
+  return (process.env.SETUP_TOKEN || '').trim();
+}
+
+function isSetupTokenRequired(): boolean {
+  return getSetupToken().length > 0;
+}
+
+// Ograniczenie prób logowania: 5 błędnych logowań na konto/IP -> blokada 15 minut (6. logowanie -> 429)
 interface FailedLoginRec {
   attempts: number;
   blockedUntil: number;
+  updatedAt: number;
 }
 const failedLogins = new Map<string, FailedLoginRec>();
+const MAX_FAILED_LOGIN_KEYS = 10000;
+
+function cleanupExpiredFailedLogins() {
+  const now = Date.now();
+  for (const [key, rec] of failedLogins.entries()) {
+    if (rec.blockedUntil <= now && now - rec.updatedAt > 15 * 60 * 1000) {
+      failedLogins.delete(key);
+    }
+  }
+  if (failedLogins.size > MAX_FAILED_LOGIN_KEYS) {
+    const entries = Array.from(failedLogins.entries()).sort(
+      (a, b) => a[1].updatedAt - b[1].updatedAt
+    );
+    const toRemove = failedLogins.size - MAX_FAILED_LOGIN_KEYS;
+    for (let i = 0; i < toRemove; i++) {
+      failedLogins.delete(entries[i][0]);
+    }
+  }
+}
+setInterval(cleanupExpiredFailedLogins, 5 * 60 * 1000).unref();
 
 function getClientIp(req: express.Request): string {
   if (req.app.get('trust proxy')) {
-    const forwarded = req.headers['x-forwarded-for'];
-    if (typeof forwarded === 'string') {
-      return forwarded.split(',')[0].trim();
-    }
     return req.ip || req.socket.remoteAddress || '127.0.0.1';
   }
   return req.socket.remoteAddress || req.ip || '127.0.0.1';
@@ -414,8 +458,9 @@ function registerFailedLogin(account: string, clientIp: string) {
 
   // Licznik dla pary IP + konto (5 błędnych logowań -> blokada 15 minut)
   const accountKey = `ip_user:${clientIp}:${cleanAccount}`;
-  const accRec = failedLogins.get(accountKey) || { attempts: 0, blockedUntil: 0 };
+  const accRec = failedLogins.get(accountKey) || { attempts: 0, blockedUntil: 0, updatedAt: now };
   accRec.attempts += 1;
+  accRec.updatedAt = now;
   if (accRec.attempts >= 5) {
     accRec.blockedUntil = now + 15 * 60 * 1000;
   }
@@ -423,12 +468,17 @@ function registerFailedLogin(account: string, clientIp: string) {
 
   // Licznik globalny na adres IP (15 prób -> blokada IP na 15 minut)
   const ipKey = `ip_global:${clientIp}`;
-  const ipRec = failedLogins.get(ipKey) || { attempts: 0, blockedUntil: 0 };
+  const ipRec = failedLogins.get(ipKey) || { attempts: 0, blockedUntil: 0, updatedAt: now };
   ipRec.attempts += 1;
+  ipRec.updatedAt = now;
   if (ipRec.attempts >= 15) {
     ipRec.blockedUntil = now + 15 * 60 * 1000;
   }
   failedLogins.set(ipKey, ipRec);
+
+  if (failedLogins.size > MAX_FAILED_LOGIN_KEYS) {
+    cleanupExpiredFailedLogins();
+  }
 }
 
 function resetFailedLogin(account: string, clientIp: string) {
@@ -456,6 +506,23 @@ interface PasswordResetToken {
   verifiedTicket?: string;
 }
 const passwordResetTokens = new Map<string, PasswordResetToken>();
+
+// Licznik prób weryfikacji łącznie dla e-maila (okno 1 godziny - nowe kody nie zerują prób)
+interface EmailResetAttempts {
+  attempts: number;
+  windowExpiresAt: number;
+}
+const passwordResetEmailAttempts = new Map<string, EmailResetAttempts>();
+
+function cleanupExpiredResetAttempts() {
+  const now = Date.now();
+  for (const [email, rec] of passwordResetEmailAttempts.entries()) {
+    if (rec.windowExpiresAt <= now) {
+      passwordResetEmailAttempts.delete(email);
+    }
+  }
+}
+setInterval(cleanupExpiredResetAttempts, 5 * 60 * 1000).unref();
 
 function isSmtpConfigured(): boolean {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_HOST.trim().length > 0);
@@ -541,8 +608,19 @@ app.get('/api/auth/password-reset/status', (_req, res) => {
 });
 
 // POST /api/auth/password-reset/request (Generowanie losowego kodu 6 cyfr, ważność 10 min, max 5 prób)
+// Ograniczenie: 3 na godzinę na e-mail i 10 na godzinę na IP
 app.post('/api/auth/password-reset/request', async (req, res) => {
   try {
+    const clientIp = getClientIp(req);
+    const ipCheck = passwordResetRequestIpLimiter.hit(clientIp);
+    if (!ipCheck.allowed) {
+      res.setHeader('Retry-After', ipCheck.retryAfterSeconds.toString());
+      return res.status(429).json({
+        error: 'Zbyt wiele żądań resetu hasła z tego adresu IP. Spróbuj ponownie później.',
+        retryAfter: ipCheck.retryAfterSeconds,
+      });
+    }
+
     if (!isSmtpConfigured()) {
       return res.status(400).json({
         error: 'Funkcja resetowania hasła przez e-mail jest wyłączona. Skontaktuj się z administratorem pracowni.',
@@ -556,6 +634,15 @@ app.post('/api/auth/password-reset/request', async (req, res) => {
 
     if (!cleanEmail) {
       return res.json({ success: true, message: standardMessage });
+    }
+
+    const emailCheck = passwordResetRequestEmailLimiter.hit(cleanEmail);
+    if (!emailCheck.allowed) {
+      res.setHeader('Retry-After', emailCheck.retryAfterSeconds.toString());
+      return res.status(429).json({
+        error: 'Zbyt wiele żądań resetu hasła dla tego adresu e-mail. Spróbuj ponownie później.',
+        retryAfter: emailCheck.retryAfterSeconds,
+      });
     }
 
     const targetUser = (serverUsersCache || []).find((u) => (u.email || '').trim().toLowerCase() === cleanEmail);
@@ -617,31 +704,64 @@ app.post('/api/auth/password-reset/request', async (req, res) => {
   }
 });
 
-// POST /api/auth/password-reset/verify (Weryfikacja kodu z ograniczeniem do 5 prób)
+// POST /api/auth/password-reset/verify (Weryfikacja kodu z ograniczeniem: 10 na 15 min na IP oraz 5 prób łącznie na e-mail w oknie 1h)
 app.post('/api/auth/password-reset/verify', (req, res) => {
+  const clientIp = getClientIp(req);
+  const ipCheck = passwordResetVerifyIpLimiter.hit(clientIp);
+  if (!ipCheck.allowed) {
+    res.setHeader('Retry-After', ipCheck.retryAfterSeconds.toString());
+    return res.status(429).json({
+      error: 'Zbyt wiele prób weryfikacji kodu z tego adresu IP. Spróbuj ponownie później.',
+      retryAfter: ipCheck.retryAfterSeconds,
+    });
+  }
+
   const { email, code } = req.body || {};
   const cleanEmail = String(email || '').trim().toLowerCase();
   const cleanCode = String(code || '').replace(/[\s-]/g, '').trim();
 
+  const now = Date.now();
+  let attemptRec = passwordResetEmailAttempts.get(cleanEmail);
+  if (attemptRec && now >= attemptRec.windowExpiresAt) {
+    attemptRec = undefined;
+    passwordResetEmailAttempts.delete(cleanEmail);
+  }
+
+  if (attemptRec && attemptRec.attempts >= 5) {
+    const retryAfter = Math.max(1, Math.ceil((attemptRec.windowExpiresAt - now) / 1000));
+    res.setHeader('Retry-After', retryAfter.toString());
+    return res.status(429).json({
+      error: 'Przekroczono maksymalną liczbę prób (5) weryfikacji w oknie 1 godziny. Poproś o nowy kod później.',
+      retryAfter,
+    });
+  }
+
   const token = passwordResetTokens.get(cleanEmail);
-  if (!token || token.expiresAt < Date.now()) {
+  if (!token || token.expiresAt < now) {
     return res.status(400).json({ error: 'Kod weryfikacyjny wygasł lub nie został wygenerowany. Poproś o nowy kod.' });
   }
 
-  if (token.attempts >= 5) {
-    passwordResetTokens.delete(cleanEmail);
-    return res.status(429).json({ error: 'Przekroczono maksymalną liczbę prób (5). Poproś o nowy kod resetu hasła.' });
+  // Zwiększ licznik prób dla e-maila
+  if (!attemptRec) {
+    attemptRec = { attempts: 1, windowExpiresAt: now + 60 * 60 * 1000 };
+  } else {
+    attemptRec.attempts += 1;
   }
+  passwordResetEmailAttempts.set(cleanEmail, attemptRec);
 
-  token.attempts += 1;
   const enteredHash = crypto.createHash('sha256').update(cleanCode).digest('hex');
   const isMatch = crypto.timingSafeEqual(Buffer.from(enteredHash), Buffer.from(token.codeHash));
 
   if (!isMatch) {
-    const remaining = 5 - token.attempts;
+    const remaining = 5 - attemptRec.attempts;
     if (remaining <= 0) {
       passwordResetTokens.delete(cleanEmail);
-      return res.status(429).json({ error: 'Przekroczono limit 5 prób weryfikacji. Poproś o nowy kod resetu.' });
+      const retryAfter = Math.max(1, Math.ceil((attemptRec.windowExpiresAt - now) / 1000));
+      res.setHeader('Retry-After', retryAfter.toString());
+      return res.status(429).json({
+        error: 'Przekroczono limit 5 prób weryfikacji. Poproś o nowy kod resetu za godzinę.',
+        retryAfter,
+      });
     }
     return res.status(400).json({ error: `Nieprawidłowy kod weryfikacyjny. Pozostało prób: ${remaining}` });
   }
@@ -685,6 +805,7 @@ app.post('/api/auth/password-reset/confirm', async (req, res) => {
     saveSessionsAsync();
 
     passwordResetTokens.delete(cleanEmail);
+    passwordResetEmailAttempts.delete(cleanEmail);
     serverAppStateCache = {
       ...(serverAppStateCache || {}),
       users: serverUsersCache,
@@ -699,13 +820,19 @@ app.post('/api/auth/password-reset/confirm', async (req, res) => {
   }
 });
 
-// Setup status: dla niezalogowanych zwraca TYLKO { setupRequired: boolean }
+// Setup status: zwraca setupRequired, allowSelfRegistration i requireSetupToken
 app.get('/api/auth/setup-status', (req, res) => {
   const session = getSessionFromReq(req);
   const setupRequired = (serverUsersCache || []).length === 0;
+  const allowSelfRegistration = isSelfRegistrationAllowed();
+  const requireSetupToken = isSetupTokenRequired();
 
   if (!session) {
-    return res.json({ setupRequired });
+    return res.json({
+      setupRequired,
+      allowSelfRegistration,
+      requireSetupToken,
+    });
   }
 
   res.json({
@@ -856,11 +983,33 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 });
 
 // POST /api/auth/setup-admin (Kreator tworzenia pierwszego konta admina, hasło min. 12 znaków)
+// Ograniczenie: 10 na godzinę na IP oraz opcjonalna walidacja SETUP_TOKEN
 app.post('/api/auth/setup-admin', async (req, res) => {
   try {
+    const clientIp = getClientIp(req);
+    const ipCheck = setupAdminIpLimiter.hit(clientIp);
+    if (!ipCheck.allowed) {
+      res.setHeader('Retry-After', ipCheck.retryAfterSeconds.toString());
+      return res.status(429).json({
+        error: 'Zbyt wiele prób konfiguracji administratora z tego adresu IP. Spróbuj ponownie później.',
+        retryAfter: ipCheck.retryAfterSeconds,
+      });
+    }
+
     if ((serverUsersCache || []).length > 0) {
       return res.status(400).json({ error: 'Konto administratora zostało już utworzone w systemie.' });
     }
+
+    if (isSetupTokenRequired()) {
+      const { setupToken } = req.body || {};
+      const expectedToken = getSetupToken();
+      if (!setupToken || String(setupToken).trim() !== expectedToken) {
+        return res.status(403).json({
+          error: 'Nieprawidłowy token autoryzacyjny pierwszego administratora (SETUP_TOKEN).',
+        });
+      }
+    }
+
     const { name, email, password, department } = req.body || {};
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Wszystkie pola są wymagane.' });
@@ -913,8 +1062,25 @@ app.post('/api/auth/setup-admin', async (req, res) => {
 });
 
 // POST /api/auth/register (Rejestracja nowego użytkownika - oczekuje na zatwierdzenie admina)
+// Ograniczenie: 5 na godzinę na IP oraz opcjonalna blokada samorejestracji (ALLOW_SELF_REGISTRATION=false)
 app.post('/api/auth/register', async (req, res) => {
   try {
+    if (!isSelfRegistrationAllowed()) {
+      return res.status(403).json({
+        error: 'Samodzielna rejestracja użytkowników została wyłączona przez administratora systemu (ALLOW_SELF_REGISTRATION=false).',
+      });
+    }
+
+    const clientIp = getClientIp(req);
+    const ipCheck = registerIpLimiter.hit(clientIp);
+    if (!ipCheck.allowed) {
+      res.setHeader('Retry-After', ipCheck.retryAfterSeconds.toString());
+      return res.status(429).json({
+        error: 'Zbyt wiele prób rejestracji z tego adresu IP. Spróbuj ponownie później.',
+        retryAfter: ipCheck.retryAfterSeconds,
+      });
+    }
+
     const { name, email, password, role, department, twoFactorEnabled } = req.body || {};
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Wymagane imię, e-mail i hasło.' });

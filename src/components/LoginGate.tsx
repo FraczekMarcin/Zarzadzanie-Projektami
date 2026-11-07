@@ -57,6 +57,9 @@ export const LoginGate: React.FC<LoginGateProps> = ({
   const [adminDepartment, setAdminDepartment] = useState('Główny Architekt & Zarząd Pracowni');
   const [adminPassword, setAdminPassword] = useState('');
   const [adminConfirmPassword, setAdminConfirmPassword] = useState('');
+  const [adminSetupToken, setAdminSetupToken] = useState('');
+  const [requireSetupToken, setRequireSetupToken] = useState(false);
+  const [allowSelfRegistration, setAllowSelfRegistration] = useState(true);
   const [adminSetupError, setAdminSetupError] = useState<string | null>(null);
   const [isAdminSubmitting, setIsAdminSubmitting] = useState(false);
 
@@ -114,8 +117,21 @@ export const LoginGate: React.FC<LoginGateProps> = ({
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!isMounted) return;
-        if (data && typeof data.setupRequired === 'boolean') {
-          setSetupRequired(data.setupRequired);
+        if (data) {
+          if (typeof data.setupRequired === 'boolean') {
+            setSetupRequired(data.setupRequired);
+          } else if (users.length === 0) {
+            setSetupRequired(true);
+          }
+          if (typeof data.allowSelfRegistration === 'boolean') {
+            setAllowSelfRegistration(data.allowSelfRegistration);
+            if (!data.allowSelfRegistration) {
+              setActiveTab((prev) => (prev === 'register' ? 'login' : prev));
+            }
+          }
+          if (typeof data.requireSetupToken === 'boolean') {
+            setRequireSetupToken(data.requireSetupToken);
+          }
         } else if (users.length === 0) {
           setSetupRequired(true);
         }
@@ -164,6 +180,10 @@ export const LoginGate: React.FC<LoginGateProps> = ({
       setAdminSetupError('Hasła nie są identyczne.');
       return;
     }
+    if (requireSetupToken && !adminSetupToken.trim()) {
+      setAdminSetupError('Wymagany jest token instalacyjny (SETUP_TOKEN).');
+      return;
+    }
 
     setIsAdminSubmitting(true);
     try {
@@ -176,6 +196,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
           email: adminEmail.trim(),
           department: adminDepartment.trim() || 'Główny Architekt & Zarząd Pracowni',
           password: adminPassword,
+          setupToken: requireSetupToken ? adminSetupToken.trim() : undefined,
         }),
       });
 
@@ -598,9 +619,31 @@ export const LoginGate: React.FC<LoginGateProps> = ({
               </div>
             </div>
 
+            {requireSetupToken && (
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  Token instalacyjny (SETUP_TOKEN) <span className="text-rose-400">*</span>
+                </label>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="password"
+                    required
+                    value={adminSetupToken}
+                    onChange={(e) => setAdminSetupToken(e.target.value)}
+                    placeholder="Wprowadź token z konfiguracji środowiska..."
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Wymagany token autoryzacyjny pierwszego administratora zdefiniowany w zmiennej środowiskowej SETUP_TOKEN.
+                </p>
+              </div>
+            )}
+
             <button
               type="submit"
-              disabled={isAdminSubmitting || adminPassword.length < 12}
+              disabled={isAdminSubmitting || adminPassword.length < 12 || (requireSetupToken && !adminSetupToken.trim())}
               className="w-full py-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-amber-600/30 flex items-center justify-center gap-2 mt-4"
             >
               <ShieldCheck className="w-4 h-4" />
@@ -636,7 +679,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
         </div>
 
         {/* Tab switcher: Logowanie vs Rejestracja vs Odzyskiwanie hasła */}
-        <div className="grid grid-cols-3 p-1 bg-slate-900/60 rounded-xl border border-slate-700/60 text-xs font-semibold gap-1">
+        <div className={`grid ${allowSelfRegistration ? 'grid-cols-3' : 'grid-cols-2'} p-1 bg-slate-900/60 rounded-xl border border-slate-700/60 text-xs font-semibold gap-1`}>
           <button
             type="button"
             onClick={() => {
@@ -654,22 +697,24 @@ export const LoginGate: React.FC<LoginGateProps> = ({
             <span>Logowanie</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('register');
-              setLoginError(null);
-              setRegError(null);
-            }}
-            className={`py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-              activeTab === 'register'
-                ? 'bg-sky-600 text-white shadow-xs'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <UserPlus className="w-3.5 h-3.5" />
-            <span>Nowe konto</span>
-          </button>
+          {allowSelfRegistration && (
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('register');
+                setLoginError(null);
+                setRegError(null);
+              }}
+              className={`py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                activeTab === 'register'
+                  ? 'bg-sky-600 text-white shadow-xs'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>Nowe konto</span>
+            </button>
+          )}
 
           <button
             type="button"
