@@ -168,6 +168,30 @@ W razie potrzeby odtworzenia stanu pracowni z archiwalnej kopii:
 
 ---
 
+## 🔐 APP_SECRET – zapisz poza serwerem
+
+System szyfruje sekrety uwierzytelniania dwuskładnikowego (2FA) oraz kody zapasowe w pliku `app_state.json` za pomocą klucza `APP_SECRET` (algorytmem AES-256-GCM / HMAC-SHA256).
+
+> ⚠️ **KRYTYCZNA UWAGA DOTYCZĄCA BEZPIECZEŃSTWA:**  
+> Bez dokładnego klucza `APP_SECRET` z pliku `.env` serwer nie będzie w stanie odszyfrować sekretów 2FA, a użytkownicy z włączonym 2FA nie będą mogli się zalogować! Ze względów bezpieczeństwa plik `.env` **nie trafia do automatycznych kopii zapasowych** `backup.sh`.  
+> **Natychmiast po instalacji skopiuj wartość `APP_SECRET` z pliku `.env` i zapisz ją w bezpiecznym menedżerze haseł (np. Bitwarden, 1Password, KeePass).**
+
+### Procedura przywracania stanu na nowym serwerze (Disaster Recovery):
+1. **Odtwórz najpierw plik `.env`:** utwórz `/opt/zarzadzanie-projektami/.env` z **tą samą wartością `APP_SECRET`**, która była używana na poprzednim serwerze przed awarią:
+   ```bash
+   APP_SECRET=twoj_oryginalny_klucz_z_menedzera_hasel
+   ```
+2. **Skopiuj kopię `app_state.json`** do katalogu danych wolumenu.
+3. **Uruchom aplikację:** kontener pomyślnie odszyfruje wszystkie dane użytkowników i przywróci dostęp do 2FA.
+4. **Awaryjne przywracanie przy utracie klucza (`RESET_2FA_ON_START=true`):**  
+   Jeśli stary `APP_SECRET` został bezpowrotnie utracony, serwer produkcyjny celowo odmówi startu z czytelnym komunikatem o niezgodności klucza. Aby odzyskać dostęp do systemu:
+   - Dodaj do `.env` zmienną: `RESET_2FA_ON_START=true`
+   - Zrestartuj kontener: `docker compose up -d`
+   - Serwer wyczyści konfigurację 2FA dla kont z nieczytelnymi sekretami (użytkownicy zalogują się samym hasłem i będą mogli ponownie włączyć 2FA).
+   - Po pomyślnym uruchomieniu usuń flagę `RESET_2FA_ON_START` z pliku `.env`.
+
+---
+
 ## 📂 Struktura katalogu `/opt/zarzadzanie-projektami`
 
 ```text

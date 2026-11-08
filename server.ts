@@ -27,6 +27,7 @@ import { createRateLimiter } from './src/utils/rateLimit.js';
 import {
   encryptSecret,
   decryptSecret,
+  decryptUserSecrets,
   isEncryptedSecret,
 } from './src/utils/secretBox.js';
 
@@ -230,33 +231,39 @@ if (fs.existsSync(STATE_FILE)) {
     serverAppStateCache = JSON.parse(raw);
     ensureStateStructure();
 
-    let migratedLegacySecret = false;
-    for (const u of serverUsersCache) {
-      if (u.twoFactorSecret && typeof u.twoFactorSecret === 'string') {
-        if (!isEncryptedSecret(u.twoFactorSecret)) {
-          migratedLegacySecret = true;
-        } else {
-          try {
-            u.twoFactorSecret = decryptSecret(u.twoFactorSecret, effectiveAppSecret);
-          } catch (decErr) {
-            console.error(`[Server] Błąd odszyfrowania twoFactorSecret dla ${u.id}:`, decErr);
-          }
-        }
-      }
-      if (u.pending2FA && typeof u.pending2FA.secret === 'string') {
-        if (!isEncryptedSecret(u.pending2FA.secret)) {
-          migratedLegacySecret = true;
-        } else {
-          try {
-            u.pending2FA.secret = decryptSecret(u.pending2FA.secret, effectiveAppSecret);
-          } catch (decErr) {
-            console.error(`[Server] Błąd odszyfrowania pending2FA.secret dla ${u.id}:`, decErr);
-          }
-        }
-      }
-    }
+    const reset2faOnStart =
+      process.env.RESET_2FA_ON_START === 'true' || process.env.RESET_2FA_ON_START === '1';
 
-    if (migratedLegacySecret) {
+    const decryptResult = decryptUserSecrets(
+      serverAppStateCache.users,
+      effectiveAppSecret,
+      { resetOnFailure: reset2faOnStart }
+    );
+
+    serverAppStateCache.users = decryptResult.users;
+    serverUsersCache = serverAppStateCache.users;
+
+    if (decryptResult.failed.length > 0) {
+      const affectedEmails = Array.from(new Set(decryptResult.failed.map((f) => f.email || f.userId)));
+      if (reset2faOnStart) {
+        console.warn(
+          `[Server WARN] Uruchomiono z RESET_2FA_ON_START=true: zresetowano 2FA u ${affectedEmails.length} użytkowników, których sekretów nie można było odszyfrować:`
+        );
+        for (const email of affectedEmails) {
+          console.warn(` - ${email}`);
+        }
+        await saveStateAtomicAsync();
+      } else if (isProduction) {
+        console.error(
+          'APP_SECRET nie pasuje do danych w app_state.json; przywróć poprawny APP_SECRET z .env sprzed zmiany albo, ostatecznie, uruchom z RESET_2FA_ON_START=true.'
+        );
+        process.exit(1);
+      } else {
+        console.warn(
+          `[Server WARN] APP_SECRET nie pasuje do danych 2FA użytkowników: ${affectedEmails.join(', ')} (tryb development - kontynuacja).`
+        );
+      }
+    } else if (decryptResult.migrated) {
       console.log('[Server] Wykryto niezaszyfrowane sekrety 2FA w app_state.json - zostaną zaszyfrowane przy zapisie.');
       saveStateAtomicAsync();
     }
@@ -1017,7 +1024,7 @@ app.post('/api/auth/login', async (req, res) => {
           user.lastTotpCounter = matchedStep;
           authSuccess = true;
           await saveStateAtomicAsync();
-        } else if (verifyAndConsumeBackupCode(user, String(totpCode))) {
+        } else if (verifyAndConsumeBackupCode(user, String(totpCode), effectiveAppSecret)) {
           authSuccess = true;
           await saveStateAtomicAsync();
           console.log(`[Server Auth] Użytkownik ${user.name} (${user.id}) zalogował się za pomocą jednorazowego kodu zapasowego.`);
@@ -1218,7 +1225,7 @@ app.post('/api/auth/register', async (req, res) => {
 
     if (Boolean(twoFactorEnabled)) {
       const server2FASecret = generateBase32Secret(32);
-      const { codes, hashes } = generate10BackupCodes();
+      const { codes, hashes } = generate10BackupCodes(effectiveAppSecret);
       const otpAuthUrl = getOtpAuthUrl(cleanEmail, server2FASecret);
       twoFactorData = {
         secret: server2FASecret,
@@ -2032,7 +2039,7 @@ app.post('/api/users/:userId/2fa/setup', requireAuth, async (req, res) => {
         const step = verifyTotpStrict(targetUser.twoFactorSecret, String(code), targetUser.lastTotpCounter);
         if (step !== null) codeValid = true;
       }
-      if (!codeValid && verifyAndConsumeBackupCode(targetUser, String(code))) {
+      if (!codeValid && verifyAndConsumeBackupCode(targetUser, String(code), effectiveAppSecret)) {
         codeValid = true;
       }
       if (!codeValid) {
@@ -2044,7 +2051,7 @@ app.post('/api/users/:userId/2fa/setup', requireAuth, async (req, res) => {
     resetFailedLogin(rateLimitKey, clientIp);
 
     const secret = generateBase32Secret(32);
-    const { codes, hashes } = generate10BackupCodes();
+    const { codes, hashes } = generate10BackupCodes(effectiveAppSecret);
     const cleanEmail = String(targetUser.email || '').trim().toLowerCase();
     const otpAuthUrl = getOtpAuthUrl(cleanEmail, secret);
 
@@ -2167,7 +2174,7 @@ app.post('/api/users/:userId/2fa/disable', requireAuth, async (req, res) => {
           const step = verifyTotpStrict(targetUser.twoFactorSecret, String(code), targetUser.lastTotpCounter);
           if (step !== null) codeValid = true;
         }
-        if (!codeValid && verifyAndConsumeBackupCode(targetUser, String(code))) {
+        if (!codeValid && verifyAndConsumeBackupCode(targetUser, String(code), effectiveAppSecret)) {
           codeValid = true;
         }
 

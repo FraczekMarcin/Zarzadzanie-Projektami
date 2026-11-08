@@ -171,7 +171,7 @@ describe('TOTP and Backup Codes (src/utils/totp.ts)', () => {
 
       // Step 1: Setup generates pending2FA
       const secret = generateBase32Secret(32);
-      const { codes, hashes } = generate10BackupCodes();
+      const { codes, hashes } = generate10BackupCodes('test_app_secret_123');
       user.pending2FA = { secret, backupCodeHashes: hashes, createdAt: Date.now() };
 
       expect(user.twoFactorEnabled).toBeFalsy();
@@ -213,8 +213,9 @@ describe('TOTP and Backup Codes (src/utils/totp.ts)', () => {
     });
 
     it('prevents disabling 2FA without valid password and code, and succeeds with both', () => {
+      const appSecret = 'test_app_secret_123';
       const secret = generateBase32Secret(32);
-      const { codes, hashes } = generate10BackupCodes();
+      const { codes, hashes } = generate10BackupCodes(appSecret);
 
       const user: TestUser = {
         id: 'admin-1',
@@ -240,7 +241,7 @@ describe('TOTP and Backup Codes (src/utils/totp.ts)', () => {
           const step = verifyTotpStrict(user.twoFactorSecret, params.code, user.lastTotpCounter);
           if (step !== null) codeValid = true;
         }
-        if (!codeValid && verifyAndConsumeBackupCode(user, params.code)) {
+        if (!codeValid && verifyAndConsumeBackupCode(user, params.code, appSecret)) {
           codeValid = true;
         }
 

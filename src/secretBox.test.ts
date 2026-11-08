@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   encryptSecret,
   decryptSecret,
+  decryptUserSecrets,
   isEncryptedSecret,
   deriveKeyFromSecret,
 } from './utils/secretBox';
@@ -179,6 +180,106 @@ describe('secretBox (AES-256-GCM / HKDF)', () => {
       expect(serializedSessions).not.toContain(rawToken);
       expect(serializedSessions).toContain(tokenHash);
       expect(tokenHash).toHaveLength(64);
+    });
+  });
+
+  describe('decryptUserSecrets (wielu użytkowników, migracja i obsługa błędów klucza)', () => {
+    it('poprawnie odszyfrowuje sekrety 2FA użytkowników przy właściwym kluczu', () => {
+      const users = [
+        {
+          id: 'u1',
+          email: 'jan@nowak.pl',
+          twoFactorSecret: encryptSecret('SECRET_USER_1', TEST_SECRET),
+          twoFactorEnabled: true,
+        },
+        {
+          id: 'u2',
+          email: 'anna@kowalska.pl',
+          pending2FA: {
+            secret: encryptSecret('PENDING_USER_2', TEST_SECRET),
+            backupCodeHashes: ['h1', 'h2'],
+          },
+        },
+      ];
+
+      const res = decryptUserSecrets(users, TEST_SECRET);
+      expect(res.failed).toHaveLength(0);
+      expect(res.users[0].twoFactorSecret).toBe('SECRET_USER_1');
+      expect(res.users[1].pending2FA.secret).toBe('PENDING_USER_2');
+      expect(res.migrated).toBe(false);
+    });
+
+    it('wykrywa błąd odszyfrowania przy niewłaściwym kluczu i rejestruje w failed', () => {
+      const wrongKey = 'calkowicie_inny_i_zly_klucz_app_secret_99999';
+      const users = [
+        {
+          id: 'u1',
+          email: 'jan@nowak.pl',
+          twoFactorSecret: encryptSecret('SECRET_USER_1', TEST_SECRET),
+          twoFactorEnabled: true,
+        },
+      ];
+
+      const res = decryptUserSecrets(users, wrongKey);
+      expect(res.failed).toHaveLength(1);
+      expect(res.failed[0].userId).toBe('u1');
+      expect(res.failed[0].email).toBe('jan@nowak.pl');
+      expect(res.failed[0].field).toBe('twoFactorSecret');
+      expect(res.failed[0].error).toMatch(/Błąd odszyfrowania/);
+      expect(res.migrated).toBe(false);
+      // Zaszyfrowana wartość nie została zniszczona w trybie standardowym
+      expect(res.users[0].twoFactorSecret).toContain('enc:v1:');
+    });
+
+    it('wykrywa niezaszyfrowane dane legacy i oznacza migrated = true', () => {
+      const users = [
+        {
+          id: 'u-legacy',
+          email: 'stary@system.pl',
+          twoFactorSecret: 'PLAIN_LEGACY_BASE32_SECRET',
+        },
+      ];
+
+      const res = decryptUserSecrets(users, TEST_SECRET);
+      expect(res.failed).toHaveLength(0);
+      expect(res.migrated).toBe(true);
+      expect(res.users[0].twoFactorSecret).toBe('PLAIN_LEGACY_BASE32_SECRET');
+    });
+
+    it('w trybie resetOnFailure (RESET_2FA_ON_START) czyści 2FA u uszkodzonych użytkowników', () => {
+      const wrongKey = 'zly_klucz_12345';
+      const users = [
+        {
+          id: 'u-broken',
+          email: 'broken@pracownia.pl',
+          twoFactorEnabled: true,
+          twoFactorSecret: encryptSecret('SECRET_GOOD', TEST_SECRET),
+          twoFactorBackupCodes: ['hash1', 'hash2'],
+          lastTotpCounter: 42,
+          pending2FA: {
+            secret: encryptSecret('PENDING_GOOD', TEST_SECRET),
+          },
+        },
+        {
+          id: 'u-ok-without-2fa',
+          email: 'normalny@pracownia.pl',
+          twoFactorEnabled: false,
+        },
+      ];
+
+      const res = decryptUserSecrets(users, wrongKey, { resetOnFailure: true });
+      expect(res.failed.length).toBeGreaterThan(0);
+      expect(res.migrated).toBe(true);
+
+      const brokenUser = res.users.find((u) => u.id === 'u-broken');
+      expect(brokenUser.twoFactorEnabled).toBe(false);
+      expect(brokenUser.twoFactorSecret).toBeUndefined();
+      expect(brokenUser.pending2FA).toBeUndefined();
+      expect(brokenUser.twoFactorBackupCodes).toBeUndefined();
+      expect(brokenUser.lastTotpCounter).toBeUndefined();
+
+      const normalUser = res.users.find((u) => u.id === 'u-ok-without-2fa');
+      expect(normalUser.twoFactorEnabled).toBe(false);
     });
   });
 });

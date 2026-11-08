@@ -39,10 +39,14 @@ export function generateBase32Secret(charLength = 32): string {
 
 /**
  * Klucz wyprowadzony z APP_SECRET dla HMAC-SHA256 kodów zapasowych.
+ * Wymaga jawnego przekazania niepustego appSecret (brak fallbacków).
  */
 export function getHmacKey(appSecret?: string): Buffer {
-  const secret = appSecret || (typeof process !== 'undefined' ? process.env?.APP_SECRET : undefined) || 'zp_backup_secret_2026';
-  return crypto.createHash('sha256').update(secret).digest();
+  const secret = appSecret || (typeof process !== 'undefined' ? process.env?.APP_SECRET : undefined);
+  if (!secret || typeof secret !== 'string' || !secret.trim()) {
+    throw new Error('Brak klucza APP_SECRET: operacje na kodach zapasowych wymagają aktywnego klucza aplikacji');
+  }
+  return crypto.createHash('sha256').update(secret.trim()).digest();
 }
 
 /**
@@ -161,8 +165,14 @@ export function verifyAndConsumeBackupCode(
   const cleanCode = (enteredCode || '').replace(/[\s-]/g, '').toUpperCase().trim();
   if (cleanCode.length < 6) return false;
 
-  const candidateHmac = hashBackupCodeHmac(cleanCode, appSecret);
-  const candidateHmacRaw = candidateHmac.replace('hmac-sha256:', '');
+  let candidateHmac: string | null = null;
+  let candidateHmacRaw: string | null = null;
+  try {
+    candidateHmac = hashBackupCodeHmac(cleanCode, appSecret);
+    candidateHmacRaw = candidateHmac.replace('hmac-sha256:', '');
+  } catch {
+    // Brak appSecret uniemożliwia weryfikację kodów HMAC, ale legacy SHA-256 nadal może być sprawdzony
+  }
   const candidateLegacy = hashBackupCodeLegacy(cleanCode);
 
   const idx = user.twoFactorBackupCodes.findIndex((storedHash: string) => {
@@ -171,6 +181,7 @@ export function verifyAndConsumeBackupCode(
 
       // 1. Nowy format: 'hmac-sha256:<hex>'
       if (storedHash.startsWith('hmac-sha256:')) {
+        if (!candidateHmac) return false;
         return (
           crypto.timingSafeEqual(Buffer.from(storedHash), Buffer.from(candidateHmac))
         );
@@ -178,7 +189,7 @@ export function verifyAndConsumeBackupCode(
 
       // 2. Bez prefiksu ale o długości 64 (może być raw hmac lub legacy sha256)
       if (storedHash.length === 64) {
-        if (crypto.timingSafeEqual(Buffer.from(storedHash), Buffer.from(candidateHmacRaw))) {
+        if (candidateHmacRaw && crypto.timingSafeEqual(Buffer.from(storedHash), Buffer.from(candidateHmacRaw))) {
           return true;
         }
         if (crypto.timingSafeEqual(Buffer.from(storedHash), Buffer.from(candidateLegacy))) {

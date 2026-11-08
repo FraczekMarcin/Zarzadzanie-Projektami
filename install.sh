@@ -98,6 +98,16 @@ APP_SECRET=${APP_SECRET}
 EOF
     chmod 600 .env
     echo -e "${GREEN}Plik .env wygenerowany (uprawnienia 600).${NC}"
+
+    echo -e "${YELLOW}┌────────────────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${YELLOW}│  🔐 KLUCZ SZYFROWANIA APLIKACJI (APP_SECRET) - ZAPISZ POZA SERWEREM    │${NC}"
+    echo -e "${YELLOW}├────────────────────────────────────────────────────────────────────────┤${NC}"
+    echo -e "${YELLOW}│  ${APP_SECRET}  │${NC}"
+    echo -e "${YELLOW}├────────────────────────────────────────────────────────────────────────┤${NC}"
+    echo -e "${YELLOW}│  ⚠️  UWAGA: Plik .env nie wchodzi w skład backup.sh. Zapisz ten klucz  │${NC}"
+    echo -e "${YELLOW}│  w bezpiecznym menedżerze haseł. Bez niego nie da się odszyfrować      │${NC}"
+    echo -e "${YELLOW}│  sekretów 2FA po przywróceniu pliku app_state.json na nowym serwerze.  │${NC}"
+    echo -e "${YELLOW}└────────────────────────────────────────────────────────────────────────┘${NC}"
 fi
 
 # 7. Zabezpieczenie docker-compose.yml

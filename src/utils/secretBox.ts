@@ -97,3 +97,102 @@ export function decryptSecret(cipherText: string, secret?: string): string {
   // Wsteczna kompatybilność: odczyt rozpoznaje wartości jawne (stare)
   return cipherText;
 }
+
+export interface FailedUserSecret {
+  userId: string;
+  email: string;
+  field: 'twoFactorSecret' | 'pending2FA';
+  error: string;
+}
+
+export interface DecryptUserSecretsOptions {
+  resetOnFailure?: boolean;
+}
+
+export interface DecryptUserSecretsResult {
+  users: any[];
+  failed: FailedUserSecret[];
+  migrated: boolean;
+}
+
+/**
+ * Czysta funkcja do deszyfrowania sekretów 2FA (twoFactorSecret oraz pending2FA.secret) użytkowników.
+ * - Wykrywa stare niezaszyfrowane sekrety i oznacza migrated = true.
+ * - Jeśli odszyfrowanie się nie powiedzie, rejestruje wpis w failed.
+ * - Gdy options.resetOnFailure === true, u uszkodzonych użytkowników czyści pola 2FA
+ *   (twoFactorSecret, pending2FA, twoFactorBackupCodes, lastTotpCounter, twoFactorEnabled = false)
+ *   i oznacza migrated = true.
+ */
+export function decryptUserSecrets(
+  users: any[],
+  secret?: string,
+  options?: DecryptUserSecretsOptions
+): DecryptUserSecretsResult {
+  const resultUsers: any[] = [];
+  const failed: FailedUserSecret[] = [];
+  let migrated = false;
+
+  for (const rawUser of users || []) {
+    const u = { ...rawUser };
+    let userHasFailure = false;
+
+    // 1. twoFactorSecret
+    if (u.twoFactorSecret && typeof u.twoFactorSecret === 'string') {
+      if (!isEncryptedSecret(u.twoFactorSecret)) {
+        migrated = true;
+      } else {
+        try {
+          u.twoFactorSecret = decryptSecret(u.twoFactorSecret, secret);
+        } catch (err: any) {
+          userHasFailure = true;
+          failed.push({
+            userId: u.id || '',
+            email: u.email || '',
+            field: 'twoFactorSecret',
+            error: err?.message || 'Błąd odszyfrowania twoFactorSecret',
+          });
+        }
+      }
+    }
+
+    // 2. pending2FA.secret
+    if (u.pending2FA && typeof u.pending2FA.secret === 'string') {
+      if (!isEncryptedSecret(u.pending2FA.secret)) {
+        migrated = true;
+      } else {
+        try {
+          u.pending2FA = {
+            ...u.pending2FA,
+            secret: decryptSecret(u.pending2FA.secret, secret),
+          };
+        } catch (err: any) {
+          userHasFailure = true;
+          failed.push({
+            userId: u.id || '',
+            email: u.email || '',
+            field: 'pending2FA',
+            error: err?.message || 'Błąd odszyfrowania pending2FA.secret',
+          });
+        }
+      }
+    }
+
+    // Obsługa RESET_2FA_ON_START
+    if (userHasFailure && options?.resetOnFailure) {
+      delete u.twoFactorSecret;
+      delete u.pending2FA;
+      delete u.twoFactorBackupCodes;
+      delete u.lastTotpCounter;
+      u.twoFactorEnabled = false;
+      migrated = true;
+    }
+
+    resultUsers.push(u);
+  }
+
+  return {
+    users: resultUsers,
+    failed,
+    migrated,
+  };
+}
