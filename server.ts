@@ -24,9 +24,27 @@ import {
   getOtpAuthUrl,
 } from './src/utils/totp.js';
 import { createRateLimiter } from './src/utils/rateLimit.js';
+import {
+  encryptSecret,
+  decryptSecret,
+  isEncryptedSecret,
+} from './src/utils/secretBox.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const isProduction = process.env.NODE_ENV === 'production';
+const DEFAULT_DOCKER_APP_SECRET = 'sekretna-fraza-szyfrowania-zarzadzanie-projektami-2026';
+const rawAppSecret = (process.env.APP_SECRET || '').trim();
+
+if (isProduction) {
+  if (!rawAppSecret || rawAppSecret === DEFAULT_DOCKER_APP_SECRET) {
+    console.error('[Server FATAL] Brak lub niebezpieczna wartość zmiennej środowiskowej APP_SECRET w środowisku produkcyjnym!');
+    console.error('[Server FATAL] Zdefiniuj bezpieczny klucz APP_SECRET w pliku .env (nie używaj domyślnej wartości).');
+    process.exit(1);
+  }
+}
+const effectiveAppSecret = rawAppSecret || 'zp_dev_app_secret_fallback_2026';
 
 const app = express();
 app.disable('x-powered-by');
@@ -48,22 +66,51 @@ if (process.env.TRUST_PROXY) {
   app.set('trust proxy', false);
 }
 
-// Nagłówki bezpieczeństwa HTTP (Security Headers & Content-Security-Policy)
-app.use((_req, res, next) => {
+function isRequestHttps(req: express.Request): boolean {
+  if (req.app.get('trust proxy')) {
+    return Boolean(req.secure || req.headers['x-forwarded-proto'] === 'https');
+  }
+  return Boolean(req.secure);
+}
+
+// Nagłówki bezpieczeństwa HTTP (Security Headers, Content-Security-Policy, Permissions-Policy, COOP, HSTS)
+app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader(
     'Content-Security-Policy',
-    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https: blob:; connect-src 'self';"
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self';"
   );
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  if (isRequestHttps(req)) {
+    res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+  }
+  if (req.path.startsWith('/api')) {
+    res.setHeader('Cache-Control', 'no-store');
+  }
   next();
 });
 
-app.use(express.json({ limit: '10mb' }));
+// Wszystkie odpowiedzi /api/* dostają Cache-Control: no-store
+app.use('/api', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
+
+// Ograniczenie rozmiaru JSON: domyślnie 100kb, dla POST /api/state 10mb
+const json100kb = express.json({ limit: '100kb' });
+const json10mb = express.json({ limit: '10mb' });
+
+app.use((req, res, next) => {
+  if (req.method === 'POST' && req.path === '/api/state') {
+    return json10mb(req, res, next);
+  }
+  return json100kb(req, res, next);
+});
 
 // Persistent shared database directory for all clients
-const isProduction = process.env.NODE_ENV === 'production';
 const DATA_DIR = process.env.DATA_DIR || (process.env.NODE_ENV === 'production' ? '/app/data' : './data');
 const STATE_FILE = path.join(DATA_DIR, 'app_state.json');
 const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
@@ -99,11 +146,32 @@ let serverUsersCache: any[] = [];
 // Kolejka atomowych i asynchronicznych zapisów stanu
 let writeQueue: Promise<void> = Promise.resolve();
 
+function serializeStateForDisk(state: any): string {
+  if (!state) return JSON.stringify(state);
+  const stateCopy = {
+    ...state,
+    users: (state.users || []).map((u: any) => {
+      const uCopy = { ...u };
+      if (uCopy.twoFactorSecret && typeof uCopy.twoFactorSecret === 'string') {
+        uCopy.twoFactorSecret = encryptSecret(uCopy.twoFactorSecret, effectiveAppSecret);
+      }
+      if (uCopy.pending2FA && typeof uCopy.pending2FA.secret === 'string') {
+        uCopy.pending2FA = {
+          ...uCopy.pending2FA,
+          secret: encryptSecret(uCopy.pending2FA.secret, effectiveAppSecret),
+        };
+      }
+      return uCopy;
+    }),
+  };
+  return JSON.stringify(stateCopy);
+}
+
 function saveStateAtomicAsync(): Promise<void> {
   const doWrite = async () => {
     try {
       const tmpFile = path.join(DATA_DIR, 'app_state.json.tmp');
-      const content = JSON.stringify(serverAppStateCache);
+      const content = serializeStateForDisk(serverAppStateCache);
       await fs.promises.writeFile(tmpFile, content, 'utf-8');
       await fs.promises.rename(tmpFile, STATE_FILE);
     } catch (writeErr) {
@@ -161,6 +229,38 @@ if (fs.existsSync(STATE_FILE)) {
     const raw = fs.readFileSync(STATE_FILE, 'utf-8');
     serverAppStateCache = JSON.parse(raw);
     ensureStateStructure();
+
+    let migratedLegacySecret = false;
+    for (const u of serverUsersCache) {
+      if (u.twoFactorSecret && typeof u.twoFactorSecret === 'string') {
+        if (!isEncryptedSecret(u.twoFactorSecret)) {
+          migratedLegacySecret = true;
+        } else {
+          try {
+            u.twoFactorSecret = decryptSecret(u.twoFactorSecret, effectiveAppSecret);
+          } catch (decErr) {
+            console.error(`[Server] Błąd odszyfrowania twoFactorSecret dla ${u.id}:`, decErr);
+          }
+        }
+      }
+      if (u.pending2FA && typeof u.pending2FA.secret === 'string') {
+        if (!isEncryptedSecret(u.pending2FA.secret)) {
+          migratedLegacySecret = true;
+        } else {
+          try {
+            u.pending2FA.secret = decryptSecret(u.pending2FA.secret, effectiveAppSecret);
+          } catch (decErr) {
+            console.error(`[Server] Błąd odszyfrowania pending2FA.secret dla ${u.id}:`, decErr);
+          }
+        }
+      }
+    }
+
+    if (migratedLegacySecret) {
+      console.log('[Server] Wykryto niezaszyfrowane sekrety 2FA w app_state.json - zostaną zaszyfrowane przy zapisie.');
+      saveStateAtomicAsync();
+    }
+
     console.log(`[Server] Loaded persistent state from ${STATE_FILE} (${serverAppStateCache.tasks.length} tasks, ${serverUsersCache.length} users, revision: ${serverAppStateCache.revision})`);
   } catch (err) {
     console.error('[Server] Error reading app_state.json:', err);
@@ -171,7 +271,7 @@ if (fs.existsSync(STATE_FILE)) {
 // 1. BEZPIECZEŃSTWO SESJI I CIASTECZEK (HttpOnly, SameSite=Lax, Secure gdy HTTPS)
 // ==============================================================================
 export interface Session {
-  token: string;
+  tokenHash: string;
   userId: string;
   role: string;
   createdAt: number;
@@ -180,15 +280,31 @@ export interface Session {
 
 const sessions = new Map<string, Session>();
 
-// Wczytaj sesje z pliku sessions.json w DATA_DIR
+function hashSessionToken(token: string): string {
+  return crypto.createHash('sha256').update(token.trim()).digest('hex');
+}
+
+// Wczytaj sesje z pliku sessions.json w DATA_DIR (przechowywanie hashy SHA-256)
 if (fs.existsSync(SESSIONS_FILE)) {
   try {
     const raw = fs.readFileSync(SESSIONS_FILE, 'utf-8');
-    const parsed: Session[] = JSON.parse(raw);
+    const parsed: any[] = JSON.parse(raw);
     const now = Date.now();
     for (const s of parsed) {
-      if (s && s.token && s.expiresAt > now) {
-        sessions.set(s.token, s);
+      if (s && s.expiresAt > now) {
+        if (s.tokenHash) {
+          sessions.set(s.tokenHash, s);
+        } else if (s.token) {
+          // Migracja wsteczna: haszuj stare jawne tokeny z sessions.json
+          const hash = hashSessionToken(s.token);
+          sessions.set(hash, {
+            tokenHash: hash,
+            userId: s.userId,
+            role: s.role,
+            createdAt: s.createdAt,
+            expiresAt: s.expiresAt,
+          });
+        }
       }
     }
     console.log(`[Server Auth] Załadowano ${sessions.size} aktywnych sesji z pliku ${SESSIONS_FILE}`);
@@ -232,23 +348,17 @@ function parseCookies(header?: string): Record<string, string> {
   return res;
 }
 
-function isRequestHttps(req: express.Request): boolean {
-  if (req.app.get('trust proxy')) {
-    return Boolean(req.secure || req.headers['x-forwarded-proto'] === 'https');
-  }
-  return Boolean(req.secure);
-}
-
-function setSessionCookie(req: express.Request, res: express.Response, token: string, maxAgeSec = 12 * 3600) {
+function setSessionCookie(req: express.Request, res: express.Response, rawToken: string, maxAgeSec = 12 * 3600) {
   const isHttps = isRequestHttps(req);
+  const cookieName = isHttps ? '__Host-zp_session' : 'zp_session';
   const cookieParts = [
-    `zp_session=${encodeURIComponent(token)}`,
+    `${cookieName}=${encodeURIComponent(rawToken)}`,
     'Path=/',
     'HttpOnly',
     'SameSite=Lax',
     `Max-Age=${maxAgeSec}`,
   ];
-  if (isProduction && isHttps) {
+  if (isHttps) {
     cookieParts.push('Secure');
   }
   res.setHeader('Set-Cookie', cookieParts.join('; '));
@@ -256,30 +366,26 @@ function setSessionCookie(req: express.Request, res: express.Response, token: st
 
 function clearSessionCookie(req: express.Request, res: express.Response) {
   const isHttps = isRequestHttps(req);
-  const cookieParts = [
-    'zp_session=',
-    'Path=/',
-    'HttpOnly',
-    'SameSite=Lax',
-    'Max-Age=0',
+  const cookiesToClear = [
+    `zp_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${isHttps ? '; Secure' : ''}`,
+    '__Host-zp_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure',
   ];
-  if (isProduction && isHttps) {
-    cookieParts.push('Secure');
-  }
-  res.setHeader('Set-Cookie', cookieParts.join('; '));
+  res.setHeader('Set-Cookie', cookiesToClear);
 }
 
 function getSessionFromReq(req: express.Request): Session | null {
   const cookies = parseCookies(req.headers.cookie);
-  let token = cookies.zp_session;
-  if (!token && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
-    token = req.headers.authorization.slice(7).trim();
+  let rawToken = cookies['__Host-zp_session'] || cookies['zp_session'];
+  if (!rawToken && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    rawToken = req.headers.authorization.slice(7).trim();
   }
-  if (!token) return null;
-  const session = sessions.get(token);
+  if (!rawToken) return null;
+
+  const tokenHash = hashSessionToken(rawToken);
+  const session = sessions.get(tokenHash);
   if (!session) return null;
   if (session.expiresAt <= Date.now()) {
-    sessions.delete(token);
+    sessions.delete(tokenHash);
     saveSessionsAsync();
     return null;
   }
@@ -945,19 +1051,20 @@ app.post('/api/auth/login', async (req, res) => {
     // Pomyślne logowanie - resetowanie licznika błędnych prób
     resetFailedLogin(identifier, clientIp);
 
-    // Utworzenie tokena i sesji (12 h)
-    const token = crypto.randomBytes(32).toString('hex');
+    // Utworzenie tokena i sesji (12 h) - w pamięci i pliku przechowujemy SHA-256 tokenu
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashSessionToken(rawToken);
     const session: Session = {
-      token,
+      tokenHash,
       userId: user.id,
       role: user.role,
       createdAt: Date.now(),
       expiresAt: Date.now() + 12 * 60 * 60 * 1000,
     };
-    sessions.set(token, session);
+    sessions.set(tokenHash, session);
     saveSessionsAsync();
 
-    setSessionCookie(req, res, token);
+    setSessionCookie(req, res, rawToken);
     res.json({ success: true, user: sanitizeUser(user) });
   } catch (err: any) {
     console.error('[Server Auth] Błąd logowania:', err);
@@ -969,7 +1076,7 @@ app.post('/api/auth/login', async (req, res) => {
 app.post('/api/auth/logout', (req, res) => {
   const session = getSessionFromReq(req);
   if (session) {
-    sessions.delete(session.token);
+    sessions.delete(session.tokenHash);
     saveSessionsAsync();
   }
   clearSessionCookie(req, res);
@@ -1042,18 +1149,19 @@ app.post('/api/auth/setup-admin', async (req, res) => {
     await saveStateAtomicAsync();
 
     // Automatyczne zalogowanie po utworzeniu konta
-    const token = crypto.randomBytes(32).toString('hex');
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashSessionToken(rawToken);
     const session: Session = {
-      token,
+      tokenHash,
       userId: adminUser.id,
       role: adminUser.role,
       createdAt: Date.now(),
       expiresAt: Date.now() + 12 * 60 * 60 * 1000,
     };
-    sessions.set(token, session);
+    sessions.set(tokenHash, session);
     saveSessionsAsync();
 
-    setSessionCookie(req, res, token);
+    setSessionCookie(req, res, rawToken);
     res.json({ success: true, user: sanitizeUser(adminUser) });
   } catch (err: any) {
     console.error('[Server Auth] Błąd setup-admin:', err);
@@ -1864,12 +1972,12 @@ app.post('/api/users/:userId/password', requireAuth, async (req, res) => {
     // Jeśli isSelf: unieważnij pozostałe sesje (poza bieżącą).
     // Jeśli admin zmienia cudze hasło: unieważnij wszystkie sesje użytkownika.
     const currentSession = getSessionFromReq(req);
-    for (const [token, session] of sessions.entries()) {
+    for (const [tokenHash, session] of sessions.entries()) {
       if (session.userId === targetUser.id) {
-        if (isSelf && token === currentSession?.token) {
+        if (isSelf && tokenHash === currentSession?.tokenHash) {
           continue;
         }
-        sessions.delete(token);
+        sessions.delete(tokenHash);
       }
     }
     saveSessionsAsync();
@@ -1998,9 +2106,9 @@ app.post('/api/users/:userId/2fa/confirm', requireAuth, async (req, res) => {
 
     // Po sukcesie unieważnij pozostałe sesje użytkownika (zostaw bieżącą)
     const currentSession = getSessionFromReq(req);
-    for (const [token, session] of sessions.entries()) {
-      if (session.userId === targetUser.id && token !== currentSession?.token) {
-        sessions.delete(token);
+    for (const [tokenHash, session] of sessions.entries()) {
+      if (session.userId === targetUser.id && tokenHash !== currentSession?.tokenHash) {
+        sessions.delete(tokenHash);
       }
     }
     saveSessionsAsync();
@@ -2669,6 +2777,23 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
+// Globalny middleware obsługi błędów zwracający ZAWSZE JSON { error: string } (bez HTML, bez stack trace)
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const status = typeof err?.status === 'number' ? err.status : (typeof err?.statusCode === 'number' ? err.statusCode : 500);
+  let errorMsg = 'Wystąpił wewnętrzny błąd serwera';
+
+  if (err?.type === 'entity.parse.failed' || (err instanceof SyntaxError && 'body' in err)) {
+    errorMsg = 'Niepoprawny format danych JSON';
+  } else if (err?.type === 'entity.too.large') {
+    errorMsg = 'Przekroczono dopuszczalny rozmiar treści żądania';
+  } else if (err?.message && status < 500) {
+    errorMsg = err.message;
+  }
+
+  res.status(status).json({ error: errorMsg });
+});
+
 app.listen(PORT, () => {
   console.log(`Zarządzanie Projektami running on port ${PORT}`);
 });
+
