@@ -85,7 +85,17 @@ mkdir -p backups
 # 6. Generowanie bezpiecznego pliku .env tylko gdy nie istnieje
 if [ ! -f .env ]; then
     echo -e "${BLUE}==> Generowanie pliku konfiguracyjnego .env...${NC}"
-    APP_SECRET=$(openssl rand -hex 32 2>/dev/null || date +%s%N | sha256sum | head -c 64)
+    APP_SECRET=""
+    if command -v openssl >/dev/null 2>&1; then
+        APP_SECRET=$(openssl rand -hex 32 2>/dev/null || true)
+    fi
+    if [ -z "$APP_SECRET" ]; then
+        APP_SECRET=$(head -c 48 /dev/urandom 2>/dev/null | base64 | tr -d '\n=+/' | head -c 64 || true)
+    fi
+    if [ -z "$APP_SECRET" ] || [ "${#APP_SECRET}" -lt 32 ]; then
+        echo -e "${RED}Błąd: Nie udało się wygenerować bezpiecznego klucza APP_SECRET (brak openssl oraz /dev/urandom).${NC}" >&2
+        exit 1
+    fi
     cat <<EOF > .env
 PORT=3000
 NODE_ENV=production

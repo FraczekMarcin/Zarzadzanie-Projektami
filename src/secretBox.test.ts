@@ -5,6 +5,7 @@ import {
   decryptUserSecrets,
   isEncryptedSecret,
   deriveKeyFromSecret,
+  validateAppSecret,
 } from './utils/secretBox';
 
 describe('secretBox (AES-256-GCM / HKDF)', () => {
@@ -280,6 +281,77 @@ describe('secretBox (AES-256-GCM / HKDF)', () => {
 
       const normalUser = res.users.find((u) => u.id === 'u-ok-without-2fa');
       expect(normalUser.twoFactorEnabled).toBe(false);
+    });
+  });
+
+  describe('validateAppSecret', () => {
+    it('odrzuca klucze zbyt krótkie (< 32 znaki) lub puste w trybie produkcyjnym', () => {
+      const tooShort = validateAppSecret('abc');
+      expect(tooShort.ok).toBe(false);
+      expect(tooShort.reason).toContain('zbyt krótki');
+
+      const thirtyOneChars = validateAppSecret('1234567890123456789012345678901');
+      expect(thirtyOneChars.ok).toBe(false);
+      expect(thirtyOneChars.reason).toContain('zbyt krótki');
+
+      const empty = validateAppSecret('');
+      expect(empty.ok).toBe(false);
+      expect(empty.reason).toContain('nie może być pusty');
+
+      const undef = validateAppSecret(undefined);
+      expect(undef.ok).toBe(false);
+      expect(undef.reason).toContain('Brak klucza APP_SECRET');
+    });
+
+    it('odrzuca wartości-placeholdery z zakazanymi prefiksami', () => {
+      // zaczynające się od 'wygeneruj'
+      const wygeneruj = validateAppSecret('wygeneruj_unikalny_losowy_ciag_znakow_min_32_znaki_np_openssl_rand_hex_32');
+      expect(wygeneruj.ok).toBe(false);
+      expect(wygeneruj.reason).toContain('wygeneruj');
+
+      // zaczynające się od 'changeme'
+      const changeme = validateAppSecret('changeme_long_production_key_123456789012');
+      expect(changeme.ok).toBe(false);
+      expect(changeme.reason).toContain('changeme');
+
+      // zaczynające się od 'zmien' / 'zmień'
+      const zmien = validateAppSecret('zmien_mnie_na_bezpieczny_klucz_produkcyjny_2026');
+      expect(zmien.ok).toBe(false);
+      expect(zmien.reason).toContain('zmien');
+
+      // zaczynające się od 'example'
+      const example = validateAppSecret('example_secret_for_local_development_testing_123');
+      expect(example.ok).toBe(false);
+      expect(example.reason).toContain('example');
+
+      // zaczynające się od 'secret'
+      const secret = validateAppSecret('secret_production_key_12345678901234567890');
+      expect(secret.ok).toBe(false);
+      expect(secret.reason).toContain('secret');
+    });
+
+    it('odrzuca poprzednią domyślną wartość z docker-compose oraz wartość z .env.example', () => {
+      const dockerDefault = validateAppSecret('sekretna-fraza-szyfrowania-zarzadzanie-projektami-2026');
+      expect(dockerDefault.ok).toBe(false);
+
+      const envExample = validateAppSecret('wygeneruj_unikalny_losowy_ciag_znakow_min_32_znaki_np_openssl_rand_hex_32');
+      expect(envExample.ok).toBe(false);
+    });
+
+    it('akceptuje poprawny 64-znakowy losowy ciąg hex (np. openssl rand -hex 32)', () => {
+      const validHex64 = '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08';
+      const result = validateAppSecret(validHex64);
+      expect(result.ok).toBe(true);
+      expect(result.reason).toBeUndefined();
+
+      const anotherValidHex = '4b706f9479b1836171887e49c7198bb4b6a82c4e20fb34c6767228812c3f8e5e';
+      expect(validateAppSecret(anotherValidHex).ok).toBe(true);
+    });
+
+    it('pozwala na dowolną wartość poza trybem produkcyjnym (isProduction = false)', () => {
+      expect(validateAppSecret('abc', false).ok).toBe(true);
+      expect(validateAppSecret('', false).ok).toBe(true);
+      expect(validateAppSecret(undefined, false).ok).toBe(true);
     });
   });
 });

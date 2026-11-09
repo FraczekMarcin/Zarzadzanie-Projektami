@@ -30,19 +30,20 @@ import {
   decryptSecret,
   decryptUserSecrets,
   isEncryptedSecret,
+  validateAppSecret,
 } from './src/utils/secretBox.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const isProduction = process.env.NODE_ENV === 'production';
-const DEFAULT_DOCKER_APP_SECRET = 'sekretna-fraza-szyfrowania-zarzadzanie-projektami-2026';
 const rawAppSecret = (process.env.APP_SECRET || '').trim();
 
 if (isProduction) {
-  if (!rawAppSecret || rawAppSecret === DEFAULT_DOCKER_APP_SECRET) {
-    console.error('[Server FATAL] Brak lub niebezpieczna wartość zmiennej środowiskowej APP_SECRET w środowisku produkcyjnym!');
-    console.error('[Server FATAL] Zdefiniuj bezpieczny klucz APP_SECRET w pliku .env (nie używaj domyślnej wartości).');
+  const secretValidation = validateAppSecret(rawAppSecret);
+  if (!secretValidation.ok) {
+    console.error(`[Server FATAL] Niepoprawna wartość APP_SECRET: ${secretValidation.reason}`);
+    console.error('[Server FATAL] Wygeneruj bezpieczny klucz poleceniem: openssl rand -hex 32');
     process.exit(1);
   }
 }

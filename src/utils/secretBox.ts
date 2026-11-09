@@ -196,3 +196,79 @@ export function decryptUserSecrets(
     migrated,
   };
 }
+
+export interface AppSecretValidationResult {
+  ok: boolean;
+  reason?: string;
+}
+
+export const FORBIDDEN_SECRET_PREFIXES = [
+  'wygeneruj',
+  'changeme',
+  'zmien',
+  'zmień',
+  'example',
+  'secret',
+];
+
+export const FORBIDDEN_EXACT_SECRETS = [
+  'sekretna-fraza-szyfrowania-zarzadzanie-projektami-2026',
+  'wygeneruj_unikalny_losowy_ciag_znakow_min_32_znaki_np_openssl_rand_hex_32',
+  'wygeneruj_unikalny_ciag_znakow_dla_tokenow_bezpieczenstwa_2026',
+];
+
+/**
+ * Czysta funkcja walidująca poprawność klucza APP_SECRET.
+ * W produkcji odrzuca klucze krótsze niż 32 znaki oraz wartości-przykłady.
+ */
+export function validateAppSecret(
+  value: unknown,
+  isProduction: boolean = true
+): AppSecretValidationResult {
+  if (!isProduction) {
+    return { ok: true };
+  }
+
+  if (value === undefined || value === null || typeof value !== 'string') {
+    return {
+      ok: false,
+      reason: 'Brak klucza APP_SECRET (wartość jest niezdefiniowana)',
+    };
+  }
+
+  const clean = value.trim();
+  if (clean.length === 0) {
+    return {
+      ok: false,
+      reason: 'Klucz APP_SECRET nie może być pusty',
+    };
+  }
+
+  if (clean.length < 32) {
+    return {
+      ok: false,
+      reason: `Klucz APP_SECRET jest zbyt krótki (${clean.length} znaków; wymagane minimum 32 znaki)`,
+    };
+  }
+
+  const lower = clean.toLowerCase();
+  for (const prefix of FORBIDDEN_SECRET_PREFIXES) {
+    if (lower.startsWith(prefix)) {
+      return {
+        ok: false,
+        reason: `Klucz APP_SECRET nie może być wartością przykładową (zaczyna się od "${prefix}")`,
+      };
+    }
+  }
+
+  for (const forbidden of FORBIDDEN_EXACT_SECRETS) {
+    if (clean === forbidden || lower === forbidden.toLowerCase()) {
+      return {
+        ok: false,
+        reason: 'Klucz APP_SECRET jest domyślną wartością przykładową z konfiguracji referencyjnej',
+      };
+    }
+  }
+
+  return { ok: true };
+}
