@@ -1,12 +1,17 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Suspense, lazy } from 'react';
 import { Project, Task, User, Priority, ProjectTemplate } from '../types';
 import { downloadIcsFile } from '../utils/calendar';
 import { getNextProjectCode, isProjectCodeAvailable, isValidProjectCodeFormat } from '../utils/projectCode';
 import { loadAllProjectTemplates } from '../utils/projectTemplates';
-import { AdminTemplateManagerModal } from './AdminTemplateManagerModal';
-import { ProjectFinancialsModal } from './ProjectFinancialsModal';
 import { ProjectDetailModal } from './ProjectDetailModal';
 import { copyToClipboard } from '../utils/clipboard';
+
+const AdminTemplateManagerModal = lazy(() =>
+  import('./AdminTemplateManagerModal').then((m) => ({ default: m.AdminTemplateManagerModal }))
+);
+const ProjectFinancialsModal = lazy(() =>
+  import('./ProjectFinancialsModal').then((m) => ({ default: m.ProjectFinancialsModal }))
+);
 import { 
   FolderPlus, 
   Calendar, 
@@ -915,16 +920,18 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
       {/* Financials Modal */}
       {financialsProject && (
-        <ProjectFinancialsModal
-          isOpen={true}
-          onClose={() => setFinancialsProject(null)}
-          project={financialsProject}
-          tasks={tasks}
-          onSaveProject={(updated) => {
-            if (onUpdateProject) onUpdateProject(updated);
-            setFinancialsProject(null);
-          }}
-        />
+        <Suspense fallback={null}>
+          <ProjectFinancialsModal
+            isOpen={true}
+            onClose={() => setFinancialsProject(null)}
+            project={financialsProject}
+            tasks={tasks}
+            onSaveProject={(updated) => {
+              if (onUpdateProject) onUpdateProject(updated);
+              setFinancialsProject(null);
+            }}
+          />
+        </Suspense>
       )}
 
       {/* Project Detail Modal (Podgląd danych projektu bez wchodzenia w edycję) */}

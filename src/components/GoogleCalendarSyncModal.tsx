@@ -51,18 +51,12 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
   useEffect(() => {
     if (!isOpen) return;
 
-    const storageKey = `oph_calendar_token_${currentUser.id}`;
-    const savedToken = localStorage.getItem(storageKey);
-    if (savedToken) {
-      setToken(savedToken);
-    }
-
     const checkServerToken = async () => {
       setIsLoadingToken(true);
       setError(null);
       try {
         const res = await fetch('/api/calendar/token', {
-          headers: { credentials: 'include' },
+          credentials: 'same-origin',
         });
         if (res.ok) {
           const data = await res.json();
@@ -70,7 +64,6 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
           setTokenCreatedAt(data.createdAt || null);
           if (!data.hasToken) {
             setToken(null);
-            localStorage.removeItem(storageKey);
           }
         }
       } catch (err: any) {
@@ -115,7 +108,7 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
       const res = await fetch('/api/calendar/token/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+        credentials: 'same-origin',
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -124,7 +117,6 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
       setToken(data.token);
       setHasServerToken(true);
       setTokenCreatedAt(data.createdAt);
-      localStorage.setItem(`oph_calendar_token_${currentUser.id}`, data.token);
     } catch (err: any) {
       setError(err.message || 'Błąd sieci podczas generowania tokenu');
     } finally {
@@ -141,7 +133,7 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
     try {
       const res = await fetch('/api/calendar/token', {
         method: 'DELETE',
-        credentials: 'include',
+        credentials: 'same-origin',
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -150,7 +142,6 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
       setToken(null);
       setHasServerToken(false);
       setTokenCreatedAt(null);
-      localStorage.removeItem(`oph_calendar_token_${currentUser.id}`);
     } catch (err: any) {
       setError(err.message || 'Błąd sieci podczas odwoływania tokenu');
     } finally {

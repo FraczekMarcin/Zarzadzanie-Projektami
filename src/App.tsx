@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
 import { Task, Project, User, Priority, TaskStatus, ActivityLog, Comment, ProjectTemplate } from './types';
 import { INITIAL_PROJECTS, INITIAL_TASKS, INITIAL_ACTIVITY } from './data/initialData';
 import { GanttChart } from './components/GanttChart';
@@ -9,14 +9,26 @@ import { ProjectsOverview } from './components/ProjectsOverview';
 import { TaskTreeView } from './components/TaskTreeView';
 import { TaskModal } from './components/TaskModal';
 import { TaskDetailDrawer } from './components/TaskDetailDrawer';
-import { DockerDeploymentModal } from './components/DockerDeploymentModal';
 import { UserAuthModal } from './components/UserAuthModal';
-import { GoogleCalendarSyncModal } from './components/GoogleCalendarSyncModal';
 import { TaskFilterModal } from './components/TaskFilterModal';
-import { ArchiveBackupModal } from './components/ArchiveBackupModal';
-import { GitHubUpdateModal } from './components/GitHubUpdateModal';
-import { SettingsModal, SettingsTab } from './components/SettingsModal';
 import { LoginGate } from './components/LoginGate';
+
+// Lazy loading dla rzadziej otwieranych dużych modali (optymalizacja wielkości chunku)
+const SettingsModal = lazy(() =>
+  import('./components/SettingsModal').then((m) => ({ default: m.SettingsModal }))
+);
+const ArchiveBackupModal = lazy(() =>
+  import('./components/ArchiveBackupModal').then((m) => ({ default: m.ArchiveBackupModal }))
+);
+const DockerDeploymentModal = lazy(() =>
+  import('./components/DockerDeploymentModal').then((m) => ({ default: m.DockerDeploymentModal }))
+);
+const GitHubUpdateModal = lazy(() =>
+  import('./components/GitHubUpdateModal').then((m) => ({ default: m.GitHubUpdateModal }))
+);
+const GoogleCalendarSyncModal = lazy(() =>
+  import('./components/GoogleCalendarSyncModal').then((m) => ({ default: m.GoogleCalendarSyncModal }))
+);
 import { getTodayIso, addDaysIso } from './utils/today';
 import { instantiateTasksFromTemplate } from './utils/projectTemplates';
 import { getNextProjectCode } from './utils/projectCode';
@@ -78,93 +90,27 @@ export default function App() {
   const [setupRequired, setSetupRequired] = useState<boolean | null>(null);
 
   // Persistence state with users loaded strictly from server
-  const [users, setUsers] = useState<User[]>(() => {
-    try {
-      const saved = localStorage.getItem('oph_users');
-      if (saved) {
-        const list: User[] = JSON.parse(saved);
-        const cleanList = list.filter((u) => !u.isDemo);
-        return cleanList;
-      }
-      return [];
-    } catch {
-      return [];
-    }
+  const [users, setUsers] = useState<User[]>([]);
+
+  const [currentUser, setCurrentUser] = useState<User>({
+    id: '',
+    name: '',
+    email: '',
+    role: 'admin',
+    department: '',
+    initials: '',
   });
 
-  const [currentUser, setCurrentUser] = useState<User>(() => {
-    try {
-      const saved = localStorage.getItem('oph_current_user');
-      if (saved) {
-        const u = JSON.parse(saved);
-        if (!u.isDemo && u.id) return u;
-      }
-    } catch {}
-    return {
-      id: '',
-      name: '',
-      email: '',
-      role: 'admin',
-      department: '',
-      initials: '',
-    };
-  });
+  const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
 
-  const [projects, setProjects] = useState<Project[]>(() => {
-    try {
-      const saved = localStorage.getItem('oph_projects');
-      if (!saved) return INITIAL_PROJECTS;
-      const parsed: Project[] = JSON.parse(saved);
-      const cleanList = parsed.filter((p: any) => !p.isDemo);
-      return cleanList.map((p: any) => ({
-        ...p,
-        priority: p.priority === 'medium' ? 'normal' : (p.priority || 'normal'),
-        durationDays: p.durationDays || 30,
-        isDemo: false,
-      }));
-    } catch {
-      return INITIAL_PROJECTS;
-    }
-  });
-
-  const [tasks, setTasks] = useState<Task[]>(() => {
-    try {
-      const saved = localStorage.getItem('oph_tasks');
-      if (!saved) return INITIAL_TASKS;
-      const parsed = JSON.parse(saved);
-      const cleanList = parsed.filter((t: any) => !t.isDemo);
-      return cleanList.map((t: any) => ({
-        ...t,
-        priority: t.priority === 'medium' ? 'normal' : (t.priority || 'normal'),
-        durationDays: t.durationDays || 7,
-        blockingTaskIds: t.blockingTaskIds || t.dependencies || [],
-        dependencies: t.dependencies || t.blockingTaskIds || [],
-      }));
-    } catch {
-      return INITIAL_TASKS;
-    }
-  });
+  const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS);
 
   // Universal task sorting: Priority (critical -> high -> normal -> low), then due date
   const sortedTasks = useMemo(() => sortTasksByPriorityAndDueDate(tasks), [tasks]);
 
-  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => {
-    try {
-      const saved = localStorage.getItem('oph_activity');
-      return saved ? JSON.parse(saved) : INITIAL_ACTIVITY;
-    } catch {
-      return INITIAL_ACTIVITY;
-    }
-  });
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(INITIAL_ACTIVITY);
 
-  const [comments, setComments] = useState<Comment[]>(() => {
-    try {
-      const saved = localStorage.getItem('oph_comments');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [comments, setComments] = useState<Comment[]>([]);
 
   // UI state
   const [activeView, setActiveView] = useState<ActiveView>('gantt');
@@ -262,9 +208,6 @@ export default function App() {
         }
         if (Array.isArray(data.users)) {
           setUsers(data.users);
-          try {
-            localStorage.setItem('oph_users', JSON.stringify(data.users));
-          } catch {}
         }
       })
       .catch(() => {});
@@ -274,11 +217,12 @@ export default function App() {
     };
   }, []);
 
-  // Odpytuj endpoint /api/backup/status - wskaźnik zielony tylko gdy najnowsza kopia na serwerze <= 36h
+  // Odpytuj endpoint /api/backup/status - co 5 minut, pomijaj gdy document.hidden
   useEffect(() => {
     if (!isAuthenticated) return;
     let isMounted = true;
     const fetchBackupStatus = async () => {
+      if (document.hidden) return;
       try {
         const res = await fetch('/api/backup/status', { credentials: 'same-origin' });
         if (res.ok) {
@@ -300,33 +244,12 @@ export default function App() {
     };
 
     fetchBackupStatus();
-    const interval = setInterval(fetchBackupStatus, 15000);
+    const interval = setInterval(fetchBackupStatus, 300000); // 5 minut (300 000 ms)
     return () => {
       isMounted = false;
       clearInterval(interval);
     };
   }, [isAuthenticated]);
-
-  // Sync to local storage
-  useEffect(() => {
-    localStorage.setItem('oph_users', JSON.stringify(users));
-  }, [users]);
-
-  useEffect(() => {
-    localStorage.setItem('oph_current_user', JSON.stringify(currentUser));
-  }, [currentUser]);
-
-  useEffect(() => {
-    localStorage.setItem('oph_projects', JSON.stringify(projects));
-  }, [projects]);
-
-  useEffect(() => {
-    localStorage.setItem('oph_tasks', JSON.stringify(tasks));
-  }, [tasks]);
-
-  useEffect(() => {
-    localStorage.setItem('oph_activity', JSON.stringify(activityLogs));
-  }, [activityLogs]);
 
   // Rewizja stanu na serwerze i referencje dla współbieżnej synchronizacji
   const [stateRevision, setStateRevision] = useState<number>(0);
@@ -357,11 +280,9 @@ export default function App() {
         }
         if (Array.isArray(s.users) && s.users.length > 0) {
           setUsers(s.users);
-          localStorage.setItem('oph_users', JSON.stringify(s.users));
         }
         if (Array.isArray(s.projects)) {
           setProjects(s.projects);
-          localStorage.setItem('oph_projects', JSON.stringify(s.projects));
         }
         if (Array.isArray(s.tasks)) {
           const currentEditingId = editingTaskRef.current?.id;
@@ -376,15 +297,12 @@ export default function App() {
               return incomingTask;
             });
           });
-          localStorage.setItem('oph_tasks', JSON.stringify(s.tasks));
         }
         if (Array.isArray(s.activityLogs)) {
           setActivityLogs(s.activityLogs);
-          localStorage.setItem('oph_activity', JSON.stringify(s.activityLogs));
         }
         if (Array.isArray(s.comments)) {
           setComments(s.comments);
-          localStorage.setItem('oph_comments', JSON.stringify(s.comments));
         }
         if (showNotification) {
           setNotificationToast({
@@ -1254,17 +1172,46 @@ export default function App() {
     }
   };
 
-  // Logout handler - calls server logout and returns completely to login gate
+  // Logout handler - calls logActivity first, then server logout, cleans localStorage and React state
   const handleLogout = async () => {
+    // 1. Najpierw wywołaj logActivity
+    logActivity(`${currentUser?.name || 'Użytkownik'} wylogował się z systemu`);
+
+    // 2. Potem /api/auth/logout
     try {
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
     } catch {}
-    setIsAuthenticated(false);
+
+    // 3. Po wylogowaniu usuń z localStorage wszystkie klucze zaczynające się od 'oph_' z wyjątkiem preferencji wyglądu (motyw: oph_theme_mode)
     try {
-      localStorage.removeItem('oph_is_authenticated');
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('oph_') && k !== 'oph_theme_mode') {
+          keysToRemove.push(k);
+        }
+      }
+      for (const k of keysToRemove) {
+        localStorage.removeItem(k);
+      }
     } catch {}
+
+    // 4. Wyczyść stan React (projects, tasks, comments, activityLogs, currentUser) do wartości początkowych
+    setProjects(INITIAL_PROJECTS);
+    setTasks(INITIAL_TASKS);
+    setComments([]);
+    setActivityLogs(INITIAL_ACTIVITY);
+    setCurrentUser({
+      id: '',
+      name: '',
+      email: '',
+      role: 'admin',
+      department: '',
+      initials: '',
+    });
+
+    setIsAuthenticated(false);
     setIsUserModalOpen(false);
-    logActivity(`${currentUser?.name || 'Użytkownik'} wylogował się z systemu`);
     setNotificationToast({
       message: 'Wylogowano z systemu. Ekran logowania jest aktywny.',
       type: 'info',
@@ -1290,7 +1237,6 @@ export default function App() {
     setIsAuthenticated(true);
     try {
       localStorage.setItem('oph_is_authenticated', 'true');
-      localStorage.setItem('oph_current_user', JSON.stringify(user));
     } catch {}
 
     // Synchronize latest state immediately
@@ -1910,23 +1856,31 @@ export default function App() {
         onNavigateToTask={handleSelectTask}
       />
 
-      <GoogleCalendarSyncModal
-        isOpen={isCalendarSyncModalOpen}
-        onClose={() => setIsCalendarSyncModalOpen(false)}
-        currentUser={currentUser}
-        users={users}
-        tasks={sortedTasks}
-        projects={projects}
-        onSwitchUser={(user) => {
-          setCurrentUser(user);
-          logActivity(`${user.name} przełączył profil synchronizacji`);
-        }}
-      />
+      {isCalendarSyncModalOpen && (
+        <Suspense fallback={null}>
+          <GoogleCalendarSyncModal
+            isOpen={isCalendarSyncModalOpen}
+            onClose={() => setIsCalendarSyncModalOpen(false)}
+            currentUser={currentUser}
+            users={users}
+            tasks={sortedTasks}
+            projects={projects}
+            onSwitchUser={(user) => {
+              setCurrentUser(user);
+              logActivity(`${user.name} przełączył profil synchronizacji`);
+            }}
+          />
+        </Suspense>
+      )}
 
-      <DockerDeploymentModal
-        isOpen={isDockerModalOpen}
-        onClose={() => setIsDockerModalOpen(false)}
-      />
+      {isDockerModalOpen && (
+        <Suspense fallback={null}>
+          <DockerDeploymentModal
+            isOpen={isDockerModalOpen}
+            onClose={() => setIsDockerModalOpen(false)}
+          />
+        </Suspense>
+      )}
 
       <UserAuthModal
         isOpen={isUserModalOpen}
@@ -1960,33 +1914,37 @@ export default function App() {
       />
 
       {/* Settings Modal (Symbol zębatki ⚙️: Motyw, Zmienne VAT & Inwestorzy, Aktualizacje, Docker, Użytkownicy, Archiwizacja) */}
-      <SettingsModal
-        isOpen={isSettingsModalOpen}
-        onClose={() => setIsSettingsModalOpen(false)}
-        users={users}
-        projects={projects}
-        currentUser={currentUser}
-        hasUpdateAvailable={hasUpdateAvailable}
-        onToggleUpdateSimulation={(val) => {
-          setHasUpdateAvailable(val);
-          localStorage.setItem('oph_update_available', String(val));
-        }}
-        onDeleteDemoUsers={handleDeleteDemoUsers}
-        onDeleteAllDemoData={handleDeleteAllDemoData}
-        onOpenUserModal={() => setIsUserModalOpen(true)}
-        onOpenArchiveModal={() => setIsArchiveModalOpen(true)}
-        onApproveUser={handleApproveUser}
-        onRejectUser={handleRejectUser}
-        onUserUpdated={(updated) => {
-          if (currentUser) {
-            const next = { ...currentUser, ...updated };
-            setCurrentUser(next);
-            setUsers((prev) => prev.map((u) => (u.id === next.id ? { ...u, ...updated } : u)));
-          }
-        }}
-        onRefreshUsers={refreshUsersList}
-        initialTab={settingsTab}
-      />
+      {isSettingsModalOpen && (
+        <Suspense fallback={null}>
+          <SettingsModal
+            isOpen={isSettingsModalOpen}
+            onClose={() => setIsSettingsModalOpen(false)}
+            users={users}
+            projects={projects}
+            currentUser={currentUser}
+            hasUpdateAvailable={hasUpdateAvailable}
+            onToggleUpdateSimulation={(val) => {
+              setHasUpdateAvailable(val);
+              localStorage.setItem('oph_update_available', String(val));
+            }}
+            onDeleteDemoUsers={handleDeleteDemoUsers}
+            onDeleteAllDemoData={handleDeleteAllDemoData}
+            onOpenUserModal={() => setIsUserModalOpen(true)}
+            onOpenArchiveModal={() => setIsArchiveModalOpen(true)}
+            onApproveUser={handleApproveUser}
+            onRejectUser={handleRejectUser}
+            onUserUpdated={(updated) => {
+              if (currentUser) {
+                const next = { ...currentUser, ...updated };
+                setCurrentUser(next);
+                setUsers((prev) => prev.map((u) => (u.id === next.id ? { ...u, ...updated } : u)));
+              }
+            }}
+            onRefreshUsers={refreshUsersList}
+            initialTab={settingsTab}
+          />
+        </Suspense>
+      )}
 
       {/* Task Filter Modal for Clickable Blocked & Critical Badges */}
       <TaskFilterModal
@@ -2001,37 +1959,45 @@ export default function App() {
       />
 
       {/* Archiving & Backup Modal (Google Drive, FTP/SFTP, PostgreSQL) */}
-      <ArchiveBackupModal
-        isOpen={isArchiveModalOpen}
-        onClose={() => setIsArchiveModalOpen(false)}
-        projects={projects}
-        tasks={tasks}
-        users={users}
-        comments={comments}
-        activityLogs={activityLogs}
-        onRestoreData={({ projects: p, tasks: t, users: u, comments: c }) => {
-          if (p) setProjects(p);
-          if (t) setTasks(t);
-          if (u) setUsers(u);
-          if (c) setComments(c);
-        }}
-        onLogActivity={(action, entityId, details) => logActivity(action, entityId, details)}
-      />
+      {isArchiveModalOpen && (
+        <Suspense fallback={null}>
+          <ArchiveBackupModal
+            isOpen={isArchiveModalOpen}
+            onClose={() => setIsArchiveModalOpen(false)}
+            projects={projects}
+            tasks={tasks}
+            users={users}
+            comments={comments}
+            activityLogs={activityLogs}
+            onRestoreData={({ projects: p, tasks: t, users: u, comments: c }) => {
+              if (p) setProjects(p);
+              if (t) setTasks(t);
+              if (u) setUsers(u);
+              if (c) setComments(c);
+            }}
+            onLogActivity={(action, entityId, details) => logActivity(action, entityId, details)}
+          />
+        </Suspense>
+      )}
 
       {/* GitHub Version Update Checker & Simulation Modal */}
-      <GitHubUpdateModal
-        isOpen={isGitHubModalOpen}
-        onClose={() => setIsGitHubModalOpen(false)}
-        currentVersion={CURRENT_APP_VERSION}
-        latestVersion={CURRENT_APP_VERSION}
-        onUpdateCompleted={() => {
-          setNotificationToast({
-            message: `Aplikacja zaktualizowana do wersji ${CURRENT_APP_VERSION} (GitHub). Wszystkie dane bazy PostgreSQL zostały zachowane!`,
-            type: 'success',
-          });
-          setHasDismissedUpdateBanner(true);
-        }}
-      />
+      {isGitHubModalOpen && (
+        <Suspense fallback={null}>
+          <GitHubUpdateModal
+            isOpen={isGitHubModalOpen}
+            onClose={() => setIsGitHubModalOpen(false)}
+            currentVersion={CURRENT_APP_VERSION}
+            latestVersion={CURRENT_APP_VERSION}
+            onUpdateCompleted={() => {
+              setNotificationToast({
+                message: `Aplikacja zaktualizowana do wersji ${CURRENT_APP_VERSION} (GitHub). Wszystkie dane bazy PostgreSQL zostały zachowane!`,
+                type: 'success',
+              });
+              setHasDismissedUpdateBanner(true);
+            }}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
