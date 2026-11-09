@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Zarządzanie Projektami - Kopia Zapasowa Pliku Stanu (app_state.json)
-# Wersja: 2026-11-02 v 0.4.0
+# Wersja: 2026-11-06 v0.5.0
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # ==============================================================================
 set -Eeuo pipefail

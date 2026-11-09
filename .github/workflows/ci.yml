@@ -6,9 +6,12 @@ on:
   pull_request:
     branches: [ main, master ]
 
+permissions:
+  contents: read
+
 jobs:
   test-and-build:
-    name: Lint, Test and Build
+    name: Lint, Test, Audit and Build
     runs-on: ubuntu-latest
 
     steps:
@@ -32,3 +35,9 @@ jobs:
 
       - name: Budowanie aplikacji produkcyjnej (build)
         run: npm run build
+
+      - name: Audyt bezpieczeństwa zależności produkcyjnych
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Budowanie obrazu Docker (weryfikacja Dockerfile)
+        run: docker build .

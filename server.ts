@@ -764,7 +764,7 @@ function requireAdmin(req: express.Request, res: express.Response, next: express
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '2026-11-06 v0.4.1',
+    version: getLocalInstalledVersion(),
     timestamp: new Date().toISOString(),
     storage: 'JSON Database (app_state.json)',
     persistedState: !!serverAppStateCache,
@@ -2656,7 +2656,6 @@ function getLocalInstalledVersion(): string {
     const candidates = [
       path.resolve(process.cwd(), 'VERSION'),
       path.resolve(__dirname, 'VERSION'),
-      path.resolve(process.cwd(), 'Instalacja', 'VERSION'),
       path.resolve(__dirname, '..', 'VERSION')
     ];
     for (const p of candidates) {
@@ -2666,7 +2665,7 @@ function getLocalInstalledVersion(): string {
       }
     }
   } catch {}
-  return process.env.APP_VERSION || '2026-11-06 v0.4.1';
+  return process.env.APP_VERSION || '2026-11-06 v0.5.0';
 }
 
 function isNewerVersion(remote: string, local: string): boolean {
@@ -2817,7 +2816,7 @@ app.get('/api/system-info', requireAuth, (_req, res) => {
   res.json({
     name: 'Zarządzanie Projektami',
     description: 'System zarządzania projektami z wykresem Gantta, terminarzem i integracją Google Calendar na żywo',
-    version: '2026-11-06 v0.4.1',
+    version: getLocalInstalledVersion(),
     deployment: 'Docker & Trwały Wolumen AppData Ready',
     features: [
       'Gantt Chart Interactive Timeline with Project Names on Bars',

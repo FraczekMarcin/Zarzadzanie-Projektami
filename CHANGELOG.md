@@ -3,6 +3,20 @@
 Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.0.0/), wersjonowanie zgodne z [Semantic Versioning](https://semver.org/lang/pl/).
 
+## [0.5.0] - 2026-11-06
+
+### Dodano
+- **Uporządkowanie wdrożenia i CI (Single Source of Truth)**: Usunięcie redundancji katalogu `Instalacja/` – pliki wdrożeniowe (`install.sh`, `backup.sh`, `Dockerfile`, `docker-compose.yml`) znajdują się wyłącznie w katalogu głównym repozytorium.
+- **Bezpieczna aktualizacja 1-poleceniem**: `cd /opt/zarzadzanie-projektami && ./backup.sh && git pull origin main && docker compose up -d --build` bez ryzyka konfliktów z lokalnymi modyfikacjami gita.
+- **Utwardzenie kontenera produkcyjnego**: Dodanie `read_only: true` z `tmpfs: [/tmp]`, `security_opt: [no-new-privileges:true]`, `cap_drop: [ALL]`, `mem_limit: 512m`, `pids_limit: 200` oraz montowanie katalogu kopii zapasowych tylko do odczytu (`./backups:/app/backups:ro`) z obsługą `BACKUP_DIR: /app/backups`.
+- **Zmienna powiązania adresu IP**: Parametr `${APP_BIND:-0.0.0.0}` dla portu aplikacji.
+- **Automatyzacja CI i bezpieczeństwa**: Dodanie `permissions: contents: read`, kroku `npm audit --omit=dev --audit-level=high` oraz weryfikacji budowania obrazu Docker (`docker build .`) w GitHub Actions; konfiguracja cotygodniowego skanowania zależności npm i Docker w `.github/dependabot.yml`.
+
+### Zmieniono
+- Zunifikowano obrazy bazowe w `Dockerfile` do `node:22-alpine` dla obu etapów (builder i runner).
+- Uproszczono `install.sh`: usunięto destrukcyjne operacje `docker prune`, eliminując nadpisywanie plików śledzonych przez git; dodano automatyczne przejście do katalogu repozytorium lub bezpieczne klonowanie do `/opt/zarzadzanie-projektami`.
+- Zoptymalizowano `src/data/dockerConfig.ts` oraz modale `DockerDeploymentModal` i `SettingsModal` – wyeliminowano osadzone w pamięci kopie plików konfiguracyjnych na rzecz bezpośrednich komend instalacji i aktualizacji.
+
 ## [0.4.0] - 2026-11-02
 
 ### Dodano

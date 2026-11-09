@@ -1,29 +1,24 @@
 import React, { useState } from 'react';
 import { 
-  DOCKER_FILES, 
-  DockerConfigFile, 
-  INSTALL_SCRIPT_CONTENT,
   GITHUB_REPO_URL,
-  RAW_INSTALL_SCRIPT_URL,
   CURRENT_APP_VERSION,
-  INSTALL_TARGET_DIR
+  INSTALL_TARGET_DIR,
+  INSTALL_COMMAND,
+  UPDATE_COMMAND
 } from '../data/dockerConfig';
 import { copyToClipboard } from '../utils/clipboard';
 import { 
   X, 
   Copy, 
   Check, 
-  Download, 
   Server, 
   Database, 
   Terminal, 
   ShieldCheck, 
-  FileCode, 
   RefreshCw,
-  ExternalLink,
   AlertTriangle,
   Zap,
-  Code
+  Lock
 } from 'lucide-react';
 
 interface DockerDeploymentModalProps {
@@ -32,61 +27,25 @@ interface DockerDeploymentModalProps {
 }
 
 export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ isOpen, onClose }) => {
-  const [selectedFileIndex, setSelectedFileIndex] = useState(0);
-  const [copied, setCopied] = useState(false);
-  const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'one_command' | 'files' | 'guide' | 'storage' | 'persistence'>('one_command');
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'commands' | 'persistence' | 'backup'>('commands');
 
   if (!isOpen) return null;
 
-  const currentFile = DOCKER_FILES[selectedFileIndex];
-
-  const handleCopy = async () => {
-    const success = await copyToClipboard(currentFile.content);
-    if (success) {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  const handleCopyCmd = async (cmd: string, key: string) => {
+  const handleCopy = async (cmd: string, key: string) => {
     const success = await copyToClipboard(cmd);
     if (success) {
-      setCopiedCmd(key);
-      setTimeout(() => setCopiedCmd(null), 2000);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2000);
     }
   };
 
-  const handleDownloadSingleFile = (file: DockerConfigFile) => {
-    const blob = new Blob([file.content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = file.filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const handleDownloadAllFiles = () => {
-    DOCKER_FILES.forEach((f, idx) => {
-      setTimeout(() => {
-        handleDownloadSingleFile(f);
-      }, idx * 250);
-    });
-  };
-
-  const oneLinerCurl = `curl -fsSL ${RAW_INSTALL_SCRIPT_URL} | sudo bash`;
-  const oneLinerGit = `git clone ${GITHUB_REPO_URL}.git && cd Zarzadzanie-Projektami/Instalacja && sudo bash install.sh`;
-  const directAppUrl = typeof window !== 'undefined' ? `${window.location.origin}/install.sh` : '';
-  const oneLinerDirect = `curl -fsSL ${directAppUrl} | sudo bash`;
-  const gitPushCommand = `git add .\ngit commit -m "Wydanie ${CURRENT_APP_VERSION}: Katalog Instalacja z instalatorem"\ngit branch -M main\ngit push -u origin main`;
+  const gitCloneAndInstall = `git clone ${GITHUB_REPO_URL}.git ${INSTALL_TARGET_DIR} && cd ${INSTALL_TARGET_DIR} && ${INSTALL_COMMAND}`;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-5xl h-[88vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
-        {/* Modal Top Header */}
+      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+        {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="p-2 bg-sky-100 rounded-lg text-sky-700">
@@ -100,609 +59,218 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
                 </span>
               </h3>
               <p className="text-xs text-slate-500">
-                Instalacja 1-poleceniem w katalogu <code className="font-mono text-slate-700 font-semibold">{INSTALL_TARGET_DIR}</code> z automatycznymi kopiami zapasowymi i trwałym wolumenem danych.
+                Lokalizacja docelowa na serwerze: <code className="font-mono text-slate-700 font-semibold">{INSTALL_TARGET_DIR}</code>
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleDownloadAllFiles}
-              className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium px-3 py-1.5 rounded transition-colors shadow-xs"
-              title="Pobierz wszystkie pliki wdrożeniowe do jednego folderu"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Pobierz komplet plików</span>
-            </button>
-            <button
-              onClick={onClose}
-              className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
+          <button
+            onClick={onClose}
+            className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Navigation Tabs */}
-        <div className="px-6 border-b border-slate-200 bg-white flex items-center gap-3 text-xs font-medium overflow-x-auto">
+        <div className="px-6 border-b border-slate-200 bg-white flex items-center gap-3 text-xs font-medium">
           <button
-            onClick={() => setActiveTab('one_command')}
+            onClick={() => setActiveTab('commands')}
             className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
-              activeTab === 'one_command'
+              activeTab === 'commands'
                 ? 'border-emerald-600 text-emerald-800 font-bold'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Zap className="w-4 h-4 text-amber-500 fill-amber-500" />
-            <span>Instalacja 1-poleceniem (curl | bash)</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('files')}
-            className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
-              activeTab === 'files'
-                ? 'border-sky-600 text-sky-700 font-semibold'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <FileCode className="w-4 h-4" />
-            <span>Pliki wdrożenia ({DOCKER_FILES.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('guide')}
-            className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
-              activeTab === 'guide'
-                ? 'border-sky-600 text-sky-700 font-semibold'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Terminal className="w-4 h-4" />
-            <span>Instrukcja krok po kroku</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('storage')}
-            className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
-              activeTab === 'storage'
-                ? 'border-sky-600 text-sky-700 font-semibold'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Database className="w-4 h-4" />
-            <span>Trwałość danych (JSON + Wolumen)</span>
+            <Zap className="w-4 h-4 text-emerald-600" />
+            <span>Instalacja & Aktualizacja</span>
           </button>
 
           <button
             onClick={() => setActiveTab('persistence')}
             className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
               activeTab === 'persistence'
-                ? 'border-emerald-600 text-emerald-800 font-bold'
+                ? 'border-sky-600 text-sky-700 font-semibold'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
           >
-            <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            <span>Trwałość danych (Aktualizacje)</span>
+            <Database className="w-4 h-4 text-sky-600" />
+            <span>Trwałość danych (Wolumen)</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('backup')}
+            className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
+              activeTab === 'backup'
+                ? 'border-sky-600 text-sky-700 font-semibold'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4 text-sky-600" />
+            <span>Kopie zapasowe i Disaster Recovery</span>
           </button>
         </div>
 
-        {/* Tab Content: One Command Quick Installer */}
-        {activeTab === 'one_command' && (
+        {/* Tab Content: Commands */}
+        {activeTab === 'commands' && (
           <div className="flex-1 p-6 overflow-y-auto space-y-6 bg-slate-50">
-            {/* Hero Banner */}
-            <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white rounded-xl p-6 shadow-md border border-slate-700">
-              <div className="flex items-start justify-between">
-                <div className="space-y-2 max-w-2xl">
-                  <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-semibold border border-emerald-500/30">
-                    <Zap className="w-3.5 h-3.5 fill-emerald-300 text-emerald-300" />
-                    <span>Najszybsza metoda wdrożenia (ok. 60 sekund)</span>
-                  </div>
-                  <h4 className="text-xl font-bold tracking-tight">
-                    Zainstaluj Zarządzanie Projektami jednym poleceniem w terminalu
-                  </h4>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    Wklej wybrane polecenie w terminalu swojego serwera Linux (Ubuntu, Debian, CentOS, RHEL, Rocky, AlmaLinux lub VPS/NAS). Skrypt automatycznie instaluje środowisko, pobiera kod z GitHub do <code className="font-mono text-emerald-300 font-bold">{INSTALL_TARGET_DIR}</code>, konfiguruje bazę PostgreSQL 16 i uruchamia automatyczne kopie zapasowe (Cron).
-                  </p>
-                </div>
-                <div className="hidden sm:flex flex-col items-end gap-2">
-                  <button
-                    onClick={() => handleDownloadSingleFile(DOCKER_FILES[0])}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-medium border border-white/20 transition-all shadow-xs"
-                  >
-                    <Download className="w-4 h-4 text-emerald-400" />
-                    <span>Pobierz plik install.sh</span>
-                  </button>
-                  <span className="text-[11px] text-slate-400">100% On-Premises & Open-Source</span>
-                </div>
-              </div>
-
-              {/* 3 Installation Variants */}
-              <div className="mt-5 space-y-4">
-                {/* Wariant 1: Git Clone (100% niezawodny) */}
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs text-slate-300 font-medium">
-                    <span className="flex items-center gap-2">
-                      <Terminal className="w-4 h-4 text-emerald-400" />
-                      <strong className="text-emerald-300">Wariant 1 (Zalecany & 100% niezawodny na każdym serwerze Linux):</strong>
-                    </span>
-                    <span className="text-[11px] text-emerald-400 font-mono">Git Clone & Auto-Setup</span>
-                  </div>
-                  <div className="relative group bg-black/60 backdrop-blur-xs rounded-lg border border-slate-700/80 p-3.5 flex items-center justify-between gap-4">
-                    <code className="text-xs font-mono text-emerald-300 break-all select-all">
-                      {oneLinerGit}
-                    </code>
-                    <button
-                      onClick={() => handleCopyCmd(oneLinerGit, 'git')}
-                      className="shrink-0 flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium px-3.5 py-1.5 rounded transition-all shadow-xs"
-                    >
-                      {copiedCmd === 'git' ? (
-                        <>
-                          <Check className="w-4 h-4 text-white" />
-                          <span>Skopiowano!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-4 h-4" />
-                          <span>Kopiuj</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Wariant 2: Bezpośrednie pobranie curl z GitHub */}
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs text-slate-300 font-medium">
-                    <span className="flex items-center gap-2">
-                      <Terminal className="w-4 h-4 text-sky-400" />
-                      <span>Wariant 2: Bezpośredni cURL z GitHub (gałąź main/master):</span>
-                    </span>
-                    <span className="text-[11px] text-slate-400">Wymaga wcześniejszego git push na GitHub</span>
-                  </div>
-                  <div className="relative group bg-black/60 backdrop-blur-xs rounded-lg border border-slate-700/80 p-3 flex items-center justify-between gap-4">
-                    <code className="text-xs font-mono text-sky-200 break-all select-all">
-                      {oneLinerCurl}
-                    </code>
-                    <button
-                      onClick={() => handleCopyCmd(oneLinerCurl, 'curl')}
-                      className="shrink-0 flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium px-3 py-1.5 rounded border border-slate-600 transition-all shadow-xs"
-                    >
-                      {copiedCmd === 'curl' ? (
-                        <>
-                          <Check className="w-4 h-4 text-emerald-400" />
-                          <span>Skopiowano!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-4 h-4" />
-                          <span>Kopiuj</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Wariant 3: Bezpośredni instalator z tej działającej instancji */}
-                {directAppUrl && (
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between text-xs text-slate-300 font-medium">
-                      <span className="flex items-center gap-2">
-                        <Terminal className="w-4 h-4 text-amber-400" />
-                        <span>Wariant 3: Pobranie z bieżącego hosta aplikacji (Działa natychmiast bez czekania na GitHub):</span>
-                      </span>
-                    </div>
-                    <div className="relative group bg-black/60 backdrop-blur-xs rounded-lg border border-slate-700/80 p-3 flex items-center justify-between gap-4">
-                      <code className="text-xs font-mono text-amber-200 break-all select-all">
-                        {oneLinerDirect}
-                      </code>
-                      <button
-                        onClick={() => handleCopyCmd(oneLinerDirect, 'direct')}
-                        className="shrink-0 flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium px-3 py-1.5 rounded border border-slate-600 transition-all shadow-xs"
-                      >
-                        {copiedCmd === 'direct' ? (
-                          <>
-                            <Check className="w-4 h-4 text-emerald-400" />
-                            <span>Skopiowano!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-4 h-4" />
-                            <span>Kopiuj</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Why 404 occurs on raw.githubusercontent.com & How to push */}
-            <div className="bg-amber-50 border border-amber-300 rounded-xl p-5 space-y-3">
-              <div className="flex items-center gap-2 text-amber-950 font-bold text-sm">
-                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
-                <span>Wyjaśnienie błędu curl: (22) The requested URL returned error: 404</span>
-              </div>
-              <div className="text-xs text-amber-950 space-y-1.5 leading-relaxed">
-                <p>
-                  Jeśli w terminalu pojawił się komunikat: <br />
-                  <code className="font-mono text-rose-700 bg-rose-50 px-1 py-0.5 rounded font-bold">
-                    curl: (22) The requested URL returned error: 404
-                  </code>
-                </p>
-                <ol className="list-decimal list-inside space-y-1 text-slate-800">
-                  <li>
-                    <strong>Adres <code>/blob/</code> to strona HTML w przeglądarce:</strong> Narzędzie <code>curl</code> wymaga adresu surowego (<code>raw.githubusercontent.com/...</code> lub <code>github.com/.../raw/...</code>), a nie podglądu <code>/blob/</code>.
-                  </li>
-                  <li>
-                    <strong>Pliki instalacyjne znajdują się w folderze <code>Instalacja/</code>:</strong> Prawidłowa ścieżka w repozytorium to <code className="font-mono bg-amber-100 px-1 rounded">Instalacja/install.sh</code>.
-                  </li>
-                  <li>
-                    <strong>Repozytorium GitHub wymaga wypchnięcia (git push):</strong> Pliki muszą zostać wysłane na GitHub, aby link raw stał się publicznie widoczny.
-                  </li>
-                </ol>
-              </div>
-
-              <div className="bg-slate-900 text-slate-200 rounded-lg p-3 font-mono text-xs flex items-center justify-between gap-3">
-                <code className="select-all whitespace-pre text-emerald-300">
-                  {gitPushCommand}
-                </code>
-                <button
-                  onClick={() => handleCopyCmd(gitPushCommand, 'gitpush')}
-                  className="shrink-0 flex items-center gap-1 bg-amber-600 hover:bg-amber-500 text-white text-xs px-3 py-1.5 rounded font-medium transition-colors"
-                >
-                  {copiedCmd === 'gitpush' ? <Check className="w-3.5 h-3.5 text-white" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedCmd === 'gitpush' ? 'Skopiowano!' : 'Kopiuj komendy Git'}</span>
-                </button>
-              </div>
-
-              <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-950 text-xs">
-                <strong>Zalecenie:</strong> Na serwerze <code>root@Zarzadzanie:~#</code> najszybciej zainstalujesz system poleceniem <strong>Wariantu 1 (git clone)</strong>:
-                <div className="font-mono text-[11px] text-emerald-900 mt-1 font-bold">
-                  git clone https://github.com/FraczekMarcin/Zarzadzanie-Projektami.git && cd Zarzadzanie-Projektami/Instalacja && sudo bash install.sh
-                </div>
-              </div>
-            </div>
-
-            {/* What the script does step-by-step */}
-            <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
-              <h5 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <ShieldCheck className="w-4.5 h-4.5 text-emerald-600" />
-                <span>Co automatycznie wykonuje skrypt instalacyjny?</span>
-              </h5>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-                <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5">
-                  <div className="w-6 h-6 rounded-full bg-sky-100 text-sky-800 font-bold flex items-center justify-center text-xs">1</div>
-                  <span className="font-bold text-slate-900 block">Weryfikacja środowiska</span>
-                  <p className="text-slate-600 leading-relaxed text-[11px]">
-                    Sprawdza obecność Dockera i Docker Compose v2. Jeśli ich brakuje, instaluje oficjalne pakiety silnika kontenerów ze strony docker.com.
-                  </p>
-                </div>
-                <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5">
-                  <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-xs">2</div>
-                  <span className="font-bold text-slate-900 block">Katalog & Auto-Backup</span>
-                  <p className="text-slate-600 leading-relaxed text-[11px]">
-                    Katalog <code className="text-slate-800 font-mono font-bold">/opt/zarzadzanie-projektami</code>, losowe hasła PostgreSQL, dedykowany wolumen danych oraz harmonogram crona o 02:00.
-                  </p>
-                </div>
-                <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5">
-                  <div className="w-6 h-6 rounded-full bg-purple-100 text-purple-800 font-bold flex items-center justify-center text-xs">3</div>
-                  <span className="font-bold text-slate-900 block">Uruchomienie w tle</span>
-                  <p className="text-slate-600 leading-relaxed text-[11px]">
-                    Startuje kontenery w trybie daemon (<code className="text-slate-800 font-mono font-bold">docker compose up -d</code>) z automatycznym restartem po restarcie serwera.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Data Safety & Updates Note */}
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-start gap-3">
-              <ShieldCheck className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
-              <div className="text-xs text-emerald-950 space-y-1">
-                <span className="font-bold text-sm block">Gwarancja trwałości danych przy kolejnych aktualizacjach</span>
-                <p className="leading-relaxed">
-                  Baza danych zapisywana jest w niezależnym wolumenie <code className="bg-emerald-100 font-mono font-bold px-1 rounded text-emerald-900">postgres_data</code> (ścieżka hosta <code className="font-mono text-emerald-900">/var/lib/docker/volumes/...</code>). Zaktualizowanie obrazów kontenera nowszą wersją kodu nie narusza zawartości bazy danych ani projektów pracowni.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Tab Content: Files */}
-        {activeTab === 'files' && (
-          <div className="flex-1 flex overflow-hidden">
-            {/* Left file sidebar */}
-            <div className="w-60 border-r border-slate-200 bg-slate-50 p-3 space-y-1 overflow-y-auto">
-              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block px-2 mb-2">
-                Pliki wdrożenia
-              </span>
-              {DOCKER_FILES.map((file, idx) => (
-                <button
-                  key={file.filename}
-                  onClick={() => {
-                    setSelectedFileIndex(idx);
-                    setCopied(false);
-                  }}
-                  className={`w-full text-left px-3 py-2 rounded text-xs transition-colors flex items-center justify-between ${
-                    selectedFileIndex === idx
-                      ? 'bg-white text-sky-700 font-semibold shadow-xs border border-slate-200'
-                      : 'text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  <span className="truncate">{file.filename}</span>
-                  <span className="text-[10px] uppercase font-mono text-slate-400">{file.language}</span>
-                </button>
-              ))}
-
-              <div className="mt-6 p-3 bg-sky-50 rounded-lg border border-sky-100 text-xs text-sky-900 space-y-1">
-                <span className="font-semibold block">Gotowe do uruchomienia</span>
-                <p className="text-[11px] leading-relaxed text-sky-800">
-                  Wystarczy utworzyć katalog na serwerze, zapisać te 4 pliki i wpisać <code className="font-mono bg-sky-100 px-1 rounded">docker compose up -d</code>.
-                </p>
-              </div>
-            </div>
-
-            {/* Right code viewer */}
-            <div className="flex-1 flex flex-col bg-slate-900 text-slate-100 overflow-hidden">
-              {/* Code viewer bar */}
-              <div className="px-4 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-xs">
-                <div>
-                  <span className="font-mono text-emerald-400 font-semibold">{currentFile.filename}</span>
-                  <span className="text-slate-400 ml-2 hidden sm:inline">{currentFile.description}</span>
-                </div>
-
+            {/* 1. Pierwsza instalacja */}
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleCopy}
-                    className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded text-xs transition-colors"
-                  >
-                    {copied ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
-                        <span className="text-emerald-400">Skopiowano!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5" />
-                        <span>Kopiuj kod</span>
-                      </>
-                    )}
-                  </button>
-
-                  <button
-                    onClick={() => handleDownloadSingleFile(currentFile)}
-                    className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded text-xs transition-colors"
-                    title="Pobierz ten plik"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Pobierz</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Code content */}
-              <pre className="p-4 overflow-auto flex-1 font-mono text-[12px] leading-relaxed text-slate-200 select-all">
-                <code>{currentFile.content}</code>
-              </pre>
-            </div>
-          </div>
-        )}
-
-        {/* Tab Content: Guide */}
-        {activeTab === 'guide' && (
-          <div className="flex-1 p-6 overflow-y-auto space-y-6 text-xs text-slate-800 leading-relaxed">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-                <span className="font-semibold text-slate-900 block text-sm mb-1">Wymagania systemowe</span>
-                <ul className="list-disc list-inside space-y-1 text-slate-600">
-                  <li>System operacyjny: Linux (Ubuntu 22.04+, Debian, AlmaLinux), Synology DSM 7+ lub Windows Server</li>
-                  <li>Docker Engine 24.0+ oraz Docker Compose v2+</li>
-                  <li>Minimum 2 GB RAM (zalecane 4 GB dla PostgreSQL i pgAdmin)</li>
-                  <li>Wolne porty: 3000 (aplikacja), 5432 (baza danych opcjonalnie), 5050 (pgAdmin)</li>
-                </ul>
-              </div>
-
-              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
-                <span className="font-semibold text-emerald-950 block text-sm mb-1">Bezpieczeństwo danych</span>
-                <p className="text-emerald-900 text-xs">
-                  Baza danych przechowuje dane w trwałym wolumenie Docker (<code className="font-mono bg-emerald-100 px-1 rounded">postgres_data</code>), co gwarantuje pełną odporność na restarty i aktualizacje obrazów kontenera.
-                </p>
-              </div>
-            </div>
-
-            {/* Steps */}
-            <div className="space-y-4">
-              <h4 className="text-sm font-bold text-slate-900">Kroki instalacji w 3 minuty:</h4>
-
-              <div className="border border-slate-200 rounded-lg p-4 bg-white space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-slate-900 text-white font-bold flex items-center justify-center text-[10px]">
+                  <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-xs">
                     1
-                  </span>
-                  <span className="font-semibold text-slate-900">Utwórz katalog roboczy na serwerze</span>
+                  </div>
+                  <h4 className="text-sm font-bold text-slate-900">
+                    Pierwsza instalacja na serwerze (Linux)
+                  </h4>
                 </div>
-                <div className="bg-slate-900 text-slate-200 p-3 rounded font-mono text-xs overflow-x-auto">
-                  mkdir -p /opt/zarzadzanie-projektami && cd /opt/zarzadzanie-projektami
-                </div>
+                <span className="text-[11px] text-slate-400">Jedno polecenie</span>
               </div>
-
-              <div className="border border-slate-200 rounded-lg p-4 bg-white space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-slate-900 text-white font-bold flex items-center justify-center text-[10px]">
-                    2
-                  </span>
-                  <span className="font-semibold text-slate-900">Umieść pobrane pliki w katalogu</span>
-                </div>
-                <p className="text-slate-600">
-                  Wklej pliki: <code className="font-mono bg-slate-100 px-1 rounded">docker-compose.yml</code>, <code className="font-mono bg-slate-100 px-1 rounded">Dockerfile</code>, <code className="font-mono bg-slate-100 px-1 rounded">backup.sh</code> oraz <code className="font-mono bg-slate-100 px-1 rounded">.env.production</code>.
-                </p>
-              </div>
-
-              <div className="border border-slate-200 rounded-lg p-4 bg-white space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-slate-900 text-white font-bold flex items-center justify-center text-[10px]">
-                    3
-                  </span>
-                  <span className="font-semibold text-slate-900">Uruchom aplikację w tle (Docker Compose)</span>
-                </div>
-                <div className="bg-slate-900 text-slate-200 p-3 rounded font-mono text-xs overflow-x-auto">
-                  docker compose up -d
-                </div>
-                <p className="text-slate-500 text-[11px]">
-                  Aplikacja uruchomi się z trwałym wolumenem danych <code className="font-mono">zarzadzanie_app_data</code> montowanym w <code className="font-mono">/app/data</code>.
-                </p>
-              </div>
-
-              <div className="border border-slate-200 rounded-lg p-4 bg-white space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-slate-900 text-white font-bold flex items-center justify-center text-[10px]">
-                    4
-                  </span>
-                  <span className="font-semibold text-slate-900">Wykonywanie automatycznych kopii zapasowych (Backup)</span>
-                </div>
-                <p className="text-slate-600">
-                  Możesz utworzyć zadanie w cronie, aby codziennie o 2:00 w nocy archiwizować stan pracowni:
-                </p>
-                <div className="bg-slate-900 text-slate-200 p-3 rounded font-mono text-xs overflow-x-auto">
-                  sudo /opt/zarzadzanie-projektami/backup.sh
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Tab Content: Storage Architecture */}
-        {activeTab === 'storage' && (
-          <div className="flex-1 p-6 overflow-y-auto space-y-4 text-xs text-slate-800">
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-              <h4 className="text-sm font-bold text-slate-900 mb-2">Trwały model danych JSON (app_state.json) & Wolumeny Docker</h4>
-              <p className="text-slate-600 leading-relaxed mb-4">
-                Stan pracowni (projekty, zadania, powiązania Gantta, użytkownicy i finanse) zapisywany jest atomowo w pliku <code className="font-mono text-slate-900 bg-white px-1 py-0.5 rounded border border-slate-200">app_state.json</code> w trwałym wolumenie.
+              <p className="text-xs text-slate-600">
+                Uruchom w katalogu projektu na serwerze. Skrypt sprawdza Docker i Docker Compose, tworzy plik <code className="font-mono bg-slate-100 px-1 py-0.5 rounded text-slate-800 font-semibold">.env</code> z losowym <code className="font-mono text-slate-800 font-semibold">APP_SECRET</code> (uprawnienia 600), katalog kopii, wpis w cronie oraz uruchamia kontenery.
               </p>
+              <div className="bg-slate-900 rounded-lg p-3.5 flex items-center justify-between gap-3 font-mono text-xs text-emerald-400">
+                <code className="select-all break-all">{INSTALL_COMMAND}</code>
+                <button
+                  onClick={() => handleCopy(INSTALL_COMMAND, 'install')}
+                  className="shrink-0 flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium px-3 py-1.5 rounded transition-all shadow-xs"
+                >
+                  {copiedKey === 'install' ? <Check className="w-3.5 h-3.5 text-white" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedKey === 'install' ? 'Skopiowano!' : 'Kopiuj'}</span>
+                </button>
+              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="bg-white p-3 rounded border border-slate-200">
-                  <span className="font-mono font-bold text-sky-700 block mb-1">Atomowy zapis asynchroniczny</span>
-                  <p className="text-slate-500 text-[11px]">
-                    Zapis odbywa się do pliku tymczasowego <code className="font-mono text-slate-800">app_state.json.tmp</code> z asynchronicznym przemianowaniem, chroniąc przed uszkodzeniem przy nagłym restarcie.
-                  </p>
+              <div className="text-[11px] text-slate-500 bg-slate-50 p-2.5 rounded border border-slate-200">
+                <strong>Pełne klonowanie z Git (na świeżym serwerze):</strong>
+                <div className="font-mono text-slate-700 mt-1 select-all break-all">
+                  {gitCloneAndInstall}
                 </div>
+              </div>
+            </div>
 
-                <div className="bg-white p-3 rounded border border-slate-200">
-                  <span className="font-mono font-bold text-sky-700 block mb-1">Kolejka FIFO dla transakcji</span>
-                  <p className="text-slate-500 text-[11px]">
-                    Kolejka obietnic w Node.js zapobiega kolizjom i nakładaniu się równoległych zapisów z wielu stanowisk w biurze.
-                  </p>
+            {/* 2. Bezpieczna aktualizacja */}
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-full bg-sky-100 text-sky-800 font-bold flex items-center justify-center text-xs">
+                    2
+                  </div>
+                  <h4 className="text-sm font-bold text-slate-900">
+                    Aktualizacja aplikacji do najnowszej wersji
+                  </h4>
                 </div>
+                <span className="text-[11px] text-emerald-600 font-semibold flex items-center gap-1">
+                  <RefreshCw className="w-3 h-3" /> Bezpieczna
+                </span>
+              </div>
+              <p className="text-xs text-slate-600">
+                Pojedyncza komenda wykonuje natychmiastową kopię zapasową pliku bazy, pobiera najnowszy kod z GitHub i bezpiecznie przebudowuje kontener.
+              </p>
+              <div className="bg-slate-900 rounded-lg p-3.5 flex items-center justify-between gap-3 font-mono text-xs text-emerald-400">
+                <code className="select-all break-all">{UPDATE_COMMAND}</code>
+                <button
+                  onClick={() => handleCopy(UPDATE_COMMAND, 'update')}
+                  className="shrink-0 flex items-center gap-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-medium px-3 py-1.5 rounded transition-all shadow-xs"
+                >
+                  {copiedKey === 'update' ? <Check className="w-3.5 h-3.5 text-white" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedKey === 'update' ? 'Skopiowano!' : 'Kopiuj'}</span>
+                </button>
+              </div>
+            </div>
 
-                <div className="bg-white p-3 rounded border border-slate-200">
-                  <span className="font-mono font-bold text-sky-700 block mb-1">Pamięć podręczna (In-Memory Cache)</span>
-                  <p className="text-slate-500 text-[11px]">
-                    Błyskawiczne odpowiedzi dla feedów iCal (<code className="font-mono text-slate-800">/api/calendar/*.ics</code>) i synchronizacji bez opóźnień I/O.
-                  </p>
-                </div>
-
-                <div className="bg-white p-3 rounded border border-slate-200">
-                  <span className="font-mono font-bold text-sky-700 block mb-1">Automatyczne kopie (backup.sh)</span>
-                  <p className="text-slate-500 text-[11px]">
-                    Skrypt weryfikuje integralność narzędziem <code className="font-mono text-slate-800">jq empty</code> oraz <code className="font-mono text-slate-800">gzip -t</code> i zachowuje min. 7 ostatnich kopii.
-                  </p>
-                </div>
+            {/* Ważne ostrzeżenie o down -v */}
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3 text-xs text-amber-900">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-sm block mb-0.5">Wskazówka bezpieczeństwa</span>
+                Nigdy nie używaj polecenia <code className="font-mono font-bold bg-amber-100 px-1 rounded">docker compose down -v</code>. Flaga <code className="font-mono font-bold">-v</code> kasuje trwałe wolumeny danych. Do zwykłego zatrzymania kontenera wystarczy <code className="font-mono bg-white px-1 py-0.5 rounded border border-amber-300 font-semibold">docker compose down</code>.
               </div>
             </div>
           </div>
         )}
 
-        {/* Tab Content: Persistence FAQ & Docker Updates */}
+        {/* Tab Content: Persistence */}
         {activeTab === 'persistence' && (
-          <div className="flex-1 p-6 overflow-y-auto space-y-5 text-xs text-slate-700 leading-relaxed bg-slate-50/50">
-            {/* Big Answer Banner */}
+          <div className="flex-1 p-6 overflow-y-auto space-y-5 text-xs text-slate-700 bg-slate-50">
             <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-5 flex items-start gap-4 shadow-xs">
-              <div className="w-10 h-10 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 font-bold text-lg shadow-sm">
+              <div className="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 font-bold text-base shadow-sm">
                 ✓
               </div>
-              <div>
-                <h4 className="text-base font-bold text-emerald-900 mb-1">
-                  Czy po aktualizacji kontenerów Docker dane projektów pozostaną?
+              <div className="space-y-1">
+                <h4 className="text-sm font-bold text-emerald-900">
+                  Gwarancja trwałości danych przy kolejnych aktualizacjach
                 </h4>
-                <p className="text-emerald-800 text-sm font-semibold mb-2">
-                  TAK — dane są w 100% bezpieczne i zachowywane na dysku serwera.
-                </p>
                 <p className="text-emerald-800 text-xs leading-relaxed">
-                  Docker oddziela bezstanową logikę aplikacji od danych bazy za pomocą dedykowanego wolumenu <code className="bg-emerald-100 px-1.5 py-0.5 rounded font-mono text-emerald-950 font-bold">zarzadzanie_app_data</code> montowanego w katalogu <code className="font-mono text-emerald-950 font-bold">/app/data</code>. Nawet po całkowitej przebudowie kontenera Twoje projekty, zadania i historia pozostają nienaruszone.
+                  Baza danych zapisywana jest w wolumenie Docker <code className="bg-emerald-100 px-1 py-0.5 rounded font-mono text-emerald-950 font-bold">zarzadzanie_app_data</code> montowanym w <code className="font-mono text-emerald-950 font-bold">/app/data</code>. Aktualizacja kontenera nowszym kodem nie narusza stanu projektów, zadań ani kont użytkowników.
                 </p>
               </div>
             </div>
 
-            {/* How Docker Volumes Work */}
-            <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-3">
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
               <h5 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                 <Database className="w-4 h-4 text-sky-600" />
-                <span>Dlaczego dane nie znikają? (Mechanizm Docker Named Volume)</span>
+                <span>Model zapisu danych i bezpieczeństwo</span>
               </h5>
-              <p className="text-slate-600">
-                W pliku <code className="font-mono text-slate-800 bg-slate-100 px-1 py-0.5 rounded">docker-compose.yml</code> usługa korzysta z konfiguracji:
-              </p>
-              <div className="bg-slate-900 text-slate-100 font-mono text-[11px] p-3 rounded-lg overflow-x-auto">
-                <span className="text-purple-400">services</span>:<br />
-                &nbsp;&nbsp;<span className="text-purple-400">app</span>:<br />
-                &nbsp;&nbsp;&nbsp;&nbsp;<span className="text-sky-300">volumes</span>:<br />
-                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- <span className="text-amber-300">zarzadzanie_app_data</span>:/app/data<br />
-                <br />
-                <span className="text-purple-400">volumes</span>:<br />
-                &nbsp;&nbsp;<span className="text-amber-300">zarzadzanie_app_data</span>: <span className="text-slate-400"># Trwały wolumen zarządzany przez Docker na hoście</span>
-              </div>
-              <p className="text-slate-600 text-[11px]">
-                Fizyczny plik bazy <code className="font-mono text-slate-800">app_state.json</code> znajduje się w trwałym katalogu wolumenu Dockera i nie podlega skasowaniu przy restarcie lub aktualizacji kontenera.
-              </p>
-            </div>
-
-            {/* Standard Safe Update Procedure */}
-            <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-3">
-              <h5 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <RefreshCw className="w-4 h-4 text-emerald-600" />
-                <span>Standardowa, bezpieczna procedura aktualizacji aplikacji:</span>
-              </h5>
-              <div className="bg-slate-900 text-slate-100 font-mono text-xs p-3.5 rounded-lg space-y-2">
-                <div className="text-slate-400"># 1. Przejdź do katalogu projektu na serwerze:</div>
-                <div className="text-sky-300">cd /opt/zarzadzanie-projektami</div>
-                <div className="text-slate-400 mt-2"># 2. Pobierz najnowsze wersje obrazów kontenerów:</div>
-                <div className="text-sky-300">docker compose pull</div>
-                <div className="text-slate-400 mt-2"># 3. Uruchom zaktualizowane kontenery (dane bazy zostają nienaruszone):</div>
-                <div className="text-emerald-400 font-bold">docker compose up -d</div>
-              </div>
-            </div>
-
-            {/* Crucial Warning */}
-            <div className="bg-rose-50 border border-rose-200 rounded-lg p-4 flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-              <div className="text-xs text-rose-900 leading-relaxed">
-                <span className="font-bold block text-sm">Jedyna komenda niszcząca (Czego NIGDY nie wpisywać):</span>
-                Nigdy nie używaj komendy <code className="bg-rose-100 px-1 py-0.5 rounded font-bold font-mono text-rose-950">docker compose down -v</code>. Flaga <code className="font-bold">-v</code> (lub <code className="font-bold">--volumes</code>) instruuje Dockera, aby usunął fizyczne wolumeny danych. Do zwykłego zatrzymania używaj zawsze samego <code className="font-mono bg-white px-1 py-0.5 rounded border border-rose-300 font-bold">docker compose down</code>.
-              </div>
-            </div>
-
-            {/* Quick pre-update backup command */}
-            <div className="p-4 bg-slate-100 border border-slate-200 rounded-lg">
-              <span className="font-bold text-slate-800 block mb-1">
-                Zalecana dobra praktyka: Kopia zapasowa przed aktualizacją
-              </span>
-              <p className="text-[11px] text-slate-600 mb-2">
-                Przed dużą aktualizacją możesz wykonać 1-komendową kopię zapasową pliku stanu:
-              </p>
-              <div className="bg-slate-900 text-slate-200 font-mono text-[11px] p-2.5 rounded">
-                sudo /opt/zarzadzanie-projektami/backup.sh
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
+                  <span className="font-bold text-slate-900">Atomowy zapis JSON</span>
+                  <p className="text-slate-600 text-[11px]">
+                    Zapis z debouncem 300 ms, kolejką obietnic i asynchronicznym przemianowaniem pliku tymczasowego chroni przed uszkodzeniem przy nagłym wyłączeniu zasilania.
+                  </p>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
+                  <span className="font-bold text-slate-900">Izolacja kontenera</span>
+                  <p className="text-slate-600 text-[11px]">
+                    Tryb read-only systemu plików kontenera, brak uprawnień roota (użytkownik <code className="font-mono">appuser</code>), brak uprawnień jądra (<code className="font-mono">cap_drop: ALL</code>) i limit pamięci 512 MB.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* Modal Footer */}
+        {/* Tab Content: Backup & Disaster Recovery */}
+        {activeTab === 'backup' && (
+          <div className="flex-1 p-6 overflow-y-auto space-y-5 text-xs text-slate-700 bg-slate-50">
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+              <h5 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <span>Automatyczny harmonogram kopii zapasowych (backup.sh)</span>
+              </h5>
+              <p className="text-slate-600 text-xs">
+                Instalator dodaje zadanie w <code className="font-mono text-slate-800 bg-slate-100 px-1 rounded">/etc/cron.d/zarzadzanie-projektami-backup</code>, które codziennie o 02:00 wykonuje kompresję gzip, walidację integralności oraz rotację starych kopii z zachowaniem minimum 7 ostatnich zrzutów.
+              </p>
+              <div className="bg-slate-900 text-slate-200 rounded-lg p-3 font-mono text-xs flex items-center justify-between">
+                <code>/opt/zarzadzanie-projektami/backup.sh</code>
+                <button
+                  onClick={() => handleCopy('/opt/zarzadzanie-projektami/backup.sh', 'cron-backup')}
+                  className="flex items-center gap-1 text-sky-400 hover:text-sky-300 text-xs"
+                >
+                  {copiedKey === 'cron-backup' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedKey === 'cron-backup' ? 'Skopiowano' : 'Kopiuj'}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+              <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
+                <Lock className="w-4 h-4 text-amber-600" />
+                <span>Ochrona klucza APP_SECRET i Disaster Recovery</span>
+              </div>
+              <p className="text-slate-600 text-xs leading-relaxed">
+                Plik <code className="font-mono bg-slate-100 px-1 rounded text-slate-800 font-semibold">.env</code> zawiera klucz szyfrujący <code className="font-mono text-slate-800 font-semibold">APP_SECRET</code>. Ze względów bezpieczeństwa plik ten nie wchodzi w skład archiwum backup.sh. Zapisz wartość klucza poza serwerem w menedżerze haseł. Na nowym serwerze odtwórz najpierw plik .env z tym samym kluczem przed startem aplikacji.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Footer */}
         <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-xs text-slate-500">
-          <span>Wszystkie skrypty są w 100% gotowe do instalacji na środowiskach On-Premises.</span>
+          <span>Repozytorium: {GITHUB_REPO_URL}</span>
           <button
             onClick={onClose}
-            className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded transition-colors font-medium"
+            className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded transition-colors font-medium text-xs"
           >
             Zamknij
           </button>

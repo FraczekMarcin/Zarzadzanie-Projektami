@@ -1,6 +1,6 @@
 # 🏗️ Zarządzanie Projektami (Pracownia Projektowa / Budownictwo)
 
-[![Wersja](https://img.shields.io/badge/Wersja-2026--11--02%20v%200.4.0-emerald.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
+[![Wersja](https://img.shields.io/badge/Wersja-2026--11--06%20v%200.5.0-emerald.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
 [![Docker](https://img.shields.io/badge/Docker-App%20Data%20Volume-blue.svg)](https://www.docker.com/)
 [![Licencja](https://img.shields.io/badge/Licencja-MIT-green.svg)](LICENSE)
 [![GitHub](https://img.shields.io/badge/GitHub-FraczekMarcin%2FZarzadzanie--Projektami-purple.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
@@ -11,25 +11,19 @@ Nowoczesny, kompleksowy system zarządzania projektami architektonicznymi, inży
 
 ## ⚡ Szybka instalacja (Linux VPS / NAS / Serwer dedykowany)
 
-Wszystkie pliki instalacyjne znajdują się w dedykowanym katalogu **`Instalacja/`**. Skrypt automatycznie sprawdza i instaluje silnik Docker, tworzy katalog `/opt/zarzadzanie-projektami`, konfiguruje trwały wolumen danych (`zarzadzanie_app_data`), atomowy zapis stanu `app_state.json` oraz uruchamia automatyczny harmonogram kopii zapasowych (Cron codziennie o 02:00).
+Wszystkie pliki wdrożeniowe znajdują się bezpośrednio w katalogu głównym repozytorium. Skrypt automatycznie sprawdza i instaluje silnik Docker, przygotowuje katalog `/opt/zarzadzanie-projektami`, konfiguruje trwały wolumen danych (`zarzadzanie_app_data`), atomowy zapis stanu `app_state.json` oraz uruchamia automatyczny harmonogram kopii zapasowych (Cron codziennie o 02:00).
 
-### Wariant 1: Klonowanie Git (100% niezawodne na każdym serwerze)
+### Pierwsza instalacja na serwerze:
 ```bash
-git clone https://github.com/FraczekMarcin/Zarzadzanie-Projektami.git
-cd Zarzadzanie-Projektami/Instalacja
 sudo bash install.sh
 ```
 
-### Wariant 2: Bezpośrednie pobranie cURL (surowy plik raw z katalogu Instalacja)
+*(lub przy instalacji na świeżym serwerze od zera)*:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/Instalacja/install.sh | sudo bash
+git clone https://github.com/FraczekMarcin/Zarzadzanie-Projektami.git /opt/zarzadzanie-projektami
+cd /opt/zarzadzanie-projektami
+sudo bash install.sh
 ```
-*(lub link alternatywny)*:
-```bash
-curl -fsSL https://github.com/FraczekMarcin/Zarzadzanie-Projektami/raw/main/Instalacja/install.sh | sudo bash
-```
-
-> ⚠️ **Ważna uwaga:** Nie używaj adresu z `/blob/` (np. `.../blob/main/install.sh`), ponieważ GitHub pod tym adresem zwraca stronę HTML z interfejsem graficznym, a nie plik wykonywalny, co powoduje błąd `curl: (22) The requested URL returned error: 404`. Prawidłowy adres to `raw.githubusercontent.com/.../Instalacja/install.sh`.
 
 Aplikacja natychmiast uruchomi się w kontenerach Docker i będzie dostępna pod adresem:
 👉 **http://adres-twojego-serwera:3000** (lub `http://localhost:3000`)
@@ -112,17 +106,9 @@ Katalog danych `/app/data` jest montowany bezpośrednio w kontenerze `zarzadzani
 
 ### Bezpieczna procedura aktualizacji do najnowszej wersji:
 
-#### Metoda 1 (Zalecana i sprawdzona):
+Pojedyncze, bezpieczne polecenie aktualizacji z automatyczną kopią zapasową:
 ```bash
-cd ~/Zarzadzanie-Projektami && git pull origin main && cd Instalacja && sudo bash install.sh
-```
-
-#### Metoda 2 (Bezpośrednio w `/opt/zarzadzanie-projektami`):
-```bash
-cd /opt/zarzadzanie-projektami
-sudo bash backup.sh
-git stash && git pull origin main
-docker compose up -d --build
+cd /opt/zarzadzanie-projektami && ./backup.sh && git pull origin main && docker compose up -d --build
 ```
 
 ⚠️ **Ważne ostrzeżenie:** Nigdy nie uruchamiaj polecenia `docker compose down -v` (flaga `-v` usuwa wolumeny). Do standardowego zatrzymania używaj zawsze samego `docker compose down`.

@@ -1,11 +1,11 @@
 # ==========================================
 # Zarządzanie Projektami - Dockerfile
-# Wersja: 2026-10-30 v0.3.5
+# Wersja: 2026-11-06 v0.5.0
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # ==========================================
 
 # Etap 1: Budowanie aplikacji z kodu źródłowego
-FROM node:22-slim AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -18,14 +18,15 @@ RUN npm run build
 # ==========================================
 # Etap 2: Super-lekkie środowisko produkcyjne (Runtime < 130MB)
 # ==========================================
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 
 WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV DATA_DIR=/app/data
-ENV APP_VERSION="2026-11-02 v0.4.0"
+ENV BACKUP_DIR=/app/backups
+ENV APP_VERSION="2026-11-06 v0.5.0"
 
 # Użytkownik o ograniczonych uprawnieniach (Security best practice)
 RUN addgroup -g 1001 -S nodejs && \
@@ -34,10 +35,10 @@ RUN addgroup -g 1001 -S nodejs && \
 # Tworzenie i uprawnienia do trwałego katalogu danych
 RUN mkdir -p /app/data && chown -R appuser:nodejs /app/data
 
-# Kopiowanie skompilowanego frontendu i serwera (zaledwie 650 KB!)
+# Kopiowanie skompilowanego frontendu i serwera
 COPY --chown=appuser:nodejs --from=builder /app/dist ./dist
 
-# Instalacja wyłącznie zależności produkcyjnych (express, nodemailer, dotenv)
+# Instalacja wyłącznie zależności produkcyjnych
 COPY --chown=appuser:nodejs package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 

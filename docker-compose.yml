@@ -1,6 +1,6 @@
 # ==============================================================================
 # Zarządzanie Projektami (Pracownia Projektowa / Budownictwo)
-# Wersja: 2026-11-02 v0.4.0
+# Wersja: 2026-11-06 v0.5.0
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Ścieżka docelowa: /opt/zarzadzanie-projektami
 # ==============================================================================
@@ -13,16 +13,27 @@ services:
       dockerfile: Dockerfile
     container_name: zarzadzanie_app
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 512m
+    pids_limit: 200
     environment:
       NODE_ENV: production
       PORT: 3000
       DATA_DIR: /app/data
-      APP_VERSION: "2026-11-02 v0.4.0"
+      BACKUP_DIR: /app/backups
+      APP_VERSION: "2026-11-06 v0.5.0"
       APP_SECRET: ${APP_SECRET:?ustaw APP_SECRET w pliku .env}
     ports:
-      - "${APP_PORT:-3000}:3000"
+      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-3000}:3000"
     volumes:
       - zarzadzanie_app_data:/app/data
+      - ./backups:/app/backups:ro
     networks:
       - zarzadzanie_net
 

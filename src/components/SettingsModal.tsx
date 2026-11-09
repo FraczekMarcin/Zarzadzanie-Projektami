@@ -35,10 +35,9 @@ import {
   Folder
 } from 'lucide-react';
 import { ThemeMode, getThemePreference, setThemePreference } from '../utils/theme';
-import { CURRENT_APP_VERSION, GITHUB_REPO_URL } from '../data/dockerConfig';
+import { CURRENT_APP_VERSION, GITHUB_REPO_URL, INSTALL_COMMAND, UPDATE_COMMAND } from '../data/dockerConfig';
 import { isNewerVersion } from '../utils/versionCheck';
 import { getAutoBackupConfig, saveAutoBackupConfig } from '../utils/autoBackup';
-import { DockerConfigFile, DOCKER_COMPOSE_YML, DOCKERFILE_CONTENT, ENV_EXAMPLE_CONTENT, INSTALL_SCRIPT_CONTENT } from '../data/dockerConfig';
 import { User, Project } from '../types';
 import { isDemoUser, isDemoProject } from '../utils/demoData';
 import { copyToClipboard } from '../utils/clipboard';
@@ -402,7 +401,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const allCalendarUrl = `${protocol}//${hostAddress}/api/calendar/all.ics`;
   const userCalendarUrl = `${protocol}//${hostAddress}/api/calendar/user/${currentUser?.id || 'usr-1'}.ics`;
 
-  const RECOMMENDED_UPDATE_COMMAND = `cd ~/Zarzadzanie-Projektami && git pull origin main && cd Instalacja && sudo bash install.sh`;
+  const RECOMMENDED_UPDATE_COMMAND = UPDATE_COMMAND;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5">
@@ -1439,41 +1438,47 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </p>
                 </div>
 
-                <div className="space-y-3">
-                  <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="font-bold text-slate-800 dark:text-slate-200 text-xs font-mono">
-                        install.sh (Automatyczny instalator)
+                <div className="space-y-4">
+                  <div className="p-4 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">
+                        Pierwsza instalacja na serwerze (Linux)
                       </span>
                       <button
-                        onClick={() => handleCopyCode(INSTALL_SCRIPT_CONTENT, 'install.sh')}
+                        onClick={() => handleCopyCode(INSTALL_COMMAND, 'install-cmd')}
                         className="flex items-center gap-1 text-[11px] text-sky-600 dark:text-sky-400 hover:underline"
                       >
-                        {copiedKey === 'install.sh' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
-                        <span>{copiedKey === 'install.sh' ? 'Skopiowano' : 'Kopiuj treść'}</span>
+                        {copiedKey === 'install-cmd' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedKey === 'install-cmd' ? 'Skopiowano' : 'Kopiuj komendę'}</span>
                       </button>
                     </div>
-                    <pre className="text-[11px] font-mono bg-white dark:bg-slate-950 p-2 rounded border border-slate-200 dark:border-slate-800 max-h-36 overflow-y-auto text-slate-700 dark:text-slate-300">
-                      {INSTALL_SCRIPT_CONTENT}
+                    <pre className="text-xs font-mono bg-slate-900 text-emerald-400 p-2.5 rounded border border-slate-700 overflow-x-auto select-all">
+                      {INSTALL_COMMAND}
                     </pre>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                      Weryfikuje środowisko Docker, tworzy bezpieczny plik .env z kluczem APP_SECRET, katalog backups, zadanie crona dla kopii zapasowych oraz uruchamia aplikację.
+                    </p>
                   </div>
 
-                  <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="font-bold text-slate-800 dark:text-slate-200 text-xs font-mono">
-                        docker-compose.yml
+                  <div className="p-4 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">
+                        Bezpieczna aktualizacja aplikacji
                       </span>
                       <button
-                        onClick={() => handleCopyCode(DOCKER_COMPOSE_YML, 'docker-compose')}
+                        onClick={() => handleCopyCode(UPDATE_COMMAND, 'update-cmd')}
                         className="flex items-center gap-1 text-[11px] text-sky-600 dark:text-sky-400 hover:underline"
                       >
-                        {copiedKey === 'docker-compose' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
-                        <span>{copiedKey === 'docker-compose' ? 'Skopiowano' : 'Kopiuj'}</span>
+                        {copiedKey === 'update-cmd' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedKey === 'update-cmd' ? 'Skopiowano' : 'Kopiuj komendę'}</span>
                       </button>
                     </div>
-                    <pre className="text-[11px] font-mono bg-white dark:bg-slate-950 p-2 rounded border border-slate-200 dark:border-slate-800 max-h-28 overflow-y-auto text-slate-700 dark:text-slate-300">
-                      {DOCKER_COMPOSE_YML}
+                    <pre className="text-xs font-mono bg-slate-900 text-emerald-400 p-2.5 rounded border border-slate-700 overflow-x-auto select-all">
+                      {UPDATE_COMMAND}
                     </pre>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                      Wykonuje kopię zapasową stanu bazy, pobiera najnowszy kod z GitHub i przebudowuje kontener z zachowaniem trwałego wolumenu danych.
+                    </p>
                   </div>
                 </div>
               </div>
