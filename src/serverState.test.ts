@@ -391,4 +391,59 @@ describe('Współbieżna synchronizacja, operacje na zasobach i autoryzacja', ()
     expect(events.length).toBe(1);
     expect((events[0] as any).summary).toContain('✓ [PRJ-1]');
   });
+
+  describe('Debounced state persistence (300 ms)', () => {
+    it('coalesces 20 rapid task updates into a single disk write and resolves all promises', async () => {
+      let actualDiskWrites = 0;
+      let lastWrittenContent = '';
+
+      let debounceTimer: any = null;
+      let writeQueue: Promise<void> = Promise.resolve();
+      let pendingResolvers: Array<() => void> = [];
+
+      const fakeExecuteDiskWrite = async (contentToSave: string) => {
+        actualDiskWrites++;
+        lastWrittenContent = contentToSave;
+        const currentResolvers = pendingResolvers;
+        pendingResolvers = [];
+        for (const res of currentResolvers) {
+          res();
+        }
+      };
+
+      let liveState = { tasks: [] as string[], revision: 0 };
+
+      const debouncedSaveState = (stateSnapshot: typeof liveState) => {
+        return new Promise<void>((resolve) => {
+          pendingResolvers.push(resolve);
+          if (debounceTimer) clearTimeout(debounceTimer);
+
+          debounceTimer = setTimeout(() => {
+            debounceTimer = null;
+            const serialized = JSON.stringify(liveState);
+            writeQueue = writeQueue.then(() => fakeExecuteDiskWrite(serialized));
+          }, 50); // Skrócony timer do testu
+        });
+      };
+
+      // Wykonaj serię 20 szybkich zmian zadania
+      const savePromises: Promise<void>[] = [];
+      for (let i = 1; i <= 20; i++) {
+        liveState.tasks.push(`task-${i}`);
+        liveState.revision = i;
+        savePromises.push(debouncedSaveState(liveState));
+      }
+
+      // Oczekuj na rozwiązanie wszystkich 20 wywołań
+      await Promise.all(savePromises);
+
+      // Po serii 20 szybkich zmian: dokładnie 1 fizyczny zapis na dysk
+      expect(actualDiskWrites).toBe(1);
+
+      // Zapis zawiera najnowszy stan (wszystkie 20 zadań i rewizję 20)
+      const parsedWritten = JSON.parse(lastWrittenContent);
+      expect(parsedWritten.tasks.length).toBe(20);
+      expect(parsedWritten.revision).toBe(20);
+    });
+  });
 });

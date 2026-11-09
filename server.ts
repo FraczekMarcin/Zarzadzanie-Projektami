@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -65,6 +66,29 @@ if (process.env.TRUST_PROXY) {
   }
 } else {
   app.set('trust proxy', false);
+}
+
+// Kompresja odpowiedzi HTTP (gzip/deflate/br) dla odpowiedzi tekstowych.
+// Decyzja: Gdy TRUST_PROXY wskazuje obecność zewnętrznego reverse proxy (np. Nginx, Cloudflare, Traefik),
+// to kompresję wykonuje brzeg sieciowy / reverse proxy (odciążając proces Node.js).
+// Jeśli serwer działa bezpośrednio bez proxy (brak TRUST_PROXY lub fałsz), włączamy bibliotekę compression w aplikacji.
+const isReverseProxyHandlingCompression = Boolean(
+  process.env.TRUST_PROXY &&
+  !['false', '0'].includes(process.env.TRUST_PROXY.trim().toLowerCase())
+);
+
+if (!isReverseProxyHandlingCompression) {
+  app.use(
+    compression({
+      filter: (req, res) => {
+        if (req.headers['x-no-compression']) {
+          return false;
+        }
+        return compression.filter(req, res);
+      },
+      threshold: 1024, // kompresuj odpowiedzi powyżej 1 KB
+    })
+  );
 }
 
 function isRequestHttps(req: express.Request): boolean {
@@ -144,8 +168,11 @@ try {
 let serverAppStateCache: any = null;
 let serverUsersCache: any[] = [];
 
-// Kolejka atomowych i asynchronicznych zapisów stanu
+// Kolejka atomowych i asynchronicznych zapisów stanu z łączeniem operacji w oknie 300 ms (debounce)
 let writeQueue: Promise<void> = Promise.resolve();
+let debounceTimer: NodeJS.Timeout | null = null;
+let pendingResolvers: Array<() => void> = [];
+let pendingRejecters: Array<(err: any) => void> = [];
 
 function serializeStateForDisk(state: any): string {
   if (!state) return JSON.stringify(state);
@@ -168,21 +195,60 @@ function serializeStateForDisk(state: any): string {
   return JSON.stringify(stateCopy);
 }
 
-function saveStateAtomicAsync(): Promise<void> {
-  const doWrite = async () => {
-    try {
-      const tmpFile = path.join(DATA_DIR, 'app_state.json.tmp');
-      const content = serializeStateForDisk(serverAppStateCache);
-      await fs.promises.writeFile(tmpFile, content, 'utf-8');
-      await fs.promises.rename(tmpFile, STATE_FILE);
-    } catch (writeErr) {
-      console.error('[Server] Błąd atomowego zapisu stanu do pliku:', writeErr);
-      throw writeErr;
-    }
-  };
+async function executeDiskWrite(): Promise<void> {
+  const currentResolvers = pendingResolvers;
+  const currentRejecters = pendingRejecters;
+  pendingResolvers = [];
+  pendingRejecters = [];
 
-  writeQueue = writeQueue.then(doWrite, doWrite);
-  return writeQueue;
+  try {
+    const tmpFile = path.join(DATA_DIR, 'app_state.json.tmp');
+    const content = serializeStateForDisk(serverAppStateCache);
+    await fs.promises.writeFile(tmpFile, content, 'utf-8');
+    await fs.promises.rename(tmpFile, STATE_FILE);
+
+    for (const resolve of currentResolvers) {
+      resolve();
+    }
+  } catch (writeErr) {
+    console.error('[Server] Błąd atomowego zapisu stanu do pliku:', writeErr);
+    for (const reject of currentRejecters) {
+      reject(writeErr);
+    }
+    throw writeErr;
+  }
+}
+
+/**
+ * Łączy zapisy stanu w oknie 300 ms (debouncing).
+ * Każde wywołanie zwraca Promise rozwiązywany po faktycznym zapisaniu najnowszego stanu na dysk.
+ */
+function saveStateAtomicAsync(): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    pendingResolvers.push(resolve);
+    pendingRejecters.push(reject);
+
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+    }
+
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      writeQueue = writeQueue.then(executeDiskWrite, executeDiskWrite);
+    }, 300);
+  });
+}
+
+/**
+ * Wymuszony, natychmiastowy zapis oczekującego stanu (dla graceful shutdown lub operacji krytycznych).
+ */
+async function flushPendingStateSave(): Promise<void> {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+    writeQueue = writeQueue.then(executeDiskWrite, executeDiskWrite);
+  }
+  await writeQueue;
 }
 
 function ensureStateStructure() {
@@ -1278,8 +1344,8 @@ app.post('/api/auth/register', async (req, res) => {
 // 5. ZARZĄDZANIE STANEM APLIKACJI I OPERACJE NA ZASOBACH (Revision & Granular API)
 // ==============================================================================
 
-// Lekki endpoint sprawdzania rewizji stanu (co 15s przez klienta)
-app.get('/api/state/revision', (_req, res) => {
+// Lekki endpoint sprawdzania rewizji stanu (co 15s przez klienta, wymaga uwierzytelnienia)
+app.get('/api/state/revision', requireAuth, (_req, res) => {
   ensureStateStructure();
   res.json({ revision: serverAppStateCache?.revision || 0 });
 });
@@ -2319,10 +2385,18 @@ app.post('/api/users', requireAdmin, async (req, res) => {
 });
 
 // ==============================================================================
-// 7. STATUS KOPII ZAPASOWYCH (Wymaga autoryzacji)
+// 7. STATUS KOPII ZAPASOWYCH (Wymaga autoryzacji, cache w pamięci 60 s, fs.promises)
 // ==============================================================================
-app.get('/api/backup/status', requireAuth, (_req, res) => {
+let backupStatusCache: { data: any; cachedAt: number } | null = null;
+const BACKUP_STATUS_CACHE_TTL_MS = 60 * 1000; // 60 sekund
+
+app.get('/api/backup/status', requireAuth, async (_req, res) => {
   try {
+    const now = Date.now();
+    if (backupStatusCache && (now - backupStatusCache.cachedAt < BACKUP_STATUS_CACHE_TTL_MS)) {
+      return res.json(backupStatusCache.data);
+    }
+
     const candidateDirs = [
       process.env.BACKUP_DIR,
       '/opt/zarzadzanie-projektami/backups',
@@ -2339,42 +2413,42 @@ app.get('/api/backup/status', requireAuth, (_req, res) => {
     }
 
     const foundBackups: BackupFileInfo[] = [];
-    const scannedDirs: string[] = [];
 
     for (const dir of candidateDirs) {
-      if (fs.existsSync(dir)) {
-        scannedDirs.push(dir);
-        try {
-          const files = fs.readdirSync(dir);
+      try {
+        const stat = await fs.promises.stat(dir).catch(() => null);
+        if (stat && stat.isDirectory()) {
+          const files = await fs.promises.readdir(dir);
           for (const file of files) {
             if (file.endsWith('.tmp') || file.startsWith('.')) continue;
             if (file.startsWith('app_state_') || file.endsWith('.json.gz') || file.endsWith('.sql.gz')) {
               const fullPath = path.join(dir, file);
-              const stat = fs.statSync(fullPath);
-              if (stat.isFile()) {
+              const fileStat = await fs.promises.stat(fullPath).catch(() => null);
+              if (fileStat && fileStat.isFile()) {
                 foundBackups.push({
                   filePath: fullPath,
                   filename: file,
-                  mtime: stat.mtime,
-                  size: stat.size,
+                  mtime: fileStat.mtime,
+                  size: fileStat.size,
                 });
               }
             }
           }
-        } catch (readErr) {
-          console.warn(`[Server] Błąd odczytu katalogu kopii "${dir}":`, readErr);
         }
+      } catch (readErr) {
+        console.warn(`[Server] Błąd odczytu katalogu kopii:`, readErr);
       }
     }
 
     if (foundBackups.length === 0) {
-      return res.json({
+      const emptyResult = {
         active: false,
         lastBackup: null,
         maxAgeHours: 36,
-        scannedDirs,
         message: 'Brak kopii zapasowej na serwerze',
-      });
+      };
+      backupStatusCache = { data: emptyResult, cachedAt: now };
+      return res.json(emptyResult);
     }
 
     // Sortowanie malejąco po dacie modyfikacji (najnowszy pierwszy)
@@ -2384,7 +2458,7 @@ app.get('/api/backup/status', requireAuth, (_req, res) => {
     const ageHours = Math.max(0, ageMs / (1000 * 60 * 60));
     const isRecent = ageHours <= 36;
 
-    res.json({
+    const result = {
       active: isRecent,
       lastBackup: {
         filename: newest.filename,
@@ -2397,7 +2471,10 @@ app.get('/api/backup/status', requireAuth, (_req, res) => {
       message: isRecent
         ? 'Ostatnia kopia wykonana pomyślnie w ciągu ostatnich 36h'
         : `Ostatnia kopia zapasowa jest starsza niż 36h (${Math.round(ageHours)}h temu)`,
-    });
+    };
+
+    backupStatusCache = { data: result, cachedAt: now };
+    res.json(result);
   } catch (err: any) {
     console.error('[Server] Błąd pobierania statusu kopii zapasowej:', err);
     res.status(500).json({ active: false, error: err.message });
@@ -2645,7 +2722,10 @@ const UPDATE_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 godzin cache
 // Sprawdzanie aktualizacji z GitHub (Wymaga autoryzacji, cache serwerowy 6 h)
 app.get('/api/system/check-update', requireAuth, async (req, res) => {
   try {
-    const forceFresh = req.query.fresh === 'true' || req.query.fresh === '1';
+    const caller = (req as any).user;
+    const isAdmin = caller?.role === 'admin';
+    // Parametr fresh=true dozwolony tylko dla administratora; dla innych ról ignorowany
+    const forceFresh = isAdmin && (req.query.fresh === 'true' || req.query.fresh === '1');
     const now = Date.now();
 
     if (!forceFresh && serverUpdateCache && (now - serverUpdateCache.cachedAt < UPDATE_CACHE_TTL_MS)) {
@@ -2660,7 +2740,10 @@ app.get('/api/system/check-update', requireAuth, async (req, res) => {
     let checkedSource = 'brak połączenia';
 
     const versionUrl = 'https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/VERSION';
-    const vResp = await fetch(`${versionUrl}?t=${Date.now()}`, { cache: 'no-cache' }).catch(() => null);
+    const vResp = await fetch(`${versionUrl}?t=${Date.now()}`, {
+      cache: 'no-cache',
+      signal: AbortSignal.timeout(5000),
+    }).catch(() => null);
 
     if (vResp && vResp.ok) {
       const vText = (await vResp.text()).trim();
@@ -2670,7 +2753,10 @@ app.get('/api/system/check-update', requireAuth, async (req, res) => {
       }
     } else {
       const pkgUrl = 'https://raw.githubusercontent.com/FraczekMarcin/Zarzadzanie-Projektami/main/package.json';
-      const pResp = await fetch(`${pkgUrl}?t=${Date.now()}`, { cache: 'no-cache' }).catch(() => null);
+      const pResp = await fetch(`${pkgUrl}?t=${Date.now()}`, {
+        cache: 'no-cache',
+        signal: AbortSignal.timeout(5000),
+      }).catch(() => null);
       if (pResp && pResp.ok) {
         try {
           const pJson = await pResp.json();
@@ -2686,6 +2772,7 @@ app.get('/api/system/check-update', requireAuth, async (req, res) => {
     let commitMessage = '';
     const ghResp = await fetch('https://api.github.com/repos/FraczekMarcin/Zarzadzanie-Projektami/commits/main', {
       headers: { 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'Zarzadzanie-Projektami-Updater' },
+      signal: AbortSignal.timeout(5000),
     }).catch(() => null);
 
     if (ghResp && ghResp.ok) {
@@ -2767,19 +2854,28 @@ if (process.env.NODE_ENV !== 'production') {
 
   console.log(`[Server] Serving static assets from: ${staticDir}`);
 
+  // Cache statyczny: pliki z hashem w nazwie (assets/*) mają Cache-Control: public, max-age=31536000, immutable
+  // Pozostałe pliki statyczne mają domyślny maxAge
   app.use(express.static(staticDir, {
     index: false,
-    maxAge: '1h',
     dotfiles: 'deny',
+    setHeaders: (res, filePath) => {
+      const normalizedPath = filePath.replace(/\\/g, '/');
+      if (normalizedPath.includes('/assets/')) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      } else if (normalizedPath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
   }));
 
-  // Fallback to index.html for SPA client routing
+  // Fallback to index.html for SPA client routing - Cache-Control: no-cache
   app.use((req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
     if (req.path.startsWith('/api')) return next();
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Cache-Control', 'no-cache');
     return res.sendFile(indexPath);
   });
 }
@@ -2800,7 +2896,40 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   res.status(status).json({ error: errorMsg });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Zarządzanie Projektami running on port ${PORT}`);
+});
+
+// Graceful shutdown: zapis wymuszony przy SIGTERM i SIGINT oraz przed zakończeniem procesu
+let isShuttingDown = false;
+async function handleGracefulShutdown(signal: string) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`[Server] Otrzymano sygnał ${signal}. Trwa wymuszony zapis stanu bazy i zamykanie serwera...`);
+
+  try {
+    await flushPendingStateSave();
+    console.log('[Server] Stan bazy zapisany bezpiecznie.');
+  } catch (err) {
+    console.error('[Server] Błąd wymuszonego zapisu stanu przed zamknięciem:', err);
+  }
+
+  server.close(() => {
+    console.log('[Server] Serwer HTTP zatrzymany. Do widzenia.');
+    process.exit(0);
+  });
+
+  // Awaryjne zamknięcie jeśli cokolwiek zablokuje pętlę po 3 sekundach
+  setTimeout(() => {
+    process.exit(0);
+  }, 3000).unref();
+}
+
+process.on('SIGTERM', () => handleGracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => handleGracefulShutdown('SIGINT'));
+process.on('beforeExit', async () => {
+  try {
+    await flushPendingStateSave();
+  } catch {}
 });
 
