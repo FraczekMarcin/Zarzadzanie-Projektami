@@ -55,7 +55,7 @@ const PORT = process.env.PORT || 3000;
 // Konfiguracja trust proxy: x-forwarded-proto i x-forwarded-for ufaj TYLKO gdy ustawione TRUST_PROXY
 if (process.env.TRUST_PROXY) {
   const tp = process.env.TRUST_PROXY.trim().toLowerCase();
-  if (tp === 'true' || tp === '1') {
+  if (tp === 'true') {
     app.set('trust proxy', true);
   } else if (tp === 'false' || tp === '0') {
     app.set('trust proxy', false);
@@ -93,7 +93,13 @@ if (!isReverseProxyHandlingCompression) {
 
 function isRequestHttps(req: express.Request): boolean {
   if (req.app.get('trust proxy')) {
-    return Boolean(req.secure || req.headers['x-forwarded-proto'] === 'https');
+    const xfp = req.headers['x-forwarded-proto'];
+    const proto = Array.isArray(xfp)
+      ? xfp[0]?.toLowerCase().trim()
+      : typeof xfp === 'string'
+      ? xfp.split(',')[0].toLowerCase().trim()
+      : '';
+    return Boolean(req.secure || proto === 'https');
   }
   return Boolean(req.secure);
 }

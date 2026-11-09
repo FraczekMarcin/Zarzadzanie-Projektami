@@ -1,0 +1,35 @@
+# ==============================================================================
+# Zarządzanie Projektami - Opcjonalny HTTPS dla sieci lokalnej (Caddy)
+# Uruchomienie: docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
+# ==============================================================================
+
+services:
+  app:
+    ports: !reset []
+    environment:
+      TRUST_PROXY: "1"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: zarzadzanie_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_HOST: ${APP_HOST:?ustaw APP_HOST (np. nazwa hosta lub IP serwera) w pliku .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - zarzadzanie_net
+    depends_on:
+      - app
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  zarzadzanie_net:

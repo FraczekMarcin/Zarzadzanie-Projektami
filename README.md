@@ -30,6 +30,41 @@ Aplikacja natychmiast uruchomi się w kontenerach Docker i będzie dostępna pod
 
 ---
 
+## 🔒 Opcjonalny HTTPS dla sieci lokalnej (Caddy Reverse Proxy)
+
+System umożliwia bezpieczne uruchomienie po HTTPS z automatycznym certyfikatem TLS generowanym przez Caddy, bez zmiany domyślnego działania po HTTP.
+
+### 1. Ustawienie nazwy hosta lub adresu IP (APP_HOST)
+W pliku `.env` w katalogu `/opt/zarzadzanie-projektami` ustaw nazwę hosta lub adres IP serwera, pod którym pracownicy łączą się w sieci lokalnej:
+```bash
+APP_HOST=192.168.1.100
+# lub np. APP_HOST=serwer.local albo APP_HOST=projekty.twojafirma.pl
+```
+
+### 2. Uruchomienie aplikacji z obsługą HTTPS
+Użyj pliku override `docker-compose.https.yml` razem z głównym plikiem Compose:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
+```
+> W tym trybie Caddy nasłuchuje na standardowych portach **443** (HTTPS) i **80** (automatyczne przekierowanie do HTTPS). Bezpośredni port aplikacji `3000` jest zresetowany i niedostępny z zewnątrz (`ports: !reset []`), a aplikacja działa w trybie `TRUST_PROXY=1`, wymuszając bezpieczne ciasteczka sesyjne (`Secure`, `__Host-zp_session`).
+
+### 3. Eksport certyfikatu głównego Caddy (Local Root CA)
+Aby przeglądarki na stanowiskach pracy ufały połączeniu HTTPS bez ostrzeżenia o certyfikacie wystawionym przez lokalne CA, wyeksportuj certyfikat główny Caddy:
+```bash
+docker compose exec caddy cat /data/caddy/pki/authorities/local/root.crt > caddy-root.crt
+```
+
+### 4. Instalacja certyfikatu na stanowiskach pracy
+Przekaż pobrany plik `caddy-root.crt` na komputery w pracowni i zainstaluj go jako zaufany główny urząd certyfikacji:
+- **Windows:** Kliknij dwukrotnie plik `caddy-root.crt` ➔ *Zainstaluj certyfikat* ➔ wybierz *Komputer lokalny* ➔ *Umieść wszystkie certyfikaty w następującym magazynie* ➔ wskaż **Zaufane główne urzędy certyfikacji** ➔ *Zakończ*.
+- **macOS:** Otwórz plik w aplikacji *Dostęp do pęku kluczy* (*Keychain Access*) w pęku *System*, kliknij certyfikat dwukrotnie, rozwiń sekcję *Zaufanie* i ustaw *Zawsze ufaj* dla protokołu SSL.
+- **Linux:** Skopiuj plik: `sudo cp caddy-root.crt /usr/local/share/ca-certificates/` i wykonaj `sudo update-ca-certificates`.
+- **Mozilla Firefox (opcjonalnie):** Przejdź do *Ustawienia* ➔ *Prywatność i bezpieczeństwo* ➔ *Certyfikaty* ➔ *Wyświetl certyfikaty* ➔ zakładka *Organy certyfikacji* ➔ *Importuj...* ➔ wybierz plik `caddy-root.crt` i zaznacz opcję zaufania.
+
+Po instalacji certyfikatu adres `https://<APP_HOST>` otwiera się z pełnym szyfrowaniem TLS bez żadnych ostrzeżeń.
+
+---
+
 ## 🚀 Główne moduły i możliwości
 
 1. **Interaktywny Harmonogram Gantta dla Budownictwa:**
@@ -108,7 +143,11 @@ Katalog danych `/app/data` jest montowany bezpośrednio w kontenerze `zarzadzani
 
 Pojedyncze, bezpieczne polecenie aktualizacji z automatyczną kopią zapasową:
 ```bash
+# W trybie standardowym (HTTP):
 cd /opt/zarzadzanie-projektami && ./backup.sh && git pull origin main && docker compose up -d --build
+
+# W trybie bezpiecznym (HTTPS z Caddy):
+cd /opt/zarzadzanie-projektami && ./backup.sh && git pull origin main && docker compose -f docker-compose.yml -f docker-compose.https.yml up -d --build
 ```
 
 ⚠️ **Ważne ostrzeżenie:** Nigdy nie uruchamiaj polecenia `docker compose down -v` (flaga `-v` usuwa wolumeny). Do standardowego zatrzymania używaj zawsze samego `docker compose down`.

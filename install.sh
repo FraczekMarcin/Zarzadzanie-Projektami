@@ -122,24 +122,78 @@ if [ -d /etc/cron.d ] && [ ! -f "$CRON_FILE" ]; then
     echo -e "${GREEN}Automatyczne kopie zapasowe skonfigurowane w cronie: codziennie o 02:00.${NC}"
 fi
 
-# 8. Uruchomienie aplikacji za pomocą Docker Compose
-echo -e "${BLUE}==> Uruchamianie kontenera aplikacji Zarządzanie Projektami...${NC}"
-$DOCKER_CMD up -d --build
+# 8. Opcjonalna konfiguracja HTTPS dla sieci lokalnej (Caddy)
+ENABLE_HTTPS="n"
+if [ -t 0 ]; then
+    echo ""
+    read -r -p "Czy chcesz włączyć opcjonalny HTTPS przez Caddy w sieci lokalnej? (t/N) [Domyślnie: nie]: " USER_HTTPS_CHOICE || USER_HTTPS_CHOICE="n"
+    if [[ "$USER_HTTPS_CHOICE" =~ ^([tT]|[tT][aA][kK]|[yY]|[yY][eE][sS])$ ]]; then
+        ENABLE_HTTPS="t"
+    fi
+fi
 
+COMPOSE_ARGS=(-f docker-compose.yml)
 SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
+
+if [ "$ENABLE_HTTPS" = "t" ]; then
+    echo -e "${BLUE}==> Konfiguracja HTTPS przez Caddy (certyfikat lokalny TLS)...${NC}"
+    HOST_DEFAULT="$SERVER_IP"
+    if [ -t 0 ]; then
+        read -r -p "Podaj adres IP lub nazwę hosta serwera (APP_HOST) [Domyślnie: $HOST_DEFAULT]: " USER_APP_HOST || USER_APP_HOST=""
+        APP_HOST="${USER_APP_HOST:-$HOST_DEFAULT}"
+    else
+        APP_HOST="$HOST_DEFAULT"
+    fi
+
+    # Zapisz lub zaktualizuj APP_HOST i TRUST_PROXY w pliku .env
+    if grep -q "^APP_HOST=" .env; then
+        sed -i "s/^APP_HOST=.*/APP_HOST=${APP_HOST}/" .env
+    else
+        echo "APP_HOST=${APP_HOST}" >> .env
+    fi
+
+    if grep -q "^TRUST_PROXY=" .env; then
+        sed -i "s/^TRUST_PROXY=.*/TRUST_PROXY=1/" .env
+    else
+        echo "TRUST_PROXY=1" >> .env
+    fi
+
+    COMPOSE_ARGS=(-f docker-compose.yml -f docker-compose.https.yml)
+fi
+
+# 9. Uruchomienie aplikacji za pomocą Docker Compose
+echo -e "${BLUE}==> Uruchamianie kontenerów Zarządzanie Projektami...${NC}"
+$DOCKER_CMD "${COMPOSE_ARGS[@]}" up -d --build
 
 echo -e "${GREEN}=================================================================${NC}"
 echo -e "${GREEN}  ✅ WDROŻENIE ZAKOŃCZONE SUKCESEM!${NC}"
 echo -e "${GREEN}  Wersja: 2026-11-06 v0.5.0${NC}"
 echo -e "${GREEN}=================================================================${NC}"
-echo -e "Aplikacja działa i jest dostępna pod:"
-echo -e "  👉 ${YELLOW}http://${SERVER_IP}:3000${NC} lub ${YELLOW}http://localhost:3000${NC}"
+
+if [ "$ENABLE_HTTPS" = "t" ]; then
+    echo -e "Aplikacja działa w trybie bezpiecznym HTTPS:"
+    echo -e "  👉 ${YELLOW}https://${APP_HOST}${NC}"
+    echo -e "  (Port 3000 jest niewidoczny z zewnątrz, ruch HTTP jest przekierowywany na HTTPS 443)."
+    echo -e ""
+    echo -e "Instalacja certyfikatu głównego na stanowiskach pracy (aby uniknąć ostrzeżeń w przeglądarkach):"
+    echo -e "  1. Wyeksportuj certyfikat z kontenera Caddy:"
+    echo -e "     ${YELLOW}$DOCKER_CMD exec caddy cat /data/caddy/pki/authorities/local/root.crt > caddy-root.crt${NC}"
+    echo -e "  2. Zainstaluj plik caddy-root.crt w systemie lub przeglądarce jako zaufany główny urząd certyfikacji."
+else
+    echo -e "Aplikacja działa i jest dostępna pod:"
+    echo -e "  👉 ${YELLOW}http://${SERVER_IP}:3000${NC} lub ${YELLOW}http://localhost:3000${NC}"
+fi
+
 echo -e ""
 echo -e "🛡️  Trwałość danych: Wolumen '${BLUE}zarzadzanie_app_data${NC}' zachowuje plik app_state.json."
 echo -e "💾  Kopie zapasowe: Skonfigurowane w '${BLUE}${INSTALL_DIR}/backups${NC}'."
 echo -e "Zarządzanie:"
-echo -e "  - Podgląd logów:           ${YELLOW}cd ${INSTALL_DIR} && $DOCKER_CMD logs -f${NC}"
+echo -e "  - Podgląd logów:           ${YELLOW}cd ${INSTALL_DIR} && $DOCKER_CMD ${COMPOSE_ARGS[*]} logs -f${NC}"
+if [ "$ENABLE_HTTPS" = "t" ]; then
+echo -e "  - Aktualizacja z GitHub:   ${YELLOW}cd ${INSTALL_DIR} && ./backup.sh && git pull origin main && $DOCKER_CMD -f docker-compose.yml -f docker-compose.https.yml up -d --build${NC}"
+else
 echo -e "  - Aktualizacja z GitHub:   ${YELLOW}cd ${INSTALL_DIR} && ./backup.sh && git pull origin main && $DOCKER_CMD up -d --build${NC}"
+fi
 echo -e "  - Ręczna kopia zapasowa:   ${YELLOW}${INSTALL_DIR}/backup.sh${NC}"
-echo -e "  - Zatrzymanie:             ${YELLOW}cd ${INSTALL_DIR} && $DOCKER_CMD down${NC}"
+echo -e "  - Zatrzymanie:             ${YELLOW}cd ${INSTALL_DIR} && $DOCKER_CMD ${COMPOSE_ARGS[*]} down${NC}"
 echo -e "${GREEN}=================================================================${NC}"
