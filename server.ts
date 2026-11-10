@@ -33,6 +33,7 @@ import {
   isEncryptedSecret,
   validateAppSecret,
 } from './src/utils/secretBox.js';
+import { StateWriter } from './src/utils/stateWriter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -176,12 +177,6 @@ try {
 let serverAppStateCache: any = null;
 let serverUsersCache: any[] = [];
 
-// Kolejka atomowych i asynchronicznych zapisów stanu z łączeniem operacji w oknie 300 ms (debounce)
-let writeQueue: Promise<void> = Promise.resolve();
-let debounceTimer: NodeJS.Timeout | null = null;
-let pendingResolvers: Array<() => void> = [];
-let pendingRejecters: Array<(err: any) => void> = [];
-
 function serializeStateForDisk(state: any): string {
   if (!state) return JSON.stringify(state);
   const stateCopy = {
@@ -204,59 +199,36 @@ function serializeStateForDisk(state: any): string {
 }
 
 async function executeDiskWrite(): Promise<void> {
-  const currentResolvers = pendingResolvers;
-  const currentRejecters = pendingRejecters;
-  pendingResolvers = [];
-  pendingRejecters = [];
-
+  const tmpFile = path.join(DATA_DIR, 'app_state.json.tmp');
+  const content = serializeStateForDisk(serverAppStateCache);
+  const handle = await fs.promises.open(tmpFile, 'w');
   try {
-    const tmpFile = path.join(DATA_DIR, 'app_state.json.tmp');
-    const content = serializeStateForDisk(serverAppStateCache);
-    await fs.promises.writeFile(tmpFile, content, 'utf-8');
-    await fs.promises.rename(tmpFile, STATE_FILE);
-
-    for (const resolve of currentResolvers) {
-      resolve();
-    }
-  } catch (writeErr) {
-    console.error('[Server] Błąd atomowego zapisu stanu do pliku:', writeErr);
-    for (const reject of currentRejecters) {
-      reject(writeErr);
-    }
-    throw writeErr;
+    await handle.writeFile(content, 'utf-8');
+    await handle.sync();
+  } finally {
+    await handle.close();
   }
+  await fs.promises.rename(tmpFile, STATE_FILE);
 }
 
+const appStateWriter = new StateWriter(executeDiskWrite);
+
 /**
- * Łączy zapisy stanu w oknie 300 ms (debouncing).
- * Każde wywołanie zwraca Promise rozwiązywany po faktycznym zapisaniu najnowszego stanu na dysk.
+ * Zapisuje stan atomowo w modelu single-flight (bez sztucznego debounce):
+ * - Jeśli żaden zapis nie trwa: zapisuje natychmiast bez opóźnienia.
+ * - Jeśli zapis trwa: oznacza stan jako brudny i po jego zakończeniu wykonuje dokładnie jeden kolejny zapis najnowszego stanu.
+ * - Każde wywołanie zwraca Promise rozwiązywany po zakończeniu zapisu obejmującego jego zmianę (nigdy po starszym).
+ * - Błąd zapisu odrzuca Promise wszystkich oczekujących na ten zapis.
  */
 function saveStateAtomicAsync(): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    pendingResolvers.push(resolve);
-    pendingRejecters.push(reject);
-
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-    }
-
-    debounceTimer = setTimeout(() => {
-      debounceTimer = null;
-      writeQueue = writeQueue.then(executeDiskWrite, executeDiskWrite);
-    }, 300);
-  });
+  return appStateWriter.save();
 }
 
 /**
- * Wymuszony, natychmiastowy zapis oczekującego stanu (dla graceful shutdown lub operacji krytycznych).
+ * Czeka na zakończenie trwającego zapisu i wykonuje ostatni zapis, jeśli stan jest brudny.
  */
 async function flushPendingStateSave(): Promise<void> {
-  if (debounceTimer) {
-    clearTimeout(debounceTimer);
-    debounceTimer = null;
-    writeQueue = writeQueue.then(executeDiskWrite, executeDiskWrite);
-  }
-  await writeQueue;
+  return appStateWriter.flush();
 }
 
 function ensureStateStructure() {
