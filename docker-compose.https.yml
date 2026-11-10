@@ -1,7 +1,6 @@
 # ==============================================================================
-# Zarządzanie Projektami - Opcjonalny HTTPS dla sieci lokalnej (Caddy)
-# Uruchomienie: docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
-# ==============================================================================
+# Uruchomienie: dodaj do .env: COMPOSE_FILE=docker-compose.yml:docker-compose.https.yml
+# i uruchom: docker compose up -d --build (lub docker compose -f docker-compose.yml -f docker-compose.https.yml up -d)
 
 services:
   app:

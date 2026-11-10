@@ -138,11 +138,23 @@ if [ -t 0 ]; then
     echo ""
     read -r -p "Czy chcesz włączyć opcjonalny HTTPS przez Caddy w sieci lokalnej? (t/N) [Domyślnie: nie]: " USER_HTTPS_CHOICE || USER_HTTPS_CHOICE="n"
     if [[ "$USER_HTTPS_CHOICE" =~ ^([tT]|[tT][aA][kK]|[yY]|[yY][eE][sS])$ ]]; then
-        ENABLE_HTTPS="t"
+        # Sprawdzenie wersji Docker Compose (wymagane >= 2.24 dla dyrektywy '!reset')
+        COMPOSE_VER_RAW=$($DOCKER_CMD version --short 2>/dev/null || echo "")
+        COMPOSE_VER="${COMPOSE_VER_RAW#v}"
+        COMPOSE_MAJOR=$(echo "$COMPOSE_VER" | awk -F. '{print $1}')
+        COMPOSE_MINOR=$(echo "$COMPOSE_VER" | awk -F. '{print $2}')
+
+        if ! [[ "$COMPOSE_MAJOR" =~ ^[0-9]+$ ]] || ! [[ "$COMPOSE_MINOR" =~ ^[0-9]+$ ]] || [ "$COMPOSE_MAJOR" -lt 2 ] || ( [ "$COMPOSE_MAJOR" -eq 2 ] && [ "$COMPOSE_MINOR" -lt 24 ] ); then
+            echo -e "${YELLOW}Ostrzeżenie: Wykryta wersja Docker Compose (${COMPOSE_VER_RAW:-nieznana}) jest niższa niż 2.24.${NC}"
+            echo -e "${YELLOW}Plik konfiguracyjny docker-compose.https.yml korzysta z dyrektywy '!reset' (wymaga Docker Compose >= 2.24).${NC}"
+            echo -e "${YELLOW}HTTPS nie został włączony. Zaktualizuj Docker Compose do wersji >= 2.24, aby korzystać z bezpiecznego HTTPS.${NC}"
+            ENABLE_HTTPS="n"
+        else
+            ENABLE_HTTPS="t"
+        fi
     fi
 fi
 
-COMPOSE_ARGS=(-f docker-compose.yml)
 SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
 
 if [ "$ENABLE_HTTPS" = "t" ]; then
@@ -168,12 +180,17 @@ if [ "$ENABLE_HTTPS" = "t" ]; then
         echo "TRUST_PROXY=1" >> .env
     fi
 
-    COMPOSE_ARGS=(-f docker-compose.yml -f docker-compose.https.yml)
+    # Dopisz lub zamień w .env linię COMPOSE_FILE=docker-compose.yml:docker-compose.https.yml
+    if grep -q "^COMPOSE_FILE=" .env; then
+        sed -i "s|^COMPOSE_FILE=.*|COMPOSE_FILE=docker-compose.yml:docker-compose.https.yml|" .env
+    else
+        echo "COMPOSE_FILE=docker-compose.yml:docker-compose.https.yml" >> .env
+    fi
 fi
 
 # 9. Uruchomienie aplikacji za pomocą Docker Compose
 echo -e "${BLUE}==> Uruchamianie kontenerów Zarządzanie Projektami...${NC}"
-$DOCKER_CMD "${COMPOSE_ARGS[@]}" up -d --build
+$DOCKER_CMD up -d --build
 
 echo -e "${GREEN}=================================================================${NC}"
 echo -e "${GREEN}  ✅ WDROŻENIE ZAKOŃCZONE SUKCESEM!${NC}"
@@ -184,6 +201,7 @@ if [ "$ENABLE_HTTPS" = "t" ]; then
     echo -e "Aplikacja działa w trybie bezpiecznym HTTPS:"
     echo -e "  👉 ${YELLOW}https://${APP_HOST}${NC}"
     echo -e "  (Port 3000 jest niewidoczny z zewnątrz, ruch HTTP jest przekierowywany na HTTPS 443)."
+    echo -e "  (Zmienna COMPOSE_FILE została ustawiona w pliku .env)."
     echo -e ""
     echo -e "Instalacja certyfikatu głównego na stanowiskach pracy (aby uniknąć ostrzeżeń w przeglądarkach):"
     echo -e "  1. Wyeksportuj certyfikat z kontenera Caddy:"
@@ -198,12 +216,11 @@ echo -e ""
 echo -e "🛡️  Trwałość danych: Wolumen '${BLUE}zarzadzanie_app_data${NC}' zachowuje plik app_state.json."
 echo -e "💾  Kopie zapasowe: Skonfigurowane w '${BLUE}${INSTALL_DIR}/backups${NC}'."
 echo -e "Zarządzanie:"
-echo -e "  - Podgląd logów:           ${YELLOW}cd ${INSTALL_DIR} && $DOCKER_CMD ${COMPOSE_ARGS[*]} logs -f${NC}"
-if [ "$ENABLE_HTTPS" = "t" ]; then
-echo -e "  - Aktualizacja z GitHub:   ${YELLOW}cd ${INSTALL_DIR} && ./backup.sh && git pull origin main && $DOCKER_CMD -f docker-compose.yml -f docker-compose.https.yml up -d --build${NC}"
-else
+echo -e "  - Podgląd logów:           ${YELLOW}cd ${INSTALL_DIR} && $DOCKER_CMD logs -f${NC}"
 echo -e "  - Aktualizacja z GitHub:   ${YELLOW}cd ${INSTALL_DIR} && ./backup.sh && git pull origin main && $DOCKER_CMD up -d --build${NC}"
+if [ "$ENABLE_HTTPS" = "t" ]; then
+echo -e "    ${BLUE}(Nota: COMPOSE_FILE jest ustawione w .env – komenda automatycznie stosuje plik override HTTPS)${NC}"
 fi
 echo -e "  - Ręczna kopia zapasowa:   ${YELLOW}${INSTALL_DIR}/backup.sh${NC}"
-echo -e "  - Zatrzymanie:             ${YELLOW}cd ${INSTALL_DIR} && $DOCKER_CMD ${COMPOSE_ARGS[*]} down${NC}"
+echo -e "  - Zatrzymanie:             ${YELLOW}cd ${INSTALL_DIR} && $DOCKER_CMD down${NC}"
 echo -e "${GREEN}=================================================================${NC}"

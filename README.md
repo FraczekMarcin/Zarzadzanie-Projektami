@@ -42,11 +42,13 @@ APP_HOST=192.168.1.100
 ```
 
 ### 2. Uruchomienie aplikacji z obsługą HTTPS
-Użyj pliku override `docker-compose.https.yml` razem z głównym plikiem Compose:
+Podczas instalacji skrypt `install.sh` automatycznie dopisuje do pliku `.env` linię `COMPOSE_FILE=docker-compose.yml:docker-compose.https.yml`. Przy ręcznej konfiguracji dopisz tę linię oraz `TRUST_PROXY=1` do pliku `.env`, a następnie uruchom:
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
+docker compose up -d --build
 ```
-> W tym trybie Caddy nasłuchuje na standardowych portach **443** (HTTPS) i **80** (automatyczne przekierowanie do HTTPS). Bezpośredni port aplikacji `3000` jest zresetowany i niedostępny z zewnątrz (`ports: !reset []`), a aplikacja działa w trybie `TRUST_PROXY=1`, wymuszając bezpieczne ciasteczka sesyjne (`Secure`, `__Host-zp_session`).
+> **Uwaga dotycząca wersji:** Plik `docker-compose.https.yml` korzysta z dyrektywy `ports: !reset []`, która wymaga Docker Compose w wersji **>= 2.24**. Dzięki wpisowi `COMPOSE_FILE` w `.env` nie trzeba podawać flag `-f` – Docker Compose automatycznie łączy oba pliki konfiguracyjne.
+>
+> W tym trybie Caddy nasłuchuje na standardowych portach **443** (HTTPS) i **80** (automatyczne przekierowanie do HTTPS). Bezpośredni port aplikacji `3000` jest zresetowany i niedostępny z zewnątrz, a aplikacja działa w trybie `TRUST_PROXY=1`, wymuszając bezpieczne ciasteczka sesyjne (`Secure`, `__Host-zp_session`).
 
 ### 3. Eksport certyfikatu głównego Caddy (Local Root CA)
 Aby przeglądarki na stanowiskach pracy ufały połączeniu HTTPS bez ostrzeżenia o certyfikacie wystawionym przez lokalne CA, wyeksportuj certyfikat główny Caddy:
@@ -62,6 +64,15 @@ Przekaż pobrany plik `caddy-root.crt` na komputery w pracowni i zainstaluj go j
 - **Mozilla Firefox (opcjonalnie):** Przejdź do *Ustawienia* ➔ *Prywatność i bezpieczeństwo* ➔ *Certyfikaty* ➔ *Wyświetl certyfikaty* ➔ zakładka *Organy certyfikacji* ➔ *Importuj...* ➔ wybierz plik `caddy-root.crt` i zaznacz opcję zaufania.
 
 Po instalacji certyfikatu adres `https://<APP_HOST>` otwiera się z pełnym szyfrowaniem TLS bez żadnych ostrzeżeń.
+
+### 5. Wyłączenie HTTPS (powrót do trybu HTTP)
+Aby wyłączyć tryb HTTPS i powrócić do standardowego działania po HTTP na porcie 3000:
+1. Usuń linię `COMPOSE_FILE=docker-compose.yml:docker-compose.https.yml` z pliku `.env` (lub zakomentuj ją znakiem `#`).
+2. Wykonaj zatrzymanie i ponowne uruchomienie:
+```bash
+docker compose down
+docker compose up -d --build
+```
 
 ---
 
@@ -141,13 +152,9 @@ Katalog danych `/app/data` jest montowany bezpośrednio w kontenerze `zarzadzani
 
 ### Bezpieczna procedura aktualizacji do najnowszej wersji:
 
-Pojedyncze, bezpieczne polecenie aktualizacji z automatyczną kopią zapasową:
+Pojedyncze, bezpieczne polecenie aktualizacji z automatyczną kopią zapasową (działa identycznie w trybie HTTP i HTTPS, ponieważ przy włączonym HTTPS zmienna `COMPOSE_FILE` jest zdefiniowana w pliku `.env`):
 ```bash
-# W trybie standardowym (HTTP):
 cd /opt/zarzadzanie-projektami && ./backup.sh && git pull origin main && docker compose up -d --build
-
-# W trybie bezpiecznym (HTTPS z Caddy):
-cd /opt/zarzadzanie-projektami && ./backup.sh && git pull origin main && docker compose -f docker-compose.yml -f docker-compose.https.yml up -d --build
 ```
 
 ⚠️ **Ważne ostrzeżenie:** Nigdy nie uruchamiaj polecenia `docker compose down -v` (flaga `-v` usuwa wolumeny). Do standardowego zatrzymania używaj zawsze samego `docker compose down`.
