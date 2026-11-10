@@ -1,5 +1,6 @@
 # 🏗️ Zarządzanie Projektami (Pracownia Projektowa / Budownictwo)
 
+[![CI](https://github.com/FraczekMarcin/Zarzadzanie-Projektami/actions/workflows/ci.yml/badge.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami/actions/workflows/ci.yml)
 [![Wersja](https://img.shields.io/badge/Wersja-2026--11--10%20v%200.6.0-emerald.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
 [![Docker](https://img.shields.io/badge/Docker-App%20Data%20Volume-blue.svg)](https://www.docker.com/)
 [![Licencja](https://img.shields.io/badge/Licencja-MIT-green.svg)](LICENSE)
@@ -149,6 +150,10 @@ volumes:
     driver: local
 ```
 Katalog danych `/app/data` jest montowany bezpośrednio w kontenerze `zarzadzanie_app`. Podczas aktualizacji Docker wymienia jedynie obraz kodu aplikacji, a wolumen `zarzadzanie_app_data` z plikiem bazy `app_state.json` pozostaje **nienaruszony**.
+
+### Sprawdzenie CI przed wdrożeniem:
+
+Przed wykonaniem aktualizacji na serwerze produkcyjnym sprawdź, czy ostatni commit na gałęzi `main` ma **zielony status potoku CI na GitHubie** (sprawdź odznakę CI u góry tego dokumentu lub przejdź do [GitHub Actions](https://github.com/FraczekMarcin/Zarzadzanie-Projektami/actions/workflows/ci.yml)). Potok GitHub Actions automatycznie kompiluje kod, wykonuje testy jednostkowe, audyt bezpieczeństwa oraz test dymny obrazu Docker (w tym sprawdzenie statusu 200 i `{"status":"ok"}` na `/api/health` oraz ochronę kodu serwera przed wyciekiem), dzięki czemu masz pewność, że nie wdrożysz uszkodzonego obrazu.
 
 ### Bezpieczna procedura aktualizacji do najnowszej wersji:
 

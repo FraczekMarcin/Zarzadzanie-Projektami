@@ -40,4 +40,50 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
 
       - name: Budowanie obrazu Docker (weryfikacja Dockerfile)
-        run: docker build .
+        run: docker build -t zp .
+
+      - name: Uruchomienie obrazu Docker (test dymny)
+        run: |
+          docker run -d --name zp \
+            -e APP_SECRET=$(openssl rand -hex 32) \
+            -e NODE_ENV=production \
+            -p 3000:3000 \
+            zp
+
+      - name: Weryfikacja uruchomienia i test dymny kontenera (GET /api/health oraz GET /server.js)
+        run: |
+          echo "Oczekiwanie na uruchomienie aplikacji (do 30 s)..."
+          SUCCESS=0
+          for i in {1..30}; do
+            STATUS=$(curl -s -o /tmp/health.json -w "%{http_code}" http://localhost:3000/api/health || true)
+            if [ "$STATUS" = "200" ]; then
+              SUCCESS=1
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$SUCCESS" -ne 1 ]; then
+            echo "Błąd: Serwer nie odpowiedział statusem 200 na /api/health w ciągu 30 s (ostatni status: $STATUS)."
+            exit 1
+          fi
+
+          if ! grep -q '"status":"ok"' /tmp/health.json; then
+            echo "Błąd: Odpowiedź /api/health nie zawiera '\"status\":\"ok\"':"
+            cat /tmp/health.json
+            exit 1
+          fi
+          echo "Endpoint /api/health zwrócił status 200 oraz '\"status\":\"ok\"'."
+
+          CTYPE=$(curl -s -I http://localhost:3000/server.js | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type" {print $2}')
+          if [[ "$CTYPE" != *"text/html"* ]]; then
+            echo "Błąd: GET /server.js zwrócił Content-Type: '$CTYPE', oczekiwano 'text/html'."
+            exit 1
+          fi
+          echo "Endpoint /server.js poprawnie zwrócił fallback HTML (Content-Type: $CTYPE) bez wycieku kodu źródłowego."
+
+      - name: Logi i zatrzymanie kontenera testowego
+        if: always()
+        run: |
+          docker logs zp || true
+          docker stop zp || true
