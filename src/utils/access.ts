@@ -178,9 +178,84 @@ export function filterStateForUser(
  * Zmiana `projectId` zadania dozwolona wyłącznie dla admin / project_manager.
  * Odrzuca klucze prototype (__proto__, constructor, prototype).
  */
+export const FIELD_LIMITS = {
+  title: 200,
+  key: 10,
+  name: 200,
+  description: 20000,
+  status: 50,
+  priority: 50,
+  type: 50,
+  client: 200,
+  tagsMaxCount: 30,
+  tagLength: 50,
+  comment: 5000,
+} as const;
+
+export interface FieldSanitizeOptions {
+  /** Jeśli true, rzuca błąd zamiast przycinać wartości ponad limit (dla zwracania 400). Domyślnie false (przycina). */
+  rejectOnOverflow?: boolean;
+}
+
+/**
+ * Sanityzuje lub odrzuca wartości pól przekraczające dopuszczalne limity długości.
+ */
+export function sanitizeFieldValue(
+  field: string,
+  value: any,
+  options?: FieldSanitizeOptions
+): any {
+  if (value === null || value === undefined) return value;
+  const reject = Boolean(options?.rejectOnOverflow);
+
+  // Tablice tagów: maks. 30 elementów po 50 znaków
+  if (field === 'tags') {
+    if (!Array.isArray(value)) return [];
+    if (reject && value.length > FIELD_LIMITS.tagsMaxCount) {
+      throw new Error(`Tablica tagów może zawierać maksymalnie ${FIELD_LIMITS.tagsMaxCount} elementów.`);
+    }
+    const sliced = value.slice(0, FIELD_LIMITS.tagsMaxCount);
+    return sliced.map((t) => {
+      const str = typeof t === 'string' ? t : String(t ?? '');
+      if (reject && str.length > FIELD_LIMITS.tagLength) {
+        throw new Error(`Pojedynczy tag może mieć maksymalnie ${FIELD_LIMITS.tagLength} znaków.`);
+      }
+      return str.slice(0, FIELD_LIMITS.tagLength);
+    });
+  }
+
+  // Wartości tekstowe
+  if (typeof value === 'string') {
+    let limit: number | undefined;
+    if (field === 'title') limit = FIELD_LIMITS.title;
+    else if (field === 'key') limit = FIELD_LIMITS.key;
+    else if (field === 'name') limit = FIELD_LIMITS.name;
+    else if (field === 'description') limit = FIELD_LIMITS.description;
+    else if (field === 'status' || field === 'priority' || field === 'type') limit = FIELD_LIMITS.status;
+    else if (field.toLowerCase().startsWith('client')) limit = FIELD_LIMITS.client;
+
+    if (limit !== undefined) {
+      if (reject && value.length > limit) {
+        throw new Error(`Pole "${field}" przekracza maksymalny limit ${limit} znaków.`);
+      }
+      return value.slice(0, limit);
+    }
+  }
+
+  return value;
+}
+
+/**
+ * Whitelist edytowalnych pól zadania (Task).
+ * Pola `id`, `revision`, `createdAt`, `reporterId` nigdy nie są edytowalne.
+ * Zmiana `projectId` zadania dozwolona wyłącznie dla admin / project_manager.
+ * Odrzuca klucze prototype (__proto__, constructor, prototype).
+ * Przycina lub odrzuca (gdy options.rejectOnOverflow=true) wartości tekstowe ponad limity.
+ */
 export function pickAllowedTaskFields(
   body: any,
-  user: { id: string; role?: string } | null | undefined
+  user: { id: string; role?: string } | null | undefined,
+  options?: FieldSanitizeOptions
 ): Record<string, any> {
   if (!body || typeof body !== 'object') return {};
   if (hasForbiddenKeys(body)) {
@@ -237,7 +312,7 @@ export function pickAllowedTaskFields(
     }
 
     if (standardFields.has(key)) {
-      result[key] = body[key];
+      result[key] = sanitizeFieldValue(key, body[key], options);
     }
   }
 
@@ -250,10 +325,12 @@ export function pickAllowedTaskFields(
  * Zmiana `memberIds` oraz `key` projektu tylko dla admin / project_manager.
  * Pola finansowe i dane klienta (budget, costs, client*) edytowalne tylko dla admin / project_manager.
  * Odrzuca klucze prototype (__proto__, constructor, prototype).
+ * Przycina lub odrzuca (gdy options.rejectOnOverflow=true) wartości tekstowe ponad limity.
  */
 export function pickAllowedProjectFields(
   body: any,
-  user: { id: string; role?: string } | null | undefined
+  user: { id: string; role?: string } | null | undefined,
+  options?: FieldSanitizeOptions
 ): Record<string, any> {
   if (!body || typeof body !== 'object') return {};
   if (hasForbiddenKeys(body)) {
@@ -313,12 +390,12 @@ export function pickAllowedProjectFields(
     }
 
     if (baseFields.has(key)) {
-      result[key] = body[key];
+      result[key] = sanitizeFieldValue(key, body[key], options);
       continue;
     }
 
     if (isAdminOrManager && (adminManagerFields.has(key) || key.toLowerCase().startsWith('client'))) {
-      result[key] = body[key];
+      result[key] = sanitizeFieldValue(key, body[key], options);
       continue;
     }
   }

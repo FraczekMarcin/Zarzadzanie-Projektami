@@ -303,3 +303,80 @@ describe('CSRF Protection Middleware (Origin vs Host)', () => {
   });
 });
 
+describe('API 404 handler i fallback SPA routing', () => {
+  it('nieznana ścieżka pod /api zwraca 404 z JSON { error: "Nie znaleziono" } i Content-Type application/json', async () => {
+    const app = express();
+
+    // Rejestracja przykładowej trasy API
+    app.get('/api/health', (_req, res) => {
+      res.json({ status: 'ok' });
+    });
+
+    // 404 handler dla nieznanych tras /api
+    app.use('/api', (_req, res) => {
+      res.status(404).json({ error: 'Nie znaleziono' });
+    });
+
+    // Fallback SPA
+    app.use((req, res, next) => {
+      if (req.method !== 'GET') return next();
+      if (req.path.startsWith('/api')) return next();
+      res.type('html').send('<!doctype html><html>SPA</html>');
+    });
+
+    // Symulacja żądania do nieznanej trasy /api/nieistnieje
+    const req = { method: 'GET', url: '/api/nieistnieje', path: '/api/nieistnieje' };
+    let responseStatus: number | undefined;
+    let responseBody: any;
+    let responseContentType: string | undefined;
+
+    const res = {
+      status(code: number) {
+        responseStatus = code;
+        return this;
+      },
+      json(body: any) {
+        responseBody = body;
+        responseContentType = 'application/json';
+        return this;
+      },
+      setHeader(name: string, val: string) {
+        if (name.toLowerCase() === 'content-type') responseContentType = val;
+        return this;
+      },
+    };
+
+    // Uruchomienie routingu dla /api/nieistnieje
+    await new Promise<void>((resolve) => {
+      (app as any).handle(req as any, res as any, () => resolve());
+      resolve();
+    });
+
+    expect(responseStatus).toBe(404);
+    expect(responseBody).toEqual({ error: 'Nie znaleziono' });
+    expect(responseContentType).toContain('application/json');
+  });
+
+  it('fallback SPA nie przechwytuje żądań do /api ani metod innych niż GET', () => {
+    let spaCalled = false;
+    const spaFallback = (req: any, _res: any, next: any) => {
+      if (req.method !== 'GET') return next();
+      if (req.path.startsWith('/api')) return next();
+      spaCalled = true;
+    };
+
+    // GET /api/nieistnieje nie może uruchomić SPA
+    spaFallback({ method: 'GET', path: '/api/nieistnieje' }, {}, () => {});
+    expect(spaCalled).toBe(false);
+
+    // POST /projekty nie może uruchomić SPA
+    spaFallback({ method: 'POST', path: '/projekty' }, {}, () => {});
+    expect(spaCalled).toBe(false);
+
+    // GET /projekty uruchamia SPA
+    spaFallback({ method: 'GET', path: '/projekty' }, {}, () => {});
+    expect(spaCalled).toBe(true);
+  });
+});
+
+

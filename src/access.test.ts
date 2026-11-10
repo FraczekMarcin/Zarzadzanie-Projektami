@@ -9,6 +9,7 @@ import {
   pickAllowedProjectFields,
   FINANCIAL_AND_CLIENT_FIELDS,
   isSameOrigin,
+  FIELD_LIMITS,
 } from './utils/access';
 
 describe('Kontrola dostępu (RBAC), filtrowanie danych i whitelista pól (access.ts)', () => {
@@ -392,6 +393,99 @@ describe('Kontrola dostępu (RBAC), filtrowanie danych i whitelista pól (access
       expect(isSameOrigin('   ', 'localhost:3000')).toBe(true);
     });
   });
+
+  describe('10. Limity długości pól i sanityzacja/odrzucanie (FIELD_LIMITS)', () => {
+    it('przycina pole title zadania do 200 znaków (gdy przekazano 5000 znaków)', () => {
+      const longTitle = 'A'.repeat(5000);
+      const res = pickAllowedTaskFields({ title: longTitle }, devUser);
+      expect(res.title).toHaveLength(200);
+      expect(res.title).toBe('A'.repeat(200));
+    });
+
+    it('odrzuca pole title zadania przy rejectOnOverflow: true', () => {
+      const longTitle = 'A'.repeat(5000);
+      expect(() => {
+        pickAllowedTaskFields({ title: longTitle }, devUser, { rejectOnOverflow: true });
+      }).toThrow(/przekracza maksymalny limit 200 znaków/);
+    });
+
+    it('przycina pole description zadania i projektu do 20000 znaków', () => {
+      const longDesc = 'D'.repeat(30000);
+      const resTask = pickAllowedTaskFields({ description: longDesc }, devUser);
+      expect(resTask.description).toHaveLength(20000);
+
+      const resProj = pickAllowedProjectFields({ description: longDesc }, devUser);
+      expect(resProj.description).toHaveLength(20000);
+    });
+
+    it('przycina pole status, priority oraz type do 50 znaków', () => {
+      const longStatus = 'S'.repeat(100);
+      const longPriority = 'P'.repeat(100);
+      const longType = 'T'.repeat(100);
+
+      const res = pickAllowedTaskFields({
+        status: longStatus,
+        priority: longPriority,
+        type: longType,
+      }, devUser);
+
+      expect(res.status).toHaveLength(50);
+      expect(res.priority).toHaveLength(50);
+      expect(res.type).toHaveLength(50);
+    });
+
+    it('przycina tablicę tagów do maks. 30 elementów po maks. 50 znaków', () => {
+      const rawTags = Array.from({ length: 50 }, (_, i) => `Tag_${i}_${'x'.repeat(80)}`);
+      const res = pickAllowedTaskFields({ tags: rawTags }, devUser);
+
+      expect(res.tags).toHaveLength(30);
+      for (const tag of res.tags) {
+        expect(tag.length).toBeLessThanOrEqual(50);
+      }
+    });
+
+    it('odrzuca tablicę tagów z ponad 30 elementami przy rejectOnOverflow: true', () => {
+      const rawTags = Array.from({ length: 35 }, (_, i) => `tag${i}`);
+      expect(() => {
+        pickAllowedTaskFields({ tags: rawTags }, devUser, { rejectOnOverflow: true });
+      }).toThrow(/Tablica tagów może zawierać maksymalnie 30 elementów/);
+    });
+
+    it('przycina pole name projektu do 200 znaków i key do 10 znaków', () => {
+      const longName = 'N'.repeat(500);
+      const longKey = 'K'.repeat(50);
+
+      const res = pickAllowedProjectFields({ name: longName, key: longKey }, adminUser);
+      expect(res.name).toHaveLength(200);
+      expect(res.key).toHaveLength(10);
+    });
+
+    it('odrzuca pole key projektu przy rejectOnOverflow: true gdy ma ponad 10 znaków', () => {
+      const longKey = 'K'.repeat(50);
+      expect(() => {
+        pickAllowedProjectFields({ key: longKey }, adminUser, { rejectOnOverflow: true });
+      }).toThrow(/przekracza maksymalny limit 10 znaków/);
+    });
+
+    it('przycina pola klienta client* w projekcie do 200 znaków', () => {
+      const res = pickAllowedProjectFields({
+        clientName: 'C'.repeat(300),
+        clientAddress: 'A'.repeat(400),
+        clientEmail: 'E'.repeat(300),
+        clientPhone: 'P'.repeat(300),
+        clientContactPerson: 'O'.repeat(300),
+        clientNip: '1'.repeat(300),
+      }, adminUser);
+
+      expect(res.clientName).toHaveLength(200);
+      expect(res.clientAddress).toHaveLength(200);
+      expect(res.clientEmail).toHaveLength(200);
+      expect(res.clientPhone).toHaveLength(200);
+      expect(res.clientContactPerson).toHaveLength(200);
+      expect(res.clientNip).toHaveLength(200);
+    });
+  });
 });
+
 
 

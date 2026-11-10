@@ -1,6 +1,6 @@
 # ==========================================
 # Zarządzanie Projektami - Dockerfile
-# Wersja: 2026-11-06 v0.5.0
+# Wersja: 2026-11-10 v0.6.0
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # ==========================================
 
@@ -26,7 +26,7 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV DATA_DIR=/app/data
 ENV BACKUP_DIR=/app/backups
-ENV APP_VERSION="2026-11-06 v0.5.0"
+ENV APP_VERSION="2026-11-10 v0.6.0"
 
 # Użytkownik o ograniczonych uprawnieniach (Security best practice)
 RUN addgroup -g 1001 -S nodejs && \

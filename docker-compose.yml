@@ -1,6 +1,6 @@
 # ==============================================================================
 # Zarządzanie Projektami (Pracownia Projektowa / Budownictwo)
-# Wersja: 2026-11-06 v0.5.0
+# Wersja: 2026-11-10 v0.6.0
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Ścieżka docelowa: /opt/zarzadzanie-projektami
 # ==============================================================================
@@ -27,7 +27,7 @@ services:
       PORT: 3000
       DATA_DIR: /app/data
       BACKUP_DIR: /app/backups
-      APP_VERSION: "2026-11-06 v0.5.0"
+      APP_VERSION: "2026-11-10 v0.6.0"
       APP_SECRET: ${APP_SECRET:?ustaw APP_SECRET w pliku .env}
     ports:
       - "${APP_BIND:-0.0.0.0}:${APP_PORT:-3000}:3000"

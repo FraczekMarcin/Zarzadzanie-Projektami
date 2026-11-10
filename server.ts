@@ -1660,14 +1660,15 @@ app.post('/api/projects', requireAuth, async (req, res) => {
       members.push(caller.id);
     }
 
-    const key = (isAdminOrManager && body.key ? String(body.key) : 'PRJ').toUpperCase().trim();
+    const rawKey = allowed.key || (isAdminOrManager && body.key ? String(body.key) : 'PRJ');
+    const key = String(rawKey).toUpperCase().trim().slice(0, 10);
     const now = new Date().toISOString();
 
     const newProject = {
       ...allowed,
       id: crypto.randomUUID(),
       key,
-      name: String(body.name).trim(),
+      name: String(allowed.name || body.name).trim().slice(0, 200),
       memberIds: members,
       description: allowed.description || '',
       priority: allowed.priority || 'normal',
@@ -1815,9 +1816,14 @@ app.post('/api/comments', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).' });
     }
     const { taskId, content } = req.body || {};
+    const commentContent = content !== undefined && content !== null ? content : req.body?.comment;
 
-    if (!taskId || !content || !String(content).trim()) {
+    if (!taskId || !commentContent || !String(commentContent).trim()) {
       return res.status(400).json({ error: 'Wymagane pola taskId oraz treść komentarza (content).' });
+    }
+
+    if (String(commentContent).length > 5000) {
+      return res.status(400).json({ error: 'Treść komentarza może mieć maksymalnie 5000 znaków.' });
     }
 
     const task = (serverAppStateCache.tasks || []).find((t: any) => t.id === taskId);
@@ -1839,7 +1845,7 @@ app.post('/api/comments', requireAuth, async (req, res) => {
       id: crypto.randomUUID(),
       taskId,
       userId: caller.id,
-      content: String(content).trim(),
+      content: String(commentContent).trim().slice(0, 5000),
       createdAt: new Date().toISOString(),
     };
 
@@ -1926,16 +1932,17 @@ app.post('/api/activity', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Pole action może mieć maksymalnie 200 znaków.' });
     }
 
-    // details max 2000 znaków
+    // details / comment / treść komentarza: maks. 5000 znaków
     let details: string | undefined;
-    if (body.details !== undefined && body.details !== null) {
-      if (typeof body.details !== 'string') {
-        return res.status(400).json({ error: 'Pole details musi być tekstem.' });
+    const rawDetails = body.details !== undefined && body.details !== null ? body.details : body.comment;
+    if (rawDetails !== undefined && rawDetails !== null) {
+      if (typeof rawDetails !== 'string') {
+        return res.status(400).json({ error: 'Pole details/comment musi być tekstem.' });
       }
-      if (body.details.length > 2000) {
-        return res.status(400).json({ error: 'Pole details może mieć maksymalnie 2000 znaków.' });
+      if (rawDetails.length > 5000) {
+        return res.status(400).json({ error: 'Treść komentarza / szczegółów może mieć maksymalnie 5000 znaków.' });
       }
-      details = body.details;
+      details = rawDetails.slice(0, 5000);
     }
 
     // taskId (jeśli podane) musi istnieć
@@ -2735,7 +2742,7 @@ function getLocalInstalledVersion(): string {
       }
     }
   } catch {}
-  return process.env.APP_VERSION || '2026-11-06 v0.5.0';
+  return process.env.APP_VERSION || '2026-11-10 v0.6.0';
 }
 
 function isNewerVersion(remote: string, local: string): boolean {
@@ -2899,6 +2906,11 @@ app.get('/api/system-info', requireAuth, (_req, res) => {
   });
 });
 
+// 404 handler dla nieznanych tras /api (dla każdej metody HTTP)
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'Nie znaleziono' });
+});
+
 // Vite dev middleware or static file serving
 if (process.env.NODE_ENV !== 'production') {
   try {
@@ -2938,9 +2950,9 @@ if (process.env.NODE_ENV !== 'production') {
     },
   }));
 
-  // Fallback to index.html for SPA client routing - Cache-Control: no-cache
+  // Fallback to index.html for SPA client routing (wyłącznie metoda GET poza /api) - Cache-Control: no-cache
   app.use((req, res, next) => {
-    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    if (req.method !== 'GET') return next();
     if (req.path.startsWith('/api')) return next();
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
