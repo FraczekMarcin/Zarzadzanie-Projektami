@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import express from 'express';
+import { isSameOrigin } from './utils/access';
 
 function isRequestHttps(req: express.Request): boolean {
   if (req.app.get('trust proxy')) {
@@ -128,3 +129,177 @@ describe('HTTPS & Reverse Proxy Support (TRUST_PROXY=1)', () => {
     expect(isRequestHttps(mockReq)).toBe(true);
   });
 });
+
+describe('CSRF Protection Middleware (Origin vs Host)', () => {
+  function parseCookies(header?: string): Record<string, string> {
+    const res: Record<string, string> = {};
+    if (!header) return res;
+    for (const pair of header.split(';')) {
+      const idx = pair.indexOf('=');
+      if (idx > 0) {
+        const k = pair.slice(0, idx).trim();
+        const v = pair.slice(idx + 1).trim();
+        res[k] = decodeURIComponent(v);
+      }
+    }
+    return res;
+  }
+
+  function simulateCsrfMiddleware(req: any): { allowed: boolean; status?: number; error?: string } {
+    const CSRF_MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+    if (!CSRF_MUTATING_METHODS.has(req.method.toUpperCase())) {
+      return { allowed: true };
+    }
+
+    const originHeader = req.headers?.origin;
+    const rawOrigin = Array.isArray(originHeader) ? originHeader[0] : originHeader;
+    if (!rawOrigin || typeof rawOrigin !== 'string' || !rawOrigin.trim()) {
+      return { allowed: true };
+    }
+
+    const authHeader = req.headers?.authorization;
+    const isBearer = Boolean(
+      authHeader &&
+      typeof authHeader === 'string' &&
+      authHeader.trim().toLowerCase().startsWith('bearer ')
+    );
+    if (isBearer) {
+      return { allowed: true };
+    }
+
+    const cookies = parseCookies(req.headers?.cookie);
+    const hasSessionCookie = Boolean(cookies['__Host-zp_session'] || cookies['zp_session']);
+    if (!hasSessionCookie) {
+      return { allowed: true };
+    }
+
+    let effectiveHost = '';
+    if (req.app?.get?.('trust proxy')) {
+      const xfh = req.headers?.['x-forwarded-host'];
+      if (xfh) {
+        const rawXfh = Array.isArray(xfh) ? xfh[0] : xfh;
+        if (typeof rawXfh === 'string' && rawXfh.trim()) {
+          effectiveHost = rawXfh.split(',')[0].trim();
+        }
+      }
+    }
+    if (!effectiveHost) {
+      const h = req.headers?.host;
+      const rawH = Array.isArray(h) ? h[0] : h;
+      if (typeof rawH === 'string') {
+        effectiveHost = rawH.trim();
+      }
+    }
+
+    if (!isSameOrigin(rawOrigin, effectiveHost)) {
+      return { allowed: false, status: 403, error: 'Niedozwolone źródło żądania' };
+    }
+
+    return { allowed: true };
+  }
+
+  it('POST z Origin: http://evil.example i ciasteczkiem sesji dostaje 403', () => {
+    const app = express();
+    app.set('trust proxy', false);
+
+    const req = {
+      app,
+      method: 'POST',
+      headers: {
+        host: 'localhost:3000',
+        origin: 'http://evil.example',
+        cookie: 'zp_session=tajny-token-sesji',
+      },
+    };
+
+    const res = simulateCsrfMiddleware(req);
+    expect(res.allowed).toBe(false);
+    expect(res.status).toBe(403);
+    expect(res.error).toBe('Niedozwolone źródło żądania');
+  });
+
+  it('działa normalnie przez http://IP:3000 gdy Origin pasuje do Host', () => {
+    const app = express();
+    app.set('trust proxy', false);
+
+    const req = {
+      app,
+      method: 'POST',
+      headers: {
+        host: '192.168.1.100:3000',
+        origin: 'http://192.168.1.100:3000',
+        cookie: 'zp_session=tajny-token-sesji',
+      },
+    };
+
+    const res = simulateCsrfMiddleware(req);
+    expect(res.allowed).toBe(true);
+  });
+
+  it('działa normalnie przez https://host przy włączonym trust proxy i X-Forwarded-Host', () => {
+    const app = express();
+    app.set('trust proxy', 1);
+
+    const req = {
+      app,
+      method: 'POST',
+      headers: {
+        host: 'app:3000',
+        'x-forwarded-host': 'projekty.twojafirma.pl',
+        origin: 'https://projekty.twojafirma.pl',
+        cookie: '__Host-zp_session=tajny-token-sesji',
+      },
+    };
+
+    const res = simulateCsrfMiddleware(req);
+    expect(res.allowed).toBe(true);
+  });
+
+  it('przepuszcza żądania bez nagłówka Origin', () => {
+    const app = express();
+    const req = {
+      app,
+      method: 'POST',
+      headers: {
+        host: 'localhost:3000',
+        cookie: 'zp_session=tajny-token-sesji',
+      },
+    };
+
+    const res = simulateCsrfMiddleware(req);
+    expect(res.allowed).toBe(true);
+  });
+
+  it('przepuszcza żądania uwierzytelnione Bearer tokenem nawet z obcym Origin', () => {
+    const app = express();
+    const req = {
+      app,
+      method: 'POST',
+      headers: {
+        host: 'localhost:3000',
+        origin: 'http://evil.example',
+        authorization: 'Bearer token-dla-api',
+      },
+    };
+
+    const res = simulateCsrfMiddleware(req);
+    expect(res.allowed).toBe(true);
+  });
+
+  it('przepuszcza metody bezpieczne (GET, HEAD)', () => {
+    const app = express();
+    const req = {
+      app,
+      method: 'GET',
+      headers: {
+        host: 'localhost:3000',
+        origin: 'http://evil.example',
+        cookie: 'zp_session=tajny-token-sesji',
+      },
+    };
+
+    const res = simulateCsrfMiddleware(req);
+    expect(res.allowed).toBe(true);
+  });
+});
+

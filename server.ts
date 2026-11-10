@@ -15,6 +15,7 @@ import {
   hasForbiddenKeys,
   pickAllowedTaskFields,
   pickAllowedProjectFields,
+  isSameOrigin,
 } from './src/utils/access.js';
 import {
   generateBase32Secret,
@@ -762,6 +763,68 @@ function requireAdmin(req: express.Request, res: express.Response, next: express
     next();
   });
 }
+
+// ==============================================================================
+// 3b. OCHRONA CSRF OPARTA NA NAGŁÓWKU ORIGIN (DLA METOD ZMIENIAJĄCYCH STAN)
+// ==============================================================================
+const CSRF_MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+app.use('/api', (req, res, next) => {
+  if (!CSRF_MUTATING_METHODS.has(req.method.toUpperCase())) {
+    return next();
+  }
+
+  const originHeader = req.headers.origin;
+  const rawOrigin = Array.isArray(originHeader) ? originHeader[0] : originHeader;
+
+  // Brak nagłówka Origin przepuszczaj
+  if (!rawOrigin || typeof rawOrigin !== 'string' || !rawOrigin.trim()) {
+    return next();
+  }
+
+  // Jeśli żądanie uwierzytelnione jest tokenem Bearer w nagłówku, pomiń ochronę CSRF
+  const authHeader = req.headers.authorization;
+  const isBearer = Boolean(
+    authHeader &&
+    typeof authHeader === 'string' &&
+    authHeader.trim().toLowerCase().startsWith('bearer ')
+  );
+  if (isBearer) {
+    return next();
+  }
+
+  // Sprawdź czy żądanie uwierzytelnione jest ciasteczkiem sesji
+  const cookies = parseCookies(req.headers.cookie);
+  const hasSessionCookie = Boolean(cookies['__Host-zp_session'] || cookies['zp_session']);
+  if (!hasSessionCookie) {
+    return next();
+  }
+
+  // Wyznacz oczekiwany host (przy trust proxy użyj X-Forwarded-Host jeśli dostępny)
+  let effectiveHost = '';
+  if (req.app.get('trust proxy')) {
+    const xfh = req.headers['x-forwarded-host'];
+    if (xfh) {
+      const rawXfh = Array.isArray(xfh) ? xfh[0] : xfh;
+      if (typeof rawXfh === 'string' && rawXfh.trim()) {
+        effectiveHost = rawXfh.split(',')[0].trim();
+      }
+    }
+  }
+  if (!effectiveHost) {
+    const h = req.headers.host;
+    const rawH = Array.isArray(h) ? h[0] : h;
+    if (typeof rawH === 'string') {
+      effectiveHost = rawH.trim();
+    }
+  }
+
+  if (!isSameOrigin(rawOrigin, effectiveHost)) {
+    return res.status(403).json({ error: 'Niedozwolone źródło żądania' });
+  }
+
+  next();
+});
 
 // ==============================================================================
 // 4. ENDPOINTY PUBLICZNE: HEALTH & AUTH LOGIN / SETUP / REGISTER

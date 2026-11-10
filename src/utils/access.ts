@@ -325,3 +325,52 @@ export function pickAllowedProjectFields(
 
   return result;
 }
+
+/**
+ * Sprawdza, czy nagłówek Origin odpowiada oczekiwanemu nagłówkowi Host (ochrona CSRF).
+ * - Brak nagłówka Origin (undefined, null, pusty ciąg) jest dozwolony (zwraca true).
+ * - Jeśli podano Origin, wyciągany jest z niego host (domena/IP + ewentualny port)
+ *   i porównywany bez uwzględniania wielkości liter z oczekiwanym hostem.
+ * - Niepoprawny format URL w Origin lub brak pasującego hosta zwraca false.
+ */
+export function isSameOrigin(
+  origin?: string | null,
+  host?: string | null
+): boolean {
+  if (!origin || !origin.trim()) {
+    return true;
+  }
+  if (!host || !host.trim()) {
+    return false;
+  }
+
+  let originUrl: URL;
+  try {
+    originUrl = new URL(origin.trim());
+  } catch {
+    return false;
+  }
+
+  const originHost = originUrl.host.toLowerCase();
+  if (!originHost) {
+    return false;
+  }
+
+  let rawHost = host.trim().toLowerCase();
+  if (rawHost.includes(',')) {
+    rawHost = rawHost.split(',')[0].trim();
+  }
+
+  let expectedHost = rawHost;
+  try {
+    const protocol = originUrl.protocol || 'http:';
+    const parsedExpected = rawHost.includes('://')
+      ? new URL(rawHost)
+      : new URL(`${protocol}//${rawHost}`);
+    expectedHost = parsedExpected.host.toLowerCase();
+  } catch {
+    expectedHost = rawHost;
+  }
+
+  return originHost === expectedHost || originHost === rawHost;
+}

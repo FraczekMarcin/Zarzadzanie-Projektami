@@ -8,6 +8,7 @@ import {
   pickAllowedTaskFields,
   pickAllowedProjectFields,
   FINANCIAL_AND_CLIENT_FIELDS,
+  isSameOrigin,
 } from './utils/access';
 
 describe('Kontrola dostępu (RBAC), filtrowanie danych i whitelista pól (access.ts)', () => {
@@ -350,5 +351,47 @@ describe('Kontrola dostępu (RBAC), filtrowanie danych i whitelista pól (access
       expect(calendarTasks.some((t: any) => t.projectId === 'prj-foreign')).toBe(false);
     });
   });
+
+  describe('9. isSameOrigin (Ochrona CSRF)', () => {
+    it('zgodny host: zwraca true gdy Origin pasuje do Host', () => {
+      expect(isSameOrigin('http://localhost:3000', 'localhost:3000')).toBe(true);
+      expect(isSameOrigin('https://host', 'host')).toBe(true);
+      expect(isSameOrigin('https://projekty.firma.pl', 'projekty.firma.pl')).toBe(true);
+      expect(isSameOrigin('http://EXAMPLE.COM', 'example.com')).toBe(true);
+      expect(isSameOrigin('http://example.com', 'EXAMPLE.COM')).toBe(true);
+      expect(isSameOrigin('https://example.com', 'example.com:443')).toBe(true);
+      expect(isSameOrigin('http://example.com', 'example.com:80')).toBe(true);
+      expect(isSameOrigin('https://projekty.firma.pl', 'projekty.firma.pl, internal-proxy:80')).toBe(true);
+    });
+
+    it('obcy host: zwraca false dla obcych domen, subdomen oraz nieprawidłowych URL', () => {
+      expect(isSameOrigin('http://evil.example', 'localhost:3000')).toBe(false);
+      expect(isSameOrigin('http://evil.example', '192.168.1.100:3000')).toBe(false);
+      expect(isSameOrigin('http://attacker.com', 'projekty.firma.pl')).toBe(false);
+      expect(isSameOrigin('http://sub.example.com', 'example.com')).toBe(false);
+      expect(isSameOrigin('http://example.com.evil.com', 'example.com')).toBe(false);
+      expect(isSameOrigin('null', 'localhost:3000')).toBe(false);
+      expect(isSameOrigin('niepoprawny-url', 'localhost:3000')).toBe(false);
+      expect(isSameOrigin('http://evil.example', '')).toBe(false);
+      expect(isSameOrigin('http://evil.example', undefined)).toBe(false);
+    });
+
+    it('IP z portem: poprawnie weryfikuje adresy IP z portami', () => {
+      expect(isSameOrigin('http://192.168.1.100:3000', '192.168.1.100:3000')).toBe(true);
+      expect(isSameOrigin('http://127.0.0.1:8080', '127.0.0.1:8080')).toBe(true);
+      expect(isSameOrigin('http://10.0.0.5:3000', '10.0.0.5:3000')).toBe(true);
+      expect(isSameOrigin('http://192.168.1.100:3000', '192.168.1.100:4000')).toBe(false);
+      expect(isSameOrigin('http://192.168.1.100:3000', '192.168.1.200:3000')).toBe(false);
+      expect(isSameOrigin('http://192.168.1.100:3000', '192.168.1.100')).toBe(false);
+    });
+
+    it('brak Origin: przepuszcza żądania gdy nagłówek Origin nie jest obecny', () => {
+      expect(isSameOrigin(undefined, 'localhost:3000')).toBe(true);
+      expect(isSameOrigin(null, 'localhost:3000')).toBe(true);
+      expect(isSameOrigin('', 'localhost:3000')).toBe(true);
+      expect(isSameOrigin('   ', 'localhost:3000')).toBe(true);
+    });
+  });
 });
+
 
