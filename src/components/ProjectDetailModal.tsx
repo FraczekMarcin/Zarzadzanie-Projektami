@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Project, Task, User, Priority } from '../types';
 import { copyToClipboard } from '../utils/clipboard';
+import { FIELD_LIMITS } from '../utils/access';
 import { 
   X, 
   Briefcase, 

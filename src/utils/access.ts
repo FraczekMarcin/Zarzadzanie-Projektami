@@ -451,3 +451,121 @@ export function isSameOrigin(
 
   return originHost === expectedHost || originHost === rawHost;
 }
+
+export interface BuildNewTaskOptions {
+  body?: any;
+  allowed?: Record<string, any>;
+  caller?: { id: string; role?: string } | null;
+  projectId?: string;
+  reporterId?: string;
+  projectKey?: string;
+  existingCount?: number;
+  now?: string;
+  id?: string;
+  code?: string;
+}
+
+/**
+ * Czysta funkcja budująca rekord nowego zadania (Task).
+ * Oczyszcza tytuł za pomocą whitelisty i limitów FIELD_LIMITS (title max 200).
+ * Jeśli po trim tytuł jest pusty, rzuca błąd "Wymagany tytuł zadania.".
+ */
+export function buildNewTaskRecord(
+  arg1: any,
+  arg2?: any,
+  arg3?: any,
+  arg4?: any
+): Record<string, any> {
+  let body: any;
+  let allowed: Record<string, any> | undefined;
+  let caller: { id: string; role?: string } | null = null;
+  let projectId = '';
+  let reporterId = '';
+  let projectKey = 'ZAD';
+  let existingCount = 0;
+  let customId: string | undefined;
+  let customNow: string | undefined;
+  let customCode: string | undefined;
+
+  if (
+    arg2 === undefined &&
+    arg1 &&
+    typeof arg1 === 'object' &&
+    ('projectId' in arg1 || 'allowed' in arg1 || 'caller' in arg1 || 'reporterId' in arg1 || 'existingCount' in arg1)
+  ) {
+    const opts = arg1 as BuildNewTaskOptions;
+    body = opts.body;
+    allowed = opts.allowed;
+    caller = opts.caller ?? null;
+    projectId = opts.projectId || (opts.body?.projectId ?? '');
+    reporterId = opts.reporterId || caller?.id || (opts.body?.reporterId ?? '');
+    projectKey = opts.projectKey || 'ZAD';
+    existingCount = typeof opts.existingCount === 'number' ? opts.existingCount : 0;
+    customId = opts.id;
+    customNow = opts.now;
+    customCode = opts.code;
+  } else {
+    body = arg1;
+    if (arg2 && typeof arg2 === 'object' && 'id' in arg2) {
+      caller = arg2;
+      reporterId = arg2.id;
+    } else if (typeof arg2 === 'string') {
+      reporterId = arg2;
+    }
+
+    if (arg3 && typeof arg3 === 'object') {
+      projectId = arg3.id || '';
+      projectKey = arg3.key || 'ZAD';
+    } else if (typeof arg3 === 'string') {
+      projectId = arg3;
+    }
+
+    if (typeof arg4 === 'number') {
+      existingCount = arg4;
+    }
+  }
+
+  if (!allowed) {
+    allowed = pickAllowedTaskFields(body || {}, caller);
+  }
+
+  const sanitizedTitle = String(allowed.title ?? '').trim();
+  if (!sanitizedTitle) {
+    throw new Error('Wymagany tytuł zadania.');
+  }
+
+  const now = customNow || new Date().toISOString();
+  const generatedId =
+    customId ||
+    (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `tsk-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`);
+
+  const code =
+    customCode ||
+    allowed.code ||
+    `${projectKey}-${String(existingCount + 1).padStart(2, '0')}`;
+
+  return {
+    ...allowed,
+    id: generatedId,
+    projectId: projectId || (targetIdFromAllowed(allowed)),
+    code,
+    title: sanitizedTitle,
+    reporterId: reporterId || caller?.id || '',
+    type: allowed.type || 'task',
+    priority: allowed.priority || 'normal',
+    status: allowed.status || 'to_do',
+    progress: typeof allowed.progress === 'number' ? allowed.progress : 0,
+    startDate: allowed.startDate || now.slice(0, 10),
+    dueDate: allowed.dueDate || now.slice(0, 10),
+    durationDays: typeof allowed.durationDays === 'number' ? allowed.durationDays : 1,
+    revision: 1,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function targetIdFromAllowed(allowed: Record<string, any>): string {
+  return typeof allowed.projectId === 'string' ? allowed.projectId : '';
+}

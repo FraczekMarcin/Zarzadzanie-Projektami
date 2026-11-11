@@ -5,6 +5,7 @@ import { getNextProjectCode, isProjectCodeAvailable, isValidProjectCodeFormat } 
 import { loadAllProjectTemplates } from '../utils/projectTemplates';
 import { ProjectDetailModal } from './ProjectDetailModal';
 import { copyToClipboard } from '../utils/clipboard';
+import { FIELD_LIMITS } from '../utils/access';
 
 const AdminTemplateManagerModal = lazy(() =>
   import('./AdminTemplateManagerModal').then((m) => ({ default: m.AdminTemplateManagerModal }))
@@ -1134,6 +1135,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                     required
                     value={projectCode}
                     onChange={(e) => setProjectCode(e.target.value.toUpperCase())}
+                    maxLength={FIELD_LIMITS.key}
                     placeholder="np. 2026-04"
                     className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-3 py-2 text-xs font-mono font-bold uppercase tracking-wider text-slate-900 dark:text-white"
                   />
@@ -1158,6 +1160,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
+                  maxLength={FIELD_LIMITS.name}
                   placeholder="np. Budynek Usługowo-Biurowy Kat. XIV"
                   className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-3 py-2 text-xs text-slate-900 dark:text-white"
                 />
@@ -1169,6 +1172,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                   rows={2}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
+                  maxLength={FIELD_LIMITS.description}
                   placeholder="Cel, zakres formalnoprawny, PZT, PAB, PT..."
                   className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-3 py-2 text-xs text-slate-900 dark:text-white"
                 />
@@ -1211,6 +1215,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                       type="text"
                       value={clientName}
                       onChange={(e) => setClientName(e.target.value)}
+                      maxLength={FIELD_LIMITS.client}
                       placeholder="np. Nordic Development SA"
                       className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
                     />
@@ -1221,6 +1226,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                       type="text"
                       value={clientContactPerson}
                       onChange={(e) => setClientContactPerson(e.target.value)}
+                      maxLength={FIELD_LIMITS.client}
                       placeholder="np. Marek Zawadzki"
                       className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
                     />
@@ -1234,6 +1240,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                       type="text"
                       value={clientNip}
                       onChange={(e) => setClientNip(e.target.value)}
+                      maxLength={FIELD_LIMITS.client}
                       placeholder="525-00-00-000"
                       className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono"
                     />
@@ -1244,6 +1251,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                       type="text"
                       value={clientPhone}
                       onChange={(e) => setClientPhone(e.target.value)}
+                      maxLength={FIELD_LIMITS.client}
                       placeholder="+48 22 555 12 34"
                       className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
                     />
@@ -1254,6 +1262,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                       type="email"
                       value={clientEmail}
                       onChange={(e) => setClientEmail(e.target.value)}
+                      maxLength={FIELD_LIMITS.client}
                       placeholder="inwestycje@nordic.pl"
                       className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
                     />

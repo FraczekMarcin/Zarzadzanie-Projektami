@@ -16,6 +16,7 @@ import {
   pickAllowedTaskFields,
   pickAllowedProjectFields,
   isSameOrigin,
+  buildNewTaskRecord,
 } from './src/utils/access.js';
 import {
   generateBase32Secret,
@@ -1472,29 +1473,28 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
       return res.status(400).json({ error: err.message });
     }
 
-    const projKey = targetProject?.key || 'ZAD';
-    const existingCount = (serverAppStateCache.tasks || []).filter((t: any) => t.projectId === body.projectId).length;
-    const code = allowed.code || `${projKey}-${String(existingCount + 1).padStart(2, '0')}`;
+    const sanitizedTitle = String(allowed.title ?? '').trim();
+    if (!sanitizedTitle) {
+      return res.status(400).json({ error: 'Wymagany tytuł zadania.' });
+    }
 
-    const now = new Date().toISOString();
-    const newTask = {
-      ...allowed,
-      id: crypto.randomUUID(),
-      projectId: targetProject.id,
-      code,
-      title: String(body.title).trim(),
-      reporterId: caller.id,
-      type: allowed.type || 'task',
-      priority: allowed.priority || 'normal',
-      status: allowed.status || 'to_do',
-      progress: typeof allowed.progress === 'number' ? allowed.progress : 0,
-      startDate: allowed.startDate || now.slice(0, 10),
-      dueDate: allowed.dueDate || now.slice(0, 10),
-      durationDays: typeof allowed.durationDays === 'number' ? allowed.durationDays : 1,
-      revision: 1,
-      createdAt: now,
-      updatedAt: now,
-    };
+    const projKey = targetProject?.key || 'ZAD';
+    const existingCount = (serverAppStateCache.tasks || []).filter((t: any) => t.projectId === targetProject.id).length;
+
+    let newTask: any;
+    try {
+      newTask = buildNewTaskRecord({
+        body,
+        allowed,
+        caller,
+        projectId: targetProject.id,
+        reporterId: caller.id,
+        projectKey: projKey,
+        existingCount,
+      });
+    } catch (err: any) {
+      return res.status(400).json({ error: err.message });
+    }
 
     serverAppStateCache.tasks.unshift(newTask);
     const newRev = bumpStateRevision();
@@ -1567,6 +1567,14 @@ app.patch('/api/tasks/:id', requireAuth, async (req, res) => {
       allowedUpdates = pickAllowedTaskFields(patch, caller);
     } catch (err: any) {
       return res.status(400).json({ error: err.message });
+    }
+
+    if (allowedUpdates.title !== undefined) {
+      const sanitizedTitle = String(allowedUpdates.title).trim();
+      if (!sanitizedTitle) {
+        return res.status(400).json({ error: 'Wymagany tytuł zadania.' });
+      }
+      allowedUpdates.title = sanitizedTitle;
     }
 
     for (const [key, value] of Object.entries(allowedUpdates)) {
@@ -1647,10 +1655,15 @@ app.post('/api/projects', requireAuth, async (req, res) => {
       return res.status(400).json({ error: err.message });
     }
 
+    const sanitizedName = String(allowed.name ?? '').trim();
+    if (!sanitizedName) {
+      return res.status(400).json({ error: 'Wymagana nazwa projektu.' });
+    }
+
     const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
     let members: string[];
-    if (isAdminOrManager && Array.isArray(body.memberIds)) {
-      members = Array.from(new Set(body.memberIds));
+    if (isAdminOrManager && Array.isArray(allowed.memberIds)) {
+      members = Array.from(new Set(allowed.memberIds));
     } else {
       members = [caller.id];
     }
@@ -1658,7 +1671,7 @@ app.post('/api/projects', requireAuth, async (req, res) => {
       members.push(caller.id);
     }
 
-    const rawKey = allowed.key || (isAdminOrManager && body.key ? String(body.key) : 'PRJ');
+    const rawKey = allowed.key || 'PRJ';
     const key = String(rawKey).toUpperCase().trim().slice(0, 10);
     const now = new Date().toISOString();
 
@@ -1666,7 +1679,7 @@ app.post('/api/projects', requireAuth, async (req, res) => {
       ...allowed,
       id: crypto.randomUUID(),
       key,
-      name: String(allowed.name || body.name).trim().slice(0, 200),
+      name: sanitizedName,
       memberIds: members,
       description: allowed.description || '',
       priority: allowed.priority || 'normal',
@@ -1746,6 +1759,18 @@ app.patch('/api/projects/:id', requireAuth, async (req, res) => {
       allowedUpdates = pickAllowedProjectFields(patch, caller);
     } catch (err: any) {
       return res.status(400).json({ error: err.message });
+    }
+
+    if (allowedUpdates.name !== undefined) {
+      const sanitizedName = String(allowedUpdates.name).trim();
+      if (!sanitizedName) {
+        return res.status(400).json({ error: 'Wymagana nazwa projektu.' });
+      }
+      allowedUpdates.name = sanitizedName;
+    }
+
+    if (allowedUpdates.key !== undefined) {
+      allowedUpdates.key = String(allowedUpdates.key).toUpperCase().trim().slice(0, 10);
     }
 
     for (const [key, value] of Object.entries(allowedUpdates)) {

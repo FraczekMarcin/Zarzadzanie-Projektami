@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Task, Project, User, Priority, TaskType, TaskStatus } from '../types';
 import { X, Calendar, UserCheck, AlertTriangle, Layers, Clock, Lock, GitMerge } from 'lucide-react';
 import { getTaskTypes, TaskTypeDefinition } from '../utils/variableSettings';
+import { FIELD_LIMITS } from '../utils/access';
 
 interface TaskModalProps {
   isOpen: boolean;
@@ -301,6 +302,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
               required
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              maxLength={FIELD_LIMITS.title}
               placeholder="np. Projekt wykonawczy konstrukcji żelbetowej lub uzgodnienia z rzeczoznawcą ds. PPOŻ"
               className="w-full border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
             />
@@ -313,6 +315,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
+              maxLength={FIELD_LIMITS.description}
               placeholder="Kryteria akceptacji lub szczegóły wykonania..."
               className="w-full border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
             />

@@ -10,6 +10,7 @@ import {
   FINANCIAL_AND_CLIENT_FIELDS,
   isSameOrigin,
   FIELD_LIMITS,
+  buildNewTaskRecord,
 } from '../utils/access';
 
 describe('Kontrola dostępu (RBAC), filtrowanie danych i whitelista pól (access.ts)', () => {
@@ -483,6 +484,64 @@ describe('Kontrola dostępu (RBAC), filtrowanie danych i whitelista pól (access
       expect(res.clientPhone).toHaveLength(200);
       expect(res.clientContactPerson).toHaveLength(200);
       expect(res.clientNip).toHaveLength(200);
+    });
+  });
+
+  describe('7. buildNewTaskRecord', () => {
+    it('tytuł 5000 znaków przechodzi przez funkcję budującą nowe zadanie jako 200 znaków', () => {
+      const longTitle = 'T'.repeat(5000);
+      const caller = { id: 'usr-dev', role: 'developer' as const };
+      const task = buildNewTaskRecord({
+        body: { title: longTitle, projectId: 'prj-1' },
+        caller,
+        projectId: 'prj-1',
+        projectKey: 'PRJ',
+        existingCount: 3,
+      });
+
+      expect(task.title).toHaveLength(200);
+      expect(task.title).toBe('T'.repeat(200));
+      expect(task.code).toBe('PRJ-04');
+      expect(task.projectId).toBe('prj-1');
+      expect(task.reporterId).toBe('usr-dev');
+      expect(task.revision).toBe(1);
+    });
+
+    it('wywołanie pozycyjne buduje zadanie i przycina tytuł 5000 znaków do 200', () => {
+      const longTitle = 'Z'.repeat(5000);
+      const caller = { id: 'usr-admin', role: 'admin' as const };
+      const task = buildNewTaskRecord(
+        { title: longTitle, projectId: 'prj-2' },
+        caller,
+        { id: 'prj-2', key: 'TEST' },
+        0
+      );
+
+      expect(task.title).toHaveLength(200);
+      expect(task.title).toBe('Z'.repeat(200));
+      expect(task.code).toBe('TEST-01');
+    });
+
+    it('rzuca błąd gdy po oczyszczeniu tytuł jest pusty', () => {
+      const caller = { id: 'usr-dev', role: 'developer' as const };
+      expect(() => {
+        buildNewTaskRecord({
+          body: { title: '   ', projectId: 'prj-1' },
+          caller,
+          projectId: 'prj-1',
+        });
+      }).toThrow('Wymagany tytuł zadania.');
+    });
+
+    it('rzuca błąd gdy tytuł nie został podany', () => {
+      const caller = { id: 'usr-dev', role: 'developer' as const };
+      expect(() => {
+        buildNewTaskRecord({
+          body: { projectId: 'prj-1' },
+          caller,
+          projectId: 'prj-1',
+        });
+      }).toThrow('Wymagany tytuł zadania.');
     });
   });
 });

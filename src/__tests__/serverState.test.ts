@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { buildNewTaskRecord } from '../utils/access';
 
 describe('Współbieżna synchronizacja, operacje na zasobach i autoryzacja', () => {
   interface StateStore {
@@ -34,14 +35,21 @@ describe('Współbieżna synchronizacja, operacje na zasobach i autoryzacja', ()
       }
     }
 
-    const newTask = {
-      ...taskData,
-      id: taskData.id || `tsk-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      reporterId: taskData.reporterId || caller.id,
-      revision: 1,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    const existingCount = (s.tasks || []).filter((t: any) => t.projectId === targetProject.id).length;
+    let newTask: any;
+    try {
+      newTask = buildNewTaskRecord({
+        body: taskData,
+        caller,
+        projectId: targetProject.id,
+        reporterId: caller.id,
+        projectKey: targetProject.key || 'ZAD',
+        existingCount,
+      });
+    } catch (err: any) {
+      return { status: 400, error: err.message };
+    }
+
     s.tasks.unshift(newTask);
     const newRev = bumpRevision(s);
     return { status: 201, task: newTask, revision: newRev };
@@ -180,6 +188,17 @@ describe('Współbieżna synchronizacja, operacje na zasobach i autoryzacja', ()
     const titles = state.tasks.map((t) => t.title);
     expect(titles).toContain('Zadanie X');
     expect(titles).toContain('Zadanie Y');
+  });
+
+  it('KRYTERIUM: Tworzenie zadania z tytułem 5000 znaków zapisuje tytuł o długości 200', () => {
+    const caller = { id: 'dev-1', role: 'developer' };
+    const longTitle = 'Wielki Tytuł Zadania '.repeat(260); // > 5000 znaków
+    expect(longTitle.length).toBeGreaterThan(5000);
+
+    const res = handleCreateTask(state, { title: longTitle, projectId: 'prj-1' }, caller);
+    expect(res.status).toBe(201);
+    expect(res.task.title).toHaveLength(200);
+    expect(state.tasks[0].title).toHaveLength(200);
   });
 
   it('Dodanie jednego zadania wysyła payload < 5 KB niezależnie od liczby zadań', () => {
