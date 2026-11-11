@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import express from 'express';
-import { isSameOrigin } from './utils/access';
+import { isSameOrigin } from '../utils/access';
 
 function isRequestHttps(req: express.Request): boolean {
   if (req.app.get('trust proxy')) {

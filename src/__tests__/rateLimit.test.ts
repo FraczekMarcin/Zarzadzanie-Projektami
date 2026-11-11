@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createRateLimiter } from './utils/rateLimit';
+import { createRateLimiter } from '../utils/rateLimit';
 
 describe('In-Memory Rate Limiter (src/utils/rateLimit.ts)', () => {
   it('allows hits up to max within window and rejects exceeded hits with retryAfterSeconds', () => {

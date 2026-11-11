@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { getBusinessDaysRemaining, addBusinessDays, isBusinessDay } from './businessDays';
+import { getBusinessDaysRemaining, addBusinessDays, isBusinessDay } from '../utils/businessDays';
 import { 
   getEasterSunday, 
   getCorpusChristi, 
   formatDateIso, 
   isPolishHoliday, 
   getPolishHolidaysForYear 
-} from './polishHolidays';
+} from '../utils/polishHolidays';
 
 describe('Polskie Święta Ustawowe i Dni Robocze', () => {
   it('oblicza Wielkanoc 2026 na 2026-04-05 oraz Boże Ciało 2026 na 2026-06-04', () => {

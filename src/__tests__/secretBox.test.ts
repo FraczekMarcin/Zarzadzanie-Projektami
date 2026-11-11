@@ -6,7 +6,7 @@ import {
   isEncryptedSecret,
   deriveKeyFromSecret,
   validateAppSecret,
-} from './utils/secretBox';
+} from '../utils/secretBox';
 
 describe('secretBox (AES-256-GCM / HKDF)', () => {
   const TEST_SECRET = 'bardzo_bezpieczny_klucz_testowy_app_secret_123456';

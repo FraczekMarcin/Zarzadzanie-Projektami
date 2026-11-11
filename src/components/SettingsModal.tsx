@@ -592,7 +592,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {/* Bottom info in sidebar */}
             <div className="p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 text-[10px] text-slate-500 space-y-1">
               <div className="font-semibold text-slate-700 dark:text-slate-300">Zarządzanie Projektami</div>
-              <div>Środowisko: Docker & PostgreSQL</div>
+              <div>Środowisko: Docker (dane w pliku JSON)</div>
               <div className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">{CURRENT_APP_VERSION}</div>
             </div>
           </div>
@@ -1420,7 +1420,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     {RECOMMENDED_UPDATE_COMMAND}
                   </pre>
                   <p className="text-[11px] text-slate-400">
-                    Polecenie pobiera najnowsze zatwierdzenia z gałęzi main i natychmiastowo przebudowuje kontener bez utraty danych w bazie PostgreSQL.
+                    Polecenie pobiera najnowsze zatwierdzenia z gałęzi main i natychmiastowo przebudowuje kontener bez utraty danych w pliku bazy JSON.
                   </p>
                 </div>
               </div>

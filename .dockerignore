@@ -6,3 +6,8 @@ backups
 .env
 .env.production
 /data/
+dist
+*.md
+bun.lock
+*.test.ts
+.vscode

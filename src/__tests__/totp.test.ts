@@ -8,7 +8,7 @@ import {
   verifyAndConsumeBackupCode,
   hashBackupCodeLegacy,
   getOtpAuthUrl,
-} from './utils/totp';
+} from '../utils/totp';
 
 describe('TOTP and Backup Codes (src/utils/totp.ts)', () => {
   it('generates a valid 32-character Base32 secret', () => {

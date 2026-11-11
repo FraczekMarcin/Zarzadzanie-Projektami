@@ -152,7 +152,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
       exportedAt: new Date().toISOString(),
       metadata: {
         appName: 'Zarządzanie Projektami',
-        generator: 'Docker PostgreSQL & Cloud Ready Engine',
+        generator: 'Docker JSON & Cloud Ready Engine',
       },
       projects,
       tasks,
@@ -162,11 +162,11 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
     };
   };
 
-  // Generate PostgreSQL Dump SQL
-  const generatePostgresSql = (): string => {
+  // Generate SQL Dump
+  const generateSqlDump = (): string => {
     const timestamp = new Date().toISOString();
     let sql = `-- ==================================================================\n`;
-    sql += `-- Pełny Zrzut Bazy Danych PostgreSQL 16: Zarządzanie Projektami\n`;
+    sql += `-- Pełny Zrzut Bazy Danych SQL: Zarządzanie Projektami\n`;
     sql += `-- Wersja: ${CURRENT_APP_VERSION}\n`;
     sql += `-- Wygenerowano: ${timestamp}\n`;
     sql += `-- ==================================================================\n\n`;
@@ -283,17 +283,17 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
     onLogActivity('Pobrano pełną kopię zapasową JSON');
   };
 
-  // 2. Download PostgreSQL SQL Dump
-  const handleDownloadPostgresSql = () => {
-    const sql = generatePostgresSql();
+  // 2. Download SQL Dump
+  const handleDownloadSql = () => {
+    const sql = generateSqlDump();
     const blob = new Blob([sql], { type: 'application/sql;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `zarzadzanie-projektami-postgres-${new Date().toISOString().slice(0, 10)}.sql`;
+    a.download = `zarzadzanie-projektami-sql-${new Date().toISOString().slice(0, 10)}.sql`;
     a.click();
     URL.revokeObjectURL(url);
-    onLogActivity('Pobrano zrzut bazy danych PostgreSQL (SQL)');
+    onLogActivity('Pobrano zrzut bazy danych (SQL)');
   };
 
   // 3. Trigger Google Drive Backup
@@ -465,7 +465,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                 </span>
               </h2>
               <p className="text-xs text-slate-500">
-                Harmonogram automatyczny, retencja kopii, integracja z Google Drive, serwerem FTP oraz zrzuty PostgreSQL.
+                Harmonogram automatyczny, retencja kopii, integracja z Google Drive, serwerem FTP oraz zrzuty SQL.
               </p>
             </div>
           </div>
@@ -528,7 +528,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
             }`}
           >
             <Database className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Zrzuty PostgreSQL & Pliki Lokalne</span>
+            <span>Zrzuty SQL & Pliki Lokalne</span>
           </button>
 
           <button
@@ -754,7 +754,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
                     <Terminal className="w-4 h-4 text-emerald-400" />
-                    <span>Automatyczny Cron dla serwera produkcyjnego Linux (PostgreSQL 16)</span>
+                    <span>Automatyczny Cron dla serwera produkcyjnego Linux (app_state.json)</span>
                   </div>
                   <button
                     onClick={handleDownloadCronScript}
@@ -996,27 +996,27 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
             </div>
           )}
 
-          {/* TAB 3: LOCAL & POSTGRESQL */}
+          {/* TAB 3: LOCAL & SQL */}
           {activeTab === 'local' && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* PostgreSQL Dump */}
+                {/* SQL Dump */}
                 <div className="p-4 bg-white border border-slate-200 rounded-lg shadow-xs flex flex-col justify-between">
                   <div>
                     <div className="flex items-center gap-2 text-slate-900 font-bold text-sm mb-1">
                       <Database className="w-4 h-4 text-sky-600" />
-                      <span>Zrzut Bazy PostgreSQL (.sql)</span>
+                      <span>Zrzut Bazy SQL (.sql)</span>
                     </div>
                     <p className="text-xs text-slate-600 mb-4 leading-relaxed">
-                      Generuje gotowy skrypt SQL zawierający instrukcje `INSERT INTO ... ON CONFLICT DO UPDATE` dla lokalnej bazy PostgreSQL uruchomionej w Dockerze.
+                      Generuje gotowy skrypt SQL zawierający instrukcje `INSERT INTO ... ON CONFLICT DO UPDATE` dla importu danych projektów do relacyjnej bazy danych.
                     </p>
                   </div>
                   <button
-                    onClick={handleDownloadPostgresSql}
+                    onClick={handleDownloadSql}
                     className="w-full flex items-center justify-center gap-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold py-2 rounded-lg transition-colors"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>Pobierz zrzut PostgreSQL (.sql)</span>
+                    <span>Pobierz zrzut SQL (.sql)</span>
                   </button>
                 </div>
 

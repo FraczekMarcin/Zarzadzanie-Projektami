@@ -1958,7 +1958,7 @@ export default function App() {
         onNavigateToTaskAndProject={handleNavigateToTaskAndProject}
       />
 
-      {/* Archiving & Backup Modal (Google Drive, FTP/SFTP, PostgreSQL) */}
+      {/* Archiving & Backup Modal (Google Drive, FTP/SFTP, Zrzuty SQL) */}
       {isArchiveModalOpen && (
         <Suspense fallback={null}>
           <ArchiveBackupModal
@@ -1990,7 +1990,7 @@ export default function App() {
             latestVersion={CURRENT_APP_VERSION}
             onUpdateCompleted={() => {
               setNotificationToast({
-                message: `Aplikacja zaktualizowana do wersji ${CURRENT_APP_VERSION} (GitHub). Wszystkie dane bazy PostgreSQL zostały zachowane!`,
+                message: `Aplikacja zaktualizowana do wersji ${CURRENT_APP_VERSION} (GitHub). Wszystkie dane w pliku bazy app_state.json zostały zachowane!`,
                 type: 'success',
               });
               setHasDismissedUpdateBanner(true);

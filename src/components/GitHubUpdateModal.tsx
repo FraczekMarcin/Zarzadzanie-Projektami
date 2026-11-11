@@ -42,24 +42,24 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
 
   const updateSteps = [
     {
-      title: 'Krok 1: Weryfikacja wolumenu danych PostgreSQL',
-      desc: 'Sprawdzanie obecności wolumenu "zarzadzanie_postgres_data" i integralności tabel.',
+      title: 'Krok 1: Kopia zapasowa bazy danych (./backup.sh)',
+      desc: 'Wykonanie skompresowanej i zweryfikowanej kopii pliku app_state.json w katalogu backups/.',
     },
     {
-      title: 'Krok 2: Automatyczna kopia zapasowa bezpieczeństwa (pg_dump)',
-      desc: `Generowanie zrzutu bazy do /opt/zarzadzanie-projektami/backups/backup_pre_upgrade.sql przed podmianą kontenera.`,
+      title: 'Krok 2: Zabezpieczenie lokalnych zmian (git stash)',
+      desc: 'Ukrycie ewentualnych lokalnych modyfikacji (jeśli istnieją), aby git pull wykonał się bez konfliktów.',
     },
     {
-      title: 'Krok 3: Pobieranie najnowszego kodu z oficjalnego repozytorium GitHub',
-      desc: `Polecenie git pull origin main z https://github.com/FraczekMarcin/Zarzadzanie-Projektami.`,
+      title: 'Krok 3: Pobranie najnowszego kodu (git pull origin main)',
+      desc: 'Pobranie najnowszych zmian z oficjalnego repozytorium GitHub.',
     },
     {
-      title: 'Krok 4: Przeładowanie kontenerów (docker compose up -d --build)',
-      desc: 'Uruchomienie nowej wersji z zachowaniem dotychczasowego wolumenu danych PostgreSQL 16.',
+      title: 'Krok 4: Przebudowa i start kontenerów (docker compose up -d --build)',
+      desc: 'Uruchomienie nowej wersji z zachowaniem dotychczasowego wolumenu danych zarzadzanie_app_data.',
     },
     {
-      title: 'Krok 5: Weryfikacja spójności bazy i harmonogramów',
-      desc: 'Wszystkie projekty budowlane, etapy, zadania i terminy urzędowe są w 100% nienaruszone!',
+      title: 'Krok 5: Weryfikacja działania usług (docker compose ps)',
+      desc: 'Sprawdzenie czy kontener zarzadzanie_app działa i odpowiada prawidłowo.',
     },
   ];
 
@@ -83,7 +83,7 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
     }, 850);
   };
 
-  const terminalUpdateCommand = `cd ${INSTALL_TARGET_DIR} && git pull origin main && docker compose up -d --build`;
+  const terminalUpdateCommand = `cd ${INSTALL_TARGET_DIR} && ./backup.sh && git stash && git pull origin main && docker compose up -d --build && docker compose ps`;
 
   const handleCopyCommand = async () => {
     const success = await copyToClipboard(terminalUpdateCommand);
@@ -156,10 +156,10 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
               <span>Czy po aktualizacji Docker dane projektów pozostaną?</span>
             </div>
             <p className="text-xs text-emerald-950 leading-relaxed">
-              <strong>TAK, w 100%!</strong> Twoje projekty budowlane, zadania, harmonogramy i użytkownicy są bezpiecznie przechowywane w trwałym wolumenie bazy danych <code className="bg-emerald-100 px-1 py-0.5 rounded font-mono font-bold text-emerald-900">zarzadzanie_postgres_data</code>.
+              <strong>TAK, w 100%!</strong> Twoje projekty budowlane, zadania, harmonogramy i użytkownicy są bezpiecznie przechowywane w trwałym wolumenie bazy danych <code className="bg-emerald-100 px-1 py-0.5 rounded font-mono font-bold text-emerald-900">zarzadzanie_app_data</code>.
             </p>
             <p className="text-xs text-emerald-900 leading-relaxed">
-              Podczas aktualizacji Docker pobiera jedynie nowszy kod aplikacji z GitHub, a wolumen PostgreSQL na dysku serwera w <code className="font-mono text-emerald-900">/opt/zarzadzanie-projektami</code> pozostaje <strong>całkowicie nienaruszony</strong>.
+              Podczas aktualizacji Docker pobiera jedynie nowszy kod aplikacji z GitHub, a wolumen danych na dysku serwera w <code className="font-mono text-emerald-900">/opt/zarzadzanie-projektami</code> pozostaje <strong>całkowicie nienaruszony</strong>.
             </p>
           </div>
 
@@ -213,7 +213,7 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
 
               {isDone && (
                 <div className="bg-emerald-600 text-white p-3 rounded-lg flex items-center justify-between text-xs font-medium">
-                  <span>Wersja {latestVersion} została pomyślnie zaaplikowana! Dane bazy PostgreSQL są nienaruszone.</span>
+                  <span>Wersja {latestVersion} została pomyślnie zaaplikowana! Dane w wolumenie zarzadzanie_app_data są nienaruszone.</span>
                   <button
                     onClick={onClose}
                     className="px-3 py-1 bg-white text-emerald-900 font-bold rounded hover:bg-emerald-50 transition-colors shrink-0"
@@ -247,9 +247,11 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
               <div className="bg-slate-950 text-slate-200 rounded-lg p-3 font-mono text-[11px] space-y-1 overflow-x-auto">
                 <div className="text-slate-500 font-sans text-[10px]"># Komenda terminala na serwerze produkcyjnym Linux:</div>
                 <div className="text-sky-300">cd {INSTALL_TARGET_DIR}</div>
-                <div className="text-emerald-400">sudo ./backup.sh</div>
+                <div className="text-emerald-400">./backup.sh</div>
+                <div className="text-slate-400">git stash # (jeśli są lokalne zmiany)</div>
                 <div className="text-amber-300">git pull origin main</div>
                 <div className="text-emerald-300 font-bold">docker compose up -d --build</div>
+                <div className="text-sky-400">docker compose ps</div>
               </div>
             </div>
           )}

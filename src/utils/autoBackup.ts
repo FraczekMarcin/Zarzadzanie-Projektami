@@ -156,7 +156,7 @@ export function generateLinuxCronBackupScript(): string {
   return `#!/usr/bin/env bash
 # ==============================================================================
 # Zarządzanie Projektami - Kopia Zapasowa Pliku Stanu (app_state.json)
-# Wersja: 2026-11-02 v 0.4.0
+# Wersja: 2026-11-10 v0.6.0
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Ścieżka docelowa: /opt/zarzadzanie-projektami/backup.sh
 # ==============================================================================

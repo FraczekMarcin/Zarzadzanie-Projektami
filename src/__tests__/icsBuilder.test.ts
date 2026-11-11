@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import ical from 'node-ical';
-import { buildIcs, escapeIcsText, foldLine, IcsTask } from './utils/icsBuilder';
+import { buildIcs, escapeIcsText, foldLine, IcsTask } from '../utils/icsBuilder';
 
 describe('buildIcs - Generator RFC 5545 iCalendar i parser node-ical', () => {
   it('Prawidłowo buduje i parsuje feed z zadaniem ze znakami specjalnymi "a,b;c", odwróconymi datami i bez dat', async () => {

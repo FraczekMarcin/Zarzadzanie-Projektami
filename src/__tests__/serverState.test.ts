@@ -327,7 +327,7 @@ describe('Współbieżna synchronizacja, operacje na zasobach i autoryzacja', ()
 
   it('Bezpieczeństwo feedu kalendarza: anonim bez tokenu dostaje 404, prawidłowy token zwraca poprawny iCal', async () => {
     const crypto = await import('crypto');
-    const { buildIcs } = await import('./utils/icsBuilder');
+    const { buildIcs } = await import('../utils/icsBuilder');
     const ical = (await import('node-ical')).default;
 
     // Symulacja bazy użytkowników i tokenów

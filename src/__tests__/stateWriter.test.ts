@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { StateWriter } from './stateWriter';
+import { StateWriter } from '../utils/stateWriter';
 
 describe('StateWriter (single-flight atomic state saving)', () => {
   it('pojedyncze wywołanie kończy się w czasie krótszym niż 50 ms z szybkim zapisem', async () => {

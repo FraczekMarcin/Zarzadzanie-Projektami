@@ -10,7 +10,7 @@ import {
   FINANCIAL_AND_CLIENT_FIELDS,
   isSameOrigin,
   FIELD_LIMITS,
-} from './utils/access';
+} from '../utils/access';
 
 describe('Kontrola dostępu (RBAC), filtrowanie danych i whitelista pól (access.ts)', () => {
   const adminUser = { id: 'usr-admin', name: 'Admin', role: 'admin' as const };
