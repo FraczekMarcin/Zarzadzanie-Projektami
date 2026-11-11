@@ -71,6 +71,32 @@ if (process.env.TRUST_PROXY) {
   app.set('trust proxy', false);
 }
 
+// Lekkie logowanie żądań API bez zewnętrznych zależności:
+// Dla /api/* wypisuje jedną linię przy odpowiedzi (metoda, ścieżka bez query, status, czas w ms),
+// tylko dla statusów >= 400 lub czasu > 500 ms (pomijając /api/health i /api/state/revision).
+// Nie loguje nagłówków, ciasteczek, ciała żądania ani adresów e-mail.
+app.use((req, res, next) => {
+  const reqPath = req.path;
+  if (!reqPath.startsWith('/api/') && reqPath !== '/api') {
+    return next();
+  }
+  if (reqPath === '/api/health' || reqPath === '/api/state/revision') {
+    return next();
+  }
+
+  const startTime = Date.now();
+
+  res.on('finish', () => {
+    const durationMs = Date.now() - startTime;
+    const status = res.statusCode;
+    if (status >= 400 || durationMs > 500) {
+      console.log(`[API] ${req.method} ${reqPath} ${status} ${durationMs}ms`);
+    }
+  });
+
+  next();
+});
+
 // Kompresja odpowiedzi HTTP (gzip/deflate/br) dla odpowiedzi tekstowych.
 // Decyzja: Gdy TRUST_PROXY wskazuje obecność zewnętrznego reverse proxy (np. Nginx, Cloudflare, Traefik),
 // to kompresję wykonuje brzeg sieciowy / reverse proxy (odciążając proces Node.js).

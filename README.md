@@ -259,9 +259,20 @@ sudo /opt/zarzadzanie-projektami/backup.sh
 
 ---
 
+## 📋 Logi i diagnostyka kontenerów Docker
+
+Usługi kontenerowe posiadają włączoną rotację logów (`driver: json-file`, `max-size: 10m`, `max-file: 3`), co zabezpiecza serwer przed wyczerpaniem miejsca na dysku. Serwer aplikacji rejestruje wyłącznie błędy (status >= 400) oraz żądania przekraczające 500 ms (z pominięciem `/api/health` i `/api/state/revision`), bez utrwalania nagłówków, ciasteczek ani danych osobowych.
+
+Podgląd logów na żywo na serwerze produkcyjnym:
+```bash
+docker compose logs --tail 100 -f
+```
+
+---
+
 ## 🛠️ Wdrożenie deweloperskie (Lokalne)
 
-Wymagania: Node.js 20+, npm lub bun.
+Wymagania: Node.js 20+, npm.
 
 ```bash
 # 1. Sklonuj repozytorium
