@@ -31,9 +31,11 @@ import {
   BellRing,
   Tag,
   Network,
+  Folder,
+  LogOut,
   Cloud,
-  Folder
 } from 'lucide-react';
+import { parseUserAgent, PublicSession } from '../utils/sessions';
 import { ThemeMode, getThemePreference, setThemePreference } from '../utils/theme';
 import { CURRENT_APP_VERSION, GITHUB_REPO_URL, INSTALL_COMMAND, UPDATE_COMMAND } from '../data/dockerConfig';
 import { isNewerVersion } from '../utils/versionCheck';
@@ -153,11 +155,109 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     return localStorage.getItem('oph_google_drive_sync') !== 'false';
   });
 
+  // Session management state
+  const [activeSessions, setActiveSessions] = useState<PublicSession[]>([]);
+  const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+  const [sessionActionError, setSessionActionError] = useState<string | null>(null);
+  const [sessionActionSuccess, setSessionActionSuccess] = useState<string | null>(null);
+  const [isRevokingOthers, setIsRevokingOthers] = useState(false);
+
+  const loadSessions = async () => {
+    setIsLoadingSessions(true);
+    setSessionActionError(null);
+    try {
+      const res = await fetch('/api/auth/sessions', { credentials: 'same-origin' });
+      if (res.ok) {
+        const data = await res.json();
+        setActiveSessions(Array.isArray(data.sessions) ? data.sessions : (Array.isArray(data) ? data : []));
+      }
+    } catch (err: any) {
+      console.error('Błąd pobierania sesji:', err);
+    } finally {
+      setIsLoadingSessions(false);
+    }
+  };
+
+  const handleRevokeSession = async (sessionId: string) => {
+    setSessionActionError(null);
+    setSessionActionSuccess(null);
+    try {
+      const res = await fetch(`/api/auth/sessions/${sessionId}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSessionActionError(data.error || 'Błąd unieważniania sesji');
+      } else {
+        setSessionActionSuccess('Sesja została pomyślnie unieważniona.');
+        await loadSessions();
+      }
+    } catch (err: any) {
+      setSessionActionError(err.message || 'Błąd połączenia z serwerem');
+    }
+  };
+
+  const handleRevokeOtherSessions = async () => {
+    if (!window.confirm('Czy na pewno chcesz wylogować wszystkie inne aktywne sesje?')) return;
+    setIsRevokingOthers(true);
+    setSessionActionError(null);
+    setSessionActionSuccess(null);
+    try {
+      const res = await fetch('/api/auth/sessions/revoke-others', {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSessionActionError(data.error || 'Błąd unieważniania pozostałych sesji');
+      } else {
+        setSessionActionSuccess('Wszystkie inne sesje zostały pomyślnie wylogowane.');
+        await loadSessions();
+      }
+    } catch (err: any) {
+      setSessionActionError(err.message || 'Błąd połączenia z serwerem');
+    } finally {
+      setIsRevokingOthers(false);
+    }
+  };
+
+  const handleAdminRevokeAllUserSessions = async (userId: string, userName: string) => {
+    if (!window.confirm(`Czy na pewno chcesz zakończyć wszystkie sesje użytkownika ${userName}? Użytkownik zostanie natychmiast wylogowany ze wszystkich urządzeń.`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/users/${userId}/sessions`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`Pomyślnie zakończono sesje użytkownika ${userName}.`);
+        if (userId === currentUser?.id) {
+          window.location.reload();
+        } else {
+          loadSessions();
+        }
+      } else {
+        alert(data.error || 'Błąd kończenia sesji użytkownika');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Błąd połączenia z serwerem');
+    }
+  };
+
   useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab);
     }
   }, [initialTab, isOpen]);
+
+  useEffect(() => {
+    if (isOpen && activeTab === 'users') {
+      loadSessions();
+    }
+  }, [isOpen, activeTab]);
 
   useEffect(() => {
     setCurrentTheme(getThemePreference());
@@ -1199,6 +1299,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               Resetuj 2FA
                             </button>
                           )}
+                          {currentUser?.role === 'admin' && (
+                            <button
+                              type="button"
+                              onClick={() => handleAdminRevokeAllUserSessions(u.id, u.name)}
+                              className="px-2 py-1 text-[11px] font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-950/60 rounded transition-colors"
+                              title="Wyloguj użytkownika ze wszystkich urządzeń"
+                            >
+                              Zakończ wszystkie sesje
+                            </button>
+                          )}
                           {u.isDemo && (
                             <span className="px-2 py-0.5 rounded text-[10px] bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold">
                               Konto demonstracyjne
@@ -1207,6 +1317,128 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </div>
                       </div>
                     ))}
+                  </div>
+                </div>
+
+                {/* Active Sessions Section */}
+                <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+                  <div className="px-4 py-3 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">
+                          Aktywne sesje ({activeSessions.length})
+                        </span>
+                        {isLoadingSessions && (
+                          <span className="text-[11px] text-slate-400 animate-pulse">Ładowanie...</span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Lista zalogowanych urządzeń i przeglądarek powiązanych z Twoim kontem.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={loadSessions}
+                        disabled={isLoadingSessions}
+                        className="px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                      >
+                        Odśwież
+                      </button>
+
+                      {activeSessions.filter(s => !s.current).length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleRevokeOtherSessions}
+                          disabled={isRevokingOthers}
+                          className="px-3 py-1 text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 rounded hover:bg-rose-100 dark:hover:bg-rose-900 transition-colors flex items-center gap-1.5"
+                        >
+                          <LogOut className="w-3.5 h-3.5" />
+                          <span>{isRevokingOthers ? 'Wylogowywanie...' : 'Wyloguj wszystkie inne'}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {sessionActionError && (
+                    <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border-b border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs">
+                      {sessionActionError}
+                    </div>
+                  )}
+
+                  {sessionActionSuccess && (
+                    <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs">
+                      {sessionActionSuccess}
+                    </div>
+                  )}
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-100/70 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
+                        <tr>
+                          <th className="py-2.5 px-3 font-semibold">Urządzenie / Przeglądarka</th>
+                          <th className="py-2.5 px-3 font-semibold">Adres IP</th>
+                          <th className="py-2.5 px-3 font-semibold">Utworzona</th>
+                          <th className="py-2.5 px-3 font-semibold">Ostatnia aktywność</th>
+                          <th className="py-2.5 px-3 font-semibold text-right">Akcja</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                        {activeSessions.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="py-6 text-center text-slate-400">
+                              {isLoadingSessions ? 'Ładowanie listy sesji...' : 'Brak aktywnych sesji do wyświetlenia.'}
+                            </td>
+                          </tr>
+                        ) : (
+                          activeSessions.map((session) => (
+                            <tr key={session.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                              <td className="py-2.5 px-3">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-slate-900 dark:text-white">
+                                    {parseUserAgent(session.userAgent)}
+                                  </span>
+                                  {session.current && (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 border border-sky-300 dark:border-sky-800">
+                                      Ta sesja
+                                    </span>
+                                  )}
+                                </div>
+                                {session.userAgent && (
+                                  <div className="text-[10px] text-slate-400 font-mono truncate max-w-xs" title={session.userAgent}>
+                                    {session.userAgent}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 font-mono text-slate-600 dark:text-slate-300 text-[11px]">
+                                {session.ip || '—'}
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400 text-[11px] whitespace-nowrap">
+                                {new Date(session.createdAt).toLocaleString('pl-PL')}
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400 text-[11px] whitespace-nowrap">
+                                {session.lastSeenAt ? new Date(session.lastSeenAt).toLocaleString('pl-PL') : new Date(session.createdAt).toLocaleString('pl-PL')}
+                              </td>
+                              <td className="py-2.5 px-3 text-right">
+                                {session.current ? (
+                                  <span className="text-[11px] text-slate-400 italic">Bieżąca</span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRevokeSession(session.id)}
+                                    className="px-2.5 py-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded border border-rose-200 dark:border-rose-900 transition-colors"
+                                    title="Unieważnij tę sesję"
+                                  >
+                                    Wyloguj
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>

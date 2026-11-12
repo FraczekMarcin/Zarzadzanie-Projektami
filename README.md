@@ -229,6 +229,16 @@ System szyfruje sekrety uwierzytelniania dwuskładnikowego (2FA) oraz kody zapas
 
 ---
 
+## ⏱️ Zarządzanie sesjami i wygasanie po bezczynności
+
+System chroni aktywne sesje użytkowników z wykorzystaniem podwójnego limitu czasowego:
+- **Wygasanie po bezczynności (`SESSION_IDLE_MINUTES`):** Domyślnie **120 minut** (2 godziny). Każde uwierzytelnione żądanie odświeża znacznik `lastSeenAt` (zoptymalizowane z ograniczeniem częstotliwości zapisu na dysk). Jeśli użytkownik nie wykazuje aktywności dłużej niż ustalony czas, sesja zostaje automatycznie zakończona, a kolejne żądanie zwróci kod `401 Unauthorized`.
+- **Maksymalny bezwzględny czas sesji (`SESSION_MAX_HOURS`):** Domyślnie **12 godzin**. Po tym czasie sesja bezwzględnie wygasa i wymaga ponownego zalogowania.
+
+Użytkownicy mogą w zakładce *Ustawienia ➔ Konta Użytkowników & Bezpieczeństwo* przeglądać listę swoich aktywnych sesji (rodzaj urządzenia, adres IP, data utworzenia i ostatniej aktywności) oraz zdalnie wylogować poszczególne urządzenia lub wszystkie inne sesje naraz. Administratorzy mają ponadto możliwość natychmiastowego zakończenia wszystkich sesji wybranego pracownika.
+
+---
+
 ## 📂 Struktura katalogu `/opt/zarzadzanie-projektami`
 
 ```text

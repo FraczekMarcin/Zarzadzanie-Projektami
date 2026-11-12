@@ -35,6 +35,13 @@ import {
   validateAppSecret,
 } from './src/utils/secretBox.js';
 import { StateWriter } from './src/utils/stateWriter.js';
+import {
+  Session,
+  PublicSession,
+  isSessionExpired,
+  toPublicSession,
+  computeSessionPublicId,
+} from './src/utils/sessions.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -350,13 +357,14 @@ if (fs.existsSync(STATE_FILE)) {
 // ==============================================================================
 // 1. BEZPIECZEŃSTWO SESJI I CIASTECZEK (HttpOnly, SameSite=Lax, Secure gdy HTTPS)
 // ==============================================================================
-export interface Session {
-  tokenHash: string;
-  userId: string;
-  role: string;
-  createdAt: number;
-  expiresAt: number;
-}
+export type { Session };
+
+const SESSION_IDLE_MINUTES = parseInt(process.env.SESSION_IDLE_MINUTES || '120', 10) || 120;
+const SESSION_IDLE_MS = SESSION_IDLE_MINUTES * 60 * 1000;
+const SESSION_MAX_HOURS = parseInt(process.env.SESSION_MAX_HOURS || '12', 10) || 12;
+const SESSION_MAX_MS = SESSION_MAX_HOURS * 60 * 60 * 1000;
+
+console.log(`[Server Auth] Polityka sesji: bezczynność maks. ${SESSION_IDLE_MINUTES} min, czas trwania maks. ${SESSION_MAX_HOURS} h`);
 
 const sessions = new Map<string, Session>();
 
@@ -371,20 +379,29 @@ if (fs.existsSync(SESSIONS_FILE)) {
     const parsed: any[] = JSON.parse(raw);
     const now = Date.now();
     for (const s of parsed) {
-      if (s && s.expiresAt > now) {
-        if (s.tokenHash) {
-          sessions.set(s.tokenHash, s);
-        } else if (s.token) {
-          // Migracja wsteczna: haszuj stare jawne tokeny z sessions.json
-          const hash = hashSessionToken(s.token);
-          sessions.set(hash, {
-            tokenHash: hash,
-            userId: s.userId,
-            role: s.role,
-            createdAt: s.createdAt,
-            expiresAt: s.expiresAt,
-          });
-        }
+      if (!s) continue;
+      const createdAt = typeof s.createdAt === 'number' ? s.createdAt : now;
+      const lastSeenAt = typeof s.lastSeenAt === 'number' ? s.lastSeenAt : createdAt;
+      const expiresAt = typeof s.expiresAt === 'number' ? s.expiresAt : (createdAt + SESSION_MAX_MS);
+      let tokenHash = s.tokenHash;
+      if (!tokenHash && s.token) {
+        tokenHash = hashSessionToken(s.token);
+      }
+      if (!tokenHash) continue;
+
+      const loadedSession: Session = {
+        tokenHash,
+        userId: s.userId,
+        role: s.role,
+        createdAt,
+        expiresAt,
+        lastSeenAt,
+        userAgent: typeof s.userAgent === 'string' ? s.userAgent.slice(0, 200) : undefined,
+        ip: typeof s.ip === 'string' ? s.ip : undefined,
+      };
+
+      if (!isSessionExpired(loadedSession, now, SESSION_IDLE_MS, SESSION_MAX_MS)) {
+        sessions.set(tokenHash, loadedSession);
       }
     }
     console.log(`[Server Auth] Załadowano ${sessions.size} aktywnych sesji z pliku ${SESSIONS_FILE}`);
@@ -397,7 +414,10 @@ let sessionWriteQueue: Promise<void> = Promise.resolve();
 function saveSessionsAsync(): Promise<void> {
   const doWrite = async () => {
     try {
-      const active = Array.from(sessions.values()).filter((s) => s.expiresAt > Date.now());
+      const now = Date.now();
+      const active = Array.from(sessions.values()).filter(
+        (s) => !isSessionExpired(s, now, SESSION_IDLE_MS, SESSION_MAX_MS)
+      );
       const tmp = path.join(DATA_DIR, 'sessions.json.tmp');
       await fs.promises.writeFile(tmp, JSON.stringify(active), 'utf-8');
       await fs.promises.rename(tmp, SESSIONS_FILE);
@@ -407,6 +427,31 @@ function saveSessionsAsync(): Promise<void> {
   };
   sessionWriteQueue = sessionWriteQueue.then(doWrite, doWrite);
   return sessionWriteQueue;
+}
+
+// Zapis sessions.json z samym lastSeenAt wykonuj nie częściej niż co 5 minut (nie przy każdym żądaniu)
+let lastSessionsDiskSaveTime = 0;
+let pendingSessionSaveTimeout: NodeJS.Timeout | null = null;
+const SESSIONS_DISK_FLUSH_INTERVAL_MS = 5 * 60 * 1000; // 5 minut
+
+function scheduleThrottledSessionsSave() {
+  const now = Date.now();
+  if (now - lastSessionsDiskSaveTime >= SESSIONS_DISK_FLUSH_INTERVAL_MS) {
+    lastSessionsDiskSaveTime = now;
+    if (pendingSessionSaveTimeout) {
+      clearTimeout(pendingSessionSaveTimeout);
+      pendingSessionSaveTimeout = null;
+    }
+    saveSessionsAsync();
+  } else if (!pendingSessionSaveTimeout) {
+    const delay = SESSIONS_DISK_FLUSH_INTERVAL_MS - (now - lastSessionsDiskSaveTime);
+    pendingSessionSaveTimeout = setTimeout(() => {
+      pendingSessionSaveTimeout = null;
+      lastSessionsDiskSaveTime = Date.now();
+      saveSessionsAsync();
+    }, delay);
+    pendingSessionSaveTimeout.unref();
+  }
 }
 
 function parseCookies(header?: string): Record<string, string> {
@@ -428,7 +473,7 @@ function parseCookies(header?: string): Record<string, string> {
   return res;
 }
 
-function setSessionCookie(req: express.Request, res: express.Response, rawToken: string, maxAgeSec = 12 * 3600) {
+function setSessionCookie(req: express.Request, res: express.Response, rawToken: string, maxAgeSec = SESSION_MAX_HOURS * 3600) {
   const isHttps = isRequestHttps(req);
   const cookieName = isHttps ? '__Host-zp_session' : 'zp_session';
   const cookieParts = [
@@ -464,11 +509,23 @@ function getSessionFromReq(req: express.Request): Session | null {
   const tokenHash = hashSessionToken(rawToken);
   const session = sessions.get(tokenHash);
   if (!session) return null;
-  if (session.expiresAt <= Date.now()) {
+
+  const now = Date.now();
+  if (isSessionExpired(session, now, SESSION_IDLE_MS, SESSION_MAX_MS)) {
     sessions.delete(tokenHash);
     saveSessionsAsync();
     return null;
   }
+
+  // lastSeenAt aktualizuj najwyżej raz na minutę na sesję, a zapis sessions.json nie częściej niż co 5 minut
+  const effectiveLastSeen = typeof session.lastSeenAt === 'number' ? session.lastSeenAt : session.createdAt;
+  if (now - effectiveLastSeen >= 60 * 1000) {
+    session.lastSeenAt = now;
+    if (!session.ip) session.ip = getClientIp(req);
+    if (!session.userAgent) session.userAgent = (req.headers['user-agent'] || '').slice(0, 200);
+    scheduleThrottledSessionsSave();
+  }
+
   return session;
 }
 
@@ -1193,20 +1250,25 @@ app.post('/api/auth/login', async (req, res) => {
     // Pomyślne logowanie - resetowanie licznika błędnych prób
     resetFailedLogin(identifier, clientIp);
 
-    // Utworzenie tokena i sesji (12 h) - w pamięci i pliku przechowujemy SHA-256 tokenu
+    // Utworzenie tokena i sesji - w pamięci i pliku przechowujemy SHA-256 tokenu
+    const userAgent = (req.headers['user-agent'] || '').slice(0, 200);
+    const now = Date.now();
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = hashSessionToken(rawToken);
     const session: Session = {
       tokenHash,
       userId: user.id,
       role: user.role,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + 12 * 60 * 60 * 1000,
+      createdAt: now,
+      expiresAt: now + SESSION_MAX_MS,
+      lastSeenAt: now,
+      userAgent: userAgent || undefined,
+      ip: clientIp || undefined,
     };
     sessions.set(tokenHash, session);
     saveSessionsAsync();
 
-    setSessionCookie(req, res, rawToken);
+    setSessionCookie(req, res, rawToken, SESSION_MAX_HOURS * 3600);
     res.json({ success: true, user: sanitizeUser(user) });
   } catch (err: any) {
     console.error('[Server Auth] Błąd logowania:', err);
@@ -1229,6 +1291,109 @@ app.post('/api/auth/logout', (req, res) => {
 app.get('/api/auth/me', requireAuth, (req, res) => {
   const user = (req as any).user;
   res.json({ authenticated: true, user: sanitizeUser(user) });
+});
+
+// GET /api/auth/sessions (Lista aktywnych sesji zalogowanego użytkownika)
+app.get('/api/auth/sessions', requireAuth, (req, res) => {
+  const caller = (req as any).user;
+  const currentSession = (req as any).session as Session;
+  const now = Date.now();
+  const userSessions: PublicSession[] = [];
+
+  for (const [tokenHash, s] of sessions.entries()) {
+    if (s.userId === caller.id) {
+      if (isSessionExpired(s, now, SESSION_IDLE_MS, SESSION_MAX_MS)) {
+        sessions.delete(tokenHash);
+        scheduleThrottledSessionsSave();
+        continue;
+      }
+      userSessions.push(toPublicSession(s, currentSession.tokenHash, effectiveAppSecret));
+    }
+  }
+
+  // Sortowanie: bieżąca sesja na górze, reszta wg lastSeenAt malejąco
+  userSessions.sort((a, b) => {
+    if (a.current && !b.current) return -1;
+    if (!a.current && b.current) return 1;
+    return b.lastSeenAt - a.lastSeenAt;
+  });
+
+  res.json({ success: true, sessions: userSessions });
+});
+
+// DELETE /api/auth/sessions/:id (Unieważnienie własnej sesji o danym publicznym id)
+app.delete('/api/auth/sessions/:id', requireAuth, async (req, res) => {
+  const caller = (req as any).user;
+  const currentSession = (req as any).session as Session;
+  const { id } = req.params;
+  let foundTokenHash: string | null = null;
+  let isCurrent = false;
+
+  for (const [tokenHash, s] of sessions.entries()) {
+    if (s.userId === caller.id) {
+      const pubId = computeSessionPublicId(tokenHash, effectiveAppSecret);
+      if (pubId === id) {
+        foundTokenHash = tokenHash;
+        isCurrent = tokenHash === currentSession.tokenHash;
+        break;
+      }
+    }
+  }
+
+  if (!foundTokenHash) {
+    return res.status(404).json({ error: 'Sesja nie istnieje lub należy do kogoś innego' });
+  }
+
+  sessions.delete(foundTokenHash);
+  await saveSessionsAsync();
+
+  if (isCurrent) {
+    clearSessionCookie(req, res);
+    return res.json({ success: true, message: 'Wylogowano z bieżącej sesji', loggedOutCurrent: true });
+  }
+
+  res.json({ success: true, message: 'Sesja została unieważniona' });
+});
+
+// POST /api/auth/sessions/revoke-others (Unieważnienie wszystkich sesji użytkownika poza bieżącą)
+app.post('/api/auth/sessions/revoke-others', requireAuth, async (req, res) => {
+  const caller = (req as any).user;
+  const currentSession = (req as any).session as Session;
+  let revokedCount = 0;
+
+  for (const [tokenHash, s] of sessions.entries()) {
+    if (s.userId === caller.id && tokenHash !== currentSession.tokenHash) {
+      sessions.delete(tokenHash);
+      revokedCount++;
+    }
+  }
+
+  await saveSessionsAsync();
+  res.json({ success: true, message: `Unieważniono pozostałe sesje (${revokedCount})`, revokedCount });
+});
+
+// DELETE /api/users/:userId/sessions (Admin: unieważnienie wszystkich sesji wskazanego użytkownika)
+app.delete('/api/users/:userId/sessions', requireAdmin, async (req, res) => {
+  const { userId } = req.params;
+  const targetUser = (serverUsersCache || []).find((u: any) => u.id === userId);
+  if (!targetUser) {
+    return res.status(404).json({ error: `Użytkownik o ID "${userId}" nie istnieje` });
+  }
+
+  let revokedCount = 0;
+  for (const [tokenHash, s] of sessions.entries()) {
+    if (s.userId === userId) {
+      sessions.delete(tokenHash);
+      revokedCount++;
+    }
+  }
+
+  await saveSessionsAsync();
+  res.json({
+    success: true,
+    message: `Unieważniono wszystkie sesje użytkownika ${targetUser.name} (${revokedCount})`,
+    revokedCount,
+  });
 });
 
 // POST /api/auth/setup-admin (Kreator tworzenia pierwszego konta admina, hasło min. 12 znaków)
@@ -1291,19 +1456,24 @@ app.post('/api/auth/setup-admin', async (req, res) => {
     await saveStateAtomicAsync();
 
     // Automatyczne zalogowanie po utworzeniu konta
+    const userAgent = (req.headers['user-agent'] || '').slice(0, 200);
+    const now = Date.now();
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = hashSessionToken(rawToken);
     const session: Session = {
       tokenHash,
       userId: adminUser.id,
       role: adminUser.role,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + 12 * 60 * 60 * 1000,
+      createdAt: now,
+      expiresAt: now + SESSION_MAX_MS,
+      lastSeenAt: now,
+      userAgent: userAgent || undefined,
+      ip: clientIp || undefined,
     };
     sessions.set(tokenHash, session);
     saveSessionsAsync();
 
-    setSessionCookie(req, res, rawToken);
+    setSessionCookie(req, res, rawToken, SESSION_MAX_HOURS * 3600);
     res.json({ success: true, user: sanitizeUser(adminUser) });
   } catch (err: any) {
     console.error('[Server Auth] Błąd setup-admin:', err);
