@@ -304,6 +304,14 @@ Użytkownicy mogą w zakładce *Ustawienia ➔ Konta Użytkowników & Bezpiecze�
 
 ---
 
+## 💾 Magazyn danych
+
+Domyślnie (`STORAGE=json`) stan aplikacji jest przechowywany w pliku JSON (`app_state.json` w katalogu `DATA_DIR`) z atomowym zapisem (`fsync` + `rename`) oraz szyfrowaniem sekretów 2FA. Takie rozwiązanie w zupełności wystarcza do sprawnej pracy dla pracowni obsługujących do kilku tysięcy zadań.
+
+Warstwa utrwalania danych korzysta z abstrakcji `StateStore` (`src/utils/stateStore.ts`), dzięki czemu architektura umożliwia łatwe dodanie w przyszłości innego magazynu danych (np. bazy SQL) poprzez nową implementację tego interfejsu i wybór zmienną środowiskową `STORAGE`.
+
+---
+
 ## 📂 Struktura katalogu `/opt/zarzadzanie-projektami`
 
 ```text

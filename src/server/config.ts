@@ -27,6 +27,7 @@ export interface CreateAppOptions {
   enableVite?: boolean;
   staticDir?: string;
   isDirectRun?: boolean;
+  storage?: string;
 }
 
 export interface ServerConfig {
@@ -47,6 +48,7 @@ export interface ServerConfig {
   enableVite: boolean;
   staticDir?: string;
   isDirectRun: boolean;
+  storage: string;
   isSelfRegistrationAllowed: () => boolean;
   getSetupToken: () => string;
   isSetupTokenRequired: () => boolean;
@@ -113,6 +115,12 @@ export function resolveServerConfig(options: CreateAppOptions = {}): ServerConfi
   const sessionMaxHours = parseInt(process.env.SESSION_MAX_HOURS || '12', 10) || 12;
   const sessionMaxMs = sessionMaxHours * 60 * 60 * 1000;
 
+  const rawStorage = options.storage !== undefined ? options.storage : process.env.STORAGE;
+  const storage =
+    rawStorage !== undefined && rawStorage.trim() !== ''
+      ? rawStorage.trim().toLowerCase()
+      : 'json';
+
   const isSelfRegistrationAllowed = (): boolean => {
     if (options.allowSelfRegistration !== undefined) {
       return Boolean(options.allowSelfRegistration);
@@ -154,6 +162,7 @@ export function resolveServerConfig(options: CreateAppOptions = {}): ServerConfi
     enableVite: options.enableVite !== false,
     staticDir: options.staticDir,
     isDirectRun: Boolean(options.isDirectRun),
+    storage,
     isSelfRegistrationAllowed,
     getSetupToken,
     isSetupTokenRequired,
