@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Zarządzanie Projektami - Pracownia Projektowa / Budownictwo
-# Wersja: 2026-11-10 v0.6.0
+# Wersja: 2026-11-13 v0.7.0
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Lokalizacja docelowa na serwerze: /opt/zarzadzanie-projektami
 # ==============================================================================
@@ -14,7 +14,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 echo -e "${BLUE}=================================================================${NC}"
-echo -e "${GREEN}  🏗️  Zarządzanie Projektami - Instalator (Wersja 2026-11-10 v0.6.0)${NC}"
+echo -e "${GREEN}  🏗️  Zarządzanie Projektami - Instalator (Wersja 2026-11-13 v0.7.0)${NC}"
 echo -e "${BLUE}  Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami${NC}"
 echo -e "${BLUE}=================================================================${NC}"
 
@@ -101,7 +101,7 @@ PORT=3000
 NODE_ENV=production
 DATA_DIR=/app/data
 BACKUP_DIR=/app/backups
-APP_VERSION=2026-11-10 v0.6.0
+APP_VERSION=2026-11-13 v0.7.0
 APP_SECRET=${APP_SECRET}
 EOF
     chmod 600 .env
@@ -120,14 +120,60 @@ else
     echo -e "${YELLOW}Wykryto istniejący plik .env – konfiguracja zachowana bez zmian.${NC}"
 fi
 
+# 6b. Opcjonalne szyfrowanie automatycznych kopii zapasowych (backup.key)
+BACKUP_KEY_FILE="${INSTALL_DIR}/backup.key"
+ENABLE_BACKUP_ENCRYPTION="n"
+if [ ! -f "$BACKUP_KEY_FILE" ] && [ -t 0 ]; then
+    echo ""
+    read -r -p "Czy chcesz włączyć szyfrowanie kopii zapasowych (.json.gz.enc)? (t/N) [Domyślnie: nie]: " USER_BACKUP_ENC || USER_BACKUP_ENC="n"
+    if [[ "$USER_BACKUP_ENC" =~ ^([tT]|[tT][aA][kK]|[yY]|[yY][eE][sS])$ ]]; then
+        ENABLE_BACKUP_ENCRYPTION="t"
+    fi
+elif [ -f "$BACKUP_KEY_FILE" ]; then
+    ENABLE_BACKUP_ENCRYPTION="t"
+fi
+
+if [ "$ENABLE_BACKUP_ENCRYPTION" = "t" ] && [ ! -f "$BACKUP_KEY_FILE" ]; then
+    BACKUP_PASSPHRASE=""
+    if command -v openssl >/dev/null 2>&1; then
+        BACKUP_PASSPHRASE=$(openssl rand -base64 32 2>/dev/null || true)
+    fi
+    if [ -z "$BACKUP_PASSPHRASE" ]; then
+        BACKUP_PASSPHRASE=$(head -c 32 /dev/urandom 2>/dev/null | base64 | tr -d '\n' || true)
+    fi
+    if [ -z "$BACKUP_PASSPHRASE" ]; then
+        echo -e "${RED}Błąd: Nie udało się wygenerować hasła szyfrowania kopii zapasowych.${NC}" >&2
+        exit 1
+    fi
+    printf '%s\n' "$BACKUP_PASSPHRASE" > "$BACKUP_KEY_FILE"
+    chmod 600 "$BACKUP_KEY_FILE"
+    echo -e "${GREEN}Wygenerowano klucz szyfrowania kopii: ${BACKUP_KEY_FILE} (uprawnienia 600).${NC}"
+    echo -e "${YELLOW}┌────────────────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${YELLOW}│  🔐 HASŁO DO KOPII ZAPASOWYCH (backup.key) - ZAPISZ POZA SERWEREM     │${NC}"
+    echo -e "${YELLOW}├────────────────────────────────────────────────────────────────────────┤${NC}"
+    echo -e "${YELLOW}│  ${BACKUP_PASSPHRASE}                              │${NC}"
+    echo -e "${YELLOW}├────────────────────────────────────────────────────────────────────────┤${NC}"
+    echo -e "${YELLOW}│  ⚠️  Zapisz to hasło teraz w swoim menedżerze haseł!                   │${NC}"
+    echo -e "${YELLOW}│  Jest wyświetlane JEDEN RAZ i nie jest częścią samej kopii zapasowej.  │${NC}"
+    echo -e "${YELLOW}└────────────────────────────────────────────────────────────────────────┘${NC}"
+    unset BACKUP_PASSPHRASE
+fi
+
 # 7. Konfiguracja automatycznego skryptu kopii zapasowych w cronie
 if [ -f backup.sh ]; then
     chmod +x backup.sh
 fi
+if [ -f restore-test.sh ]; then
+    chmod +x restore-test.sh
+fi
 
 CRON_FILE="/etc/cron.d/zarzadzanie-projektami-backup"
 if [ -d /etc/cron.d ] && [ ! -f "$CRON_FILE" ]; then
-    echo "0 2 * * * root ${INSTALL_DIR}/backup.sh >/dev/null 2>&1" > "$CRON_FILE"
+    if [ -f "$BACKUP_KEY_FILE" ]; then
+        echo "0 2 * * * root BACKUP_PASSPHRASE_FILE=${BACKUP_KEY_FILE} ${INSTALL_DIR}/backup.sh >/dev/null 2>&1" > "$CRON_FILE"
+    else
+        echo "0 2 * * * root ${INSTALL_DIR}/backup.sh >/dev/null 2>&1" > "$CRON_FILE"
+    fi
     chmod 644 "$CRON_FILE"
     echo -e "${GREEN}Automatyczne kopie zapasowe skonfigurowane w cronie: codziennie o 02:00.${NC}"
 fi
@@ -194,7 +240,7 @@ $DOCKER_CMD up -d --build
 
 echo -e "${GREEN}=================================================================${NC}"
 echo -e "${GREEN}  ✅ WDROŻENIE ZAKOŃCZONE SUKCESEM!${NC}"
-echo -e "${GREEN}  Wersja: 2026-11-10 v0.6.0${NC}"
+echo -e "${GREEN}  Wersja: 2026-11-13 v0.7.0${NC}"
 echo -e "${GREEN}=================================================================${NC}"
 
 if [ "$ENABLE_HTTPS" = "t" ]; then

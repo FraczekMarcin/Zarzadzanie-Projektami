@@ -1,7 +1,7 @@
 # 🏗️ Zarządzanie Projektami (Pracownia Projektowa / Budownictwo)
 
 [![CI](https://github.com/FraczekMarcin/Zarzadzanie-Projektami/actions/workflows/ci.yml/badge.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami/actions/workflows/ci.yml)
-[![Wersja](https://img.shields.io/badge/Wersja-2026--11--10%20v%200.6.0-emerald.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
+[![Wersja](https://img.shields.io/badge/Wersja-2026--11--13%20v%200.7.0-emerald.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
 [![Docker](https://img.shields.io/badge/Docker-App%20Data%20Volume-blue.svg)](https://www.docker.com/)
 [![Licencja](https://img.shields.io/badge/Licencja-MIT-green.svg)](LICENSE)
 [![GitHub](https://img.shields.io/badge/GitHub-FraczekMarcin%2FZarzadzanie--Projektami-purple.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
@@ -205,6 +205,71 @@ W razie potrzeby odtworzenia stanu pracowni z archiwalnej kopii:
 
 ---
 
+## 🔒 Szyfrowanie kopii
+
+Skrypt `backup.sh` obsługuje opcjonalne szyfrowanie archiwów kopii zapasowych algorytmem **AES-256-CBC (PBKDF2, 600 000 iteracji, salt)** za pomocą zmiennej środowiskowej `BACKUP_PASSPHRASE_FILE` wskazującej plik z hasłem (uprawnienia `600`, np. `/opt/zarzadzanie-projektami/backup.key`):
+
+```bash
+BACKUP_PASSPHRASE_FILE=/opt/zarzadzanie-projektami/backup.key /opt/zarzadzanie-projektami/backup.sh
+```
+
+- Po poprawnym spakowaniu i weryfikacji `gzip` tworzony jest zaszyfrowany plik `app_state_<data>.json.gz.enc` (uprawnienia `600`), a niezaszyfrowane archiwum `.json.gz` jest automatycznie usuwane.
+- Rotacja kopii (`MIN_KEEP`, `RETENTION_DAYS`) obsługuje równolegle oba formaty (`.json.gz` oraz `.json.gz.enc`).
+- Ręczne odszyfrowanie kopii przed przywracaniem:
+  ```bash
+  openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -pass file:/opt/zarzadzanie-projektami/backup.key \
+    -in /opt/zarzadzanie-projektami/backups/app_state_2026-11-13_020000.json.gz.enc \
+    | gunzip > /tmp/restore_state.json
+  ```
+
+> ⚠️ **ZASADA BEZPIECZEŃSTWA:** **Hasło do kopii (`backup.key`) oraz `APP_SECRET` z pliku `.env` zapisz poza serwerem** (w bezpiecznym menedżerze haseł, np. Bitwarden, 1Password, KeePass). Ani `.env`, ani `backup.key` nigdy nie są dołączane do kopii zapasowych ani repozytorium. Bez hasła do kopii nie odszyfrujesz pliku `.enc`, a bez `APP_SECRET` nie odtworzysz sekretów 2FA użytkowników.
+
+---
+
+## 🌐 Kopia poza serwerem
+
+Aby zabezpieczyć dane przed awarią dysku lub całego serwera, `backup.sh` może automatycznie kopiować nową kopię (lokalnie zachowując jej oryginał i wykonując rotację) do dodatkowej lokalizacji:
+
+- **Lokalny udział / zamontowany NAS (`BACKUP_COPY_DIR`):**
+  ```bash
+  BACKUP_COPY_DIR=/mnt/nas/zp-backups /opt/zarzadzanie-projektami/backup.sh
+  ```
+- **Zdalny serwer przez SSH (`BACKUP_REMOTE`, tryb nieinteraktywny `BatchMode=yes` z uwierzytelnianiem kluczem SSH):**
+  ```bash
+  BACKUP_REMOTE=backup@nas.firma.local:/srv/backups/zp/ /opt/zarzadzanie-projektami/backup.sh
+  ```
+
+W razie błędu kopiowania poza serwerem kopia lokalna **nie jest usuwana** — skrypt wypisuje ostrzeżenie i zwraca kod wyjścia **`2`**.
+
+---
+
+## 🧪 Test przywracania
+
+Skrypt `restore-test.sh` automatycznie weryfikuje, czy kopia zapasowa rzeczywiście uruchamia aplikację i poprawnie odszyfrowuje sekrety 2FA:
+
+1. Pobiera najnowszą kopię z `BACKUP_DIR` (lub plik wskazany w argumencie: `./restore-test.sh /ścieżka/do/kopii`).
+2. Jeśli kopia ma rozszerzenie `.enc`, odszyfrowuje ją z użyciem `BACKUP_PASSPHRASE_FILE`.
+3. Rozpakowuje archiwum, sprawdza poprawność JSON (`jq` lub `node`), wgrywa `app_state.json` do tymczasowego wolumenu Dockera i uruchamia izolowany kontener bez publikowania portów (z `APP_SECRET` z `.env`).
+4. Sprawdza endpoint `/api/health`, brak błędów odszyfrowania sekretów oraz odczytuje z logów liczbę zadań i użytkowników, a następnie zawsze usuwa tymczasowy kontener i wolumen.
+
+Ręczne uruchomienie testu:
+```bash
+# Kopia niezaszyfrowana:
+/opt/zarzadzanie-projektami/restore-test.sh
+
+# Kopia zaszyfrowana:
+BACKUP_PASSPHRASE_FILE=/opt/zarzadzanie-projektami/backup.key /opt/zarzadzanie-projektami/restore-test.sh
+```
+
+Zaleca się uruchamianie `restore-test.sh` automatycznie **raz w miesiącu z crona** (np. w `/etc/cron.d/zarzadzanie-projektami-restore-test`, 1. dnia każdego miesiąca o 04:00):
+```cron
+# Comiesięczny test przywracania kopii zapasowej (1. dnia miesiąca o 04:00)
+0 4 1 * * root BACKUP_PASSPHRASE_FILE=/opt/zarzadzanie-projektami/backup.key /opt/zarzadzanie-projektami/restore-test.sh >> /var/log/zp-restore-test.log 2>&1
+```
+*(Jeśli szyfrowanie kopii nie jest używane, pomiń zmienną `BACKUP_PASSPHRASE_FILE=...` w powyższym wpisie.)*
+
+---
+
 ## 🔐 APP_SECRET – zapisz poza serwerem
 
 System szyfruje sekrety uwierzytelniania dwuskładnikowego (2FA) oraz kody zapasowe w pliku `app_state.json` za pomocą klucza `APP_SECRET` (algorytmem AES-256-GCM / HMAC-SHA256).
@@ -243,9 +308,11 @@ Użytkownicy mogą w zakładce *Ustawienia ➔ Konta Użytkowników & Bezpiecze�
 
 ```text
 /opt/zarzadzanie-projektami/
-├── backups/                   # Zarchiwizowane zrzuty stanu bazy (app_state_*.json.gz)
+├── backups/                   # Zarchiwizowane zrzuty stanu bazy (app_state_*.json.gz / .enc)
 ├── .env                       # Klucze sesji i konfiguracja środowiska (chmod 600)
-├── backup.sh                  # Skrypt automatycznej kopii zapasowej z walidacją i retencją
+├── backup.key                 # Opcjonalny klucz szyfrowania kopii zapasowych (chmod 600, poza repozytorium)
+├── backup.sh                  # Skrypt automatycznej kopii zapasowej z walidacją, szyfrowaniem i retencją
+├── restore-test.sh            # Skrypt izolowanego testu przywracania kopii zapasowej w Dockerze
 ├── docker-compose.yml         # Konfiguracja usługi app i trwałego wolumenu zarzadzanie_app_data
 ├── Dockerfile                 # Wieloetapowy build aplikacji produkcyjnej (Alpine Linux)
 ├── install.sh                 # Samodzielny instalator 1-poleceniem

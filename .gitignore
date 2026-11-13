@@ -7,3 +7,4 @@ coverage/
 !.env.example
 /data/
 bun.lock
+backup.key

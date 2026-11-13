@@ -43,6 +43,7 @@ import {
   computeSessionPublicId,
 } from './src/utils/sessions.js';
 import { SecurityLog, SecurityEventType } from './src/utils/securityLog.js';
+import { parseBackupFilename } from './src/utils/backupFiles.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2873,6 +2874,7 @@ app.get('/api/backup/status', requireAuth, async (_req, res) => {
       filename: string;
       mtime: Date;
       size: number;
+      encrypted: boolean;
     }
 
     const foundBackups: BackupFileInfo[] = [];
@@ -2883,8 +2885,8 @@ app.get('/api/backup/status', requireAuth, async (_req, res) => {
         if (stat && stat.isDirectory()) {
           const files = await fs.promises.readdir(dir);
           for (const file of files) {
-            if (file.endsWith('.tmp') || file.startsWith('.')) continue;
-            if (file.startsWith('app_state_') || file.endsWith('.json.gz') || file.endsWith('.sql.gz')) {
+            const parsed = parseBackupFilename(file);
+            if (parsed.isBackup) {
               const fullPath = path.join(dir, file);
               const fileStat = await fs.promises.stat(fullPath).catch(() => null);
               if (fileStat && fileStat.isFile()) {
@@ -2893,6 +2895,7 @@ app.get('/api/backup/status', requireAuth, async (_req, res) => {
                   filename: file,
                   mtime: fileStat.mtime,
                   size: fileStat.size,
+                  encrypted: parsed.encrypted,
                 });
               }
             }
@@ -2928,6 +2931,7 @@ app.get('/api/backup/status', requireAuth, async (_req, res) => {
         timestamp: newest.mtime.toISOString(),
         ageHours: Math.round(ageHours * 10) / 10,
         size: newest.size,
+        encrypted: newest.encrypted,
       },
       totalBackups: foundBackups.length,
       maxAgeHours: 36,

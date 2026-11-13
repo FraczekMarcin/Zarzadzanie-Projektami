@@ -11,3 +11,4 @@ dist
 bun.lock
 *.test.ts
 .vscode
+backup.key
