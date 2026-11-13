@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useId } from 'react';
 import { User, UserRole, ActivityLog } from '../types';
 import { 
   X, 
@@ -21,6 +21,7 @@ import {
 import { TwoFactorManager } from './TwoFactorManager';
 import { validatePassword } from '../utils/passwordPolicy';
 import { PasswordRequirementsChecklist } from './PasswordRequirementsChecklist';
+import { useFocusTrap } from '../utils/useFocusTrap';
 
 interface UserAuthModalProps {
   isOpen: boolean;
@@ -76,6 +77,18 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
 
   // Delete confirmation
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const deleteModalRef = useRef<HTMLDivElement>(null);
+  const baseId = useId();
+  const titleId = `${baseId}-title`;
+  const deleteTitleId = `${baseId}-delete-title`;
+
+  useFocusTrap({ isOpen, onClose, containerRef: modalRef });
+  useFocusTrap({
+    isOpen: Boolean(isOpen && userToDelete),
+    onClose: () => setUserToDelete(null),
+    containerRef: deleteModalRef,
+  });
 
   if (!isOpen) return null;
 
@@ -187,7 +200,13 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95"
+      >
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/70 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -195,15 +214,15 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
               {currentUser?.initials || '??'}
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <h3 id={titleId} className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <span>Uwierzytelnianie & Zespół Pracowni</span>
                 {currentUser && (
-                  <span className="text-[10px] font-normal px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 rounded border border-emerald-200 dark:border-emerald-800">
+                  <span className="text-[10px] font-normal px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 rounded border border-emerald-200 dark:border-emerald-800">
                     Zalogowano
                   </span>
                 )}
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-slate-600 dark:text-slate-400">
                 {currentUser ? (
                   <>Aktywny projektant: <strong className="text-slate-800 dark:text-slate-200">{currentUser.name}</strong> ({currentUser.email})</>
                 ) : (
@@ -216,104 +235,122 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
           <div className="flex items-center gap-2">
             {currentUser && onLogout && (
               <button
+                type="button"
                 onClick={() => {
                   onLogout();
                   setActiveTab('switch');
                 }}
                 title="Wyloguj z systemu"
-                className="flex items-center gap-1 px-2.5 py-1 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded border border-rose-200 dark:border-rose-900/40 transition-colors"
+                className="flex items-center gap-1 px-2.5 py-1 text-xs text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded border border-rose-200 dark:border-rose-900/40 transition-colors"
               >
-                <LogOut className="w-3.5 h-3.5" />
+                <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>Wyloguj</span>
               </button>
             )}
             <button
+              type="button"
               onClick={onClose}
-              className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+              aria-label="Zamknij okno uwierzytelniania"
+              className="p-1 rounded text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
             >
-              <X className="w-5 h-5" />
+              <X className="w-5 h-5" aria-hidden="true" />
             </button>
           </div>
         </div>
 
         {/* Tab switchers */}
-        <div className="px-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-3 text-xs font-medium overflow-x-auto">
+        <div role="tablist" aria-label="Opcje konta i zespołu" className="px-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-3 text-xs font-medium overflow-x-auto">
           <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'switch'}
             onClick={() => {
               setActiveTab('switch');
               setTargetUser(null);
             }}
             className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'switch'
-                ? 'border-sky-600 text-sky-600 dark:text-sky-400 font-semibold'
+                ? 'border-sky-600 text-sky-700 dark:text-sky-400 font-semibold'
                 : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
             }`}
           >
-            <Users className="w-4 h-4" />
+            <Users className="w-4 h-4" aria-hidden="true" />
             <span>Wybór i logowanie ({users.length})</span>
           </button>
 
           <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'new_user'}
             onClick={() => {
               setActiveTab('new_user');
               setTargetUser(null);
             }}
             className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'new_user'
-                ? 'border-sky-600 text-sky-600 dark:text-sky-400 font-semibold'
+                ? 'border-sky-600 text-sky-700 dark:text-sky-400 font-semibold'
                 : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
             }`}
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-4 h-4" aria-hidden="true" />
             <span>Nowy użytkownik</span>
           </button>
 
           {currentUser && onUpdateUserPassword && (
             <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'password'}
               onClick={() => {
                 setActiveTab('password');
                 setTargetUser(null);
               }}
               className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === 'password'
-                  ? 'border-sky-600 text-sky-600 dark:text-sky-400 font-semibold'
+                  ? 'border-sky-600 text-sky-700 dark:text-sky-400 font-semibold'
                   : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
-              <KeyRound className="w-4 h-4" />
+              <KeyRound className="w-4 h-4" aria-hidden="true" />
               <span>Zmień hasło</span>
             </button>
           )}
 
           {currentUser && (
             <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === '2fa'}
               onClick={() => {
                 setActiveTab('2fa');
                 setTargetUser(null);
               }}
               className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === '2fa'
-                  ? 'border-sky-600 text-sky-600 dark:text-sky-400 font-semibold'
+                  ? 'border-sky-600 text-sky-700 dark:text-sky-400 font-semibold'
                   : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
-              <Shield className="w-4 h-4" />
+              <Shield className="w-4 h-4" aria-hidden="true" />
               <span>Weryfikacja 2FA</span>
             </button>
           )}
 
           <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'logs'}
             onClick={() => {
               setActiveTab('logs');
               setTargetUser(null);
             }}
             className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'logs'
-                ? 'border-sky-600 text-sky-600 dark:text-sky-400 font-semibold'
+                ? 'border-sky-600 text-sky-700 dark:text-sky-400 font-semibold'
                 : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
             }`}
           >
-            <History className="w-4 h-4" />
+            <History className="w-4 h-4" aria-hidden="true" />
             <span>Dziennik audytu</span>
           </button>
         </div>
@@ -325,12 +362,13 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
             {demoUsersCount > 0 && onDeleteDemoUsers && (
               <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-lg flex items-center justify-between text-xs text-amber-900 dark:text-amber-200">
                 <div className="flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <AlertCircle className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0" aria-hidden="true" />
                   <span>Wykryto {demoUsersCount} użytkowników pokazowych.</span>
                 </div>
                 <button
+                  type="button"
                   onClick={onDeleteDemoUsers}
-                  className="px-2.5 py-1 text-[11px] font-medium bg-amber-600 hover:bg-amber-700 text-white rounded transition-colors"
+                  className="px-2.5 py-1 text-[11px] font-medium bg-amber-700 hover:bg-amber-800 text-white rounded transition-colors"
                 >
                   Usuń konta pokazowe
                 </button>
@@ -342,14 +380,14 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
               <form onSubmit={handleConfirmLogin} className="p-4 bg-sky-50/70 dark:bg-sky-950/40 border border-sky-300 dark:border-sky-800 rounded-xl space-y-3 animate-in fade-in zoom-in-95">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-full bg-sky-600 text-white text-xs font-bold flex items-center justify-center">
+                    <div className="w-8 h-8 rounded-full bg-sky-700 text-white text-xs font-bold flex items-center justify-center" aria-hidden="true">
                       {targetUser.initials}
                     </div>
                     <div>
                       <h4 className="text-xs font-bold text-slate-900 dark:text-white">
                         Logowanie: {targetUser.name}
                       </h4>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400">
                         {targetUser.email} · {targetUser.department}
                       </p>
                     </div>
@@ -361,18 +399,19 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                       setEnteredPassword('');
                       setPasswordError(null);
                     }}
-                    className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
+                    className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 p-1"
                   >
                     Anuluj
                   </button>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Wprowadź hasło użytkownika <span className="text-rose-500">*</span>
+                  <label htmlFor={`${baseId}-switch-pass`} className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Wprowadź hasło użytkownika <span className="text-rose-600 dark:text-rose-400">*</span>
                   </label>
                   <div className="relative">
                     <input
+                      id={`${baseId}-switch-pass`}
                       type={showPassword ? 'text' : 'password'}
                       autoFocus
                       required
@@ -387,18 +426,19 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      aria-label={showPassword ? 'Ukryj hasło' : 'Pokaż hasło'}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
                     >
-                      {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      {showPassword ? <EyeOff className="w-3.5 h-3.5" aria-hidden="true" /> : <Eye className="w-3.5 h-3.5" aria-hidden="true" />}
                     </button>
                   </div>
                   {passwordError && (
-                    <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-1 font-medium flex items-center gap-1">
-                      <AlertCircle className="w-3.5 h-3.5" />
+                    <p role="alert" className="text-[11px] text-rose-700 dark:text-rose-400 mt-1 font-medium flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5" aria-hidden="true" />
                       {passwordError}
                     </p>
                   )}
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                  <p className="text-[10px] text-slate-600 dark:text-slate-400 mt-1">
                     🔒 Bezpieczne logowanie: wymagane hasło przy każdej zmianie konta projektanta.
                   </p>
                 </div>
@@ -413,9 +453,9 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                   </button>
                   <button
                     type="submit"
-                    className="flex items-center gap-1.5 px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded text-xs font-semibold shadow-xs transition-colors"
+                    className="flex items-center gap-1.5 px-4 py-1.5 bg-sky-700 hover:bg-sky-800 text-white rounded text-xs font-semibold shadow-xs transition-colors"
                   >
-                    <LogIn className="w-3.5 h-3.5" />
+                    <LogIn className="w-3.5 h-3.5" aria-hidden="true" />
                     <span>Zaloguj jako {targetUser.name.split(' ')[0]}</span>
                   </button>
                 </div>
@@ -452,12 +492,12 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                             </span>
                           )}
                           {u.isDemo && (
-                            <span className="text-[10px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.2 rounded">
+                            <span className="text-[10px] text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.2 rounded">
                               Demo
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                        <div className="text-[11px] text-slate-600 dark:text-slate-400">
                           {u.email} · {u.department}
                         </div>
                       </div>
@@ -468,15 +508,16 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
 
                       {!isActive ? (
                         <button
+                          type="button"
                           onClick={() => handleInitiateSwitch(u)}
-                          className="flex items-center gap-1 text-xs px-2.5 py-1 rounded bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 hover:bg-sky-600 hover:text-white dark:hover:bg-sky-600 border border-sky-200 dark:border-sky-800 transition-colors font-medium"
+                          className="flex items-center gap-1 text-xs px-2.5 py-1 rounded bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-400 hover:bg-sky-600 hover:text-white dark:hover:bg-sky-600 border border-sky-200 dark:border-sky-800 transition-colors font-medium"
                         >
-                          <Lock className="w-3 h-3" />
+                          <Lock className="w-3 h-3" aria-hidden="true" />
                           <span>Zaloguj</span>
                         </button>
                       ) : (
-                        <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
                           <span>Zalogowany</span>
                         </span>
                       )}
@@ -484,14 +525,16 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                       {/* Delete user button (disabled for active or last user) */}
                       {onDeleteUser && users.length > 1 && (
                         <button
+                          type="button"
                           onClick={() => setUserToDelete(u)}
                           disabled={isActive}
+                          aria-label={isActive ? `Nie można usunąć aktualnie zalogowanego użytkownika ${u.name}` : `Usuń użytkownika ${u.name}`}
                           title={isActive ? 'Nie możesz usunąć aktualnie zalogowanego użytkownika' : 'Usuń użytkownika'}
-                          className={`p-1 rounded text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors ${
+                          className={`p-1 rounded text-slate-600 dark:text-slate-400 hover:text-rose-700 dark:hover:text-rose-400 transition-colors ${
                             isActive ? 'opacity-30 cursor-not-allowed' : 'hover:bg-rose-50 dark:hover:bg-rose-950/40'
                           }`}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                         </button>
                       )}
                     </div>
@@ -506,8 +549,9 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
         {activeTab === 'new_user' && (
           <form onSubmit={handleCreateUser} className="p-6 overflow-y-auto space-y-4 flex-1 text-xs">
             <div>
-              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Imię i nazwisko *</label>
+              <label htmlFor={`${baseId}-new-name`} className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Imię i nazwisko *</label>
               <input
+                id={`${baseId}-new-name`}
                 type="text"
                 required
                 value={name}
@@ -518,8 +562,9 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Adres e-mail *</label>
+              <label htmlFor={`${baseId}-new-email`} className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Adres e-mail *</label>
               <input
+                id={`${baseId}-new-email`}
                 type="email"
                 required
                 value={email}
@@ -531,8 +576,9 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Rola w systemie *</label>
+                <label htmlFor={`${baseId}-new-role`} className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Rola w systemie *</label>
                 <select
+                  id={`${baseId}-new-role`}
                   value={role}
                   onChange={(e) => setRole(e.target.value as UserRole)}
                   className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500"
@@ -546,8 +592,9 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Pracownia / Dział branżowy</label>
+                <label htmlFor={`${baseId}-new-dept`} className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Pracownia / Dział branżowy</label>
                 <input
+                  id={`${baseId}-new-dept`}
                   type="text"
                   value={department}
                   onChange={(e) => setDepartment(e.target.value)}
@@ -558,8 +605,9 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Hasło początkowe (12–128 znaków) *</label>
+              <label htmlFor={`${baseId}-new-pass`} className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Hasło początkowe (12–128 znaków) *</label>
               <input
+                id={`${baseId}-new-pass`}
                 type="password"
                 required
                 minLength={12}
@@ -574,9 +622,9 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
               />
               <PasswordRequirementsChecklist password={password} context={{ name, email }} />
               {passwordError && (
-                <p className="text-rose-600 dark:text-rose-400 text-[11px] font-medium mt-1">{passwordError}</p>
+                <p role="alert" className="text-rose-700 dark:text-rose-400 text-[11px] font-medium mt-1">{passwordError}</p>
               )}
-              <span className="text-[10px] text-slate-400 mt-1 block">
+              <span className="text-[10px] text-slate-600 dark:text-slate-400 mt-1 block">
                 Użytkownik będzie musiał podać to hasło podczas logowania.
               </span>
             </div>
@@ -603,17 +651,18 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
             </div>
 
             {passwordChangeSuccess && (
-              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 rounded flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <div role="status" aria-live="polite" className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 rounded flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
                 <span>Hasło zostało pomyślnie zaktualizowane!</span>
               </div>
             )}
 
             <div>
-              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <label htmlFor={`${baseId}-cur-pass`} className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 Dotychczasowe hasło *
               </label>
               <input
+                id={`${baseId}-cur-pass`}
                 type="password"
                 required
                 value={currentPassword}
@@ -627,10 +676,11 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <label htmlFor={`${baseId}-upd-pass`} className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 Nowe hasło * (12–128 znaków)
               </label>
               <input
+                id={`${baseId}-upd-pass`}
                 type="password"
                 required
                 minLength={12}
@@ -650,8 +700,9 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Powtórz nowe hasło *</label>
+              <label htmlFor={`${baseId}-cnf-pass`} className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Powtórz nowe hasło *</label>
               <input
+                id={`${baseId}-cnf-pass`}
                 type="password"
                 required
                 minLength={12}
@@ -665,12 +716,12 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                 className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
               />
               {confirmPassword.length > 0 && newPassword !== confirmPassword && (
-                <p className="text-rose-600 dark:text-rose-400 text-[11px] font-medium mt-1">Nowe hasła nie są identyczne.</p>
+                <p role="alert" className="text-rose-700 dark:text-rose-400 text-[11px] font-medium mt-1">Nowe hasła nie są identyczne.</p>
               )}
             </div>
 
             {passwordError && (
-              <p className="text-rose-600 dark:text-rose-400 text-xs font-medium">{passwordError}</p>
+              <p role="alert" className="text-rose-700 dark:text-rose-400 text-xs font-medium">{passwordError}</p>
             )}
 
             <div className="pt-2 flex justify-end">
@@ -681,7 +732,7 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                   !validatePassword(newPassword, { name: currentUser.name, email: currentUser.email }).ok ||
                   newPassword !== confirmPassword
                 }
-                className="bg-sky-600 hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded text-xs transition-colors"
+                className="bg-sky-700 hover:bg-sky-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded text-xs transition-colors"
               >
                 Zapisz nowe hasło
               </button>
@@ -710,12 +761,12 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                   <div key={log.id} className="p-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-md">
                     <div className="flex items-center justify-between mb-1">
                       <span className="font-semibold text-slate-900 dark:text-slate-100">{user?.name || 'Użytkownik'}</span>
-                      <span className="text-[10px] text-slate-400 font-mono tabular-nums">
+                      <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono tabular-nums">
                         {log.timestamp.slice(0, 10)} {log.timestamp.slice(11, 16)}
                       </span>
                     </div>
                     <p className="text-slate-700 dark:text-slate-300">{log.action}</p>
-                    {log.details && <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{log.details}</p>}
+                    {log.details && <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">{log.details}</p>}
                   </div>
                 );
               })}
@@ -726,22 +777,30 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
         {/* Delete user confirmation sub-modal */}
         {userToDelete && (
           <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-2xs flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 max-w-sm w-full shadow-2xl space-y-3 animate-in fade-in zoom-in-95">
-              <div className="flex items-center gap-2.5 text-rose-600 dark:text-rose-400">
-                <Trash2 className="w-5 h-5 shrink-0" />
-                <h4 className="text-sm font-bold text-slate-900 dark:text-white">Usuń użytkownika</h4>
+            <div
+              ref={deleteModalRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={deleteTitleId}
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 max-w-sm w-full shadow-2xl space-y-3 animate-in fade-in zoom-in-95"
+            >
+              <div className="flex items-center gap-2.5 text-rose-700 dark:text-rose-400">
+                <Trash2 className="w-5 h-5 shrink-0" aria-hidden="true" />
+                <h4 id={deleteTitleId} className="text-sm font-bold text-slate-900 dark:text-white">Usuń użytkownika</h4>
               </div>
               <p className="text-xs text-slate-600 dark:text-slate-400">
                 Czy na pewno chcesz bezpowrotnie usunąć profil <strong>{userToDelete.name}</strong> ({userToDelete.email})?
               </p>
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
+                  type="button"
                   onClick={() => setUserToDelete(null)}
                   className="px-3 py-1.5 rounded text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
                   Anuluj
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
                     if (onDeleteUser) onDeleteUser(userToDelete.id);
                     setUserToDelete(null);

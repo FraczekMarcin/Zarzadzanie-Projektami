@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useId } from 'react';
 import { Project, Task, User, Priority } from '../types';
 import { copyToClipboard } from '../utils/clipboard';
 import { FIELD_LIMITS } from '../utils/access';
+import { useFocusTrap } from '../utils/useFocusTrap';
 import { 
   X, 
   Briefcase, 
@@ -55,6 +56,10 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
 }) => {
   const [copiedDiskPath, setCopiedDiskPath] = useState(false);
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+
+  useFocusTrap({ isOpen: Boolean(isOpen && project), onClose, containerRef: modalRef });
 
   if (!isOpen || !project) return null;
 
@@ -128,7 +133,13 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95"
+      >
         {/* Header */}
         <div className="p-4 sm:p-6 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/60 flex items-start justify-between gap-4">
           <div className="space-y-1.5 flex-1 min-w-0">
@@ -155,12 +166,12 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
               </span>
               {project.isArchived && (
                 <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 flex items-center gap-1">
-                  <Archive className="w-3 h-3 text-slate-500" />
+                  <Archive className="w-3 h-3 text-slate-600 dark:text-slate-400" aria-hidden="true" />
                   <span>Zarchiwizowany</span>
                 </span>
               )}
             </div>
-            <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white truncate">
+            <h2 id={titleId} className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white truncate">
               {project.name}
             </h2>
             {project.description && (
@@ -171,10 +182,12 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
           </div>
 
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+            aria-label="Zamknij szczegóły projektu"
+            className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
 
@@ -215,24 +228,24 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
           {/* 1. KEY METRICS CARDS */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1">
-              <span className="text-[11px] text-slate-500 flex items-center gap-1">
-                <Calendar className="w-3.5 h-3.5 text-sky-500" />
+              <span className="text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" aria-hidden="true" />
                 <span>Termin realizacji</span>
               </span>
               <span className="font-mono font-bold text-sm text-slate-900 dark:text-white block">
                 {project.dueDate}
               </span>
-              <span className="text-[10px] text-slate-400">
+              <span className="text-[10px] text-slate-600 dark:text-slate-400">
                 Rozpoczęcie: {project.startDate} ({project.durationDays} dni)
               </span>
             </div>
 
             <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1">
-              <span className="text-[11px] text-slate-500 flex items-center gap-1">
-                <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
+              <span className="text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1">
+                <TrendingUp className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
                 <span>Postęp prac</span>
               </span>
-              <span className="font-mono font-bold text-sm text-emerald-600 dark:text-emerald-400 block">
+              <span className="font-mono font-bold text-sm text-emerald-700 dark:text-emerald-400 block">
                 {project.progress}%
               </span>
               <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
@@ -241,27 +254,27 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
             </div>
 
             <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1">
-              <span className="text-[11px] text-slate-500 flex items-center gap-1">
-                <DollarSign className="w-3.5 h-3.5 text-indigo-500" />
+              <span className="text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1">
+                <DollarSign className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" aria-hidden="true" />
                 <span>Wartość umowy (netto)</span>
               </span>
               <span className="font-mono font-bold text-sm text-slate-900 dark:text-white block">
                 {baselineValue > 0 ? `${baselineValue.toLocaleString('pl-PL')} zł` : 'Nie określono'}
               </span>
-              <span className="text-[10px] text-slate-400">
+              <span className="text-[10px] text-slate-600 dark:text-slate-400">
                 Brutto: {baselineValueGross > 0 ? `${baselineValueGross.toLocaleString('pl-PL')} zł` : '-'}
               </span>
             </div>
 
             <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1">
-              <span className="text-[11px] text-slate-500 flex items-center gap-1">
-                <Receipt className="w-3.5 h-3.5 text-purple-500" />
+              <span className="text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1">
+                <Receipt className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" aria-hidden="true" />
                 <span>Wynik bilansu</span>
               </span>
-              <span className={`font-mono font-bold text-sm block ${balanceNet >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600'}`}>
+              <span className={`font-mono font-bold text-sm block ${balanceNet >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`}>
                 {balanceNet.toLocaleString('pl-PL')} zł
               </span>
-              <span className="text-[10px] text-slate-400">
+              <span className="text-[10px] text-slate-600 dark:text-slate-400">
                 Marża projektu: {marginPercent}%
               </span>
             </div>
@@ -271,8 +284,8 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Zamawiający / Inwestor */}
             <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
-              <h4 className="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-1.5 uppercase tracking-wider text-slate-500">
-                <Building2 className="w-4 h-4 text-sky-500" />
+              <h4 className="font-bold text-slate-700 dark:text-slate-200 text-xs flex items-center gap-1.5 uppercase tracking-wider">
+                <Building2 className="w-4 h-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
                 <span>Dane Zamawiającego / Inwestora</span>
               </h4>
 
@@ -283,13 +296,13 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                   </div>
                   {project.clientNip && (
                     <div className="text-slate-600 dark:text-slate-400 flex items-center gap-2">
-                      <span className="font-mono text-slate-400">NIP:</span>
+                      <span className="font-mono text-slate-600 dark:text-slate-400">NIP:</span>
                       <span className="font-mono font-semibold">{project.clientNip}</span>
                     </div>
                   )}
                   {project.clientContactPerson && (
                     <div className="text-slate-600 dark:text-slate-400">
-                      <span className="text-slate-400">Kontakt: </span>
+                      <span className="text-slate-600 dark:text-slate-400">Kontakt: </span>
                       <span className="font-medium text-slate-800 dark:text-slate-200">{project.clientContactPerson}</span>
                     </div>
                   )}
@@ -297,31 +310,31 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                     {project.clientPhone && (
                       <a
                         href={`tel:${project.clientPhone}`}
-                        className="flex items-center gap-1 text-sky-600 dark:text-sky-400 hover:underline"
+                        className="flex items-center gap-1 text-sky-700 dark:text-sky-400 hover:underline"
                       >
-                        <Phone className="w-3.5 h-3.5" />
+                        <Phone className="w-3.5 h-3.5" aria-hidden="true" />
                         <span>{project.clientPhone}</span>
                       </a>
                     )}
                     {project.clientEmail && (
                       <a
                         href={`mailto:${project.clientEmail}`}
-                        className="flex items-center gap-1 text-sky-600 dark:text-sky-400 hover:underline"
+                        className="flex items-center gap-1 text-sky-700 dark:text-sky-400 hover:underline"
                       >
-                        <Mail className="w-3.5 h-3.5" />
+                        <Mail className="w-3.5 h-3.5" aria-hidden="true" />
                         <span>{project.clientEmail}</span>
                       </a>
                     )}
                   </div>
                   {project.clientAddress && (
-                    <div className="text-slate-500 flex items-start gap-1.5 pt-1">
-                      <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5 text-slate-400" />
+                    <div className="text-slate-600 dark:text-slate-400 flex items-start gap-1.5 pt-1">
+                      <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5 text-slate-600 dark:text-slate-400" aria-hidden="true" />
                       <span>{project.clientAddress}</span>
                     </div>
                   )}
                 </div>
               ) : (
-                <div className="text-slate-400 italic py-2">
+                <div className="text-slate-600 dark:text-slate-400 italic py-2">
                   Brak wprowadzonych danych zamawiającego dla tego projektu.
                 </div>
               )}
@@ -331,8 +344,8 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
             <div className="space-y-4">
               {/* Lokalizacja na dysku / NAS */}
               <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
-                <h4 className="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-1.5 uppercase tracking-wider text-slate-500">
-                  <HardDrive className="w-4 h-4 text-emerald-500" />
+                <h4 className="font-bold text-slate-700 dark:text-slate-200 text-xs flex items-center gap-1.5 uppercase tracking-wider">
+                  <HardDrive className="w-4 h-4 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
                   <span>Ścieżka na dysku / serwerze NAS</span>
                 </h4>
                 {project.diskPath ? (
@@ -343,14 +356,15 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                     <button
                       type="button"
                       onClick={handleCopyPath}
-                      className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-white shrink-0"
+                      aria-label={copiedDiskPath ? 'Skopiowano ścieżkę do schowka' : 'Skopiuj ścieżkę do schowka'}
+                      className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white shrink-0"
                       title="Skopiuj ścieżkę do schowka"
                     >
-                      {copiedDiskPath ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                      {copiedDiskPath ? <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" aria-hidden="true" /> : <Copy className="w-4 h-4" aria-hidden="true" />}
                     </button>
                   </div>
                 ) : (
-                  <div className="text-slate-400 italic">
+                  <div className="text-slate-600 dark:text-slate-400 italic">
                     Nie skonfigurowano ścieżki do plików projektu na serwerze pracowni.
                   </div>
                 )}
@@ -358,8 +372,8 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
 
               {/* Zespół projektowy */}
               <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
-                <h4 className="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-1.5 uppercase tracking-wider text-slate-500">
-                  <Users className="w-4 h-4 text-purple-500" />
+                <h4 className="font-bold text-slate-700 dark:text-slate-200 text-xs flex items-center gap-1.5 uppercase tracking-wider">
+                  <Users className="w-4 h-4 text-purple-600 dark:text-purple-400" aria-hidden="true" />
                   <span>Zespół projektowy ({assignedMembers.length})</span>
                 </h4>
                 <div className="flex flex-wrap gap-2">
@@ -369,15 +383,15 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                         key={m.id}
                         className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xs"
                       >
-                        <div className="w-5 h-5 rounded-full bg-sky-600 text-white font-bold text-[10px] flex items-center justify-center">
+                        <div className="w-5 h-5 rounded-full bg-sky-700 text-white font-bold text-[10px] flex items-center justify-center" aria-hidden="true">
                           {m.initials}
                         </div>
                         <span className="font-semibold text-slate-800 dark:text-slate-200">{m.name}</span>
-                        <span className="text-[10px] text-slate-400 font-normal">({m.department})</span>
+                        <span className="text-[10px] text-slate-600 dark:text-slate-400 font-normal">({m.department})</span>
                       </div>
                     ))
                   ) : (
-                    <span className="text-slate-400 italic">Brak przypisanych członków zespołu.</span>
+                    <span className="text-slate-600 dark:text-slate-400 italic">Brak przypisanych członków zespołu.</span>
                   )}
                 </div>
               </div>
@@ -387,11 +401,11 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
           {/* 3. TASK STATISTICS */}
           <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
             <div className="flex items-center justify-between">
-              <h4 className="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-1.5 uppercase tracking-wider text-slate-500">
-                <Layers className="w-4 h-4 text-sky-500" />
+              <h4 className="font-bold text-slate-700 dark:text-slate-200 text-xs flex items-center gap-1.5 uppercase tracking-wider">
+                <Layers className="w-4 h-4 text-sky-600 dark:text-sky-400" aria-hidden="true" />
                 <span>Stan realizacji zadań projektu ({projectTasks.length})</span>
               </h4>
-              <span className="font-mono text-[11px] text-slate-400">
+              <span className="font-mono text-[11px] text-slate-600 dark:text-slate-400">
                 Ukończono: {completedTasksCount}/{projectTasks.length}
               </span>
             </div>

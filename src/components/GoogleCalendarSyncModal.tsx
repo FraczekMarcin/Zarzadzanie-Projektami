@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useId, useRef } from 'react';
 import { User, Task, Project } from '../types';
 import { downloadIcsFile, generateGoogleCalendarSubscribeUrl } from '../utils/calendar';
 import { copyToClipboard } from '../utils/clipboard';
+import { useFocusTrap } from '../utils/useFocusTrap';
 import { 
   X, 
   Calendar as CalendarIcon, 
@@ -42,10 +43,17 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
   const [token, setToken] = useState<string | null>(null);
   const [hasServerToken, setHasServerToken] = useState<boolean>(Boolean(currentUser.hasCalendarToken));
   const [tokenCreatedAt, setTokenCreatedAt] = useState<string | null>(currentUser.calendarTokenCreatedAt || null);
-  const [isLoadingToken, setIsLoadingToken] = useState(false);
+  const [_isLoadingToken, setIsLoadingToken] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isRevoking, setIsRevoking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const userSelectId = useId();
+  const feedUrlInputId = useId();
+
+  useFocusTrap({ isOpen, onClose, containerRef });
 
   // Sprawdzanie tokenu po otwarciu modalu
   useEffect(() => {
@@ -151,36 +159,45 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 text-xs">
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 text-xs"
+      >
         {/* Nagłówek */}
         <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="p-2 bg-sky-100 rounded-lg text-sky-700">
-              <CalendarIcon className="w-5 h-5 text-sky-600" />
+              <CalendarIcon className="w-5 h-5 text-sky-700" aria-hidden="true" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-900">
+              <h3 id={titleId} className="text-sm font-bold text-slate-900">
                 Prywatna synchronizacja z Kalendarzem Google (RFC 5545)
               </h3>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[11px] text-slate-600">
                 Bezpieczny strumień iCal chroniony unikalnym tokenem kryptograficznym.
               </p>
             </div>
           </div>
 
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition-colors"
+            aria-label="Zamknij okno synchronizacji z Kalendarzem Google"
+            className="p-1 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-200 transition-colors"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
 
         {/* Zawartość */}
         <div className="p-6 overflow-y-auto flex-1 space-y-5 text-slate-800">
           {error && (
-            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
+            <div role="alert" className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-lg flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
               <span>{error}</span>
             </div>
           )}
@@ -188,10 +205,11 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
           {/* Przełącznik użytkownika i zakres */}
           <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg flex flex-wrap items-center justify-between gap-3">
             <div>
-              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide block mb-1">
+              <label htmlFor={userSelectId} className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide block mb-1">
                 Synchronizacja dla użytkownika:
-              </span>
+              </label>
               <select
+                id={userSelectId}
                 value={currentUser.id}
                 onChange={(e) => {
                   const u = users.find((item) => item.id === e.target.value);
@@ -207,7 +225,7 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
               </select>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3" role="radiogroup" aria-label="Zakres synchronizacji zadań">
               <label className="flex items-center gap-1.5 cursor-pointer text-slate-700">
                 <input
                   type="radio"
@@ -236,16 +254,16 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <ShieldCheck className="w-4 h-4 text-emerald-700" aria-hidden="true" />
                 <span className="font-bold text-slate-900">Uwierzytelnianie feedu kalendarza</span>
               </div>
               {hasServerToken ? (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-100 text-emerald-800">
-                  <Check className="w-3 h-3" /> Token aktywny
+                  <Check className="w-3 h-3" aria-hidden="true" /> Token aktywny
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-amber-100 text-amber-800">
-                  <Lock className="w-3 h-3" /> Brak tokenu
+                  <Lock className="w-3 h-3" aria-hidden="true" /> Brak tokenu
                 </span>
               )}
             </div>
@@ -257,25 +275,27 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
 
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <button
+                type="button"
                 onClick={handleGenerateToken}
                 disabled={isGenerating}
                 className="flex items-center gap-1.5 bg-sky-600 hover:bg-sky-500 text-white font-medium px-3 py-1.5 rounded-lg transition-colors shadow-sm disabled:opacity-60"
               >
                 {isGenerating ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
                 ) : (
-                  <Key className="w-3.5 h-3.5" />
+                  <Key className="w-3.5 h-3.5" aria-hidden="true" />
                 )}
                 <span>{hasServerToken ? 'Wygeneruj nowy token (zastąp obecny)' : 'Wygeneruj prywatny link subskrypcji'}</span>
               </button>
 
               {hasServerToken && (
                 <button
+                  type="button"
                   onClick={handleRevokeToken}
                   disabled={isRevoking}
                   className="flex items-center gap-1.5 bg-white border border-rose-200 hover:bg-rose-50 text-rose-700 font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>Odwołaj token</span>
                 </button>
               )}
@@ -289,10 +309,10 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
               <div className="p-4 bg-sky-50 border border-sky-200 rounded-xl space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-sky-950 text-sm flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-sky-600" />
+                    <CheckCircle2 className="w-4 h-4 text-sky-700" aria-hidden="true" />
                     <span>Dodaj jednym kliknięciem do Google Calendar</span>
                   </span>
-                  <span className="text-[11px] font-mono text-sky-700 bg-sky-100/80 px-2 py-0.5 rounded font-bold">
+                  <span className="text-[11px] font-mono text-sky-800 bg-sky-100/80 px-2 py-0.5 rounded font-bold">
                     1-Click Setup
                   </span>
                 </div>
@@ -308,9 +328,9 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs px-4 py-2.5 rounded-lg shadow-sm transition-all hover:scale-[1.01]"
                   >
-                    <CalendarIcon className="w-4 h-4" />
+                    <CalendarIcon className="w-4 h-4" aria-hidden="true" />
                     <span>Dodaj do Kalendarza Google</span>
-                    <ExternalLink className="w-3.5 h-3.5 opacity-90" />
+                    <ExternalLink className="w-3.5 h-3.5 opacity-90" aria-hidden="true" />
                   </a>
                 </div>
               </div>
@@ -318,31 +338,33 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
               {/* Pole z bezpośrednim URL */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="font-semibold text-slate-700">
+                  <label htmlFor={feedUrlInputId} className="font-semibold text-slate-700">
                     Prywatny adres URL strumienia na żywo (RFC 5545 WebCal):
                   </label>
-                  <span className="text-slate-400 text-[10px]">Częstotliwość odświeżania: co 15 minut</span>
+                  <span className="text-slate-600 text-[10px]">Częstotliwość odświeżania: co 15 minut</span>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <input
+                    id={feedUrlInputId}
                     type="text"
                     readOnly
                     value={fullFeedUrl}
                     className="flex-1 bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs font-mono text-slate-700 select-all focus:outline-none"
                   />
                   <button
+                    type="button"
                     onClick={handleCopyLink}
                     className="flex items-center gap-1 bg-slate-900 hover:bg-slate-800 text-white px-3 py-2 rounded text-xs font-medium transition-colors shrink-0"
                   >
                     {copied ? (
                       <>
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <Check className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true" />
                         <span className="text-emerald-400">Skopiowano!</span>
                       </>
                     ) : (
                       <>
-                        <Copy className="w-3.5 h-3.5" />
+                        <Copy className="w-3.5 h-3.5" aria-hidden="true" />
                         <span>Kopiuj link</span>
                       </>
                     )}
@@ -358,7 +380,7 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
 
                 <ol className="list-decimal list-inside space-y-1.5 text-slate-600 text-[11px] leading-relaxed">
                   <li>
-                    Wejdź na stronę <a href="https://calendar.google.com" target="_blank" rel="noopener noreferrer" className="text-sky-600 underline font-medium">calendar.google.com</a>.
+                    Wejdź na stronę <a href="https://calendar.google.com" target="_blank" rel="noopener noreferrer" className="text-sky-700 underline font-medium">calendar.google.com</a>.
                   </li>
                   <li>
                     W lewym panelu bocznym znajdź sekcję <strong>"Inne kalendarze"</strong> i kliknij znak <strong>+</strong>.
@@ -378,7 +400,7 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
           ) : (
             <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-2 text-amber-900">
               <div className="flex items-center gap-2 font-bold text-sm">
-                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                <AlertTriangle className="w-4 h-4 text-amber-700" aria-hidden="true" />
                 <span>Wymagany unikalny token subskrypcji</span>
               </div>
               <p className="text-xs leading-relaxed text-amber-800">
@@ -390,9 +412,10 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
           )}
 
           {/* Opcja pobrania pliku offline */}
-          <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-slate-500">
+          <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-slate-600">
             <span>Potrzebujesz jednorazowego pliku bez subskrypcji?</span>
             <button
+              type="button"
               onClick={() =>
                 downloadIcsFile(
                   userTasks,
@@ -400,18 +423,19 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
                   `Zadania: ${currentUser.name}`
                 )
               }
-              className="flex items-center gap-1 text-slate-700 hover:text-sky-600 text-xs font-medium"
+              className="flex items-center gap-1 text-slate-700 hover:text-sky-700 text-xs font-medium"
             >
-              <Download className="w-3.5 h-3.5" />
+              <Download className="w-3.5 h-3.5" aria-hidden="true" />
               <span>Pobierz plik .ics offline</span>
             </button>
           </div>
         </div>
 
         {/* Stopka */}
-        <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-slate-500">
+        <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-slate-600">
           <span>Strumień jest w 100% zgodny ze standardem RFC 5545 i Google Calendar.</span>
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded transition-colors font-medium"
           >

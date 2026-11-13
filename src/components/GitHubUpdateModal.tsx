@@ -1,22 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useId, useRef } from 'react';
 import { 
   X, 
   GitBranch, 
   RefreshCw, 
   ShieldCheck, 
   CheckCircle2, 
-  Terminal, 
   ArrowUpRight, 
-  Database, 
-  AlertCircle,
   Copy,
   Check,
   Sparkles,
-  Layers,
-  HardDrive
 } from 'lucide-react';
 import { GITHUB_REPO_URL, CURRENT_APP_VERSION, INSTALL_TARGET_DIR } from '../data/dockerConfig';
 import { copyToClipboard } from '../utils/clipboard';
+import { useFocusTrap } from '../utils/useFocusTrap';
 
 interface GitHubUpdateModalProps {
   isOpen: boolean;
@@ -29,7 +25,7 @@ interface GitHubUpdateModalProps {
 export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
   isOpen,
   onClose,
-  currentVersion = CURRENT_APP_VERSION,
+  currentVersion: _currentVersion = CURRENT_APP_VERSION,
   latestVersion = CURRENT_APP_VERSION,
   onUpdateCompleted,
 }) => {
@@ -37,6 +33,10 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
   const [currentStep, setCurrentStep] = useState<number>(0);
   const [isDone, setIsDone] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+
+  useFocusTrap({ isOpen, onClose, containerRef });
 
   if (!isOpen) return null;
 
@@ -95,30 +95,39 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95"
+      >
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/70 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="p-2 bg-emerald-100 dark:bg-emerald-950/60 rounded-lg text-emerald-700 dark:text-emerald-400">
-              <Sparkles className="w-5 h-5" />
+              <Sparkles className="w-5 h-5" aria-hidden="true" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <h3 id={titleId} className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <span>Wersja & Aktualizacje Systemu</span>
-                <span className="text-[11px] bg-emerald-600 text-white font-bold px-2 py-0.5 rounded-full">
+                <span className="text-[11px] bg-emerald-700 text-white font-bold px-2 py-0.5 rounded-full">
                   {CURRENT_APP_VERSION}
                 </span>
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Zainstalowana wersja: <span className="font-mono text-slate-700 dark:text-slate-200 font-semibold">{CURRENT_APP_VERSION}</span> (System jest zaktualizowany)
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                Zainstalowana wersja: <span className="font-mono text-slate-800 dark:text-slate-200 font-semibold">{CURRENT_APP_VERSION}</span> (System jest zaktualizowany)
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+            aria-label="Zamknij okno aktualizacji systemu"
+            className="p-1 rounded text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
 
@@ -127,7 +136,7 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
           {/* Release Highlights */}
           <div className="bg-sky-50 border border-sky-200 rounded-xl p-4 space-y-2">
             <h4 className="text-xs font-bold text-sky-950 uppercase tracking-wide flex items-center gap-1.5">
-              <GitBranch className="w-4 h-4 text-sky-600" />
+              <GitBranch className="w-4 h-4 text-sky-700" aria-hidden="true" />
               <span>Nowości w wydaniu {latestVersion} (Zarządzanie Projektami):</span>
             </h4>
             <ul className="text-xs text-sky-900 space-y-1.5 list-disc list-inside">
@@ -152,7 +161,7 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
           {/* User's Key Question: Will data survive docker upgrade? */}
           <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
             <div className="flex items-center gap-2 text-emerald-900 font-bold text-sm">
-              <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
+              <ShieldCheck className="w-5 h-5 text-emerald-700 shrink-0" aria-hidden="true" />
               <span>Czy po aktualizacji Docker dane projektów pozostaną?</span>
             </div>
             <p className="text-xs text-emerald-950 leading-relaxed">
@@ -167,7 +176,7 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
           {updating || isDone ? (
             <div className="bg-slate-900 text-white rounded-xl p-5 space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
                   {isDone ? 'Aktualizacja zakończona sukcesem' : 'Trwa bezpieczna aktualizacja...'}
                 </span>
                 <span className="text-xs font-mono text-emerald-400 font-bold">
@@ -190,21 +199,21 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
                           ? 'bg-emerald-950/40 border border-emerald-500/30 text-emerald-200'
                           : isCurrent
                           ? 'bg-slate-800 border border-sky-500/40 text-sky-200 animate-pulse'
-                          : 'bg-slate-800/40 border border-slate-700 text-slate-500'
+                          : 'bg-slate-800/40 border border-slate-700 text-slate-400'
                       }`}
                     >
                       {isCompleted ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" aria-hidden="true" />
                       ) : isCurrent ? (
-                        <RefreshCw className="w-4 h-4 text-sky-400 animate-spin shrink-0 mt-0.5" />
+                        <RefreshCw className="w-4 h-4 text-sky-400 animate-spin shrink-0 mt-0.5" aria-hidden="true" />
                       ) : (
-                        <div className="w-4 h-4 rounded-full border border-slate-600 flex items-center justify-center text-[10px] shrink-0 mt-0.5">
+                        <div className="w-4 h-4 rounded-full border border-slate-500 flex items-center justify-center text-[10px] shrink-0 mt-0.5">
                           {stepNum}
                         </div>
                       )}
                       <div>
                         <div className="font-bold">{step.title}</div>
-                        <div className="text-[11px] opacity-80">{step.desc}</div>
+                        <div className="text-[11px] opacity-90">{step.desc}</div>
                       </div>
                     </div>
                   );
@@ -212,9 +221,10 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
               </div>
 
               {isDone && (
-                <div className="bg-emerald-600 text-white p-3 rounded-lg flex items-center justify-between text-xs font-medium">
+                <div role="status" className="bg-emerald-700 text-white p-3 rounded-lg flex items-center justify-between text-xs font-medium">
                   <span>Wersja {latestVersion} została pomyślnie zaaplikowana! Dane w wolumenie zarzadzanie_app_data są nienaruszone.</span>
                   <button
+                    type="button"
                     onClick={onClose}
                     className="px-3 py-1 bg-white text-emerald-900 font-bold rounded hover:bg-emerald-50 transition-colors shrink-0"
                   >
@@ -227,25 +237,27 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
             <div className="space-y-3">
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
+                  type="button"
                   onClick={handleRunSimulation}
                   className="flex-1 py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all"
                 >
-                  <RefreshCw className="w-4 h-4" />
+                  <RefreshCw className="w-4 h-4" aria-hidden="true" />
                   <span>Uruchom procedurę aktualizacji do {latestVersion}</span>
                 </button>
                 <button
+                  type="button"
                   onClick={handleCopyCommand}
                   className="py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-medium text-xs flex items-center justify-center gap-2 transition-all shrink-0"
                   title="Kopiuj polecenia powłoki bash do terminala serwera"
                 >
-                  {copiedCmd ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                  {copiedCmd ? <Check className="w-4 h-4 text-emerald-400" aria-hidden="true" /> : <Copy className="w-4 h-4" aria-hidden="true" />}
                   <span>Kopiuj komendę dla serwera</span>
                 </button>
               </div>
 
               {/* Exact terminal commands */}
               <div className="bg-slate-950 text-slate-200 rounded-lg p-3 font-mono text-[11px] space-y-1 overflow-x-auto">
-                <div className="text-slate-500 font-sans text-[10px]"># Komenda terminala na serwerze produkcyjnym Linux:</div>
+                <div className="text-slate-400 font-sans text-[10px]"># Komenda terminala na serwerze produkcyjnym Linux:</div>
                 <div className="text-sky-300">cd {INSTALL_TARGET_DIR}</div>
                 <div className="text-emerald-400">./backup.sh</div>
                 <div className="text-slate-400">git stash # (jeśli są lokalne zmiany)</div>
@@ -258,7 +270,7 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-xs text-slate-500">
+        <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-xs text-slate-600">
           <a
             href={GITHUB_REPO_URL}
             target="_blank"
@@ -266,11 +278,12 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
             className="flex items-center gap-1.5 text-sky-700 hover:text-sky-900 font-medium hover:underline"
           >
             <span>GitHub: FraczekMarcin/Zarzadzanie-Projektami</span>
-            <ArrowUpRight className="w-3.5 h-3.5" />
+            <ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />
           </a>
           <button
+            type="button"
             onClick={onClose}
-            className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded transition-colors font-medium"
+            className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded transition-colors font-medium"
           >
             Zamknij
           </button>

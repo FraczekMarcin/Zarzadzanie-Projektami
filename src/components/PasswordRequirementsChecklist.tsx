@@ -29,7 +29,7 @@ export const PasswordRequirementsChecklist: React.FC<PasswordRequirementsCheckli
   const headerTextCls =
     variant === 'dark'
       ? 'text-[10px] font-semibold uppercase tracking-wider text-slate-400 flex items-center justify-between'
-      : 'text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center justify-between';
+      : 'text-[10px] font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400 flex items-center justify-between';
 
   return (
     <div className={containerCls} aria-live="polite">
@@ -39,8 +39,8 @@ export const PasswordRequirementsChecklist: React.FC<PasswordRequirementsCheckli
           className={`font-mono ${
             hasInput
               ? validation.ok
-                ? 'text-emerald-500 dark:text-emerald-400'
-                : 'text-amber-500 dark:text-amber-400'
+                ? 'text-emerald-700 dark:text-emerald-400'
+                : 'text-amber-700 dark:text-amber-400'
               : ''
           }`}
         >
@@ -56,17 +56,17 @@ export const PasswordRequirementsChecklist: React.FC<PasswordRequirementsCheckli
             : hasInput
             ? variant === 'dark'
               ? 'text-rose-300/90'
-              : 'text-rose-600 dark:text-rose-400'
+              : 'text-rose-700 dark:text-rose-400'
             : variant === 'dark'
             ? 'text-slate-400'
-            : 'text-slate-500 dark:text-slate-400';
+            : 'text-slate-600 dark:text-slate-400';
 
           return (
             <li key={item.id} className={`flex items-center gap-1.5 text-[11px] leading-tight ${textColor}`}>
               {item.met ? (
-                <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                <Check className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" aria-hidden="true" />
               ) : (
-                <Circle className="w-3 h-3 opacity-60 shrink-0" />
+                <Circle className="w-3 h-3 opacity-60 shrink-0" aria-hidden="true" />
               )}
               <span>{item.label}</span>
             </li>

@@ -216,55 +216,60 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
               <button
                 type="button"
                 onClick={() => toggleNode(task.id)}
-                className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 transition-colors shrink-0"
+                className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 transition-colors shrink-0"
                 title={isExpanded ? 'Zwiń podgałęzie' : 'Rozwiń podgałęzie'}
+                aria-label={isExpanded ? `Zwiń podgałęzie zadania ${task.code}` : `Rozwiń podgałęzie zadania ${task.code}`}
+                aria-expanded={isExpanded}
               >
                 {isExpanded ? (
-                  <ChevronDown className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                  <ChevronDown className="w-4 h-4 text-sky-700 dark:text-sky-400" aria-hidden="true" />
                 ) : (
-                  <ChevronRight className="w-4 h-4 text-slate-400" />
+                  <ChevronRight className="w-4 h-4 text-slate-600 dark:text-slate-400" aria-hidden="true" />
                 )}
               </button>
             ) : (
-              <span className="w-6 h-6 flex items-center justify-center text-slate-300 dark:text-slate-700 shrink-0">
+              <span className="w-6 h-6 flex items-center justify-center text-slate-400 dark:text-slate-600 shrink-0" aria-hidden="true">
                 •
               </span>
             )}
 
             {/* Task Code */}
-            <span 
+            <button
+              type="button"
               onClick={() => onSelectTask(task)}
-              className="font-mono text-xs font-bold text-sky-600 dark:text-sky-400 hover:underline cursor-pointer shrink-0"
+              className="font-mono text-xs font-bold text-sky-700 dark:text-sky-400 hover:underline cursor-pointer shrink-0"
+              aria-label={`Otwórz zadanie ${task.code}: ${task.title}`}
             >
               [{task.code}]
-            </span>
+            </button>
 
             {/* Official deadline flag */}
             {task.isOfficialDeadline && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 font-bold border border-purple-200 dark:border-purple-800 shrink-0">
-                🏛️ Urzędowy
+                <span aria-hidden="true">🏛️ </span>Urzędowy
               </span>
             )}
 
             {/* Title */}
-            <span 
+            <button
+              type="button"
               onClick={() => onSelectTask(task)}
-              className="text-xs font-semibold text-slate-900 dark:text-white truncate cursor-pointer hover:text-sky-600 dark:hover:text-sky-400"
+              className="text-left text-xs font-semibold text-slate-900 dark:text-white truncate cursor-pointer hover:text-sky-700 dark:hover:text-sky-400"
             >
               {task.title}
-            </span>
+            </button>
 
             {/* Overdue / Approaching Alarm Badges */}
             {isOverdue && (
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-600 text-white shrink-0 flex items-center gap-1 shadow-xs animate-bounce">
-                <Flame className="w-3 h-3" />
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-700 text-white shrink-0 flex items-center gap-1 shadow-xs animate-bounce">
+                <Flame className="w-3 h-3" aria-hidden="true" />
                 <span>Przeterminowane ({Math.abs(diffDays)}d po terminie)</span>
               </span>
             )}
 
             {isApproaching && (
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-white shrink-0 flex items-center gap-1 shadow-xs">
-                <Hourglass className="w-3 h-3" />
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-700 text-white shrink-0 flex items-center gap-1 shadow-xs">
+                <Hourglass className="w-3 h-3" aria-hidden="true" />
                 <span>Termin za {diffDays === 0 ? 'dzisiaj' : `${diffDays} dni`}</span>
               </span>
             )}
@@ -279,7 +284,7 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
             {/* Dependency note if blocked */}
             {task.blockingTaskIds && task.blockingTaskIds.length > 0 && (
               <span className="hidden lg:inline-flex items-center gap-1 text-[10px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
-                <Lock className="w-2.5 h-2.5" />
+                <Lock className="w-2.5 h-2.5" aria-hidden="true" />
                 <span>Zależne od {task.blockingTaskIds.length} zadań</span>
               </span>
             )}
@@ -298,8 +303,8 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
             </div>
 
             {/* Dates & duration */}
-            <div className="hidden md:flex items-center gap-1 text-[11px] text-slate-500 font-mono">
-              <Calendar className="w-3 h-3 text-slate-400" />
+            <div className="hidden md:flex items-center gap-1 text-[11px] text-slate-600 dark:text-slate-400 font-mono">
+              <Calendar className="w-3 h-3 text-slate-600 dark:text-slate-400" aria-hidden="true" />
               <span>{task.startDate} · {task.dueDate}</span>
               <span className="font-bold text-slate-700 dark:text-slate-300">({task.durationDays || 7} dni)</span>
             </div>
@@ -322,7 +327,7 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
                   style={{ width: `${task.progress || 0}%` }}
                 />
               </div>
-              <span className="text-[10px] font-mono text-slate-500">{task.progress || 0}%</span>
+              <span className="text-[10px] font-mono text-slate-600 dark:text-slate-400">{task.progress || 0}%</span>
             </div>
 
             {/* Action: Add subtask under this branch */}
@@ -331,8 +336,9 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
               onClick={() => onAddTask(task.projectId, task.id)}
               className="flex items-center gap-1 px-2 py-1 rounded bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 dark:hover:bg-sky-900/60 text-sky-700 dark:text-sky-300 font-semibold text-[11px] border border-sky-200 dark:border-sky-800 transition-colors"
               title={`Dodaj podzadanie do [${task.code}] ${task.title}`}
+              aria-label={`Dodaj podzadanie do ${task.code}`}
             >
-              <Plus className="w-3 h-3" />
+              <Plus className="w-3 h-3" aria-hidden="true" />
               <span className="hidden sm:inline">Podzadanie</span>
             </button>
 
@@ -340,10 +346,11 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
             <button
               type="button"
               onClick={() => onSelectTask(task)}
-              className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors"
+              className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors"
               title="Otwórz szczegóły zadania"
+              aria-label={`Otwórz szczegóły zadania ${task.code}`}
             >
-              <ExternalLink className="w-3.5 h-3.5" />
+              <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -364,8 +371,8 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
       <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs space-y-3">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-sky-100 dark:bg-sky-950 text-sky-600 dark:text-sky-400">
-              <GitMerge className="w-5 h-5" />
+            <div className="p-2 rounded-lg bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-400">
+              <GitMerge className="w-5 h-5" aria-hidden="true" />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -376,7 +383,7 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
                   {projectTasks.length} zadań
                 </span>
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-slate-600 dark:text-slate-400">
                 Hierarchiczny podgląd etapów, podzadań i relacji podrzędności w wybranym projekcie.
               </p>
             </div>
@@ -385,8 +392,9 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
           {/* Project selector dropdown & Add Main Task Button */}
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1.5">
-              <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Projekt:</label>
+              <label htmlFor="tree-project-select" className="text-xs font-semibold text-slate-600 dark:text-slate-400">Projekt:</label>
               <select
+                id="tree-project-select"
                 value={currentProject?.id || ''}
                 onChange={(e) => onSelectProject(e.target.value)}
                 className="text-xs font-bold border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-1.5 text-slate-900 dark:text-white"
@@ -403,10 +411,10 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
               <button
                 type="button"
                 onClick={() => onAddTask(currentProject.id)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 dark:bg-sky-600 hover:bg-slate-800 dark:hover:bg-sky-700 text-white rounded text-xs font-semibold shadow-xs transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 text-white rounded text-xs font-semibold shadow-xs transition-colors"
                 title="Dodaj nowe główne zadanie (gałąź nadrzędną)"
               >
-                <Plus className="w-3.5 h-3.5" />
+                <Plus className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>+ Nowa gałąź zadania</span>
               </button>
             )}
@@ -417,28 +425,28 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
         {currentProject && (
           <div className="pt-3 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs bg-slate-50 dark:bg-slate-800/40 p-3 rounded-lg">
             <div>
-              <span className="text-[10px] uppercase font-semibold text-slate-500 block">Zamawiający:</span>
+              <span className="text-[10px] uppercase font-semibold text-slate-600 dark:text-slate-400 block">Zamawiający:</span>
               <span className="font-bold text-slate-800 dark:text-slate-200">
                 {currentProject.clientName || 'Brak wpisu'}
               </span>
             </div>
 
             <div>
-              <span className="text-[10px] uppercase font-semibold text-slate-500 block">Czas trwania:</span>
+              <span className="text-[10px] uppercase font-semibold text-slate-600 dark:text-slate-400 block">Czas trwania:</span>
               <span className="font-mono text-slate-800 dark:text-slate-200">
                 {currentProject.startDate} do {currentProject.dueDate} ({currentProject.durationDays || 30} dni)
               </span>
             </div>
 
             <div>
-              <span className="text-[10px] uppercase font-semibold text-slate-500 block">Postęp projektu:</span>
-              <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+              <span className="text-[10px] uppercase font-semibold text-slate-600 dark:text-slate-400 block">Postęp projektu:</span>
+              <span className="font-bold text-emerald-700 dark:text-emerald-400 font-mono">
                 {currentProject.progress}% ukończono
               </span>
             </div>
 
             <div>
-              <span className="text-[10px] uppercase font-semibold text-slate-500 block">Lokalizacja na dysku:</span>
+              <span className="text-[10px] uppercase font-semibold text-slate-600 dark:text-slate-400 block">Lokalizacja na dysku:</span>
               {currentProject.diskPath ? (
                 <div className="flex items-center gap-1">
                   <span className="font-mono text-[11px] text-amber-700 dark:text-amber-300 truncate" title={currentProject.diskPath}>
@@ -449,12 +457,13 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
                     onClick={handleCopyDiskPath}
                     className="p-1 hover:bg-amber-100 dark:hover:bg-amber-900/60 rounded text-amber-700 dark:text-amber-300 shrink-0"
                     title="Kopiuj ścieżkę"
+                    aria-label="Kopiuj ścieżkę projektu na dysku"
                   >
-                    {copiedDiskPath ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                    {copiedDiskPath ? <Check className="w-3 h-3 text-emerald-700 dark:text-emerald-400" aria-hidden="true" /> : <Copy className="w-3 h-3" aria-hidden="true" />}
                   </button>
                 </div>
               ) : (
-                <span className="text-slate-400 italic">Nie zdefiniowano</span>
+                <span className="text-slate-600 dark:text-slate-400 italic">Nie zdefiniowano</span>
               )}
             </div>
           </div>
@@ -466,20 +475,22 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
         <div className="flex flex-wrap items-center gap-3">
           {/* Search Input */}
           <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <Search className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" aria-hidden="true" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Szukaj po tytule lub kodzie..."
+              aria-label="Szukaj zadania po tytule lub kodzie"
               className="pl-8 pr-3 py-1.5 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded text-xs text-slate-900 dark:text-white w-48 sm:w-64"
             />
           </div>
 
           {/* Status Filter */}
           <div className="flex items-center gap-1">
-            <span className="text-slate-500">Status:</span>
+            <label htmlFor="tree-status-filter" className="text-slate-600 dark:text-slate-400">Status:</label>
             <select
+              id="tree-status-filter"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               className="border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
@@ -515,14 +526,14 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
       {/* Main Hierarchical Tree Container */}
       <div className="p-4 bg-slate-50/50 dark:bg-slate-950/40 rounded-xl border border-slate-200 dark:border-slate-800 min-h-[350px]">
         {treeNodes.length === 0 ? (
-          <div className="text-center py-12 text-slate-400 space-y-2">
-            <GitBranch className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-700" />
+          <div className="text-center py-12 text-slate-600 dark:text-slate-400 space-y-2">
+            <GitBranch className="w-8 h-8 mx-auto text-slate-400 dark:text-slate-600" aria-hidden="true" />
             <p className="text-xs">Brak zadań w wybranym projekcie.</p>
             {currentProject && (
               <button
                 type="button"
                 onClick={() => onAddTask(currentProject.id)}
-                className="mt-2 px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded text-xs font-semibold"
+                className="mt-2 px-3 py-1.5 bg-sky-700 hover:bg-sky-600 text-white rounded text-xs font-semibold"
               >
                 + Dodaj pierwsze zadanie
               </button>

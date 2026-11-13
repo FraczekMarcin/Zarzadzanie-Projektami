@@ -88,3 +88,64 @@ html.dark .task-blocked-style {
 .animate-official-deadline {
   animation: officialDeadlinePulse 1.25s ease-in-out infinite !important;
 }
+
+/* Skip link: hidden visually until focused via keyboard */
+.skip-link {
+  position: fixed;
+  top: -120px;
+  left: 16px;
+  z-index: 9999;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background-color: #0284c7;
+  color: #ffffff;
+  font-size: 0.875rem;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.35);
+  transition: top 0.12s ease;
+}
+
+.skip-link:focus,
+.skip-link:focus-visible {
+  top: 16px;
+  outline: 2px solid #0f172a;
+  outline-offset: 2px;
+}
+
+html.dark .skip-link:focus,
+html.dark .skip-link:focus-visible {
+  outline-color: #f8fafc;
+}
+
+/* Global keyboard focus outline (overrides focus:outline-none on keyboard navigation without affecting mouse click) */
+:where(a, button, input, select, textarea, summary, [tabindex], [role="button"], [role="menuitem"], [role="tab"], [role="radio"], [role="switch"], [role="checkbox"]):focus-visible {
+  outline: 2px solid #0284c7 !important;
+  outline-offset: 2px !important;
+}
+
+html.dark :where(a, button, input, select, textarea, summary, [tabindex], [role="button"], [role="menuitem"], [role="tab"], [role="radio"], [role="switch"], [role="checkbox"]):focus-visible {
+  outline: 2px solid #38bdf8 !important;
+  outline-offset: 2px !important;
+}
+
+/* Respect user preference for reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-official-deadline,
+  .animate-pulse,
+  .animate-bounce,
+  .animate-ping,
+  .animate-spin,
+  .animate-in {
+    animation: none !important;
+  }
+}

@@ -71,7 +71,8 @@ import {
   LogIn,
   LogOut,
   RefreshCw,
-  RotateCcw
+  RotateCcw,
+  Info
 } from 'lucide-react';
 
 type ActiveView = 'gantt' | 'calendar' | 'tasks' | 'tree' | 'kanban' | 'projects';
@@ -115,7 +116,7 @@ export default function App() {
   // UI state
   const [activeView, setActiveView] = useState<ActiveView>('gantt');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const [notificationToast, setNotificationToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
+  const [notificationToast, setNotificationToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
 
   // Modals & Drawers
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
@@ -503,7 +504,7 @@ export default function App() {
         const errData = await res.json();
         setNotificationToast({
           message: errData.error || 'Nie udało się usunąć zadania',
-          type: 'info',
+          type: 'error',
         });
         await fetchFreshState(false);
         return;
@@ -597,7 +598,7 @@ export default function App() {
         const errData = await res.json();
         setNotificationToast({
           message: errData.error || 'Brak uprawnień do usunięcia projektu',
-          type: 'info',
+          type: 'error',
         });
         await fetchFreshState(false);
         return;
@@ -888,10 +889,12 @@ export default function App() {
     const unfinishedBlockers = tasks.filter((t) => blockerIds.includes(t.id) && t.status !== 'done');
 
     if (unfinishedBlockers.length > 0 && (newStatus === 'in_progress' || newStatus === 'done')) {
-      alert(
-        `Nie można przenieść zadania [${task.code}] do "${newStatus}"!\nNajpierw ukończ zadania blokujące:\n- ` +
-          unfinishedBlockers.map((b) => `[${b.code}] ${b.title}`).join('\n- ')
-      );
+      setNotificationToast({
+        message:
+          `Nie można przenieść zadania [${task.code}] przed ukończeniem zadań blokujących: ` +
+          unfinishedBlockers.map((b) => `[${b.code}] ${b.title}`).join(', '),
+        type: 'error',
+      });
       return;
     }
 
@@ -1031,7 +1034,7 @@ export default function App() {
     if (!newUserData.password || !newUserData.password.trim()) {
       setNotificationToast({
         message: 'Hasło jest wymagane do utworzenia konta użytkownika.',
-        type: 'info',
+        type: 'error',
       });
       return;
     }
@@ -1054,7 +1057,7 @@ export default function App() {
         const err = await res.json();
         setNotificationToast({
           message: err.error || 'Nie udało się dodać użytkownika.',
-          type: 'info',
+          type: 'error',
         });
         return;
       }
@@ -1069,7 +1072,7 @@ export default function App() {
     } catch {
       setNotificationToast({
         message: 'Błąd połączenia z serwerem podczas dodawania użytkownika.',
-        type: 'info',
+        type: 'error',
       });
     }
   };
@@ -1114,7 +1117,7 @@ export default function App() {
     if (currentUser && currentUser.id === userId) {
       setNotificationToast({
         message: 'Nie możesz usunąć aktualnie aktywnego użytkownika.',
-        type: 'info',
+        type: 'error',
       });
       return;
     }
@@ -1135,13 +1138,13 @@ export default function App() {
         const err = await res.json();
         setNotificationToast({
           message: err.error || 'Błąd usuwania użytkownika.',
-          type: 'info',
+          type: 'error',
         });
       }
     } catch {
       setNotificationToast({
         message: 'Błąd połączenia z serwerem.',
-        type: 'info',
+        type: 'error',
       });
     }
   };
@@ -1168,7 +1171,7 @@ export default function App() {
     } catch (e: any) {
       setNotificationToast({
         message: e.message || 'Nie udało się zmienić hasła.',
-        type: 'info',
+        type: 'error',
       });
       return false;
     }
@@ -1267,7 +1270,7 @@ export default function App() {
     if (!newUserData.password || !newUserData.password.trim()) {
       setNotificationToast({
         message: 'Hasło jest wymagane do rejestracji konta.',
-        type: 'info',
+        type: 'error',
       });
       return;
     }
@@ -1316,7 +1319,7 @@ export default function App() {
         const err = await res.json();
         setNotificationToast({
           message: err.error || 'Błąd zatwierdzania konta.',
-          type: 'info',
+          type: 'error',
         });
       }
     } catch {}
@@ -1387,19 +1390,51 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col text-slate-900">
-      {/* Dynamic Toast Notification for Auto-Unlock and Hierarchy Completion */}
+      {/* Dynamic Toast Notification for Auto-Unlock, Hierarchy Completion & Errors */}
       {notificationToast && (
-        <div className="fixed top-16 right-6 z-50 bg-slate-900 text-white px-4 py-3 rounded-lg shadow-xl border border-slate-700 max-w-md animate-in slide-in-from-top-4 flex items-start gap-2.5 text-xs">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+        <div
+          role={notificationToast.type === 'error' ? 'alert' : 'status'}
+          aria-live={notificationToast.type === 'error' ? 'assertive' : 'polite'}
+          className={`fixed top-16 right-6 z-50 bg-slate-900 text-white px-4 py-3 rounded-lg shadow-xl border max-w-md animate-in slide-in-from-top-4 flex items-start gap-2.5 text-xs ${
+            notificationToast.type === 'error'
+              ? 'border-rose-600'
+              : notificationToast.type === 'info'
+              ? 'border-sky-600'
+              : 'border-slate-700'
+          }`}
+        >
+          {notificationToast.type === 'error' ? (
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" aria-hidden="true" />
+          ) : notificationToast.type === 'info' ? (
+            <Info className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" aria-hidden="true" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" aria-hidden="true" />
+          )}
           <div className="flex-1">
-            <span className="font-bold block text-emerald-400">Automatyczna aktualizacja zależności</span>
+            <span
+              className={`font-bold block ${
+                notificationToast.type === 'error'
+                  ? 'text-rose-300'
+                  : notificationToast.type === 'info'
+                  ? 'text-sky-300'
+                  : 'text-emerald-300'
+              }`}
+            >
+              {notificationToast.type === 'error'
+                ? 'Błąd operacji'
+                : notificationToast.type === 'info'
+                ? 'Informacja systemowa'
+                : 'Automatyczna aktualizacja zależności'}
+            </span>
             <p className="mt-0.5 leading-relaxed text-slate-200">{notificationToast.message}</p>
           </div>
           <button
+            type="button"
             onClick={() => setNotificationToast(null)}
-            className="text-slate-400 hover:text-white p-0.5"
+            aria-label="Zamknij powiadomienie"
+            className="text-slate-300 hover:text-white p-0.5 rounded"
           >
-            ✕
+            <span aria-hidden="true">✕</span>
           </button>
         </div>
       )}
@@ -1408,90 +1443,102 @@ export default function App() {
       <header className="flex items-center justify-between gap-6 px-4 sm:px-6 py-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 shadow-xs">
         {/* Zone 1: Brand title wordmark */}
         <div className="flex items-center gap-3 shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-sky-700 dark:bg-sky-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
+          <div className="w-8 h-8 rounded-lg bg-sky-700 dark:bg-sky-700 text-white flex items-center justify-center font-bold text-sm shadow-xs" aria-hidden="true">
             ZP
           </div>
           <div className="flex flex-col">
             <span className="text-sm font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap leading-tight">
               Zarządzanie Projektami
             </span>
-            <span className="text-[10px] text-slate-400 font-mono">
+            <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono">
               {CURRENT_APP_VERSION}
             </span>
           </div>
         </div>
 
         {/* Zone 2: Navigation Links */}
-        <nav className="hidden lg:flex items-center gap-5 text-xs font-semibold text-slate-600 dark:text-slate-400">
+        <nav aria-label="Główna nawigacja" className="hidden lg:flex items-center gap-5 text-xs font-semibold text-slate-600 dark:text-slate-400">
           <button
+            type="button"
             onClick={() => setActiveView('gantt')}
+            aria-current={activeView === 'gantt' ? 'page' : undefined}
             className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
               activeView === 'gantt'
-                ? 'text-sky-600 dark:text-sky-400 border-b-2 border-sky-600 font-bold'
+                ? 'text-sky-700 dark:text-sky-400 border-b-2 border-sky-700 dark:border-sky-400 font-bold'
                 : 'hover:text-slate-900 dark:hover:text-slate-200'
             }`}
           >
-            <FolderKanban className="w-3.5 h-3.5" />
+            <FolderKanban className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Harmonogram Gantta</span>
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveView('calendar')}
+            aria-current={activeView === 'calendar' ? 'page' : undefined}
             className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
               activeView === 'calendar'
-                ? 'text-sky-600 dark:text-sky-400 border-b-2 border-sky-600 font-bold'
+                ? 'text-sky-700 dark:text-sky-400 border-b-2 border-sky-700 dark:border-sky-400 font-bold'
                 : 'hover:text-slate-900 dark:hover:text-slate-200'
             }`}
           >
-            <CalendarIcon className="w-3.5 h-3.5" />
+            <CalendarIcon className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Terminarz</span>
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveView('tasks')}
+            aria-current={activeView === 'tasks' ? 'page' : undefined}
             className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
               activeView === 'tasks'
-                ? 'text-sky-600 dark:text-sky-400 border-b-2 border-sky-600 font-bold'
+                ? 'text-sky-700 dark:text-sky-400 border-b-2 border-sky-700 dark:border-sky-400 font-bold'
                 : 'hover:text-slate-900 dark:hover:text-slate-200'
             }`}
           >
-            <ListTodo className="w-3.5 h-3.5" />
+            <ListTodo className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Zadania</span>
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveView('tree')}
+            aria-current={activeView === 'tree' ? 'page' : undefined}
             className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
               activeView === 'tree'
-                ? 'text-sky-600 dark:text-sky-400 border-b-2 border-sky-600 font-bold'
+                ? 'text-sky-700 dark:text-sky-400 border-b-2 border-sky-700 dark:border-sky-400 font-bold'
                 : 'hover:text-slate-900 dark:hover:text-slate-200'
             }`}
           >
-            <GitMerge className="w-3.5 h-3.5" />
+            <GitMerge className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Drzewo zadań</span>
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveView('kanban')}
+            aria-current={activeView === 'kanban' ? 'page' : undefined}
             className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
               activeView === 'kanban'
-                ? 'text-sky-600 dark:text-sky-400 border-b-2 border-sky-600 font-bold'
+                ? 'text-sky-700 dark:text-sky-400 border-b-2 border-sky-700 dark:border-sky-400 font-bold'
                 : 'hover:text-slate-900 dark:hover:text-slate-200'
             }`}
           >
-            <LayoutGrid className="w-3.5 h-3.5" />
+            <LayoutGrid className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Tablica Kanban</span>
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveView('projects')}
+            aria-current={activeView === 'projects' ? 'page' : undefined}
             className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
               activeView === 'projects'
-                ? 'text-sky-600 dark:text-sky-400 border-b-2 border-sky-600 font-bold'
+                ? 'text-sky-700 dark:text-sky-400 border-b-2 border-sky-700 dark:border-sky-400 font-bold'
                 : 'hover:text-slate-900 dark:hover:text-slate-200'
             }`}
           >
-            <Briefcase className="w-3.5 h-3.5" />
+            <Briefcase className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Projekty</span>
           </button>
         </nav>
@@ -1500,14 +1547,16 @@ export default function App() {
         <div className="flex items-center gap-2 shrink-0">
           {/* Symbol archiwizacji: zielony gdy kopia na serwerze <= 36h, czerwony gdy brak lub przeterminowana */}
           <button
+            type="button"
             onClick={() => {
               setSettingsTab('backup');
               setIsSettingsModalOpen(true);
             }}
+            aria-label={isBackupActive ? 'Status kopii zapasowej na serwerze: Aktywna' : 'Uwaga: Brak aktualnej kopii zapasowej na serwerze poniżej 36 godzin'}
             className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-all whitespace-nowrap border ${
               isBackupActive
-                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100'
-                : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-400 dark:border-rose-800 hover:bg-rose-100 animate-pulse'
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100'
+                : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border-rose-400 dark:border-rose-800 hover:bg-rose-100 animate-pulse'
             }`}
             title={
               isBackupActive
@@ -1517,11 +1566,15 @@ export default function App() {
                 : 'UWAGA! Brak aktualnej kopii zapasowej na serwerze (w ciągu ostatnich 36h)! Kliknij, aby skonfigurować.'
             }
           >
-            <Cloud className={`w-3.5 h-3.5 ${isBackupActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`} />
+            <Cloud className={`w-3.5 h-3.5 ${isBackupActive ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`} aria-hidden="true" />
             <span className="hidden sm:inline">
               {isBackupActive ? 'Kopia: Aktywna' : 'Kopia: Brak (<36h)'}
             </span>
+            <span className="sr-only sm:hidden">
+              {isBackupActive ? 'Kopia: Aktywna' : 'Uwaga: Kopia brak lub przeterminowana'}
+            </span>
             <span
+              aria-hidden="true"
               className={`w-2 h-2 rounded-full ${
                 isBackupActive ? 'bg-emerald-500' : 'bg-rose-500 animate-ping'
               }`}
@@ -1530,14 +1583,20 @@ export default function App() {
 
           {/* Przycisk bieżącej wersji: zielony gdy aktualna, czerwony gdy nowa wersja */}
           <button
+            type="button"
             onClick={() => {
               setSettingsTab('update');
               setIsSettingsModalOpen(true);
             }}
+            aria-label={
+              hasUpdateAvailable
+                ? `Wersja ${CURRENT_APP_VERSION}: Dostępna nowa aktualizacja`
+                : `Wersja ${CURRENT_APP_VERSION}: System aktualny`
+            }
             className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-all whitespace-nowrap border cursor-pointer ${
               hasUpdateAvailable
-                ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-400 dark:border-rose-800 hover:bg-rose-100 animate-pulse'
-                : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100'
+                ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border-rose-400 dark:border-rose-800 hover:bg-rose-100 animate-pulse'
+                : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100'
             }`}
             title={
               hasUpdateAvailable
@@ -1545,9 +1604,13 @@ export default function App() {
                 : `Wersja oprogramowania: ${CURRENT_APP_VERSION} (Wersja aktualna)`
             }
           >
-            <GitBranch className={`w-3.5 h-3.5 ${hasUpdateAvailable ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`} />
+            <GitBranch className={`w-3.5 h-3.5 ${hasUpdateAvailable ? 'text-rose-700 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-400'}`} aria-hidden="true" />
             <span className="font-mono">{CURRENT_APP_VERSION}</span>
+            <span className="sr-only">
+              {hasUpdateAvailable ? ' (Dostępna aktualizacja)' : ' (Aktualna wersja)'}
+            </span>
             <span
+              aria-hidden="true"
               className={`w-2 h-2 rounded-full ${
                 hasUpdateAvailable ? 'bg-rose-500 animate-ping' : 'bg-emerald-500'
               }`}
@@ -1556,53 +1619,64 @@ export default function App() {
 
           {/* Menu Ustawień - Symbol Zębatki ⚙️ */}
           <button
+            type="button"
             onClick={() => {
               setSettingsTab('theme');
               setIsSettingsModalOpen(true);
             }}
+            aria-label="Ustawienia systemu"
             className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors whitespace-nowrap border border-slate-200 dark:border-slate-700"
             title="Ustawienia systemu: Motyw ciemny/jasny, Aktualizacje, Wdrożenie Docker, Użytkownicy i Kopie"
           >
-            <SettingsIcon className="w-3.5 h-3.5 text-slate-700 dark:text-slate-300" />
+            <SettingsIcon className="w-3.5 h-3.5 text-slate-700 dark:text-slate-300" aria-hidden="true" />
             <span className="hidden md:inline">Ustawienia</span>
           </button>
 
           {/* Quick Theme Switch (Sun / Moon) */}
           <button
+            type="button"
             onClick={toggleThemeQuick}
-            className="p-1.5 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 rounded border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            aria-label={
+              themeMode === 'dark' || document.documentElement.classList.contains('dark')
+                ? 'Przełącz na motyw jasny'
+                : 'Przełącz na motyw ciemny'
+            }
+            className="p-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 rounded border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             title="Przełącz motyw (Jasny / Ciemny)"
           >
             {themeMode === 'dark' || document.documentElement.classList.contains('dark') ? (
-              <Sun className="w-3.5 h-3.5 text-amber-400" />
+              <Sun className="w-3.5 h-3.5 text-amber-400" aria-hidden="true" />
             ) : (
-              <Moon className="w-3.5 h-3.5 text-slate-600" />
+              <Moon className="w-3.5 h-3.5 text-slate-700" aria-hidden="true" />
             )}
           </button>
 
           {/* User Switcher / Current User Badge (Wymaga logowania) */}
           <button
+            type="button"
             onClick={() => setIsUserModalOpen(true)}
+            aria-label={`Konto użytkownika: ${currentUser?.name || 'Zaloguj się'}, kliknij aby otworzyć panel konta`}
             className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 px-2.5 py-1 rounded-md transition-colors text-left"
             title="Kliknij, aby przełączyć użytkownika (wymaga hasła) lub wylogować"
           >
-            <div className="w-6 h-6 rounded-full bg-slate-900 dark:bg-sky-600 text-white font-bold text-[11px] flex items-center justify-center shrink-0">
+            <div className="w-6 h-6 rounded-full bg-slate-900 dark:bg-sky-700 text-white font-bold text-[11px] flex items-center justify-center shrink-0" aria-hidden="true">
               {currentUser?.initials || '??'}
             </div>
             <div className="hidden xl:flex flex-col">
               <span className="text-xs font-bold text-slate-800 dark:text-slate-200 leading-tight">
                 {currentUser?.name || 'Zaloguj się'}
               </span>
-              <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-medium">
+              <span className="text-[10px] text-slate-600 dark:text-slate-400 uppercase font-medium">
                 {currentUser?.role || 'Brak sesji'}
               </span>
             </div>
-            <ChevronDown className="w-3 h-3 text-slate-400" />
+            <ChevronDown className="w-3 h-3 text-slate-600 dark:text-slate-400" aria-hidden="true" />
           </button>
 
           {/* Pending Users Notification Badge for Administrator */}
           {pendingUsersCount > 0 && currentUser?.role === 'admin' && (
             <button
+              type="button"
               onClick={() => {
                 setSettingsTab('users');
                 setIsSettingsModalOpen(true);
@@ -1610,18 +1684,20 @@ export default function App() {
               className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-all whitespace-nowrap bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40 animate-pulse"
               title="Nowi użytkownicy oczekują na zatwierdzenie przez Administratora"
             >
-              <UserCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <UserCheck className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" aria-hidden="true" />
               <span>Oczekujące ({pendingUsersCount})</span>
             </button>
           )}
 
           {/* Dedykowany Przycisk Wylogowania - powrót do ekranu logowania */}
           <button
+            type="button"
             onClick={handleLogout}
+            aria-label="Wyloguj się z systemu"
             className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-all whitespace-nowrap bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40 cursor-pointer shadow-2xs"
             title="Wyloguj się z systemu i przejdź do ekranu logowania"
           >
-            <LogOut className="w-3.5 h-3.5" />
+            <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
             <span className="hidden sm:inline">Wyloguj</span>
           </button>
         </div>
@@ -1631,8 +1707,9 @@ export default function App() {
       <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-3 text-xs transition-colors">
         {/* Left: Project selector & Duration in days */}
         <div className="flex items-center gap-3">
-          <span className="font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-[11px]">Projekt:</span>
+          <label htmlFor="workspace-project-select" className="font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider text-[11px]">Projekt:</label>
           <select
+            id="workspace-project-select"
             value={selectedProjectId || ''}
             onChange={(e) => setSelectedProjectId(e.target.value ? e.target.value : null)}
             className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1 text-xs text-slate-900 dark:text-slate-100 font-semibold focus:outline-none focus:ring-1 focus:ring-sky-500 transition-colors"
@@ -1646,12 +1723,12 @@ export default function App() {
           </select>
 
           {activeProject && (
-            <div className="hidden md:flex items-center gap-2 text-slate-500 dark:text-slate-400">
-              <span>·</span>
+            <div className="hidden md:flex items-center gap-2 text-slate-600 dark:text-slate-400">
+              <span aria-hidden="true">·</span>
               <span>Czas trwania: <strong className="text-slate-800 dark:text-slate-200 font-mono">{activeProject.durationDays || 30} dni</strong></span>
-              <span>·</span>
+              <span aria-hidden="true">·</span>
               <span>Termin: <strong className="text-slate-700 dark:text-slate-300 font-mono">{activeProject.dueDate}</strong></span>
-              <span>·</span>
+              <span aria-hidden="true">·</span>
               <span>Postęp: <strong className="text-slate-700 dark:text-slate-300 font-mono">{activeProject.progress}%</strong></span>
             </div>
           )}
@@ -1662,6 +1739,7 @@ export default function App() {
           {/* Clickable Blocked Tasks Badge */}
           {blockedTasksCount > 0 && (
             <button
+              type="button"
               onClick={() => {
                 setTaskFilterModalType('blocked');
                 setIsTaskFilterModalOpen(true);
@@ -1669,7 +1747,7 @@ export default function App() {
               className="flex items-center gap-1.5 text-amber-900 dark:text-amber-200 font-bold text-xs bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-950/60 px-2.5 py-1 rounded border border-amber-300 dark:border-amber-800 transition-all cursor-pointer shadow-2xs hover:scale-102"
               title="Kliknij, aby wyświetlić listę zablokowanych zadań i przejść do konkretnego projektu"
             >
-              <Lock className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" />
+              <Lock className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" aria-hidden="true" />
               <span>{blockedTasksCount} zablokowanych</span>
             </button>
           )}
@@ -1677,6 +1755,7 @@ export default function App() {
           {/* Clickable Critical Tasks Badge */}
           {criticalTasksCount > 0 && (
             <button
+              type="button"
               onClick={() => {
                 setTaskFilterModalType('critical');
                 setIsTaskFilterModalOpen(true);
@@ -1684,14 +1763,16 @@ export default function App() {
               className="flex items-center gap-1.5 text-rose-800 dark:text-rose-200 font-bold text-xs bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-950/60 px-2.5 py-1 rounded border border-rose-300 dark:border-rose-800 transition-all cursor-pointer shadow-2xs hover:scale-102"
               title="Kliknij, aby wyświetlić listę krytycznych zadań i przejść do konkretnego projektu"
             >
-              <AlertCircle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+              <AlertCircle className="w-3.5 h-3.5 text-rose-700 dark:text-rose-400" aria-hidden="true" />
               <span>{criticalTasksCount} krytycznych</span>
             </button>
           )}
 
           {/* Mobile view switch buttons */}
-          <div className="flex lg:hidden items-center gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded border border-slate-200 dark:border-slate-700">
+          <div role="group" aria-label="Widoki aplikacji" className="flex lg:hidden items-center gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded border border-slate-200 dark:border-slate-700">
             <button
+              type="button"
+              aria-pressed={activeView === 'gantt'}
               onClick={() => setActiveView('gantt')}
               className={`px-2 py-1 text-[11px] font-medium rounded ${
                 activeView === 'gantt' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
@@ -1700,6 +1781,8 @@ export default function App() {
               Gantt
             </button>
             <button
+              type="button"
+              aria-pressed={activeView === 'calendar'}
               onClick={() => setActiveView('calendar')}
               className={`px-2 py-1 text-[11px] font-medium rounded ${
                 activeView === 'calendar' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
@@ -1708,6 +1791,8 @@ export default function App() {
               Terminarz
             </button>
             <button
+              type="button"
+              aria-pressed={activeView === 'tasks'}
               onClick={() => setActiveView('tasks')}
               className={`px-2 py-1 text-[11px] font-medium rounded ${
                 activeView === 'tasks' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
@@ -1716,6 +1801,8 @@ export default function App() {
               Zadania
             </button>
             <button
+              type="button"
+              aria-pressed={activeView === 'tree'}
               onClick={() => setActiveView('tree')}
               className={`px-2 py-1 text-[11px] font-medium rounded ${
                 activeView === 'tree' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
@@ -1724,6 +1811,8 @@ export default function App() {
               Drzewo
             </button>
             <button
+              type="button"
+              aria-pressed={activeView === 'kanban'}
               onClick={() => setActiveView('kanban')}
               className={`px-2 py-1 text-[11px] font-medium rounded ${
                 activeView === 'kanban' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
@@ -1734,17 +1823,18 @@ export default function App() {
           </div>
 
           <button
+            type="button"
             onClick={() => handleOpenNewTask()}
-            className="flex items-center gap-1 bg-slate-900 dark:bg-sky-600 hover:bg-slate-800 dark:hover:bg-sky-700 text-white text-xs font-medium px-3.5 py-1.5 rounded transition-colors shadow-xs"
+            className="flex items-center gap-1 bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 text-white text-xs font-medium px-3.5 py-1.5 rounded transition-colors shadow-xs"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Nowe zadanie</span>
           </button>
         </div>
       </div>
 
       {/* 3. MAIN WORKSPACE VIEWPORT (ciemny motyw obejmuje cały obszar roboczy) */}
-      <main className="flex-1 py-3 px-2 sm:px-3 lg:px-4 w-full max-w-none bg-slate-50/50 dark:bg-slate-950 transition-colors">
+      <main id="main-content" tabIndex={-1} className="flex-1 py-3 px-2 sm:px-3 lg:px-4 w-full max-w-none bg-slate-50/50 dark:bg-slate-950 transition-colors focus:outline-none">
         {activeView === 'gantt' && (
           <GanttChart
             tasks={sortedTasks}

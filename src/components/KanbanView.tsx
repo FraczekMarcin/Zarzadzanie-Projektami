@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Task, Project, User, TaskStatus, Priority } from '../types';
 import { generateGoogleCalendarUrl } from '../utils/calendar';
 import { 
@@ -17,8 +17,7 @@ import {
   ShieldAlert,
   RotateCcw,
   Check,
-  Eye,
-  Filter,
+  ChevronDown,
   FileText
 } from 'lucide-react';
 import { isApproachingOfficialDeadline, getBusinessDaysRemaining } from '../utils/businessDays';
@@ -55,6 +54,34 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
   const [viewTab, setViewTab] = useState<'active' | 'completed'>('active');
   const [showDoneColumnOnBoard, setShowDoneColumnOnBoard] = useState(false);
 
+  // Accessible move menu state & screen reader live announcements
+  const [openMoveMenuTaskId, setOpenMoveMenuTaskId] = useState<string | null>(null);
+  const [highlightedOptionIdx, setHighlightedOptionIdx] = useState<number>(0);
+  const [liveAnnouncement, setLiveAnnouncement] = useState<string>('');
+  const [moveErrorBanner, setMoveErrorBanner] = useState<string | null>(null);
+
+  const menuTriggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const menuContainerRef = useRef<HTMLDivElement | null>(null);
+  const menuOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  useEffect(() => {
+    if (!openMoveMenuTaskId) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      const trigger = menuTriggerRefs.current[openMoveMenuTaskId];
+      if (
+        menuContainerRef.current?.contains(target) ||
+        trigger?.contains(target)
+      ) {
+        return;
+      }
+      setOpenMoveMenuTaskId(null);
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [openMoveMenuTaskId]);
+
   const projectTasks = useMemo(() => {
     return tasks.filter((t) => {
       if (selectedProjectId && t.projectId !== selectedProjectId) return false;
@@ -76,36 +103,36 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
   const getTypeIcon = (type: string) => {
     switch (type) {
       case 'rysunek':
-        return <Layers className="w-3.5 h-3.5 text-sky-500" />;
+        return <Layers className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" aria-hidden="true" />;
       case 'opis':
-        return <FileText className="w-3.5 h-3.5 text-emerald-500" />;
+        return <FileText className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />;
       case 'uzgodnienia':
-        return <Diamond className="w-3.5 h-3.5 text-purple-500 fill-purple-500/20" />;
+        return <Diamond className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 fill-purple-500/20" aria-hidden="true" />;
       case 'urzad':
-        return <Clock className="w-3.5 h-3.5 text-amber-500" />;
+        return <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" aria-hidden="true" />;
       case 'milestone':
-        return <Diamond className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />;
+        return <Diamond className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 fill-amber-500" aria-hidden="true" />;
       case 'bug':
-        return <Bug className="w-3.5 h-3.5 text-rose-500" />;
+        return <Bug className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" aria-hidden="true" />;
       case 'feature':
-        return <Sparkles className="w-3.5 h-3.5 text-indigo-500" />;
+        return <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" aria-hidden="true" />;
       case 'phase':
-        return <Layers className="w-3.5 h-3.5 text-slate-700 dark:text-slate-300" />;
+        return <Layers className="w-3.5 h-3.5 text-slate-700 dark:text-slate-300" aria-hidden="true" />;
       default:
-        return <CheckCircle2 className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />;
+        return <CheckCircle2 className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" aria-hidden="true" />;
     }
   };
 
   const getPriorityLabel = (priority: Priority) => {
     switch (priority) {
       case 'critical':
-        return <span className="text-rose-600 dark:text-rose-400 font-semibold text-[11px]">Krytyczny</span>;
+        return <span className="text-rose-700 dark:text-rose-400 font-semibold text-[11px]">Krytyczny</span>;
       case 'high':
-        return <span className="text-amber-600 dark:text-amber-400 font-medium text-[11px]">Wysoki</span>;
+        return <span className="text-amber-700 dark:text-amber-400 font-medium text-[11px]">Wysoki</span>;
       case 'normal':
-        return <span className="text-blue-600 dark:text-blue-400 font-medium text-[11px]">Normalny</span>;
+        return <span className="text-blue-700 dark:text-blue-400 font-medium text-[11px]">Normalny</span>;
       case 'low':
-        return <span className="text-slate-500 dark:text-slate-400 text-[11px]">Niski</span>;
+        return <span className="text-slate-600 dark:text-slate-400 text-[11px]">Niski</span>;
     }
   };
 
@@ -123,56 +150,115 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
     return null;
   };
 
-  const handleMoveStatus = (task: Task, targetStatus: TaskStatus) => {
+  const announceStatusMove = (task: Task, targetStatus: TaskStatus) => {
+    const targetCol = ALL_COLUMNS.find((c) => c.id === targetStatus);
+    const colLabel = targetCol ? targetCol.label : targetStatus;
+    setLiveAnnouncement(`Zadanie ${task.title} przeniesiono do ${colLabel}`);
+  };
+
+  const handleMoveStatus = (task: Task, targetStatus: TaskStatus): boolean => {
     const blockerIds = task.blockingTaskIds || task.dependencies || [];
     const unfinishedBlockers = tasks.filter(
       (t) => blockerIds.includes(t.id) && t.status !== 'done'
     );
 
     if (unfinishedBlockers.length > 0 && (targetStatus === 'in_progress' || targetStatus === 'done')) {
-      alert(
-        `Nie można przesunąć zadania "${task.title}".\nJest ono zablokowane przez ${unfinishedBlockers.length} niezakończone zadania.`
+      setMoveErrorBanner(
+        `Nie można przesunąć zadania „${task.title}”. Jest ono zablokowane przez ${unfinishedBlockers.length} niezakończone zadania.`
       );
-      return;
+      return false;
     }
 
+    setMoveErrorBanner(null);
     onUpdateStatus(task.id, targetStatus);
+    announceStatusMove(task, targetStatus);
+    return true;
   };
 
-  const handleRevertCompleted = (taskId: string) => {
-    onUpdateStatus(taskId, 'in_progress');
+  const handleRevertCompleted = (task: Task) => {
+    onUpdateStatus(task.id, 'in_progress');
+    announceStatusMove(task, 'in_progress');
+  };
+
+  const openMoveMenu = (taskId: string) => {
+    setOpenMoveMenuTaskId(taskId);
+    setHighlightedOptionIdx(0);
+    window.requestAnimationFrame(() => {
+      menuOptionRefs.current[0]?.focus({ preventScroll: true });
+    });
+  };
+
+  const closeMoveMenu = (taskId: string, restoreFocus = true) => {
+    setOpenMoveMenuTaskId(null);
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => {
+        menuTriggerRefs.current[taskId]?.focus({ preventScroll: true });
+      });
+    }
   };
 
   return (
     <div className="space-y-4">
+      {/* Screen reader polite live region for task status moves */}
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {liveAnnouncement}
+      </div>
+
+      {/* Inline assertive error banner when blocked task cannot be moved */}
+      {moveErrorBanner && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/60 text-rose-800 dark:text-rose-200 text-xs font-medium"
+        >
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-700 dark:text-rose-400" aria-hidden="true" />
+            <span>{moveErrorBanner}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setMoveErrorBanner(null)}
+            className="text-rose-700 dark:text-rose-300 hover:underline font-semibold shrink-0"
+          >
+            Zamknij
+          </button>
+        </div>
+      )}
+
       {/* Top filter bar: Aktywne vs Wyróżnik Ukończone */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 px-4 flex flex-wrap items-center justify-between gap-3 shadow-xs">
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex items-center gap-2 text-xs" role="tablist" aria-label="Widok zadań Kanban">
           <button
+            type="button"
+            role="tab"
+            aria-selected={viewTab === 'active'}
             onClick={() => setViewTab('active')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-semibold transition-colors ${
               viewTab === 'active'
-                ? 'bg-sky-600 text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                ? 'bg-sky-700 text-white shadow-xs'
+                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
           >
             <span>Aktywne zadania</span>
             <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
-              viewTab === 'active' ? 'bg-sky-700 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+              viewTab === 'active' ? 'bg-sky-800 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200'
             }`}>
               {activeTasks.length}
             </span>
           </button>
 
           <button
+            type="button"
+            role="tab"
+            aria-selected={viewTab === 'completed'}
             onClick={() => setViewTab('completed')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-semibold transition-colors ${
               viewTab === 'completed'
-                ? 'bg-emerald-600 text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                ? 'bg-emerald-700 text-white shadow-xs'
+                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
           >
-            <CheckCircle2 className="w-3.5 h-3.5" />
+            <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Wyróżnik: Ukończone</span>
             <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
               viewTab === 'completed' ? 'bg-emerald-700 text-white' : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
@@ -184,7 +270,7 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
 
         <div className="flex items-center gap-3 text-xs">
           {viewTab === 'active' && (
-            <label className="flex items-center gap-2 cursor-pointer text-slate-600 dark:text-slate-400 select-none">
+            <label className="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300 select-none">
               <input
                 type="checkbox"
                 checked={showDoneColumnOnBoard}
@@ -196,10 +282,11 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
           )}
 
           <button
+            type="button"
             onClick={onOpenNewTask}
             className="flex items-center gap-1.5 bg-slate-900 dark:bg-sky-600 hover:bg-slate-800 dark:hover:bg-sky-700 text-white text-xs font-medium px-3 py-1.5 rounded transition-colors shadow-xs"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Nowe zadanie</span>
           </button>
         </div>
@@ -212,26 +299,29 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
             const colTasks = projectTasks.filter((t) => t.status === col.id);
 
             return (
-              <div
+              <section
                 key={col.id}
+                aria-label={`Kolumna ${col.label} (${colTasks.length})`}
                 className="bg-slate-100/70 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-800 rounded-lg p-3 flex flex-col min-h-[460px]"
               >
                 {/* Column Header */}
                 <div className={`flex items-center justify-between pb-2 mb-2 border-b-2 ${col.headerColor}`}>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{col.label}</span>
-                    <span className="text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums bg-slate-200 dark:bg-slate-700 px-1.5 py-0.2 rounded-full">
+                    <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">{col.label}</h3>
+                    <span className="text-xs text-slate-700 dark:text-slate-300 font-mono tabular-nums bg-slate-200 dark:bg-slate-700 px-1.5 py-0.2 rounded-full">
                       {colTasks.length}
                     </span>
                   </div>
 
                   {col.id === 'to_do' && (
                     <button
+                      type="button"
                       onClick={onOpenNewTask}
-                      className="text-slate-500 hover:text-slate-900 dark:hover:text-slate-200 p-0.5 rounded transition-colors"
+                      className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white p-0.5 rounded transition-colors"
                       title="Dodaj zadanie"
+                      aria-label="Dodaj nowe zadanie"
                     >
-                      <Plus className="w-4 h-4" />
+                      <Plus className="w-4 h-4" aria-hidden="true" />
                     </button>
                   )}
                 </div>
@@ -239,7 +329,7 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
                 {/* Cards in column */}
                 <div className="space-y-2.5 flex-1 overflow-y-auto">
                   {colTasks.length === 0 ? (
-                    <div className="py-8 text-center text-xs text-slate-400 dark:text-slate-500">
+                    <div className="py-8 text-center text-xs text-slate-600 dark:text-slate-400">
                       Brak zadań w tej kolumnie
                     </div>
                   ) : (
@@ -254,11 +344,22 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
 
                       const nextSt = getNextStatus(task.status);
                       const prevSt = getPrevStatus(task.status);
+                      const isMenuOpen = openMoveMenuTaskId === task.id;
+                      const moveTargetColumns = ALL_COLUMNS.filter((c) => c.id !== task.status);
 
                       return (
                         <div
                           key={task.id}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Zadanie ${task.code}: ${task.title}, naciśnij Enter aby otworzyć szczegóły`}
                           onClick={() => onSelectTask(task)}
+                          onKeyDown={(e) => {
+                            if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                              e.preventDefault();
+                              onSelectTask(task);
+                            }
+                          }}
                           className={`rounded-md p-3 shadow-xs hover:shadow-sm cursor-pointer transition-all group relative border ${
                             isBlocked
                               ? 'task-blocked-style border-slate-300 dark:border-slate-700'
@@ -269,14 +370,14 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
                           <div className="flex items-center justify-between gap-1 mb-1.5">
                             <div className="flex items-center gap-1.5">
                               {getTypeIcon(task.type)}
-                              <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 tabular-nums font-semibold">
+                              <span className="font-mono text-[11px] text-slate-600 dark:text-slate-400 tabular-nums font-semibold">
                                 {task.code}
                               </span>
                             </div>
                             <div className="flex items-center gap-1.5">
                               {isBlocked && (
                                 <span className="text-rose-700 dark:text-rose-300 bg-rose-100 dark:bg-rose-950/60 p-0.5 rounded border border-rose-300 dark:border-rose-800 font-bold flex items-center gap-0.5 text-[10px]">
-                                  <Lock className="w-2.5 h-2.5" />
+                                  <Lock className="w-2.5 h-2.5" aria-hidden="true" />
                                   <span>Zablokowane</span>
                                 </span>
                               )}
@@ -294,7 +395,7 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
                               }`}
                               title={`Termin urzędowy. Pozostało dni roboczych: ${businessDaysRemaining}`}
                             >
-                              <ShieldAlert className={`w-3 h-3 ${isOfficialWarning ? 'text-rose-600 animate-bounce' : 'text-indigo-600'}`} />
+                              <ShieldAlert className={`w-3 h-3 ${isOfficialWarning ? 'text-rose-700 dark:text-rose-400 animate-bounce' : 'text-indigo-700 dark:text-indigo-300'}`} aria-hidden="true" />
                               <span>Termin urzędowy ({businessDaysRemaining} dni rob.)</span>
                             </div>
                           )}
@@ -307,7 +408,7 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
                           )}
 
                           {/* Title */}
-                          <h4 className="text-xs font-semibold text-slate-900 dark:text-white line-clamp-2 mb-2 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
+                          <h4 className="text-xs font-semibold text-slate-900 dark:text-white line-clamp-2 mb-2 group-hover:text-sky-700 dark:group-hover:text-sky-400 transition-colors">
                             {task.title}
                           </h4>
 
@@ -328,19 +429,20 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
                           </div>
 
                           {/* Bottom Footer: Duration in days, Dates, Google Calendar link, Assignee */}
-                          <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800">
+                          <div className="flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800">
                             <div className="flex items-center gap-1">
-                              <Clock className="w-3 h-3 text-slate-400" />
+                              <Clock className="w-3 h-3 text-slate-600 dark:text-slate-400" aria-hidden="true" />
                               <span className="font-mono tabular-nums font-semibold text-slate-700 dark:text-slate-300">
                                 {task.durationDays || 1}d
                               </span>
-                              <span className="text-slate-300 dark:text-slate-700">·</span>
-                              <span className={`font-mono tabular-nums ${isOverdue ? 'text-rose-600 font-bold' : ''}`}>
+                              <span className="text-slate-600 dark:text-slate-400" aria-hidden="true">·</span>
+                              <span className={`font-mono tabular-nums ${isOverdue ? 'text-rose-700 dark:text-rose-400 font-bold' : ''}`}>
                                 {task.dueDate.slice(5)}
                               </span>
                               {isOverdue && (
                                 <span title="Termin minął!">
-                                  <AlertCircle className="w-3 h-3 text-rose-600 ml-0.5" />
+                                  <AlertCircle className="w-3 h-3 text-rose-700 dark:text-rose-400 ml-0.5" aria-hidden="true" />
+                                  <span className="sr-only">Po terminie</span>
                                 </span>
                               )}
                             </div>
@@ -351,16 +453,18 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 onClick={(e) => e.stopPropagation()}
-                                className="text-slate-400 hover:text-sky-600 dark:hover:text-sky-400 p-0.5 rounded transition-colors"
+                                className="text-slate-600 dark:text-slate-400 hover:text-sky-700 dark:hover:text-sky-400 p-0.5 rounded transition-colors"
                                 title="Dodaj do Kalendarza Google"
+                                aria-label={`Dodaj zadanie ${task.title} do Kalendarza Google`}
                               >
-                                <Calendar className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+                                <Calendar className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400" aria-hidden="true" />
                               </a>
 
                               {assignee && (
                                 <div
-                                  className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-bold flex items-center justify-center shrink-0"
+                                  className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 text-[10px] font-bold flex items-center justify-center shrink-0"
                                   title={assignee.name}
+                                  aria-label={`Przypisany: ${assignee.name}`}
                                 >
                                   {assignee.initials}
                                 </div>
@@ -368,32 +472,134 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
                             </div>
                           </div>
 
-                          {/* Quick Move Buttons */}
+                          {/* Quick Move Buttons & Accessible "Przenieś do…" Menu */}
                           <div
-                            className="mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                            className={`mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-1 text-[10px] text-slate-600 dark:text-slate-400 transition-opacity relative ${
+                              isMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
+                            }`}
                             onClick={(e) => e.stopPropagation()}
                           >
                             {prevSt ? (
                               <button
-                                onClick={() => onUpdateStatus(task.id, prevSt)}
-                                className="flex items-center gap-0.5 hover:text-slate-700 dark:hover:text-slate-200 p-0.5"
+                                type="button"
+                                onClick={() => {
+                                  const ok = handleMoveStatus(task, prevSt);
+                                  if (ok) closeMoveMenu(task.id, false);
+                                }}
+                                className="flex items-center gap-0.5 hover:text-slate-900 dark:hover:text-slate-200 p-0.5 rounded"
                                 title="Cofnij status"
                               >
-                                <ArrowLeft className="w-3 h-3" />
+                                <ArrowLeft className="w-3 h-3" aria-hidden="true" />
                                 <span>Cofnij</span>
                               </button>
                             ) : (
                               <div />
                             )}
 
+                            {/* Keyboard accessible status menu button */}
+                            <div className="relative">
+                              <button
+                                ref={(el) => {
+                                  menuTriggerRefs.current[task.id] = el;
+                                }}
+                                type="button"
+                                aria-haspopup="menu"
+                                aria-expanded={isMenuOpen}
+                                aria-controls={isMenuOpen ? `kanban-move-menu-${task.id}` : undefined}
+                                onClick={() => {
+                                  if (isMenuOpen) {
+                                    closeMoveMenu(task.id, false);
+                                  } else {
+                                    openMoveMenu(task.id);
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    openMoveMenu(task.id);
+                                  }
+                                }}
+                                className="flex items-center gap-0.5 px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold"
+                              >
+                                <span>Przenieś do…</span>
+                                <ChevronDown className="w-3 h-3" aria-hidden="true" />
+                              </button>
+
+                              {isMenuOpen && (
+                                <div
+                                  ref={menuContainerRef}
+                                  id={`kanban-move-menu-${task.id}`}
+                                  role="menu"
+                                  aria-label={`Przenieś zadanie ${task.title} do statusu`}
+                                  className="absolute right-0 bottom-full mb-1 z-30 w-44 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl py-1"
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Escape') {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      closeMoveMenu(task.id, true);
+                                    } else if (e.key === 'ArrowDown') {
+                                      e.preventDefault();
+                                      const nextIdx = (highlightedOptionIdx + 1) % moveTargetColumns.length;
+                                      setHighlightedOptionIdx(nextIdx);
+                                      menuOptionRefs.current[nextIdx]?.focus({ preventScroll: true });
+                                    } else if (e.key === 'ArrowUp') {
+                                      e.preventDefault();
+                                      const prevIdx = (highlightedOptionIdx - 1 + moveTargetColumns.length) % moveTargetColumns.length;
+                                      setHighlightedOptionIdx(prevIdx);
+                                      menuOptionRefs.current[prevIdx]?.focus({ preventScroll: true });
+                                    } else if (e.key === 'Home') {
+                                      e.preventDefault();
+                                      setHighlightedOptionIdx(0);
+                                      menuOptionRefs.current[0]?.focus({ preventScroll: true });
+                                    } else if (e.key === 'End') {
+                                      e.preventDefault();
+                                      const lastIdx = moveTargetColumns.length - 1;
+                                      setHighlightedOptionIdx(lastIdx);
+                                      menuOptionRefs.current[lastIdx]?.focus({ preventScroll: true });
+                                    } else if (e.key === 'Tab') {
+                                      setOpenMoveMenuTaskId(null);
+                                    }
+                                  }}
+                                >
+                                  {moveTargetColumns.map((targetCol, optIdx) => (
+                                    <button
+                                      key={targetCol.id}
+                                      ref={(el) => {
+                                        menuOptionRefs.current[optIdx] = el;
+                                      }}
+                                      type="button"
+                                      role="menuitem"
+                                      onFocus={() => setHighlightedOptionIdx(optIdx)}
+                                      onClick={() => {
+                                        handleMoveStatus(task, targetCol.id);
+                                        setOpenMoveMenuTaskId(null);
+                                        window.requestAnimationFrame(() => {
+                                          menuTriggerRefs.current[task.id]?.focus({ preventScroll: true });
+                                        });
+                                      }}
+                                      className={`w-full text-left px-3 py-1.5 text-xs flex items-center justify-between transition-colors ${
+                                        highlightedOptionIdx === optIdx
+                                          ? 'bg-sky-50 dark:bg-sky-950/60 text-sky-800 dark:text-sky-200 font-semibold'
+                                          : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                      }`}
+                                    >
+                                      <span>{targetCol.label}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
                             {nextSt && (
                               <button
+                                type="button"
                                 onClick={() => handleMoveStatus(task, nextSt)}
-                                className="flex items-center gap-0.5 hover:text-slate-900 dark:hover:text-white font-medium text-sky-700 dark:text-sky-400 p-0.5 ml-auto"
+                                className="flex items-center gap-0.5 hover:text-slate-900 dark:hover:text-white font-medium text-sky-700 dark:text-sky-400 p-0.5 rounded"
                                 title="Przesuń dalej"
                               >
                                 <span>Dalej</span>
-                                <ArrowRight className="w-3 h-3" />
+                                <ArrowRight className="w-3 h-3" aria-hidden="true" />
                               </button>
                             )}
                           </div>
@@ -402,7 +608,7 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
                     })
                   )}
                 </div>
-              </div>
+              </section>
             );
           })}
         </div>
@@ -414,21 +620,21 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
           <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
             <div>
               <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <CheckCircle2 className="w-4 h-4 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
                 <span>Wyróżnik Zadań Ukończonych</span>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-mono font-bold">
                   {completedTasks.length} pozycji
                 </span>
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Ukończone zadania zostały przeniesione z podstawowego widoku, aby zapewnić czystość i czytelność aktywnej tablicy.
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                Ukończone zadania zostały przeniesione z podstawowego widoku, aby zapewnić czystość i czytelność aktynej tablicy.
               </p>
             </div>
           </div>
 
           {completedTasks.length === 0 ? (
-            <div className="py-12 text-center text-xs text-slate-400 dark:text-slate-500 space-y-2">
-              <CheckCircle2 className="w-8 h-8 text-slate-300 dark:text-slate-700 mx-auto" />
+            <div className="py-12 text-center text-xs text-slate-600 dark:text-slate-400 space-y-2">
+              <CheckCircle2 className="w-8 h-8 text-slate-600 dark:text-slate-400 mx-auto" aria-hidden="true" />
               <p>Brak ukończonych zadań w tym widoku.</p>
             </div>
           ) : (
@@ -443,27 +649,28 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
                     className="p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 flex items-center justify-between gap-4 transition-colors"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0">
-                        <Check className="w-4 h-4" />
+                      <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 flex items-center justify-center shrink-0">
+                        <Check className="w-4 h-4" aria-hidden="true" />
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs font-bold text-slate-500 dark:text-slate-400">
+                          <span className="font-mono text-xs font-bold text-slate-600 dark:text-slate-400">
                             {task.code}
                           </span>
-                          <span
+                          <button
+                            type="button"
                             onClick={() => onSelectTask(task)}
-                            className="text-xs font-bold text-slate-900 dark:text-white hover:text-sky-600 dark:hover:text-sky-400 cursor-pointer"
+                            className="text-left text-xs font-bold text-slate-900 dark:text-white hover:text-sky-700 dark:hover:text-sky-400 cursor-pointer"
                           >
                             {task.title}
-                          </span>
+                          </button>
                           {project && (
-                            <span className="text-[10px] text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40 px-2 py-0.5 rounded border border-sky-200 dark:border-sky-800">
+                            <span className="text-[10px] text-sky-800 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40 px-2 py-0.5 rounded border border-sky-200 dark:border-sky-800">
                               {project.name.slice(0, 25)}...
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-3 mt-1">
+                        <div className="text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-3 mt-1">
                           <span>Termin: {task.dueDate}</span>
                           <span>Czas: {task.durationDays} dni</span>
                           {assignee && <span>Wykonawca: {assignee.name}</span>}
@@ -473,16 +680,18 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
 
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => handleRevertCompleted(task.id)}
+                        type="button"
+                        onClick={() => handleRevertCompleted(task)}
                         className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/50 hover:bg-sky-100 dark:hover:bg-sky-900/50 border border-sky-200 dark:border-sky-800 rounded font-medium transition-colors"
                       >
-                        <RotateCcw className="w-3.5 h-3.5" />
+                        <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
                         <span>Przywróć do aktywnych</span>
                       </button>
 
                       <button
+                        type="button"
                         onClick={() => onSelectTask(task)}
-                        className="px-2.5 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors"
+                        className="px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors"
                       >
                         Szczegóły
                       </button>

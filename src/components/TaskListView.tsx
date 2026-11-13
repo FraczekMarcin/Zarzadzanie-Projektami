@@ -120,15 +120,30 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
   const getTypeIcon = (type: string) => {
     switch (type) {
       case 'milestone':
-        return <Diamond className="w-4 h-4 text-amber-500 fill-amber-500" />;
+        return <Diamond className="w-4 h-4 text-amber-600 dark:text-amber-400 fill-amber-500" aria-hidden="true" />;
       case 'bug':
-        return <Bug className="w-4 h-4 text-rose-500" />;
+        return <Bug className="w-4 h-4 text-rose-600 dark:text-rose-400" aria-hidden="true" />;
       case 'feature':
-        return <Sparkles className="w-4 h-4 text-indigo-500" />;
+        return <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400" aria-hidden="true" />;
       case 'phase':
-        return <Layers className="w-4 h-4 text-slate-700 dark:text-slate-300" />;
+        return <Layers className="w-4 h-4 text-slate-700 dark:text-slate-300" aria-hidden="true" />;
       default:
-        return <CheckCircle2 className="w-4 h-4 text-sky-600 dark:text-sky-400" />;
+        return <CheckCircle2 className="w-4 h-4 text-sky-700 dark:text-sky-400" aria-hidden="true" />;
+    }
+  };
+
+  const getTypeLabel = (type: string) => {
+    switch (type) {
+      case 'milestone':
+        return 'Kamień milowy';
+      case 'bug':
+        return 'Błąd';
+      case 'feature':
+        return 'Funkcjonalność';
+      case 'phase':
+        return 'Etap';
+      default:
+        return 'Zadanie';
     }
   };
 
@@ -141,7 +156,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
       case 'normal':
         return { label: 'Normalny', color: 'text-blue-700 dark:text-blue-400 font-medium' };
       case 'low':
-        return { label: 'Niski', color: 'text-slate-500 dark:text-slate-400' };
+        return { label: 'Niski', color: 'text-slate-600 dark:text-slate-400' };
     }
   };
 
@@ -166,44 +181,50 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
       <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/70 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-xs">
           <button
+            type="button"
             onClick={() => setViewFilter('active')}
+            aria-pressed={viewFilter === 'active'}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded font-semibold transition-colors ${
               viewFilter === 'active'
-                ? 'bg-sky-600 text-white shadow-xs'
+                ? 'bg-sky-700 text-white shadow-xs'
                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
             }`}
           >
             <span>Aktywne zadania</span>
             <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
-              viewFilter === 'active' ? 'bg-sky-700 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+              viewFilter === 'active' ? 'bg-sky-800 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
             }`}>
               {activeCount}
             </span>
           </button>
 
           <button
+            type="button"
             onClick={() => setViewFilter('completed')}
+            aria-pressed={viewFilter === 'completed'}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded font-semibold transition-colors ${
               viewFilter === 'completed'
-                ? 'bg-emerald-600 text-white shadow-xs'
+                ? 'bg-emerald-700 text-white shadow-xs'
                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
             }`}
           >
-            <CheckCircle2 className="w-3.5 h-3.5" />
+            <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Wyróżnik: Ukończone</span>
             <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
-              viewFilter === 'completed' ? 'bg-emerald-700 text-white' : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
+              viewFilter === 'completed' ? 'bg-emerald-800 text-white' : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
             }`}>
               {completedCount}
             </span>
           </button>
 
           <button
+            type="button"
             onClick={() => setViewFilter('all')}
+            aria-pressed={viewFilter === 'all'}
             className={`px-2.5 py-1.5 rounded text-xs transition-colors ${
               viewFilter === 'all'
                 ? 'bg-slate-800 text-white font-semibold'
-                : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
             }`}
           >
             Wszystkie ({projectTasks.length})
@@ -212,12 +233,13 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
 
         {/* Search Input */}
         <div className="relative min-w-[200px] flex-1 max-w-xs">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400" aria-hidden="true" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Szukaj zadania lub kodu..."
+            aria-label="Szukaj zadania lub kodu"
             className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500"
           />
         </div>
@@ -228,6 +250,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as TaskStatus | 'all')}
+              aria-label="Filtruj według statusu"
               className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300"
             >
               <option value="all">Wszystkie statusy</option>
@@ -243,6 +266,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
           <select
             value={priorityFilter}
             onChange={(e) => setPriorityFilter(e.target.value as Priority | 'all')}
+            aria-label="Filtruj według priorytetu"
             className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300"
           >
             <option value="all">Wszystkie priorytety</option>
@@ -253,10 +277,11 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
           </select>
 
           <button
+            type="button"
             onClick={onOpenNewTask}
-            className="flex items-center gap-1.5 bg-slate-900 dark:bg-sky-600 hover:bg-slate-800 dark:hover:bg-sky-700 text-white text-xs font-medium px-3.5 py-1.5 rounded transition-colors shadow-xs"
+            className="flex items-center gap-1.5 bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 text-white text-xs font-medium px-3.5 py-1.5 rounded transition-colors shadow-xs"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Nowe zadanie</span>
           </button>
         </div>
@@ -267,62 +292,87 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-800/60 text-[11px] font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
-              <th className="py-3 px-4 w-12 text-center">Typ</th>
+              <th scope="col" className="py-3 px-4 w-12 text-center">Typ</th>
               <th
-                onClick={() => toggleSort('code')}
-                className="py-3 px-3 cursor-pointer hover:text-slate-900 dark:hover:text-white transition-colors w-24"
+                scope="col"
+                aria-sort={sortBy === 'code' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}
+                className="py-3 px-3 w-24"
               >
-                <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => toggleSort('code')}
+                  className="flex items-center gap-1 hover:text-slate-900 dark:hover:text-white transition-colors uppercase"
+                >
                   <span>Kod</span>
-                  <ArrowUpDown className="w-3 h-3 opacity-60" />
-                </div>
+                  <ArrowUpDown className="w-3 h-3 opacity-70" aria-hidden="true" />
+                </button>
               </th>
-              <th className="py-3 px-4 min-w-[220px]">Tytuł zadania</th>
+              <th scope="col" className="py-3 px-4 min-w-[220px]">Tytuł zadania</th>
               <th
-                onClick={() => toggleSort('priority')}
-                className="py-3 px-3 cursor-pointer hover:text-slate-900 dark:hover:text-white transition-colors w-28"
+                scope="col"
+                aria-sort={sortBy === 'priority' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}
+                className="py-3 px-3 w-28"
               >
-                <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => toggleSort('priority')}
+                  className="flex items-center gap-1 hover:text-slate-900 dark:hover:text-white transition-colors uppercase"
+                >
                   <span>Priorytet</span>
-                  <ArrowUpDown className="w-3 h-3 opacity-60" />
-                </div>
+                  <ArrowUpDown className="w-3 h-3 opacity-70" aria-hidden="true" />
+                </button>
               </th>
-              <th className="py-3 px-3 w-36">Status</th>
+              <th scope="col" className="py-3 px-3 w-36">Status</th>
               <th
-                onClick={() => toggleSort('durationDays')}
-                className="py-3 px-3 cursor-pointer hover:text-slate-900 dark:hover:text-white transition-colors w-24"
+                scope="col"
+                aria-sort={sortBy === 'durationDays' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}
+                className="py-3 px-3 w-24"
               >
-                <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => toggleSort('durationDays')}
+                  className="flex items-center gap-1 hover:text-slate-900 dark:hover:text-white transition-colors uppercase"
+                >
                   <span>Czas (dni)</span>
-                  <ArrowUpDown className="w-3 h-3 opacity-60" />
-                </div>
+                  <ArrowUpDown className="w-3 h-3 opacity-70" aria-hidden="true" />
+                </button>
               </th>
-              <th className="py-3 px-3 w-36">Przypisany</th>
+              <th scope="col" className="py-3 px-3 w-36">Przypisany</th>
               <th
-                onClick={() => toggleSort('dueDate')}
-                className="py-3 px-3 cursor-pointer hover:text-slate-900 dark:hover:text-white transition-colors w-28"
+                scope="col"
+                aria-sort={sortBy === 'dueDate' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}
+                className="py-3 px-3 w-28"
               >
-                <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => toggleSort('dueDate')}
+                  className="flex items-center gap-1 hover:text-slate-900 dark:hover:text-white transition-colors uppercase"
+                >
                   <span>Termin</span>
-                  <ArrowUpDown className="w-3 h-3 opacity-60" />
-                </div>
+                  <ArrowUpDown className="w-3 h-3 opacity-70" aria-hidden="true" />
+                </button>
               </th>
               <th
-                onClick={() => toggleSort('progress')}
-                className="py-3 px-3 cursor-pointer hover:text-slate-900 dark:hover:text-white transition-colors w-28 text-right"
+                scope="col"
+                aria-sort={sortBy === 'progress' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}
+                className="py-3 px-3 w-28 text-right"
               >
-                <div className="flex items-center justify-end gap-1">
+                <button
+                  type="button"
+                  onClick={() => toggleSort('progress')}
+                  className="flex items-center justify-end gap-1 w-full hover:text-slate-900 dark:hover:text-white transition-colors uppercase"
+                >
                   <span>Postęp</span>
-                  <ArrowUpDown className="w-3 h-3 opacity-60" />
-                </div>
+                  <ArrowUpDown className="w-3 h-3 opacity-70" aria-hidden="true" />
+                </button>
               </th>
-              <th className="py-3 px-4 text-right w-36">Akcje</th>
+              <th scope="col" className="py-3 px-4 text-right w-36">Akcje</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
             {filteredTasks.length === 0 ? (
               <tr>
-                <td colSpan={10} className="py-12 text-center text-slate-500 dark:text-slate-400">
+                <td colSpan={10} className="py-12 text-center text-slate-600 dark:text-slate-400">
                   {viewFilter === 'completed'
                     ? 'Brak ukończonych zadań w tym widoku.'
                     : 'Brak aktywnych zadań spełniających kryteria wyszukiwania.'}
@@ -350,6 +400,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                     <td className="py-2.5 px-4 text-center">
                       <div className="flex items-center justify-center">
                         {getTypeIcon(task.type)}
+                        <span className="sr-only">{getTypeLabel(task.type)}</span>
                       </div>
                     </td>
 
@@ -359,7 +410,16 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
 
                     <td className="py-2.5 px-4 font-medium text-slate-900 dark:text-white">
                       <div className="flex items-center gap-2">
-                        <span>{task.title}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectTask(task);
+                          }}
+                          className="text-left hover:text-sky-700 dark:hover:text-sky-400 hover:underline focus:underline"
+                        >
+                          {task.title}
+                        </button>
                         {task.isOfficialDeadline && (
                           <span
                             className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${
@@ -374,19 +434,19 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                         )}
                         {isBlocked && (
                           <span className="text-[10px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 px-1 py-0.2 rounded flex items-center gap-0.5">
-                            <Lock className="w-2.5 h-2.5" />
+                            <Lock className="w-2.5 h-2.5" aria-hidden="true" />
                             <span>Blokada</span>
                           </span>
                         )}
                         {isOverdue && (
                           <span className="text-[10px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 px-1.5 py-0.5 rounded border border-rose-300 dark:border-rose-800 flex items-center gap-0.5" title="Zadanie przeterminowane!">
-                            <AlertTriangle className="w-2.5 h-2.5" />
+                            <AlertTriangle className="w-2.5 h-2.5" aria-hidden="true" />
                             <span>Po terminie</span>
                           </span>
                         )}
                       </div>
                       {project && (
-                        <div className="text-[11px] text-slate-400">
+                        <div className="text-[11px] text-slate-600 dark:text-slate-400">
                           {project.key} · {project.name}
                         </div>
                       )}
@@ -413,15 +473,15 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                           <span className="truncate max-w-[100px]">{assignee.name}</span>
                         </div>
                       ) : (
-                        <span className="text-slate-400 italic">Nieprzypisane</span>
+                        <span className="text-slate-600 dark:text-slate-400 italic">Nieprzypisane</span>
                       )}
                     </td>
 
-                    <td className={`py-2.5 px-3 font-mono ${isOverdue ? 'text-rose-600 dark:text-rose-400 font-bold' : 'text-slate-600 dark:text-slate-400'}`}>
+                    <td className={`py-2.5 px-3 font-mono ${isOverdue ? 'text-rose-700 dark:text-rose-400 font-bold' : 'text-slate-600 dark:text-slate-400'}`}>
                       <div className="flex items-center gap-1.5">
                         <span>{task.dueDate}</span>
                         {isOverdue && (
-                          <span className="text-[9px] font-sans font-bold text-rose-600 dark:text-rose-400">(! )</span>
+                          <span className="text-[9px] font-sans font-bold text-rose-700 dark:text-rose-400">(!)</span>
                         )}
                       </div>
                     </td>
@@ -448,19 +508,23 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                       <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
                         {task.status === 'done' ? (
                           <button
+                            type="button"
                             onClick={() => onUpdateStatus(task.id, 'in_progress')}
-                            className="p-1 text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40 rounded transition-colors"
+                            className="p-1 text-sky-700 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40 rounded transition-colors"
                             title="Przywróć zadanie do aktywnych"
+                            aria-label={`Przywróć zadanie ${task.code} do aktywnych`}
                           >
-                            <RotateCcw className="w-3.5 h-3.5" />
+                            <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
                           </button>
                         ) : (
                           <button
+                            type="button"
                             onClick={() => onUpdateStatus(task.id, 'done')}
-                            className="p-1 text-slate-400 hover:text-emerald-600 rounded transition-colors"
+                            className="p-1 text-slate-600 dark:text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400 rounded transition-colors"
                             title="Oznacz jako ukończone"
+                            aria-label={`Oznacz zadanie ${task.code} jako ukończone`}
                           >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
                           </button>
                         )}
 
@@ -468,18 +532,21 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                           href={gCalUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="p-1 text-slate-400 hover:text-sky-600 rounded transition-colors"
+                          className="p-1 text-slate-600 dark:text-slate-400 hover:text-sky-700 dark:hover:text-sky-400 rounded transition-colors"
                           title="Eksportuj do Google Calendar"
+                          aria-label={`Eksportuj zadanie ${task.code} do Google Calendar`}
                         >
-                          <Calendar className="w-3.5 h-3.5 text-sky-600" />
+                          <Calendar className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400" aria-hidden="true" />
                         </a>
 
                         <button
+                          type="button"
                           onClick={() => onDeleteTask(task.id)}
-                          className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors"
+                          className="p-1 text-slate-600 dark:text-slate-400 hover:text-rose-700 dark:hover:text-rose-400 rounded transition-colors"
                           title="Usuń zadanie"
+                          aria-label={`Usuń zadanie ${task.code}`}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                         </button>
                       </div>
                     </td>

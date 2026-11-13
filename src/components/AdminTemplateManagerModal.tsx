@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useId } from 'react';
 import { Project, Task, User, ProjectTemplate, TemplateTaskBlueprint } from '../types';
+import { useFocusTrap } from '../utils/useFocusTrap';
 import { 
   loadAllProjectTemplates, 
   saveCustomProjectTemplate, 
@@ -71,6 +72,11 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
   ]);
 
   const [notification, setNotification] = useState<string | null>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const baseId = useId();
+  const titleId = `${baseId}-title`;
+
+  useFocusTrap({ isOpen, onClose, containerRef: modalRef });
 
   const refreshTemplates = () => {
     const list = loadAllProjectTemplates();
@@ -195,49 +201,60 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-5xl h-[88vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-5xl h-[88vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95"
+      >
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="p-2 bg-purple-100 rounded-lg text-purple-700">
-              <Layers className="w-5 h-5" />
+              <Layers className="w-5 h-5" aria-hidden="true" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <h3 id={titleId} className="text-sm font-bold text-slate-900 flex items-center gap-2">
                 <span>Zarządzanie Szablonami Projektów Budowlanych</span>
                 <span className="text-[10px] bg-purple-100 text-purple-800 font-semibold px-2 py-0.5 rounded-full border border-purple-300">
                   Panel Administratora
                 </span>
               </h3>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-600">
                 Twórz szablony wielokrotnego użytku na podstawie gotowych projektów lub definiuj własne standardy pracowni.
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition-colors"
+            aria-label="Zamknij zarządzanie szablonami"
+            className="p-1 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-200 transition-colors"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
 
         {/* Notification Toast */}
         {notification && (
-          <div className="bg-emerald-600 text-white text-xs px-6 py-2 flex items-center justify-between animate-in fade-in">
+          <div role="status" aria-live="polite" className="bg-emerald-700 text-white text-xs px-6 py-2 flex items-center justify-between animate-in fade-in">
             <span className="flex items-center gap-2 font-medium">
-              <CheckCircle2 className="w-4 h-4" />
+              <CheckCircle2 className="w-4 h-4" aria-hidden="true" />
               <span>{notification}</span>
             </span>
-            <button onClick={() => setNotification(null)} className="text-emerald-200 hover:text-white">
-              <X className="w-3.5 h-3.5" />
+            <button type="button" onClick={() => setNotification(null)} aria-label="Zamknij powiadomienie" className="text-emerald-100 hover:text-white">
+              <X className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
           </div>
         )}
 
         {/* Navigation Tabs */}
-        <div className="px-6 border-b border-slate-200 bg-white flex items-center gap-4 text-xs font-medium">
+        <div role="tablist" aria-label="Sekcje szablonów" className="px-6 border-b border-slate-200 bg-white flex items-center gap-4 text-xs font-medium">
           <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'list'}
             onClick={() => setActiveTab('list')}
             className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 ${
               activeTab === 'list'
@@ -245,11 +262,14 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                 : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Layers className="w-4 h-4" />
+            <Layers className="w-4 h-4" aria-hidden="true" />
             <span>Katalog szablonów ({templates.length})</span>
           </button>
 
           <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'from_project'}
             onClick={() => setActiveTab('from_project')}
             className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 ${
               activeTab === 'from_project'
@@ -257,11 +277,14 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                 : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Building2 className="w-4 h-4 text-sky-600" />
+            <Building2 className="w-4 h-4 text-sky-700" aria-hidden="true" />
             <span>Utwórz szablon z istniejącego projektu</span>
           </button>
 
           <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'from_scratch'}
             onClick={() => setActiveTab('from_scratch')}
             className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 ${
               activeTab === 'from_scratch'
@@ -269,7 +292,7 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                 : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Plus className="w-4 h-4 text-emerald-600" />
+            <Plus className="w-4 h-4 text-emerald-700" aria-hidden="true" />
             <span>Zbuduj szablon od zera</span>
           </button>
         </div>
@@ -279,7 +302,7 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
           <div className="flex-1 flex overflow-hidden">
             {/* List sidebar */}
             <div className="w-72 border-r border-slate-200 bg-slate-50 p-4 space-y-2 overflow-y-auto">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block px-1">
+              <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block px-1">
                 Dostępne szablony
               </span>
               {templates.map((tpl) => {
@@ -288,7 +311,9 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
 
                 return (
                   <button
+                    type="button"
                     key={tpl.id}
+                    aria-pressed={isSelected}
                     onClick={() => setSelectedPreviewTemplate(tpl)}
                     className={`w-full text-left p-3 rounded-xl border text-xs transition-all space-y-1.5 ${
                       isSelected
@@ -304,12 +329,12 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                    <div className="flex items-center gap-2 text-[11px] text-slate-600">
                       <span className="flex items-center gap-1">
-                        <Clock className="w-3 h-3 text-slate-400" />
+                        <Clock className="w-3 h-3 text-slate-600" aria-hidden="true" />
                         <span>{tpl.defaultDurationDays} dni</span>
                       </span>
-                      <span>•</span>
+                      <span aria-hidden="true">•</span>
                       <span>{tpl.tasks.length} zadań</span>
                     </div>
                     {officialCount > 0 && (
@@ -339,29 +364,32 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                         )}
                       </div>
                       <h4 className="text-lg font-bold text-slate-900">{selectedPreviewTemplate.name}</h4>
-                      <p className="text-xs text-slate-500 mt-1">{selectedPreviewTemplate.description}</p>
+                      <p className="text-xs text-slate-600 mt-1">{selectedPreviewTemplate.description}</p>
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
                       {onSelectTemplateToCreate && (
                         <button
+                          type="button"
                           onClick={() => {
                             onSelectTemplateToCreate(selectedPreviewTemplate);
                             onClose();
                           }}
-                          className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-xs transition-colors"
+                          className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-xs transition-colors"
                         >
-                          <FolderPlus className="w-4 h-4" />
+                          <FolderPlus className="w-4 h-4" aria-hidden="true" />
                           <span>Użyj tego szablonu</span>
                         </button>
                       )}
                       {selectedPreviewTemplate.isCustom && (
                         <button
+                          type="button"
                           onClick={() => handleDeleteTemplate(selectedPreviewTemplate.id, selectedPreviewTemplate.name)}
-                          className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg border border-rose-200 transition-colors"
+                          aria-label={`Usuń szablon ${selectedPreviewTemplate.name}`}
+                          className="p-1.5 text-rose-700 hover:bg-rose-50 rounded-lg border border-rose-200 transition-colors"
                           title="Usuń szablon niestandardowy"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-4 h-4" aria-hidden="true" />
                         </button>
                       )}
                     </div>
@@ -370,15 +398,15 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                   {/* Summary pills */}
                   <div className="grid grid-cols-3 gap-3">
                     <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs">
-                      <span className="text-slate-500 block text-[11px]">Domyślny czas trwania:</span>
+                      <span className="text-slate-600 block text-[11px]">Domyślny czas trwania:</span>
                       <strong className="text-slate-900 text-sm">{selectedPreviewTemplate.defaultDurationDays} dni roboczych</strong>
                     </div>
                     <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs">
-                      <span className="text-slate-500 block text-[11px]">Etapów i kamieni milowych:</span>
+                      <span className="text-slate-600 block text-[11px]">Etapów i kamieni milowych:</span>
                       <strong className="text-slate-900 text-sm">{selectedPreviewTemplate.tasks.length} zadań</strong>
                     </div>
                     <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs">
-                      <span className="text-slate-500 block text-[11px]">Sugerowany budżet pracowni:</span>
+                      <span className="text-slate-600 block text-[11px]">Sugerowany budżet pracowni:</span>
                       <strong className="text-slate-900 text-sm">{selectedPreviewTemplate.defaultBudget || 'Nieokreślony'}</strong>
                     </div>
                   </div>
@@ -392,7 +420,7 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                       {selectedPreviewTemplate.tasks.map((task, idx) => (
                         <div key={idx} className="p-3 flex items-center justify-between gap-4 hover:bg-slate-50">
                           <div className="flex items-center gap-3">
-                            <span className="w-6 h-6 rounded-full bg-slate-100 font-mono text-[11px] font-bold text-slate-600 flex items-center justify-center shrink-0">
+                            <span className="w-6 h-6 rounded-full bg-slate-100 font-mono text-[11px] font-bold text-slate-700 flex items-center justify-center shrink-0">
                               {idx + 1}
                             </span>
                             <div>
@@ -409,12 +437,12 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                                   </span>
                                 )}
                               </div>
-                              <p className="text-[11px] text-slate-500 line-clamp-1">{task.description}</p>
+                              <p className="text-[11px] text-slate-600 line-clamp-1">{task.description}</p>
                             </div>
                           </div>
                           <div className="text-right shrink-0 text-[11px]">
                             <span className="font-bold text-slate-800">{task.durationDays} dni</span>
-                            <span className="text-slate-400 block text-[10px]">offset: +{task.offsetDays}d</span>
+                            <span className="text-slate-600 block text-[10px]">offset: +{task.offsetDays}d</span>
                           </div>
                         </div>
                       ))}
@@ -422,10 +450,10 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                   </div>
                 </div>
               ) : (
-                <div className="h-full flex flex-col items-center justify-center text-center p-8 text-slate-400">
-                  <Layers className="w-12 h-12 stroke-[1.5] text-slate-300 mb-2" />
-                  <p className="text-sm font-medium text-slate-600">Wybierz szablon z listy po lewej stronie</p>
-                  <p className="text-xs text-slate-400">aby podejrzeć listę zadań, czasy trwania i relacje poprzedników.</p>
+                <div className="h-full flex flex-col items-center justify-center text-center p-8 text-slate-600">
+                  <Layers className="w-12 h-12 stroke-[1.5] text-slate-400 mb-2" aria-hidden="true" />
+                  <p className="text-sm font-medium text-slate-700">Wybierz szablon z listy po lewej stronie</p>
+                  <p className="text-xs text-slate-600">aby podejrzeć listę zadań, czasy trwania i relacje poprzedników.</p>
                 </div>
               )}
             </div>
@@ -440,17 +468,18 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                 <h4 className="text-sm font-bold text-slate-900">
                   Zapisz istniejący projekt pracowni jako nowy szablon
                 </h4>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <p className="text-xs text-slate-600 mt-0.5">
                   System automatycznie skopiuje nazwy zadań, czasy trwania, przesunięcia czasowe oraz zależności poprzedników i terminy urzędowe.
                 </p>
               </div>
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label htmlFor={`${baseId}-src-project`} className="block text-xs font-bold text-slate-700 mb-1">
                     Wybierz projekt źródłowy:
                   </label>
                   <select
+                    id={`${baseId}-src-project`}
                     value={selectedProjectId}
                     onChange={(e) => {
                       setSelectedProjectId(e.target.value);
@@ -471,10 +500,11 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label htmlFor={`${baseId}-src-name`} className="block text-xs font-bold text-slate-700 mb-1">
                     Nazwa nowego szablonu:
                   </label>
                   <input
+                    id={`${baseId}-src-name`}
                     type="text"
                     required
                     placeholder="np. Szablon Projektu Budowlanego Biurowca"
@@ -485,10 +515,11 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label htmlFor={`${baseId}-src-cat`} className="block text-xs font-bold text-slate-700 mb-1">
                     Kategoria obiektu:
                   </label>
                   <select
+                    id={`${baseId}-src-cat`}
                     value={templateCategoryFromProj}
                     onChange={(e) => setTemplateCategoryFromProj(e.target.value as any)}
                     className="w-full text-xs border border-slate-300 rounded-lg px-3 py-2 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
@@ -525,7 +556,7 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                   type="submit"
                   className="w-full py-2.5 bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2"
                 >
-                  <Layers className="w-4 h-4" />
+                  <Layers className="w-4 h-4" aria-hidden="true" />
                   <span>Zapisz projekt jako szablon pracowni</span>
                 </button>
               </div>
@@ -541,15 +572,16 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                 <h4 className="text-sm font-bold text-slate-900">
                   Zdefiniuj autorski szablon projektowy od zera
                 </h4>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <p className="text-xs text-slate-600 mt-0.5">
                   Skonfiguruj listę etapów, czasy trwania w dniach roboczych oraz oznacz terminy urzędowe KPA.
                 </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Nazwa szablonu:</label>
+                  <label htmlFor={`${baseId}-scr-name`} className="block text-xs font-bold text-slate-700 mb-1">Nazwa szablonu:</label>
                   <input
+                    id={`${baseId}-scr-name`}
                     type="text"
                     required
                     placeholder="np. Standard Projektowy Domów Jednorodzinnych"
@@ -559,8 +591,9 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Kategoria:</label>
+                  <label htmlFor={`${baseId}-scr-cat`} className="block text-xs font-bold text-slate-700 mb-1">Kategoria:</label>
                   <select
+                    id={`${baseId}-scr-cat`}
                     value={scratchCategory}
                     onChange={(e) => setScratchCategory(e.target.value as any)}
                     className="w-full text-xs border border-slate-300 rounded-lg px-3 py-2 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
@@ -575,8 +608,9 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Szacowany czas (dni):</label>
+                  <label htmlFor={`${baseId}-scr-dur`} className="block text-xs font-bold text-slate-700 mb-1">Szacowany czas (dni):</label>
                   <input
+                    id={`${baseId}-scr-dur`}
                     type="number"
                     min="10"
                     value={scratchDuration}
@@ -585,8 +619,9 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Sugerowany budżet:</label>
+                  <label htmlFor={`${baseId}-scr-budget`} className="block text-xs font-bold text-slate-700 mb-1">Sugerowany budżet:</label>
                   <input
+                    id={`${baseId}-scr-budget`}
                     type="text"
                     value={scratchBudget}
                     onChange={(e) => setScratchBudget(e.target.value)}
@@ -606,7 +641,7 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                     onClick={handleAddScratchStage}
                     className="flex items-center gap-1 text-xs text-purple-700 hover:text-purple-900 font-bold bg-purple-50 px-2.5 py-1 rounded-md border border-purple-200"
                   >
-                    <Plus className="w-3.5 h-3.5" />
+                    <Plus className="w-3.5 h-3.5" aria-hidden="true" />
                     <span>Dodaj kolejny etap</span>
                   </button>
                 </div>
@@ -614,11 +649,12 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                 <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 overflow-hidden">
                   {scratchStages.map((stage, idx) => (
                     <div key={idx} className="p-3 bg-white flex items-center gap-3 text-xs">
-                      <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 font-bold flex items-center justify-center shrink-0 text-[10px]">
+                      <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center shrink-0 text-[10px]">
                         {idx + 1}
                       </span>
                       <input
                         type="text"
+                        aria-label={`Nazwa etapu ${idx + 1}`}
                         value={stage.title}
                         onChange={(e) => {
                           const updated = [...scratchStages];
@@ -629,10 +665,12 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                         className="flex-1 text-xs border border-slate-200 rounded px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-purple-500"
                       />
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="text-[11px] text-slate-500">Dni:</span>
+                        <label htmlFor={`${baseId}-stage-dur-${idx}`} className="text-[11px] text-slate-600">Dni:</label>
                         <input
+                          id={`${baseId}-stage-dur-${idx}`}
                           type="number"
                           min="1"
+                          aria-label={`Czas trwania etapu ${idx + 1} w dniach`}
                           value={stage.durationDays}
                           onChange={(e) => {
                             const updated = [...scratchStages];
@@ -642,8 +680,9 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                           className="w-14 text-xs border border-slate-200 rounded px-1.5 py-1 text-center"
                         />
                       </div>
-                      <label className="flex items-center gap-1.5 text-[11px] text-slate-700 shrink-0 cursor-pointer select-none">
+                      <label htmlFor={`${baseId}-stage-off-${idx}`} className="flex items-center gap-1.5 text-[11px] text-slate-700 shrink-0 cursor-pointer select-none">
                         <input
+                          id={`${baseId}-stage-off-${idx}`}
                           type="checkbox"
                           checked={stage.isOfficialDeadline}
                           onChange={(e) => {
@@ -658,10 +697,11 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                       <button
                         type="button"
                         onClick={() => handleRemoveScratchStage(idx)}
-                        className="p-1 text-slate-400 hover:text-rose-600 transition-colors shrink-0"
+                        aria-label={`Usuń etap ${idx + 1}`}
+                        className="p-1 text-slate-600 hover:text-rose-700 transition-colors shrink-0"
                         title="Usuń etap"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                       </button>
                     </div>
                   ))}
@@ -672,7 +712,7 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                 type="submit"
                 className="w-full py-2.5 bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2"
               >
-                <Layers className="w-4 h-4" />
+                <Layers className="w-4 h-4" aria-hidden="true" />
                 <span>Zapisz i opublikuj nowy szablon</span>
               </button>
             </form>
@@ -680,9 +720,10 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
         )}
 
         {/* Footer */}
-        <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-xs text-slate-500">
+        <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-xs text-slate-600">
           <span>Szablony są natychmiast dostępne podczas rejestracji nowych projektów budowlanych.</span>
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded transition-colors font-medium"
           >

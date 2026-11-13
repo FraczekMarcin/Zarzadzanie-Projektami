@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useId } from 'react';
 import { User } from '../types';
 import {
   Shield,
@@ -50,6 +50,7 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
   const [disableCode, setDisableCode] = useState('');
   const [disableError, setDisableError] = useState<string | null>(null);
   const [isSubmittingDisable, setIsSubmittingDisable] = useState(false);
+  const baseId = useId();
 
   if (!currentUser) return null;
 
@@ -245,7 +246,7 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
                 : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
             }`}
           >
-            {is2FAEnabled ? <ShieldCheck className="w-5 h-5" /> : <Shield className="w-5 h-5" />}
+            {is2FAEnabled ? <ShieldCheck className="w-5 h-5" aria-hidden="true" /> : <Shield className="w-5 h-5" aria-hidden="true" />}
           </div>
           <div>
             <div className="flex items-center gap-2">
@@ -262,7 +263,7 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
                 {is2FAEnabled ? 'Aktywna' : 'Nieaktywna'}
               </span>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
               Chroni Twoje konto projektowe przed nieautoryzowanym dostępem przy użyciu aplikacji na telefonie (RFC 6238).
             </p>
           </div>
@@ -280,16 +281,16 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
                 }}
                 className="px-3 py-1.5 rounded-lg border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-xs font-semibold transition-colors flex items-center gap-1.5"
               >
-                <ShieldAlert className="w-3.5 h-3.5" />
+                <ShieldAlert className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>Wyłącz 2FA</span>
               </button>
             ) : (
               <button
                 type="button"
                 onClick={handleStartSetup}
-                className="px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5"
+                className="px-3.5 py-1.5 rounded-lg bg-sky-700 hover:bg-sky-800 text-white text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5"
               >
-                <ShieldCheck className="w-3.5 h-3.5" />
+                <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>Włącz 2FA</span>
               </button>
             )}
@@ -305,42 +306,42 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
             <div className="flex items-center gap-2 font-semibold">
               <span
                 className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] ${
-                  step === 1 ? 'bg-sky-600 text-white' : 'bg-emerald-600 text-white'
+                  step === 1 ? 'bg-sky-700 text-white' : 'bg-emerald-700 text-white'
                 }`}
               >
-                {step > 1 ? <Check className="w-3 h-3" /> : '1'}
+                {step > 1 ? <Check className="w-3 h-3" aria-hidden="true" /> : '1'}
               </span>
-              <span className={step === 1 ? 'text-sky-700 dark:text-sky-300 font-bold' : 'text-slate-500'}>
+              <span className={step === 1 ? 'text-sky-700 dark:text-sky-300 font-bold' : 'text-slate-600 dark:text-slate-400'}>
                 Weryfikacja tożsamości
               </span>
-              <ArrowRight className="w-3 h-3 text-slate-400" />
+              <ArrowRight className="w-3 h-3 text-slate-600 dark:text-slate-400" aria-hidden="true" />
 
               <span
                 className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] ${
                   step === 2
-                    ? 'bg-sky-600 text-white'
+                    ? 'bg-sky-700 text-white'
                     : step > 2
-                    ? 'bg-emerald-600 text-white'
+                    ? 'bg-emerald-700 text-white'
                     : 'bg-slate-300 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
                 }`}
               >
-                {step > 2 ? <Check className="w-3 h-3" /> : '2'}
+                {step > 2 ? <Check className="w-3 h-3" aria-hidden="true" /> : '2'}
               </span>
-              <span className={step === 2 ? 'text-sky-700 dark:text-sky-300 font-bold' : 'text-slate-500'}>
+              <span className={step === 2 ? 'text-sky-700 dark:text-sky-300 font-bold' : 'text-slate-600 dark:text-slate-400'}>
                 Zeskanuj kod QR
               </span>
-              <ArrowRight className="w-3 h-3 text-slate-400" />
+              <ArrowRight className="w-3 h-3 text-slate-600 dark:text-slate-400" aria-hidden="true" />
 
               <span
                 className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] ${
                   step === 3
-                    ? 'bg-sky-600 text-white'
+                    ? 'bg-sky-700 text-white'
                     : 'bg-slate-300 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
                 }`}
               >
                 3
               </span>
-              <span className={step === 3 ? 'text-sky-700 dark:text-sky-300 font-bold' : 'text-slate-500'}>
+              <span className={step === 3 ? 'text-sky-700 dark:text-sky-300 font-bold' : 'text-slate-600 dark:text-slate-400'}>
                 10 kodów zapasowych
               </span>
             </div>
@@ -349,7 +350,7 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
               <button
                 type="button"
                 onClick={() => setIsSetupOpen(false)}
-                className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 underline"
+                className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 underline"
               >
                 Anuluj
               </button>
@@ -364,18 +365,19 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
               </p>
 
               {setupError && (
-                <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
+                <div role="alert" aria-live="assertive" className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
                   <span>{setupError}</span>
                 </div>
               )}
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label htmlFor={`${baseId}-pwd`} className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Aktualne hasło do konta:
                 </label>
                 <div className="relative">
                   <input
+                    id={`${baseId}-pwd`}
                     type={showPassword ? 'text' : 'password'}
                     value={passwordInput}
                     onChange={(e) => setPasswordInput(e.target.value)}
@@ -386,19 +388,21 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                    aria-label={showPassword ? 'Ukryj hasło' : 'Pokaż hasło'}
+                    className="absolute right-2.5 top-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
                   >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {showPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
                   </button>
                 </div>
               </div>
 
               {is2FAEnabled && (
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  <label htmlFor={`${baseId}-cur-totp`} className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     Aktualny kod 2FA z aplikacji lub kod zapasowy (rekonfiguracja):
                   </label>
                   <input
+                    id={`${baseId}-cur-totp`}
                     type="text"
                     value={currentTotpCode}
                     onChange={(e) => setCurrentTotpCode(e.target.value)}
@@ -412,9 +416,9 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
                 <button
                   type="submit"
                   disabled={isSubmittingSetup || !passwordInput}
-                  className="px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors flex items-center gap-2"
+                  className="px-4 py-2 bg-sky-700 hover:bg-sky-800 disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors flex items-center gap-2"
                 >
-                  <Lock className="w-3.5 h-3.5" />
+                  <Lock className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>{isSubmittingSetup ? 'Weryfikacja...' : 'Dalej: Wygeneruj kod QR'}</span>
                 </button>
               </div>
@@ -428,7 +432,7 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
                 {/* Left: QR Code generated locally */}
                 <div className="flex flex-col items-center bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-center">
                   <div className="flex items-center gap-2 mb-2 text-xs font-bold text-slate-700 dark:text-slate-300">
-                    <QrCode className="w-4 h-4 text-sky-600" />
+                    <QrCode className="w-4 h-4 text-sky-700 dark:text-sky-400" aria-hidden="true" />
                     <span>Zeskanuj w aplikacji</span>
                   </div>
                   {qrCodeDataUrl ? (
@@ -438,11 +442,11 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
                       className="w-44 h-44 border border-slate-200 rounded-lg shadow-xs p-1 bg-white"
                     />
                   ) : (
-                    <div className="w-44 h-44 bg-slate-100 flex items-center justify-center rounded-lg text-slate-400 text-xs">
+                    <div className="w-44 h-44 bg-slate-100 flex items-center justify-center rounded-lg text-slate-600 text-xs">
                       Generowanie kodu...
                     </div>
                   )}
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2">
+                  <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-2">
                     Użyj Google Authenticator, Microsoft Authenticator, 1Password lub innej zgodnej aplikacji.
                   </p>
                 </div>
@@ -450,9 +454,9 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
                 {/* Right: Manual Secret Key & Verification Code */}
                 <div className="space-y-3.5">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    <span className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                       Klucz konfiguracyjny (wpisanie ręczne):
-                    </label>
+                    </span>
                     <div className="flex gap-1.5 items-center">
                       <div className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-mono tracking-wider font-semibold text-sky-900 dark:text-sky-300 break-all select-all">
                         {formatSecretKey(generatedSecret)}
@@ -460,31 +464,33 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
                       <button
                         type="button"
                         onClick={handleCopySecret}
+                        aria-label={hasCopiedSecret ? 'Skopiowano klucz konfiguracyjny' : 'Kopiuj klucz konfiguracyjny'}
                         className="p-2 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-600 dark:text-slate-300 transition-colors"
                         title="Kopiuj klucz"
                       >
-                        {hasCopiedSecret ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                        {hasCopiedSecret ? <Check className="w-4 h-4 text-emerald-700 dark:text-emerald-400" aria-hidden="true" /> : <Copy className="w-4 h-4" aria-hidden="true" />}
                       </button>
                     </div>
                     {hasCopiedSecret && (
-                      <span className="text-[10px] text-emerald-600 font-semibold mt-0.5 block">
+                      <span role="status" className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold mt-0.5 block">
                         Skopiowano klucz do schowka!
                       </span>
                     )}
                   </div>
 
                   {setupError && (
-                    <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 shrink-0" />
+                    <div role="alert" aria-live="assertive" className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
                       <span>{setupError}</span>
                     </div>
                   )}
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
+                    <label htmlFor={`${baseId}-test-code`} className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
                       Wprowadź 6-cyfrowy kod z aplikacji, aby aktywować:
                     </label>
                     <input
+                      id={`${baseId}-test-code`}
                       type="text"
                       maxLength={6}
                       autoFocus
@@ -499,9 +505,9 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
                     <button
                       type="submit"
                       disabled={isSubmittingSetup || testCodeInput.length !== 6}
-                      className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors flex items-center justify-center gap-2"
+                      className="w-full py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors flex items-center justify-center gap-2"
                     >
-                      <ShieldCheck className="w-4 h-4" />
+                      <ShieldCheck className="w-4 h-4" aria-hidden="true" />
                       <span>{isSubmittingSetup ? 'Sprawdzanie kodu...' : 'Zatwierdź i włącz 2FA'}</span>
                     </button>
                   </div>
@@ -514,7 +520,7 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
           {step === 3 && (
             <div className="space-y-4">
               <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded-xl flex items-center gap-3">
-                <ShieldCheck className="w-6 h-6 text-emerald-600 shrink-0" />
+                <ShieldCheck className="w-6 h-6 text-emerald-700 dark:text-emerald-400 shrink-0" aria-hidden="true" />
                 <div>
                   <h5 className="font-bold text-xs text-emerald-900 dark:text-emerald-200">
                     Uwierzytelnianie dwuskładnikowe 2FA zostało pomyślnie włączone!
@@ -527,10 +533,10 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
 
               <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-xl p-3.5 space-y-2">
                 <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 font-bold text-xs">
-                  <KeyRound className="w-4 h-4 text-amber-600 shrink-0" />
+                  <KeyRound className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0" aria-hidden="true" />
                   <span>Twoje 10 jednorazowych kodów zapasowych:</span>
                 </div>
-                <p className="text-xs text-amber-700 dark:text-amber-300">
+                <p className="text-xs text-amber-800 dark:text-amber-300">
                   Zapisz poniższe kody w bezpiecznym miejscu (np. w menedżerze haseł). Kody te nie zostaną ponownie wyświetlone!
                   Pozwolą zalogować się w przypadku zgubienia lub rozładowania telefonu.
                 </p>
@@ -550,9 +556,9 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
                   <button
                     type="button"
                     onClick={handleCopyBackupCodes}
-                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+                    className="px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
                   >
-                    {hasCopiedBackupCodes ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    {hasCopiedBackupCodes ? <Check className="w-3.5 h-3.5" aria-hidden="true" /> : <Copy className="w-3.5 h-3.5" aria-hidden="true" />}
                     <span>{hasCopiedBackupCodes ? 'Skopiowano wszystkie kody!' : 'Kopiuj wszystkie 10 kodów'}</span>
                   </button>
                   <button
@@ -576,7 +582,7 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
           className="p-4 bg-rose-50/60 dark:bg-rose-950/30 border border-rose-300 dark:border-rose-900 rounded-xl space-y-3 animate-in fade-in max-w-lg"
         >
           <div className="flex items-center gap-2 text-rose-800 dark:text-rose-200 font-bold text-xs">
-            <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
+            <ShieldAlert className="w-4 h-4 text-rose-700 dark:text-rose-400 shrink-0" aria-hidden="true" />
             <span>Potwierdzenie wyłączenia uwierzytelniania 2FA</span>
           </div>
           <p className="text-xs text-rose-700 dark:text-rose-300">
@@ -584,17 +590,18 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
           </p>
 
           {disableError && (
-            <div className="p-2.5 rounded-lg bg-rose-100 dark:bg-rose-900/60 text-rose-800 dark:text-rose-200 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
+            <div role="alert" aria-live="assertive" className="p-2.5 rounded-lg bg-rose-100 dark:bg-rose-900/60 text-rose-800 dark:text-rose-200 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
               <span>{disableError}</span>
             </div>
           )}
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            <label htmlFor={`${baseId}-dis-pwd`} className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
               Hasło do Twojego konta:
             </label>
             <input
+              id={`${baseId}-dis-pwd`}
               type="password"
               required
               value={disablePassword}
@@ -605,10 +612,11 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            <label htmlFor={`${baseId}-dis-code`} className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
               6-cyfrowy kod z Google Authenticator lub kod zapasowy:
             </label>
             <input
+              id={`${baseId}-dis-code`}
               type="text"
               required
               value={disableCode}
@@ -622,9 +630,9 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
             <button
               type="submit"
               disabled={isSubmittingDisable || !disablePassword || !disableCode}
-              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors flex items-center gap-1.5"
+              className="px-4 py-2 bg-rose-700 hover:bg-rose-800 disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors flex items-center gap-1.5"
             >
-              <ShieldAlert className="w-3.5 h-3.5" />
+              <ShieldAlert className="w-3.5 h-3.5" aria-hidden="true" />
               <span>{isSubmittingDisable ? 'Wyłączanie...' : 'Wyłącz 2FA'}</span>
             </button>
             <button

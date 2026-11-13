@@ -59,8 +59,9 @@ class RootErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundar
               {this.state.error?.message || 'Nieoczekiwany błąd aplikacji. Kliknij poniżej, aby zresetować sesję i przejść do logowania.'}
             </p>
             <button
+              type="button"
               onClick={this.handleReset}
-              className="w-full py-2.5 px-4 bg-sky-600 hover:bg-sky-500 text-white font-semibold rounded-lg text-xs transition-colors shadow-lg"
+              className="w-full py-2.5 px-4 bg-sky-700 hover:bg-sky-600 text-white font-semibold rounded-lg text-xs transition-colors shadow-lg"
             >
               Przejdź do strony logowania
             </button>

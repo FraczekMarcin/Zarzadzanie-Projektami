@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useId } from 'react';
 import { Task, Project, User, Priority, TaskType, TaskStatus } from '../types';
 import { X, Calendar, UserCheck, AlertTriangle, Layers, Clock, Lock, GitMerge } from 'lucide-react';
 import { getTaskTypes, TaskTypeDefinition } from '../utils/variableSettings';
 import { FIELD_LIMITS } from '../utils/access';
+import { useFocusTrap } from '../utils/useFocusTrap';
 
 interface TaskModalProps {
   isOpen: boolean;
@@ -55,6 +56,12 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   const [blockingTaskIds, setBlockingTaskIds] = useState<string[]>([]);
   const [parentId, setParentId] = useState<string>('');
   const [isOfficialDeadline, setIsOfficialDeadline] = useState<boolean>(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const baseId = useId();
+  const titleId = `${baseId}-title`;
+
+  useFocusTrap({ isOpen, onClose, containerRef: modalRef });
 
   // Helper to calculate due date from start date and duration days
   const calculateDueDate = (start: string, days: number): string => {
@@ -83,6 +90,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   };
 
   useEffect(() => {
+    setStatusError(null);
     const currentTypes = getTaskTypes();
     setTaskTypes(currentTypes);
     if (initialTask) {
@@ -162,6 +170,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
     } else if (!hasUnfinished && status === 'blocked') {
       setStatus('to_do');
     }
+    setStatusError(null);
 
     // Zgodnie z wymaganiem: przy dodawaniu zadania blokowanego przez inne dostosuj datę
     // poprzez propozycję daty w dzień zakończenia poprzedzającego zadania
@@ -239,22 +248,30 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl border border-slate-200 w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="bg-white rounded-lg shadow-xl border border-slate-200 w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50/70">
           <div>
-            <h3 className="text-sm font-bold text-slate-900">
+            <h3 id={titleId} className="text-sm font-bold text-slate-900">
               {initialTask ? `Edycja zadania [${initialTask.code}]` : 'Nowe Zadanie'}
             </h3>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-slate-600">
               Zarządzanie terminami w dniach, drzewem zależności i zadaniami blokującymi.
             </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors"
+            aria-label="Zamknij okno zadania"
+            className="p-1 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 transition-colors"
           >
-            <X className="w-4 h-4" />
+            <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
 
@@ -263,8 +280,9 @@ export const TaskModal: React.FC<TaskModalProps> = ({
           {/* Project & Type */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Projekt nadrzędny *</label>
+              <label htmlFor={`${baseId}-project`} className="block font-semibold text-slate-700 mb-1">Projekt nadrzędny *</label>
               <select
+                id={`${baseId}-project`}
                 required
                 value={projectId}
                 onChange={(e) => setProjectId(e.target.value)}
@@ -279,8 +297,9 @@ export const TaskModal: React.FC<TaskModalProps> = ({
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 dark:text-slate-200 mb-1">Typ zadania *</label>
+              <label htmlFor={`${baseId}-type`} className="block font-semibold text-slate-700 dark:text-slate-200 mb-1">Typ zadania *</label>
               <select
+                id={`${baseId}-type`}
                 value={type}
                 onChange={(e) => setType(e.target.value as TaskType)}
                 className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500"
@@ -296,8 +315,9 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
           {/* Title */}
           <div>
-            <label className="block font-semibold text-slate-700 mb-1">Tytuł zadania *</label>
+            <label htmlFor={`${baseId}-title`} className="block font-semibold text-slate-700 mb-1">Tytuł zadania *</label>
             <input
+              id={`${baseId}-title`}
               type="text"
               required
               value={title}
@@ -310,8 +330,9 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
           {/* Description */}
           <div>
-            <label className="block font-semibold text-slate-700 mb-1">Opis i kryteria ukończenia</label>
+            <label htmlFor={`${baseId}-desc`} className="block font-semibold text-slate-700 mb-1">Opis i kryteria ukończenia</label>
             <textarea
+              id={`${baseId}-desc`}
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -324,10 +345,11 @@ export const TaskModal: React.FC<TaskModalProps> = ({
           {/* Priority & Status */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">
+              <label htmlFor={`${baseId}-priority`} className="block font-semibold text-slate-700 mb-1">
                 Priorytet zadania (Domyślny: Normalny) *
               </label>
               <select
+                id={`${baseId}-priority`}
                 value={priority}
                 onChange={(e) => setPriority(e.target.value as Priority)}
                 className="w-full border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 font-medium focus:outline-none focus:ring-1 focus:ring-sky-500"
@@ -340,8 +362,9 @@ export const TaskModal: React.FC<TaskModalProps> = ({
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Status wykonania</label>
+              <label htmlFor={`${baseId}-status`} className="block font-semibold text-slate-700 mb-1">Status wykonania</label>
               <select
+                id={`${baseId}-status`}
                 value={status}
                 onChange={(e) => {
                   const val = e.target.value as TaskStatus;
@@ -350,10 +373,11 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                     return b && b.status !== 'done';
                   });
                   if (hasUnfinished && val !== 'blocked' && val !== 'done') {
-                    alert('To zadanie ma nieukończone zadania blokujące. Status wykonania musi pozostać: "Zablokowane", dopóki poprzedzające zadania nie zostaną zakończone.');
+                    setStatusError('To zadanie ma nieukończone zadania blokujące. Status wykonania musi pozostać: "Zablokowane", dopóki poprzedzające zadania nie zostaną zakończone.');
                     setStatus('blocked');
                     return;
                   }
+                  setStatusError(null);
                   setStatus(val);
                 }}
                 className="w-full border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
@@ -367,6 +391,13 @@ export const TaskModal: React.FC<TaskModalProps> = ({
             </div>
           </div>
 
+          {statusError && (
+            <div role="alert" aria-live="assertive" className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-700 shrink-0 mt-0.5" aria-hidden="true" />
+              <span>{statusError}</span>
+            </div>
+          )}
+
           {/* DURATION IN DAYS & DATES */}
           <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
             <span className="font-semibold text-slate-800 block text-[11px] uppercase tracking-wide">
@@ -375,8 +406,9 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Data rozpoczęcia</label>
+                <label htmlFor={`${baseId}-start`} className="block text-[11px] font-semibold text-slate-600 mb-1">Data rozpoczęcia</label>
                 <input
+                  id={`${baseId}-start`}
                   type="date"
                   required
                   value={startDate}
@@ -386,11 +418,12 @@ export const TaskModal: React.FC<TaskModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                <label htmlFor={`${baseId}-duration`} className="block text-[11px] font-semibold text-slate-600 mb-1">
                   Czas trwania (w dniach) *
                 </label>
                 <div className="flex items-center">
                   <input
+                    id={`${baseId}-duration`}
                     type="number"
                     min={1}
                     max={3650}
@@ -399,13 +432,14 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                     onChange={(e) => handleDurationDaysChange(Number(e.target.value))}
                     className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-900 font-mono font-bold"
                   />
-                  <span className="ml-2 font-mono text-slate-500">dni</span>
+                  <span className="ml-2 font-mono text-slate-600">dni</span>
                 </div>
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Termin końcowy (Due Date)</label>
+                <label htmlFor={`${baseId}-due`} className="block text-[11px] font-semibold text-slate-600 mb-1">Termin końcowy (Due Date)</label>
                 <input
+                  id={`${baseId}-due`}
                   type="date"
                   required
                   value={dueDate}
@@ -418,8 +452,9 @@ export const TaskModal: React.FC<TaskModalProps> = ({
             {/* Official Deadline Toggle */}
             <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between">
               <div>
-                <label className="font-semibold text-slate-800 flex items-center gap-1.5 cursor-pointer">
+                <label htmlFor={`${baseId}-official`} className="font-semibold text-slate-800 flex items-center gap-1.5 cursor-pointer">
                   <input
+                    id={`${baseId}-official`}
                     type="checkbox"
                     checked={isOfficialDeadline}
                     onChange={(e) => setIsOfficialDeadline(e.target.checked)}
@@ -427,13 +462,13 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                   />
                   <span className="text-xs text-red-900 font-bold">Termin urzędowy (rygor prawny / administracyjny)</span>
                 </label>
-                <p className="text-[10px] text-slate-500 mt-0.5 ml-5.5">
+                <p className="text-[10px] text-slate-600 mt-0.5 ml-5.5">
                   Jeśli zaznaczysz tę opcję, zadanie będzie mrugać i alarmować zespół na 3 dni robocze (bez sobót i niedziel) przed upływem terminu.
                 </p>
               </div>
 
               {isOfficialDeadline && (
-                <span className="text-[10px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded border border-red-200 animate-pulse">
+                <span className="text-[10px] font-bold text-red-800 bg-red-100 px-2 py-0.5 rounded border border-red-200 animate-pulse">
                   Alarm 3 dni robocze
                 </span>
               )}
@@ -441,13 +476,13 @@ export const TaskModal: React.FC<TaskModalProps> = ({
           </div>
 
           {/* BLOCKING TASKS SELECTOR (ZADANIA BLOKUJĄCE) */}
-          <div className="p-3.5 bg-amber-50/50 border border-amber-200 rounded-lg space-y-2">
+          <div className="p-3.5 bg-amber-50/50 border border-amber-200 rounded-lg space-y-2" role="group" aria-labelledby={`${baseId}-blockers-label`}>
             <div className="flex items-center justify-between">
-              <label className="font-semibold text-amber-950 flex items-center gap-1.5">
-                <Lock className="w-3.5 h-3.5 text-amber-600" />
+              <span id={`${baseId}-blockers-label`} className="font-semibold text-amber-950 flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5 text-amber-700" aria-hidden="true" />
                 <span>Zadania blokujące to zadanie (Wymagane do wykonania wcześniej)</span>
-              </label>
-              <span className="text-[10px] text-amber-700">
+              </span>
+              <span className="text-[10px] text-amber-800 font-semibold">
                 {blockingTaskIds.length} wybranych
               </span>
             </div>
@@ -458,7 +493,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
             <div className="max-h-36 overflow-y-auto space-y-1 bg-white p-2 border border-amber-200 rounded">
               {availableBlockers.length === 0 ? (
-                <div className="text-[11px] text-slate-400 py-1 italic">
+                <div className="text-[11px] text-slate-600 py-1 italic">
                   Brak innych zadań w tym projekcie do ustawienia jako blokujące.
                 </div>
               ) : (
@@ -480,7 +515,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                           onChange={() => toggleBlockingTask(bTask.id)}
                           className="rounded text-amber-600 focus:ring-0 shrink-0"
                         />
-                        <span className="font-mono text-[11px] font-bold text-slate-500 shrink-0">
+                        <span className="font-mono text-[11px] font-bold text-slate-600 shrink-0">
                           {bTask.code}
                         </span>
                         <span className="truncate">{bTask.title}</span>
@@ -505,11 +540,12 @@ export const TaskModal: React.FC<TaskModalProps> = ({
           {/* PARENT TASK / DRZEWO ZALEŻNOŚCI */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block font-semibold text-slate-700 mb-1 flex items-center gap-1">
-                <GitMerge className="w-3.5 h-3.5 text-slate-400" />
+              <label htmlFor={`${baseId}-parent`} className="block font-semibold text-slate-700 mb-1 flex items-center gap-1">
+                <GitMerge className="w-3.5 h-3.5 text-slate-600" aria-hidden="true" />
                 <span>Zadanie nadrzędne (Drzewo zależności)</span>
               </label>
               <select
+                id={`${baseId}-parent`}
                 value={parentId}
                 onChange={(e) => setParentId(e.target.value)}
                 className="w-full border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
@@ -521,14 +557,15 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                   </option>
                 ))}
               </select>
-              <span className="text-[10px] text-slate-400 mt-1 block">
+              <span className="text-[10px] text-slate-600 mt-1 block">
                 Ukończenie wszystkich podzadań automatycznie zakończy zadanie nadrzędne.
               </span>
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Osoba przypisana</label>
+              <label htmlFor={`${baseId}-assignee`} className="block font-semibold text-slate-700 mb-1">Osoba przypisana</label>
               <select
+                id={`${baseId}-assignee`}
                 value={assigneeId}
                 onChange={(e) => setAssigneeId(e.target.value)}
                 className="w-full border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
@@ -545,8 +582,9 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
           {/* Tags */}
           <div>
-            <label className="block font-semibold text-slate-700 mb-1">Etykiety / Tagi (oddzielone przecinkami)</label>
+            <label htmlFor={`${baseId}-tags`} className="block font-semibold text-slate-700 mb-1">Etykiety / Tagi (oddzielone przecinkami)</label>
             <input
+              id={`${baseId}-tags`}
               type="text"
               value={tagsInput}
               onChange={(e) => setTagsInput(e.target.value)}

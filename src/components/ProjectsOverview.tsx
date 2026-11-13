@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
 import { Project, Task, User, Priority, ProjectTemplate } from '../types';
 import { downloadIcsFile } from '../utils/calendar';
 import { getNextProjectCode, isProjectCodeAvailable, isValidProjectCodeFormat } from '../utils/projectCode';
@@ -6,6 +6,7 @@ import { loadAllProjectTemplates } from '../utils/projectTemplates';
 import { ProjectDetailModal } from './ProjectDetailModal';
 import { copyToClipboard } from '../utils/clipboard';
 import { FIELD_LIMITS } from '../utils/access';
+import { useFocusTrap } from '../utils/useFocusTrap';
 
 const AdminTemplateManagerModal = lazy(() =>
   import('./AdminTemplateManagerModal').then((m) => ({ default: m.AdminTemplateManagerModal }))
@@ -144,6 +145,28 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   const [clientNip, setClientNip] = useState('');
   const [diskPath, setDiskPath] = useState('');
   const [copiedProjectId, setCopiedProjectId] = useState<string | null>(null);
+
+  const archiveModalRef = useRef<HTMLDivElement>(null);
+  const deleteModalRef = useRef<HTMLDivElement>(null);
+  const formModalRef = useRef<HTMLDivElement>(null);
+
+  useFocusTrap({
+    isOpen: Boolean(projectToArchive),
+    containerRef: archiveModalRef,
+    onClose: () => setProjectToArchive(null),
+  });
+
+  useFocusTrap({
+    isOpen: Boolean(projectToDelete),
+    containerRef: deleteModalRef,
+    onClose: () => setProjectToDelete(null),
+  });
+
+  useFocusTrap({
+    isOpen: isModalOpen,
+    containerRef: formModalRef,
+    onClose: () => setIsModalOpen(false),
+  });
 
   useEffect(() => {
     setAvailableTemplates(loadAllProjectTemplates());
@@ -427,13 +450,13 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-lg border border-slate-200 dark:border-slate-800 shadow-xs">
         <div>
           <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Building2 className="w-5 h-5 text-sky-600 dark:text-sky-400" />
+            <Building2 className="w-5 h-5 text-sky-700 dark:text-sky-400" aria-hidden="true" />
             <span>Katalog Tematów i Projektów Pracowni</span>
             <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono font-bold">
               {projects.length}
             </span>
           </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
             Zarządzaj tematami projektowymi, zamawiającymi, wycenami ofertowymi oraz kosztorysem branżowym.
           </p>
         </div>
@@ -441,20 +464,22 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         <div className="flex flex-wrap items-center gap-2.5">
           {demoProjectsCount > 0 && onDeleteAllDemoData && (
             <button
+              type="button"
               onClick={onDeleteAllDemoData}
               className="flex items-center gap-1.5 border border-rose-200 dark:border-rose-900/40 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-semibold px-3 py-2 rounded transition-colors"
               title="Usuń tematy wstawione pokazowo"
             >
-              <Trash2 className="w-3.5 h-3.5" />
+              <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
               <span>Usuń tematy demo ({demoProjectsCount})</span>
             </button>
           )}
 
           <button
+            type="button"
             onClick={() => openCreateModal()}
-            className="flex items-center gap-1.5 bg-slate-900 dark:bg-sky-600 hover:bg-slate-800 dark:hover:bg-sky-700 text-white text-xs font-semibold px-4 py-2 rounded transition-colors shadow-xs"
+            className="flex items-center gap-1.5 bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 text-white text-xs font-semibold px-4 py-2 rounded transition-colors shadow-xs"
           >
-            <FolderPlus className="w-4 h-4" />
+            <FolderPlus className="w-4 h-4" aria-hidden="true" />
             <span>Zarejestruj nowy projekt</span>
           </button>
         </div>
@@ -462,33 +487,37 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
       {/* Tabs: Aktywne projekty vs Projekty archiwalne */}
       <div className="space-y-3">
-        <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+        <div role="tablist" aria-label="Widoki projektów" className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
           <button
             type="button"
+            role="tab"
+            aria-selected={activeTab === 'active'}
             onClick={() => {
               setActiveTab('active');
               setProjectStatusFilter('all');
             }}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
               activeTab === 'active'
-                ? 'bg-sky-600 text-white shadow-xs'
+                ? 'bg-sky-700 text-white shadow-xs'
                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
           >
-            <Building2 className="w-3.5 h-3.5" />
+            <Building2 className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Aktywne projekty ({activeProjects.length})</span>
           </button>
 
           <button
             type="button"
+            role="tab"
+            aria-selected={activeTab === 'archived'}
             onClick={() => setActiveTab('archived')}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
               activeTab === 'archived'
-                ? 'bg-purple-600 text-white shadow-xs'
+                ? 'bg-purple-700 text-white shadow-xs'
                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
           >
-            <Archive className="w-3.5 h-3.5" />
+            <Archive className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Projekty archiwalne ({archivedProjects.length})</span>
           </button>
         </div>
@@ -496,18 +525,19 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         {/* Quick status filters for active projects: Krytyczne, Zablokowane, W toku, Ukończone */}
         {activeTab === 'active' && (
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mr-1 flex items-center gap-1">
-              <Filter className="w-3 h-3" />
+            <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 mr-1 flex items-center gap-1">
+              <Filter className="w-3 h-3" aria-hidden="true" />
               <span>Filtruj stan projektów:</span>
             </span>
 
             <button
               type="button"
+              aria-pressed={projectStatusFilter === 'all'}
               onClick={() => setProjectStatusFilter('all')}
               className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
                 projectStatusFilter === 'all'
                   ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
             >
               Wszystkie ({activeProjects.length})
@@ -515,50 +545,54 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
             <button
               type="button"
+              aria-pressed={projectStatusFilter === 'critical'}
               onClick={() => setProjectStatusFilter('critical')}
               className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
                 projectStatusFilter === 'critical'
-                  ? 'bg-rose-600 text-white shadow-xs'
+                  ? 'bg-rose-700 text-white shadow-xs'
                   : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/40 hover:bg-rose-100'
               }`}
             >
-              <span>🔴 Krytyczne ({criticalProjectsCount})</span>
+              <span><span aria-hidden="true">🔴 </span>Krytyczne ({criticalProjectsCount})</span>
             </button>
 
             <button
               type="button"
+              aria-pressed={projectStatusFilter === 'blocked'}
               onClick={() => setProjectStatusFilter('blocked')}
               className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
                 projectStatusFilter === 'blocked'
-                  ? 'bg-amber-600 text-white shadow-xs'
+                  ? 'bg-amber-700 text-white shadow-xs'
                   : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900/40 hover:bg-amber-100'
               }`}
             >
-              <span>🔒 Zablokowane ({blockedProjectsCount})</span>
+              <span><span aria-hidden="true">🔒 </span>Zablokowane ({blockedProjectsCount})</span>
             </button>
 
             <button
               type="button"
+              aria-pressed={projectStatusFilter === 'in_progress'}
               onClick={() => setProjectStatusFilter('in_progress')}
               className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
                 projectStatusFilter === 'in_progress'
-                  ? 'bg-sky-600 text-white shadow-xs'
+                  ? 'bg-sky-700 text-white shadow-xs'
                   : 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-900/40 hover:bg-sky-100'
               }`}
             >
-              <span>⚡ W toku ({inProgressProjectsCount})</span>
+              <span><span aria-hidden="true">⚡ </span>W toku ({inProgressProjectsCount})</span>
             </button>
 
             <button
               type="button"
+              aria-pressed={projectStatusFilter === 'completed'}
               onClick={() => setProjectStatusFilter('completed')}
               className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
                 projectStatusFilter === 'completed'
-                  ? 'bg-emerald-600 text-white shadow-xs'
+                  ? 'bg-emerald-700 text-white shadow-xs'
                   : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/40 hover:bg-emerald-100'
               }`}
             >
-              <span>✅ Ukończone ({completedProjectsCount})</span>
+              <span><span aria-hidden="true">✅ </span>Ukończone ({completedProjectsCount})</span>
             </button>
           </div>
         )}
@@ -567,7 +601,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         {activeTab === 'archived' && (
           <div className="p-3 bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900/50 rounded-lg flex items-center justify-between text-xs">
             <div className="flex items-center gap-2 text-purple-900 dark:text-purple-200">
-              <Archive className="w-4 h-4 text-purple-600 shrink-0" />
+              <Archive className="w-4 h-4 text-purple-700 dark:text-purple-400 shrink-0" aria-hidden="true" />
               <span>
                 <strong>Zakładka: Projekty archiwalne.</strong> Z poziomu tej zakładki możesz przywrócić projekt do aktywnych lub <strong>całkowicie i bezpowrotnie usunąć projekt z bazy</strong>.
               </span>
@@ -579,11 +613,11 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
       {/* Projects Grid */}
       {displayedProjects.length === 0 ? (
         <div className="p-12 bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-800 rounded-xl text-center space-y-3">
-          <Archive className="w-8 h-8 text-slate-400 mx-auto" />
+          <Archive className="w-8 h-8 text-slate-500 dark:text-slate-400 mx-auto" aria-hidden="true" />
           <h3 className="font-bold text-slate-700 dark:text-slate-200 text-sm">
             {activeTab === 'active' ? 'Brak aktywnych projektów' : 'Brak zarchiwizowanych projektów'}
           </h3>
-          <p className="text-xs text-slate-500 max-w-md mx-auto">
+          <p className="text-xs text-slate-600 dark:text-slate-400 max-w-md mx-auto">
             {activeTab === 'active'
               ? 'Zarejestruj nowy projekt za pomocą przycisku powyżej.'
               : 'Gdy ukończysz projekt, administrator może przenieść go do tego archiwum.'}
@@ -622,17 +656,17 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                     <span className="font-mono text-xs font-bold text-sky-800 dark:text-sky-300 bg-sky-100 dark:bg-sky-950/60 px-2.5 py-0.5 rounded border border-sky-300 dark:border-sky-800">
                       {project.key}
                     </span>
-                    <span className="text-[10px] text-slate-400 font-mono">
+                    <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono">
                       {project.status === 'active' ? 'Aktywny' : project.status === 'planning' ? 'Planowanie' : project.status}
                     </span>
                     {project.isDemo && (
-                      <span className="text-[10px] text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.2 rounded">
+                      <span className="text-[10px] text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.2 rounded">
                         Demo
                       </span>
                     )}
                     {project.isArchived && (
                       <span className="text-[10px] text-purple-700 bg-purple-100 dark:bg-purple-950/60 dark:text-purple-300 px-1.5 py-0.5 rounded font-semibold border border-purple-200 dark:border-purple-800 flex items-center gap-1">
-                        <Archive className="w-2.5 h-2.5" /> Archiwum
+                        <Archive className="w-2.5 h-2.5" aria-hidden="true" /> Archiwum
                       </span>
                     )}
                   </div>
@@ -641,11 +675,11 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                     <span
                       className={`text-xs font-semibold ${
                         project.priority === 'critical'
-                          ? 'text-rose-600 dark:text-rose-400'
+                          ? 'text-rose-700 dark:text-rose-400'
                           : project.priority === 'high'
-                          ? 'text-amber-600 dark:text-amber-400'
+                          ? 'text-amber-700 dark:text-amber-400'
                           : project.priority === 'normal'
-                          ? 'text-blue-600 dark:text-blue-400'
+                          ? 'text-blue-700 dark:text-blue-400'
                           : 'text-slate-600 dark:text-slate-400'
                       }`}
                     >
@@ -655,11 +689,14 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                 </div>
 
                 {/* Project Title & Description */}
-                <h3
-                  onClick={() => onSelectProject(project.id)}
-                  className="text-base font-bold text-slate-900 dark:text-white hover:text-sky-600 dark:hover:text-sky-400 cursor-pointer transition-colors"
-                >
-                  {project.name}
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  <button
+                    type="button"
+                    onClick={() => onSelectProject(project.id)}
+                    className="text-left hover:text-sky-700 dark:hover:text-sky-400 cursor-pointer transition-colors"
+                  >
+                    {project.name}
+                  </button>
                 </h3>
                 <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed">
                   {project.description}
@@ -669,13 +706,13 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                 {project.clientName && (
                   <div className="mt-3 p-2 bg-slate-50 dark:bg-slate-800/60 rounded border border-slate-200/80 dark:border-slate-800 text-xs flex items-center justify-between">
                     <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
-                      <Building2 className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 shrink-0" />
+                      <Building2 className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400 shrink-0" aria-hidden="true" />
                       <span className="truncate max-w-[190px] font-medium" title={project.clientName}>
                         {project.clientName}
                       </span>
                     </div>
                     {project.clientNip && (
-                      <span className="text-[10px] text-slate-400 font-mono">
+                      <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono">
                         NIP: {project.clientNip}
                       </span>
                     )}
@@ -686,7 +723,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                 <div className="mt-2.5 p-2.5 bg-slate-50/80 dark:bg-slate-800/50 rounded-lg border border-slate-200/80 dark:border-slate-700/80 text-xs space-y-1.5">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                      <DollarSign className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                      <DollarSign className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
                       <span>Wartość Projektu:</span>
                     </span>
                     <span className="font-mono font-bold text-slate-900 dark:text-white text-xs">
@@ -696,28 +733,28 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
                   <div className="grid grid-cols-3 gap-1 pt-1 border-t border-slate-200/60 dark:border-slate-700/60 text-[10px]">
                     <div>
-                      <span className="text-slate-500 block">Wycena:</span>
-                      <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                      <span className="text-slate-600 dark:text-slate-400 block">Wycena:</span>
+                      <span className="font-mono font-semibold text-emerald-700 dark:text-emerald-400">
                         {quoteNet > 0 ? `${quoteNet.toLocaleString('pl-PL')} zł` : '0 zł'}
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-500 block">Koszty:</span>
-                      <span className="font-mono font-semibold text-rose-600 dark:text-rose-400">
+                      <span className="text-slate-600 dark:text-slate-400 block">Koszty:</span>
+                      <span className="font-mono font-semibold text-rose-700 dark:text-rose-400">
                         {totalCostsNet > 0 ? `${totalCostsNet.toLocaleString('pl-PL')} zł` : '0 zł'}
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-500 block">Zysk:</span>
-                      <span className={`font-mono font-bold ${profitNet >= 0 ? 'text-sky-600 dark:text-sky-400' : 'text-rose-600'}`}>
+                      <span className="text-slate-600 dark:text-slate-400 block">Zysk:</span>
+                      <span className={`font-mono font-bold ${profitNet >= 0 ? 'text-sky-700 dark:text-sky-400' : 'text-rose-700 dark:text-rose-400'}`}>
                         {profitNet.toLocaleString('pl-PL')} zł
                       </span>
                     </div>
                   </div>
 
                   {revenueQuotes.length > 0 && (
-                    <div className="pt-1 text-[10px] text-slate-500 dark:text-slate-400 flex flex-wrap gap-1">
-                      <span className="font-medium text-slate-600 dark:text-slate-300">Składowe:</span>
+                    <div className="pt-1 text-[10px] text-slate-600 dark:text-slate-400 flex flex-wrap gap-1">
+                      <span className="font-medium text-slate-700 dark:text-slate-300">Składowe:</span>
                       {revenueQuotes.slice(0, 3).map((rq) => (
                         <span key={rq.id} className="bg-slate-200/60 dark:bg-slate-700/50 px-1 py-0.2 rounded font-mono truncate max-w-[130px]">
                           {rq.title}
@@ -734,7 +771,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                 {project.diskPath && (
                   <div className="mt-2.5 px-2.5 py-1.5 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-900/40 rounded flex items-center justify-between text-xs">
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <Folder className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <Folder className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400 shrink-0" aria-hidden="true" />
                       <span className="font-mono text-[11px] text-slate-700 dark:text-slate-300 truncate" title={project.diskPath}>
                         {project.diskPath}
                       </span>
@@ -749,8 +786,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                       }}
                       className="p-1 hover:bg-amber-100 dark:hover:bg-amber-900/60 rounded text-amber-700 dark:text-amber-300 shrink-0 ml-1"
                       title="Kopiuj ścieżkę na dysku"
+                      aria-label={`Kopiuj ścieżkę projektu ${project.key}`}
                     >
-                      {copiedProjectId === project.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      {copiedProjectId === project.id ? <Check className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" aria-hidden="true" /> : <Copy className="w-3.5 h-3.5" aria-hidden="true" />}
                     </button>
                   </div>
                 )}
@@ -758,11 +796,11 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                 {/* Dates & Schedule with Duration in days */}
                 <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
                   <div className="flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-sky-600" />
+                    <Clock className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400" aria-hidden="true" />
                     <span className="font-bold text-slate-900 dark:text-white font-mono">
                       {project.durationDays || 30} dni
                     </span>
-                    <span className="text-slate-400 font-mono text-[11px]">({project.startDate} · {project.dueDate})</span>
+                    <span className="text-slate-600 dark:text-slate-400 font-mono text-[11px]">({project.startDate} · {project.dueDate})</span>
                   </div>
                   {project.budget && <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300 font-semibold">{project.budget}</span>}
                 </div>
@@ -790,16 +828,16 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                 {/* Task counts stats */}
                 <div className="grid grid-cols-2 gap-2 mt-3 text-xs bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded border border-slate-100 dark:border-slate-800">
                   <div>
-                    <span className="text-slate-500 block text-[10px] uppercase font-semibold">Zadania</span>
+                    <span className="text-slate-600 dark:text-slate-400 block text-[10px] uppercase font-semibold">Zadania</span>
                     <span className="font-mono tabular-nums font-semibold text-slate-800 dark:text-slate-200">
                       {completedTasks} / {projectTasks.length} ukończonych
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[10px] uppercase font-semibold">Krytyczne</span>
+                    <span className="text-slate-600 dark:text-slate-400 block text-[10px] uppercase font-semibold">Krytyczne</span>
                     <span
                       className={`font-mono tabular-nums font-semibold ${
-                        criticalTasks > 0 ? 'text-rose-600' : 'text-slate-700 dark:text-slate-300'
+                        criticalTasks > 0 ? 'text-rose-700 dark:text-rose-400' : 'text-slate-700 dark:text-slate-300'
                       }`}
                     >
                       {criticalTasks} wymagających uwagi
@@ -826,55 +864,65 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                 {/* Actions */}
                 <div className="flex items-center gap-1.5">
                   <button
+                    type="button"
                     onClick={() => setViewingProject(project)}
-                    className="p-1 text-slate-500 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950/40 rounded transition-colors"
+                    className="p-1 text-slate-600 dark:text-slate-400 hover:text-sky-700 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40 rounded transition-colors"
                     title="Podgląd danych projektu bez wchodzenia w edycję"
+                    aria-label={`Podgląd projektu ${project.key}`}
                   >
-                    <Eye className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                    <Eye className="w-4 h-4 text-sky-700 dark:text-sky-400" aria-hidden="true" />
                   </button>
 
                   <button
+                    type="button"
                     onClick={() => setFinancialsProject(project)}
-                    className="p-1 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded transition-colors"
+                    className="p-1 text-slate-600 dark:text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded transition-colors"
                     title="Wyceny Inwestorskie, Koszty (Mapa, Geologia, Uzgodnienia)"
+                    aria-label={`Kosztorys i wyceny projektu ${project.key}`}
                   >
-                    <Receipt className="w-4 h-4 text-emerald-600" />
+                    <Receipt className="w-4 h-4 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
                   </button>
 
                   <button
+                    type="button"
                     onClick={() => openEditModal(project)}
-                    className="p-1 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors"
+                    className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors"
                     title="Edytuj projekt i dane Zamawiającego"
+                    aria-label={`Edytuj projekt ${project.key}`}
                   >
-                    <Edit3 className="w-3.5 h-3.5" />
+                    <Edit3 className="w-3.5 h-3.5" aria-hidden="true" />
                   </button>
 
                   <button
+                    type="button"
                     onClick={() => downloadIcsFile(projectTasks, `${project.key}-terminarz.ics`, project.name)}
-                    className="p-1 text-slate-500 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950/40 rounded transition-colors"
+                    className="p-1 text-slate-600 dark:text-slate-400 hover:text-sky-700 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40 rounded transition-colors"
                     title="Pobierz terminarz projektu (.ics)"
+                    aria-label={`Pobierz terminarz projektu ${project.key} (.ics)`}
                   >
-                    <Download className="w-3.5 h-3.5" />
+                    <Download className="w-3.5 h-3.5" aria-hidden="true" />
                   </button>
 
                   {/* Actions for archived vs active projects */}
                   {project.isArchived && currentUser.role === 'admin' ? (
                     <div className="flex items-center gap-1">
                       <button
+                        type="button"
                         onClick={() => handleRestoreProject(project)}
                         className="px-2 py-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/60 rounded flex items-center gap-1 transition-colors border border-emerald-200 dark:border-emerald-800"
                         title="Przywróć projekt z archiwum do bieżącej pracy"
                       >
-                        <ArchiveRestore className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <ArchiveRestore className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
                         <span>Przywróć</span>
                       </button>
                       {onDeleteProject && (
                         <button
+                          type="button"
                           onClick={() => setProjectToDelete(project)}
                           className="px-2 py-1 text-[11px] font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60 rounded flex items-center gap-1 transition-colors border border-rose-200 dark:border-rose-800"
                           title="Całkowicie usuń projekt z bazy danych"
                         >
-                          <Trash2 className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                          <Trash2 className="w-3.5 h-3.5 text-rose-700 dark:text-rose-400" aria-hidden="true" />
                           <span>Usuń z bazy</span>
                         </button>
                       )}
@@ -884,30 +932,35 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                       {/* Archive button for administrator */}
                       {currentUser.role === 'admin' && (
                         <button
+                          type="button"
                           onClick={() => handleRequestArchive(project)}
-                          className="p-1 text-slate-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/40 rounded transition-colors"
+                          className="p-1 text-slate-600 dark:text-slate-400 hover:text-purple-700 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/40 rounded transition-colors"
                           title="Przenieś projekt do archiwum (Tylko Administrator)"
+                          aria-label={`Przenieś projekt ${project.key} do archiwum`}
                         >
-                          <Archive className="w-3.5 h-3.5 text-purple-600" />
+                          <Archive className="w-3.5 h-3.5 text-purple-700 dark:text-purple-400" aria-hidden="true" />
                         </button>
                       )}
 
                       {/* Delete project button */}
                       {onDeleteProject && (
                         <button
+                          type="button"
                           onClick={() => setProjectToDelete(project)}
-                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded transition-colors"
+                          className="p-1 text-slate-600 dark:text-slate-400 hover:text-rose-700 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded transition-colors"
                           title="Usuń projekt"
+                          aria-label={`Usuń projekt ${project.key}`}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                         </button>
                       )}
                     </>
                   )}
 
                   <button
+                    type="button"
                     onClick={() => onSelectProject(project.id)}
-                    className="text-xs font-semibold text-sky-600 hover:text-sky-700 dark:text-sky-400 hover:underline px-1 py-0.5"
+                    className="text-xs font-semibold text-sky-700 hover:text-sky-800 dark:text-sky-400 hover:underline px-1 py-0.5"
                   >
                     Otwórz →
                   </button>
@@ -961,20 +1014,25 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
       {/* Archive Warning & Confirmation Modal for Administrator */}
       {projectToArchive && (
-        <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-2xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 max-w-md w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
-            <div className="flex items-center gap-2.5 text-purple-600 dark:text-purple-400">
+        <div
+          className="fixed inset-0 z-60 bg-black/60 backdrop-blur-2xs flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="archive-project-modal-title"
+        >
+          <div ref={archiveModalRef} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 max-w-md w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-2.5 text-purple-700 dark:text-purple-400">
               <div className="p-2 bg-purple-100 dark:bg-purple-950/60 rounded-lg">
-                <Archive className="w-5 h-5" />
+                <Archive className="w-5 h-5" aria-hidden="true" />
               </div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+              <h3 id="archive-project-modal-title" className="text-sm font-bold text-slate-900 dark:text-white">
                 Archiwizacja Projektu: [{projectToArchive.project.key}] {projectToArchive.project.name}
               </h3>
             </div>
 
             {projectToArchive.incompleteCount > 0 ? (
               <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-lg flex items-start gap-2.5 text-xs text-amber-900 dark:text-amber-200">
-                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <AlertTriangle className="w-5 h-5 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" aria-hidden="true" />
                 <div className="space-y-1">
                   <span className="font-bold block">
                     Ostrzeżenie: Część zadań w projekcie nie jest jeszcze ukończona!
@@ -987,7 +1045,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
               </div>
             ) : (
               <p className="text-xs text-slate-600 dark:text-slate-300">
-                Wszystkie zadania zostały zrealizowane. Projekt zostanie przeniesiony do zakładki "Archiwum projektów" i wykluczony z bieżących list operacyjnych.
+                Wszystkie zadania zostały zrealizowane. Projekt zostanie przeniesiony do zakładki "Archiwum projektów" i wykluczony z bieżąących list operacyjnych.
               </p>
             )}
 
@@ -1002,7 +1060,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
               <button
                 type="button"
                 onClick={handleConfirmArchive}
-                className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded font-semibold transition-colors shadow-xs"
+                className="px-4 py-1.5 bg-purple-700 hover:bg-purple-600 text-white rounded font-semibold transition-colors shadow-xs"
               >
                 Potwierdź archiwizację
               </button>
@@ -1017,21 +1075,26 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         const incompleteCount = projTasks.filter((t) => t.status !== 'done').length;
 
         return (
-          <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-2xs flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 max-w-md w-full shadow-2xl space-y-3 animate-in fade-in zoom-in-95">
-              <div className="flex items-center gap-2.5 text-rose-600 dark:text-rose-400">
-                <Trash2 className="w-5 h-5 shrink-0" />
-                <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+          <div
+            className="fixed inset-0 z-60 bg-black/60 backdrop-blur-2xs flex items-center justify-center p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-project-modal-title"
+          >
+            <div ref={deleteModalRef} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 max-w-md w-full shadow-2xl space-y-3 animate-in fade-in zoom-in-95">
+              <div className="flex items-center gap-2.5 text-rose-700 dark:text-rose-400">
+                <Trash2 className="w-5 h-5 shrink-0" aria-hidden="true" />
+                <h4 id="delete-project-modal-title" className="text-sm font-bold text-slate-900 dark:text-white">
                   {projectToDelete.isArchived ? 'Całkowite usunięcie projektu z archiwum' : 'Usuń projekt'}
                 </h4>
               </div>
 
               {incompleteCount > 0 && (
                 <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 rounded-lg flex items-start gap-2.5 text-xs text-rose-900 dark:text-rose-200">
-                  <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                  <AlertTriangle className="w-5 h-5 text-rose-700 dark:text-rose-400 shrink-0 mt-0.5" aria-hidden="true" />
                   <div className="space-y-1">
                     <span className="font-bold block">
-                      ⚠️ Uwaga: Projekt posiada {incompleteCount} nieukończonych zadań!
+                      <span aria-hidden="true">⚠️ </span>Uwaga: Projekt posiada {incompleteCount} nieukończonych zadań!
                     </span>
                     <p>
                       Część zadań nie została oznaczona jako ukończona. Usunięcie projektu bezpowrotnie skasuje wszystkie powiązane zadania, pozycje kosztorysu i wyceny.
@@ -1057,7 +1120,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                     if (onDeleteProject) onDeleteProject(projectToDelete.id);
                     setProjectToDelete(null);
                   }}
-                  className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-semibold shadow-xs"
+                  className="px-3.5 py-1.5 bg-rose-700 hover:bg-rose-600 text-white rounded text-xs font-semibold shadow-xs"
                 >
                   {projectToDelete.isArchived ? 'Tak, całkowicie usuń z bazy' : 'Tak, usuń projekt'}
                 </button>
@@ -1069,22 +1132,29 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
       {/* Modal: Create or Edit Project */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="project-form-modal-title"
+        >
+          <div ref={formModalRef} className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
             <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/70 flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                <h3 id="project-form-modal-title" className="text-sm font-bold text-slate-900 dark:text-white">
                   {editingProject ? 'Edycja Projektu' : 'Rejestracja Nowego Projektu'}
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
+                <p className="text-xs text-slate-600 dark:text-slate-400">
                   Kod projektu, Zamawiający, terminy i przypisani projektanci.
                 </p>
               </div>
               <button
+                type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
+                className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 p-1"
+                aria-label="Zamknij okno projektu"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5" aria-hidden="true" />
               </button>
             </div>
 
@@ -1093,13 +1163,14 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
               {!editingProject && (
                 <div className="p-3 bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900/50 rounded-lg space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="font-bold text-purple-950 dark:text-purple-200 flex items-center gap-1.5">
-                      <Layers className="w-4 h-4 text-purple-600" />
+                    <label htmlFor="project-template-select" className="font-bold text-purple-950 dark:text-purple-200 flex items-center gap-1.5">
+                      <Layers className="w-4 h-4 text-purple-700 dark:text-purple-400" aria-hidden="true" />
                       <span>Użyj gotowego szablonu procesu</span>
                     </label>
                   </div>
 
                   <select
+                    id="project-template-select"
                     value={selectedTemplateId}
                     onChange={(e) => handleTemplateChange(e.target.value)}
                     className="w-full bg-white dark:bg-slate-900 border border-purple-300 dark:border-purple-800 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
@@ -1117,7 +1188,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
               {/* PROJECT CODE FIELD */}
               <div className="p-3 bg-sky-50/70 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900/50 rounded-lg space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="font-bold text-sky-950 dark:text-sky-200 block">
+                  <label htmlFor="project-code-input" className="font-bold text-sky-950 dark:text-sky-200 block">
                     KOD Projektu (schemat np. 2026-01) *
                   </label>
                   <button
@@ -1131,6 +1202,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
                 <div className="relative">
                   <input
+                    id="project-code-input"
                     type="text"
                     required
                     value={projectCode}
@@ -1142,11 +1214,11 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                   <div className="absolute right-2.5 top-2.5">
                     {isCodeAvailable && isCodeFormatValid ? (
                       <span className="flex items-center gap-1 text-[11px] text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded font-bold">
-                        <Check className="w-3 h-3" /> Wolny
+                        <Check className="w-3 h-3" aria-hidden="true" /> Wolny
                       </span>
                     ) : (
                       <span className="flex items-center gap-1 text-[11px] text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded font-bold">
-                        <X className="w-3 h-3" /> Zajęty
+                        <X className="w-3 h-3" aria-hidden="true" /> Zajęty
                       </span>
                     )}
                   </div>
@@ -1154,8 +1226,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Nazwa projektu *</label>
+                <label htmlFor="project-name-input" className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Nazwa projektu *</label>
                 <input
+                  id="project-name-input"
                   type="text"
                   required
                   value={name}
@@ -1167,8 +1240,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Opis projektu</label>
+                <label htmlFor="project-desc-input" className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Opis projektu</label>
                 <textarea
+                  id="project-desc-input"
                   rows={2}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -1181,16 +1255,17 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
               {/* DANE ZAMAWIAJĄCEGO */}
               <div className="p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg space-y-2">
                 <span className="font-semibold text-slate-800 dark:text-slate-200 block text-[11px] uppercase tracking-wide flex items-center gap-1.5">
-                  <Building2 className="w-3.5 h-3.5 text-sky-600" />
+                  <Building2 className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400" aria-hidden="true" />
                   <span>Zamawiający / Inwestor</span>
                 </span>
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <label className="block text-[11px] text-slate-600 dark:text-slate-400">Nazwa firmy / Inwestora</label>
+                      <label htmlFor="project-client-name" className="block text-[11px] text-slate-600 dark:text-slate-400">Nazwa firmy / Inwestora</label>
                       {getClients().length > 0 && (
                         <select
+                          aria-label="Wybierz zamawiającego z bazy"
                           onChange={(e) => {
                             const c = getClients().find((item) => item.id === e.target.value);
                             if (c) {
@@ -1212,6 +1287,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                       )}
                     </div>
                     <input
+                      id="project-client-name"
                       type="text"
                       value={clientName}
                       onChange={(e) => setClientName(e.target.value)}
@@ -1221,8 +1297,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Osoba kontaktowa</label>
+                    <label htmlFor="project-client-contact" className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Osoba kontaktowa</label>
                     <input
+                      id="project-client-contact"
                       type="text"
                       value={clientContactPerson}
                       onChange={(e) => setClientContactPerson(e.target.value)}
@@ -1235,8 +1312,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
                 <div className="grid grid-cols-3 gap-2">
                   <div>
-                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">NIP</label>
+                    <label htmlFor="project-client-nip" className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">NIP</label>
                     <input
+                      id="project-client-nip"
                       type="text"
                       value={clientNip}
                       onChange={(e) => setClientNip(e.target.value)}
@@ -1246,8 +1324,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Telefon</label>
+                    <label htmlFor="project-client-phone" className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Telefon</label>
                     <input
+                      id="project-client-phone"
                       type="text"
                       value={clientPhone}
                       onChange={(e) => setClientPhone(e.target.value)}
@@ -1257,8 +1336,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">E-mail</label>
+                    <label htmlFor="project-client-email" className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">E-mail</label>
                     <input
+                      id="project-client-email"
                       type="email"
                       value={clientEmail}
                       onChange={(e) => setClientEmail(e.target.value)}
@@ -1272,11 +1352,12 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
               {/* LOKALIZACJA NA DYSKU / NAS */}
               <div className="p-3 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 rounded-lg space-y-1.5">
-                <span className="font-semibold text-amber-900 dark:text-amber-200 block text-[11px] uppercase tracking-wide flex items-center gap-1.5">
-                  <Folder className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                <label htmlFor="project-disk-path" className="font-semibold text-amber-900 dark:text-amber-200 block text-[11px] uppercase tracking-wide flex items-center gap-1.5">
+                  <Folder className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" aria-hidden="true" />
                   <span>Lokalizacja na dysku lokalnym lub serwerze NAS</span>
-                </span>
+                </label>
                 <input
+                  id="project-disk-path"
                   type="text"
                   value={diskPath}
                   onChange={(e) => setDiskPath(e.target.value)}
@@ -1293,8 +1374,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Data startu *</label>
+                    <label htmlFor="project-start-date" className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Data startu *</label>
                     <input
+                      id="project-start-date"
                       type="date"
                       required
                       value={startDate}
@@ -1304,11 +1386,12 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    <label htmlFor="project-duration-days" className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
                       Czas trwania *
                     </label>
                     <div className="flex items-center">
                       <input
+                        id="project-duration-days"
                         type="number"
                         min={1}
                         max={3650}
@@ -1317,13 +1400,14 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                         onChange={(e) => handleDurationDaysChange(Number(e.target.value))}
                         className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono font-bold"
                       />
-                      <span className="ml-1.5 font-mono text-slate-500">dni</span>
+                      <span className="ml-1.5 font-mono text-slate-600 dark:text-slate-400">dni</span>
                     </div>
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Termin końcowy</label>
+                    <label htmlFor="project-due-date" className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Termin końcowy</label>
                     <input
+                      id="project-due-date"
                       type="date"
                       required
                       value={dueDate}
@@ -1337,7 +1421,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
               {/* WARTOŚĆ PROJEKTU (KWOTA UMOWY GŁÓWNEJ) */}
               <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 rounded-lg space-y-2">
                 <span className="font-semibold text-emerald-950 dark:text-emerald-200 block text-[11px] uppercase tracking-wide flex items-center gap-1.5">
-                  <DollarSign className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <DollarSign className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
                   <span>Wartość Projektu (kwota umowy głównej)</span>
                 </span>
                 <p className="text-[11px] text-emerald-800 dark:text-emerald-300">
@@ -1346,8 +1430,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div>
-                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Kwota netto (PLN) *</label>
+                    <label htmlFor="project-value-net" className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Kwota netto (PLN) *</label>
                     <input
+                      id="project-value-net"
                       type="number"
                       min="0"
                       step="500"
@@ -1358,8 +1443,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Stawka VAT</label>
+                    <label htmlFor="project-vat-rate" className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Stawka VAT</label>
                     <select
+                      id="project-vat-rate"
                       value={projectVatRate}
                       onChange={(e) => setProjectVatRate(Number(e.target.value))}
                       className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
@@ -1372,8 +1458,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Wartość brutto (PLN)</label>
+                    <label htmlFor="project-value-gross" className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Wartość brutto (PLN)</label>
                     <input
+                      id="project-value-gross"
                       type="text"
                       disabled
                       value={`${Math.round(projectValue * (1 + projectVatRate / 100)).toLocaleString('pl-PL')} zł`}
@@ -1385,27 +1472,29 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
               {/* Members */}
               <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                <span id="project-members-label" className="block font-semibold text-slate-700 dark:text-slate-300 mb-2">
                   Projektanci przypisani do zespołu:
-                </label>
-                <div className="grid grid-cols-2 gap-2">
+                </span>
+                <div role="group" aria-labelledby="project-members-label" className="grid grid-cols-2 gap-2">
                   {users.map((u) => {
                     const isSelected = selectedMemberIds.includes(u.id);
                     return (
-                      <div
+                      <button
+                        type="button"
                         key={u.id}
+                        aria-pressed={isSelected}
                         onClick={() => toggleMember(u.id)}
-                        className={`p-2 rounded border cursor-pointer flex items-center gap-2 transition-colors ${
+                        className={`p-2 rounded border cursor-pointer flex items-center gap-2 text-left transition-colors ${
                           isSelected
                             ? 'bg-sky-50 dark:bg-sky-950/50 border-sky-300 dark:border-sky-700 text-sky-900 dark:text-sky-200'
-                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
                         }`}
                       >
                         <div className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-bold flex items-center justify-center shrink-0">
                           {u.initials}
                         </div>
                         <span className="text-xs truncate">{u.name}</span>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -1422,7 +1511,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                 <button
                   type="submit"
                   disabled={!isFormValid}
-                  className="bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white font-semibold px-4 py-2 rounded shadow-xs"
+                  className="bg-sky-700 hover:bg-sky-600 disabled:opacity-50 text-white font-semibold px-4 py-2 rounded shadow-xs"
                 >
                   {editingProject ? 'Zapisz zmiany w projekcie' : 'Zarejestruj projekt'}
                 </button>

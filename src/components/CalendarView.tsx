@@ -139,7 +139,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-4 p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <CalendarIcon className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+            <CalendarIcon className="w-4 h-4 text-sky-700 dark:text-sky-400" aria-hidden="true" />
             <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
               {MONTH_NAMES_PL[month]} {year}
             </h2>
@@ -147,24 +147,29 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
           <div className="flex items-center gap-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md shadow-xs p-0.5">
             <button
+              type="button"
               onClick={prevMonth}
               className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300 transition-colors"
               title="Poprzedni miesiąc"
+              aria-label="Poprzedni miesiąc"
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft className="w-4 h-4" aria-hidden="true" />
             </button>
             <button
+              type="button"
               onClick={setToday}
               className="px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors"
             >
               Bieżący
             </button>
             <button
+              type="button"
               onClick={nextMonth}
               className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300 transition-colors"
               title="Następny miesiąc"
+              aria-label="Następny miesiąc"
             >
-              <ChevronRight className="w-4 h-4" />
+              <ChevronRight className="w-4 h-4" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -172,11 +177,12 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         {/* Action Buttons: Export to Google Calendar / .ics */}
         <div className="flex items-center gap-2">
           <button
+            type="button"
             onClick={handleExportAllToIcs}
             className="flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 text-slate-700 dark:text-slate-200 text-xs font-medium px-3 py-1.5 rounded shadow-xs hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
             title="Pobierz plik terminarza .ics kompatybilny z Google Calendar, Outlook i Apple Calendar"
           >
-            <Download className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+            <Download className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" aria-hidden="true" />
             <span>Pobierz terminarz (.ics)</span>
           </button>
 
@@ -184,12 +190,12 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             href="https://calendar.google.com/calendar/r/settings/export"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-medium px-3 py-1.5 rounded shadow-xs transition-colors"
+            className="flex items-center gap-1.5 bg-sky-700 hover:bg-sky-600 text-white text-xs font-medium px-3 py-1.5 rounded shadow-xs transition-colors"
             title="Otwórz ustawienia importu Google Calendar"
           >
-            <CalendarIcon className="w-3.5 h-3.5" />
+            <CalendarIcon className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Importuj w Google Calendar</span>
-            <ExternalLink className="w-3 h-3 opacity-80" />
+            <ExternalLink className="w-3 h-3 opacity-85" aria-hidden="true" />
           </a>
         </div>
       </div>
@@ -221,7 +227,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               onClick={() => onOpenNewTaskWithDate(day.dateStr)}
               className={`min-h-[110px] p-2 relative group flex flex-col justify-between transition-colors ${
                 !day.isCurrentMonth
-                  ? 'bg-slate-50/60 dark:bg-slate-950/60 text-slate-400 dark:text-slate-500'
+                  ? 'bg-slate-50/60 dark:bg-slate-950/60 text-slate-600 dark:text-slate-400'
                   : isHoliday
                   ? 'bg-rose-50/30 dark:bg-rose-950/20 text-slate-800 dark:text-slate-200'
                   : 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200'
@@ -233,33 +239,35 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   <span
                     className={`text-xs font-mono tabular-nums ${
                       isToday
-                        ? 'bg-sky-600 text-white font-bold w-5 h-5 rounded-full flex items-center justify-center'
+                        ? 'bg-sky-700 text-white font-bold w-5 h-5 rounded-full flex items-center justify-center'
                         : isHoliday
-                        ? 'text-rose-600 dark:text-rose-400 font-bold'
+                        ? 'text-rose-700 dark:text-rose-400 font-bold'
                         : day.isCurrentMonth
                         ? 'text-slate-700 dark:text-slate-200 font-semibold'
-                        : 'text-slate-400 dark:text-slate-500'
+                        : 'text-slate-600 dark:text-slate-400'
                     }`}
                     title={isHoliday ? 'Święto ustawowo wolne od pracy' : undefined}
                   >
                     {day.dayNum}
                   </span>
                   {isHoliday && day.isCurrentMonth && (
-                    <span className="text-[9px] font-sans font-semibold text-rose-600 dark:text-rose-400">
+                    <span className="text-[9px] font-sans font-semibold text-rose-700 dark:text-rose-400">
                       Święto
                     </span>
                   )}
                 </div>
 
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     onOpenNewTaskWithDate(day.dateStr);
                   }}
-                  className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-800 p-0.5 rounded transition-opacity"
+                  className="opacity-0 group-hover:opacity-100 focus:opacity-100 focus-within:opacity-100 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white p-0.5 rounded transition-opacity"
                   title={`Dodaj zadanie na dzień ${day.dateStr}`}
+                  aria-label={`Dodaj zadanie na dzień ${day.dateStr}`}
                 >
-                  <Plus className="w-3.5 h-3.5" />
+                  <Plus className="w-3.5 h-3.5" aria-hidden="true" />
                 </button>
               </div>
 
@@ -292,10 +300,20 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       return (
                         <div
                           key={task.id}
+                          role="button"
+                          tabIndex={0}
                           onClick={(e) => {
                             e.stopPropagation();
                             onSelectTask(task);
                           }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              onSelectTask(task);
+                            }
+                          }}
+                          aria-label={`Zadanie ${task.code}: ${task.title}`}
                           className={`text-[11px] p-1.5 rounded border leading-tight cursor-pointer transition-all hover:scale-[1.01] ${badgeColor} ${
                             isMilestone ? 'font-semibold' : ''
                           } ${isOfficialWarning ? 'animate-official-deadline' : ''}`}
@@ -306,21 +324,21 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                           }`}
                         >
                           <div className="flex items-center gap-1 truncate">
-                            {isMilestone && <Diamond className="w-2.5 h-2.5 text-amber-600 fill-amber-500 shrink-0" />}
-                            {isBlocked && <Lock className="w-2.5 h-2.5 text-rose-700 shrink-0" />}
+                            {isMilestone && <Diamond className="w-2.5 h-2.5 text-amber-700 fill-amber-500 shrink-0" aria-hidden="true" />}
+                            {isBlocked && <Lock className="w-2.5 h-2.5 text-rose-700 shrink-0" aria-hidden="true" />}
                             {task.isOfficialDeadline && (
-                              <ShieldAlert className={`w-2.5 h-2.5 shrink-0 ${isOfficialWarning ? 'text-rose-600 animate-pulse' : 'text-indigo-600'}`} />
+                              <ShieldAlert className={`w-2.5 h-2.5 shrink-0 ${isOfficialWarning ? 'text-rose-700 animate-pulse' : 'text-indigo-700'}`} aria-hidden="true" />
                             )}
                             {isOverdue && (
                               <span title="Termin przekroczony!">
-                                <AlertCircle className="w-2.5 h-2.5 text-rose-600 shrink-0" />
+                                <AlertCircle className="w-2.5 h-2.5 text-rose-700 shrink-0" aria-hidden="true" />
                               </span>
                             )}
-                            <span className="font-mono text-[9px] opacity-75 shrink-0">{task.code}</span>
+                            <span className="font-mono text-[9px] opacity-85 shrink-0">{task.code}</span>
                             <span className="truncate font-semibold">{task.title}</span>
                           </div>
                           {taskProj && (
-                            <div className="text-[9px] font-mono opacity-90 truncate mt-0.5 text-sky-700 dark:text-sky-300 font-medium flex items-center gap-1">
+                            <div className="text-[9px] font-mono opacity-95 truncate mt-0.5 text-sky-700 dark:text-sky-300 font-medium flex items-center gap-1">
                               <span>[{taskProj.key}]</span>
                               <span className="truncate">{taskProj.name}</span>
                             </div>
@@ -332,7 +350,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
               {/* Day footer count */}
               {dayTasks.length > 3 && (
-                <div className="text-[10px] text-slate-400 font-mono mt-1 text-right">
+                <div className="text-[10px] text-slate-600 dark:text-slate-400 font-mono mt-1 text-right">
                   +{dayTasks.length - 3} więcej
                 </div>
               )}

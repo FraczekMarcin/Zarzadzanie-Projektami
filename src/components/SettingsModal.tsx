@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
   Settings as SettingsIcon, 
@@ -18,20 +18,15 @@ import {
   Check,
   Terminal,
   Clock,
-  Sparkles,
   Sliders,
   Percent,
   Building2,
-  Plus,
   RotateCcw,
-  Edit2,
   Calendar as CalendarIcon,
-  UserCheck,
   UserX,
   BellRing,
   Tag,
   Network,
-  Folder,
   LogOut,
   Cloud,
   Shield,
@@ -41,6 +36,7 @@ import {
 } from 'lucide-react';
 import { parseUserAgent, PublicSession } from '../utils/sessions';
 import type { SecurityEvent, SecurityEventType } from '../utils/securityLog';
+import { useFocusTrap } from '../utils/useFocusTrap';
 
 const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   login_success: 'Udane logowanie',
@@ -128,6 +124,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onUpdateUserPassword,
   initialTab = 'theme',
 }) => {
+  const modalRef = useRef<HTMLDivElement>(null);
+  useFocusTrap({ isOpen, onClose, containerRef: modalRef });
+
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [currentTheme, setCurrentTheme] = useState<ThemeMode>('system');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -320,6 +319,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (!window.confirm(`Czy na pewno chcesz zakończyć wszystkie sesje użytkownika ${userName}? Użytkownik zostanie natychmiast wylogowany ze wszystkich urządzeń.`)) {
       return;
     }
+    setSessionActionError(null);
+    setSessionActionSuccess(null);
     try {
       const res = await fetch(`/api/users/${userId}/sessions`, {
         method: 'DELETE',
@@ -327,17 +328,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       });
       const data = await res.json();
       if (res.ok) {
-        alert(`Pomyślnie zakończono sesje użytkownika ${userName}.`);
+        setSessionActionSuccess(`Pomyślnie zakończono sesje użytkownika ${userName}.`);
         if (userId === currentUser?.id) {
           window.location.reload();
         } else {
           loadSessions();
         }
       } else {
-        alert(data.error || 'Błąd kończenia sesji użytkownika');
+        setSessionActionError(data.error || 'Błąd kończenia sesji użytkownika');
       }
     } catch (err: any) {
-      alert(err.message || 'Błąd połączenia z serwerem');
+      setSessionActionError(err.message || 'Błąd połączenia z serwerem');
     }
   };
 
@@ -631,34 +632,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-modal-title"
+        className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95"
+      >
         
         {/* Modal Top Header */}
         <div className="px-6 py-3.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/80 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-sky-100 dark:bg-sky-950/70 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-800">
-              <SettingsIcon className="w-5 h-5" />
+            <div className="p-2 rounded-xl bg-sky-100 dark:bg-sky-950/70 text-sky-700 dark:text-sky-400 border border-sky-200 dark:border-sky-800">
+              <SettingsIcon className="w-5 h-5" aria-hidden="true" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                <h3 id="settings-modal-title" className="text-sm font-bold text-slate-900 dark:text-white">
                   Ustawienia Pracowni i Administracja Systemu
                 </h3>
                 <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
                   {CURRENT_APP_VERSION}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              <p className="text-[11px] text-slate-600 dark:text-slate-400">
                 Konfiguracja motywu, zmiennych, akceptacji kont, integracji kalendarza oraz aktualizacji z GitHub
               </p>
             </div>
           </div>
 
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+            aria-label="Zamknij ustawienia"
+            className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
 
@@ -667,26 +676,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           
           {/* Left Vertical Navigation Sidebar */}
           <div className="w-64 shrink-0 bg-slate-50/70 dark:bg-slate-950/50 border-r border-slate-200 dark:border-slate-800 p-3 flex flex-col justify-between overflow-y-auto">
-            <div className="space-y-1">
-              <div className="px-3 py-1.5 text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+            <div role="tablist" aria-orientation="vertical" aria-label="Sekcje ustawień" className="space-y-1">
+              <div className="px-3 py-1.5 text-[10px] uppercase font-bold text-slate-600 dark:text-slate-400 tracking-wider">
                 Personalizacja & Parametry
               </div>
 
               {/* Theme Tab */}
               <button
                 type="button"
+                role="tab"
+                aria-selected={activeTab === 'theme'}
                 onClick={() => setActiveTab('theme')}
                 className={`w-full px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-colors ${
                   activeTab === 'theme'
-                    ? 'bg-sky-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                    ? 'bg-sky-700 text-white shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <Sun className="w-4 h-4 shrink-0" />
+                  <Sun className="w-4 h-4 shrink-0" aria-hidden="true" />
                   <span>Wygląd & Motyw</span>
                 </div>
-                <span className={`text-[10px] font-mono capitalize opacity-80 ${activeTab === 'theme' ? 'text-sky-100' : 'text-slate-400'}`}>
+                <span className={`text-[10px] font-mono capitalize ${activeTab === 'theme' ? 'text-sky-100' : 'text-slate-600 dark:text-slate-400'}`}>
                   {currentTheme}
                 </span>
               </button>
@@ -694,46 +705,50 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {/* Variables Tab */}
               <button
                 type="button"
+                role="tab"
+                aria-selected={activeTab === 'variables'}
                 onClick={() => setActiveTab('variables')}
                 className={`w-full px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-colors ${
                   activeTab === 'variables'
-                    ? 'bg-sky-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                    ? 'bg-sky-700 text-white shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <Sliders className="w-4 h-4 shrink-0" />
+                  <Sliders className="w-4 h-4 shrink-0" aria-hidden="true" />
                   <span>Zmienne & Terminy</span>
                 </div>
-                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded ${activeTab === 'variables' ? 'bg-sky-700 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}>
+                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded ${activeTab === 'variables' ? 'bg-sky-800 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}>
                   {warningDays}d
                 </span>
               </button>
 
-              <div className="px-3 pt-3 py-1.5 text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+              <div className="px-3 pt-3 py-1.5 text-[10px] uppercase font-bold text-slate-600 dark:text-slate-400 tracking-wider">
                 Organizacja & Zespół
               </div>
 
               {/* Users Tab */}
               <button
                 type="button"
+                role="tab"
+                aria-selected={activeTab === 'users'}
                 onClick={() => setActiveTab('users')}
                 className={`w-full px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-colors ${
                   activeTab === 'users'
-                    ? 'bg-sky-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                    ? 'bg-sky-700 text-white shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <Users className="w-4 h-4 shrink-0" />
+                  <Users className="w-4 h-4 shrink-0" aria-hidden="true" />
                   <span>Użytkownicy & Zgody</span>
                 </div>
                 {pendingUsers.length > 0 ? (
-                  <span className="px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-amber-500 text-white animate-pulse">
+                  <span className="px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-amber-700 text-white animate-pulse">
                     +{pendingUsers.length}
                   </span>
                 ) : (
-                  <span className={`text-[10px] opacity-75 ${activeTab === 'users' ? 'text-sky-100' : 'text-slate-400'}`}>
+                  <span className={`text-[10px] ${activeTab === 'users' ? 'text-sky-100' : 'text-slate-600 dark:text-slate-400'}`}>
                     {approvedUsers.length}
                   </span>
                 )}
@@ -743,75 +758,89 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {currentUser?.role === 'admin' && (
                 <button
                   type="button"
+                  role="tab"
+                  aria-selected={activeTab === 'security'}
                   onClick={() => setActiveTab('security')}
                   className={`w-full px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-colors ${
                     activeTab === 'security'
-                      ? 'bg-sky-600 text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                      ? 'bg-sky-700 text-white shadow-xs'
+                      : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
-                    <Shield className="w-4 h-4 shrink-0 text-emerald-400" />
+                    <Shield className={`w-4 h-4 shrink-0 ${activeTab === 'security' ? 'text-white' : 'text-emerald-700 dark:text-emerald-400'}`} aria-hidden="true" />
                     <span>Dziennik bezpieczeństwa</span>
                   </div>
-                  <span className="text-[10px] font-mono opacity-80">JSONL</span>
+                  <span className={`text-[10px] font-mono ${activeTab === 'security' ? 'text-sky-100' : 'text-slate-600 dark:text-slate-400'}`}>JSONL</span>
                 </button>
               )}
 
               {/* Google Calendar Tab */}
               <button
                 type="button"
+                role="tab"
+                aria-selected={activeTab === 'calendar'}
                 onClick={() => setActiveTab('calendar')}
                 className={`w-full px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-colors ${
                   activeTab === 'calendar'
-                    ? 'bg-sky-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                    ? 'bg-sky-700 text-white shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <CalendarIcon className="w-4 h-4 shrink-0" />
+                  <CalendarIcon className="w-4 h-4 shrink-0" aria-hidden="true" />
                   <span>Kalendarz Google</span>
                 </div>
-                <span className="text-[10px] text-sky-400 font-mono">Live</span>
+                <span className={`text-[10px] font-mono ${activeTab === 'calendar' ? 'text-sky-100' : 'text-sky-700 dark:text-sky-400'}`}>Live</span>
               </button>
 
-              <div className="px-3 pt-3 py-1.5 text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+              <div className="px-3 pt-3 py-1.5 text-[10px] uppercase font-bold text-slate-600 dark:text-slate-400 tracking-wider">
                 Infrastruktura & DevOps
               </div>
 
               {/* Update Tab */}
               <button
                 type="button"
+                role="tab"
+                aria-selected={activeTab === 'update'}
                 onClick={() => setActiveTab('update')}
                 className={`w-full px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-colors ${
                   activeTab === 'update'
-                    ? 'bg-sky-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                    ? 'bg-sky-700 text-white shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <RefreshCw className="w-4 h-4 shrink-0" />
+                  <RefreshCw className="w-4 h-4 shrink-0" aria-hidden="true" />
                   <span>Aktualizacje</span>
                 </div>
                 {hasUpdateAvailable ? (
-                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
+                  <>
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" aria-hidden="true" />
+                    <span className="sr-only">(Dostępna aktualizacja)</span>
+                  </>
                 ) : (
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" aria-hidden="true" />
+                    <span className="sr-only">(Aktualne)</span>
+                  </>
                 )}
               </button>
 
               {/* Docker Deployment Tab */}
               <button
                 type="button"
+                role="tab"
+                aria-selected={activeTab === 'docker'}
                 onClick={() => setActiveTab('docker')}
                 className={`w-full px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-colors ${
                   activeTab === 'docker'
-                    ? 'bg-sky-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                    ? 'bg-sky-700 text-white shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <Server className="w-4 h-4 shrink-0" />
+                  <Server className="w-4 h-4 shrink-0" aria-hidden="true" />
                   <span>Wdrożenie Docker</span>
                 </div>
               </button>
@@ -819,26 +848,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {/* Backup Tab */}
               <button
                 type="button"
+                role="tab"
+                aria-selected={activeTab === 'backup'}
                 onClick={() => setActiveTab('backup')}
                 className={`w-full px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-colors ${
                   activeTab === 'backup'
-                    ? 'bg-sky-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                    ? 'bg-sky-700 text-white shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <HardDrive className="w-4 h-4 shrink-0" />
+                  <HardDrive className="w-4 h-4 shrink-0" aria-hidden="true" />
                   <span>Kopie Zapasowe</span>
                 </div>
-                <span className={`w-2 h-2 rounded-full ${backupEnabled ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                <span className={`w-2 h-2 rounded-full ${backupEnabled ? 'bg-emerald-500' : 'bg-rose-500'}`} aria-hidden="true" />
+                <span className="sr-only">{backupEnabled ? '(Włączone)' : '(Wyłączone)'}</span>
               </button>
             </div>
 
             {/* Bottom info in sidebar */}
-            <div className="p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 text-[10px] text-slate-500 space-y-1">
+            <div className="p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 text-[10px] text-slate-600 dark:text-slate-400 space-y-1">
               <div className="font-semibold text-slate-700 dark:text-slate-300">Zarządzanie Projektami</div>
               <div>Środowisko: Docker (dane w pliku JSON)</div>
-              <div className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">{CURRENT_APP_VERSION}</div>
+              <div className="font-mono text-emerald-700 dark:text-emerald-400 font-bold">{CURRENT_APP_VERSION}</div>
             </div>
           </div>
 
@@ -852,92 +884,98 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <h4 className="font-bold text-slate-900 dark:text-white text-base">
                     Motyw graficzny interfejsu
                   </h4>
-                  <p className="text-slate-500 dark:text-slate-400 text-xs">
+                  <p className="text-slate-600 dark:text-slate-400 text-xs">
                     Wybierz preferowaną kolorystykę aplikacji lub dostosuj ją automatycznie do ustawień systemowych urządzenia.
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
                   {/* Jasny */}
-                  <div
+                  <button
+                    type="button"
+                    aria-pressed={currentTheme === 'light'}
                     onClick={() => handleSelectTheme('light')}
                     className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex flex-col items-center text-center space-y-2 ${
                       currentTheme === 'light'
-                        ? 'border-sky-600 bg-sky-50/50 dark:bg-sky-950/30 ring-2 ring-sky-600/30'
+                        ? 'border-sky-700 bg-sky-50/50 dark:bg-sky-950/30 ring-2 ring-sky-600/30'
                         : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-white dark:bg-slate-900'
                     }`}
                   >
-                    <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center">
-                      <Sun className="w-5 h-5" />
+                    <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center">
+                      <Sun className="w-5 h-5" aria-hidden="true" />
                     </div>
                     <div>
                       <span className="font-bold text-slate-900 dark:text-white block">
                         Jasny motyw
                       </span>
-                      <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      <span className="text-[11px] text-slate-600 dark:text-slate-400">
                         Czysty, wysoki kontrast, idealny do pracy w dzień
                       </span>
                     </div>
                     {currentTheme === 'light' && (
-                      <span className="text-[10px] font-semibold text-sky-600 dark:text-sky-400 flex items-center gap-1">
-                        <Check className="w-3 h-3" /> Aktywny
+                      <span className="text-[10px] font-semibold text-sky-700 dark:text-sky-400 flex items-center gap-1">
+                        <Check className="w-3 h-3" aria-hidden="true" /> Aktywny
                       </span>
                     )}
-                  </div>
+                  </button>
 
                   {/* Ciemny */}
-                  <div
+                  <button
+                    type="button"
+                    aria-pressed={currentTheme === 'dark'}
                     onClick={() => handleSelectTheme('dark')}
                     className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex flex-col items-center text-center space-y-2 ${
                       currentTheme === 'dark'
-                        ? 'border-sky-600 bg-sky-50/50 dark:bg-sky-950/30 ring-2 ring-sky-600/30'
+                        ? 'border-sky-700 bg-sky-50/50 dark:bg-sky-950/30 ring-2 ring-sky-600/30'
                         : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-white dark:bg-slate-900'
                     }`}
                   >
                     <div className="w-10 h-10 rounded-full bg-slate-800 text-sky-400 flex items-center justify-center">
-                      <Moon className="w-5 h-5" />
+                      <Moon className="w-5 h-5" aria-hidden="true" />
                     </div>
                     <div>
                       <span className="font-bold text-slate-900 dark:text-white block">
                         Ciemny motyw (Dark Mode)
                       </span>
-                      <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      <span className="text-[11px] text-slate-600 dark:text-slate-400">
                         Ciemne tło dla całej aplikacji, redukujące zmęczenie oczu
                       </span>
                     </div>
                     {currentTheme === 'dark' && (
-                      <span className="text-[10px] font-semibold text-sky-600 dark:text-sky-400 flex items-center gap-1">
-                        <Check className="w-3 h-3" /> Aktywny
+                      <span className="text-[10px] font-semibold text-sky-700 dark:text-sky-400 flex items-center gap-1">
+                        <Check className="w-3 h-3" aria-hidden="true" /> Aktywny
                       </span>
                     )}
-                  </div>
+                  </button>
 
                   {/* Zgodny z systemem */}
-                  <div
+                  <button
+                    type="button"
+                    aria-pressed={currentTheme === 'system'}
                     onClick={() => handleSelectTheme('system')}
                     className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex flex-col items-center text-center space-y-2 ${
                       currentTheme === 'system'
-                        ? 'border-sky-600 bg-sky-50/50 dark:bg-sky-950/30 ring-2 ring-sky-600/30'
+                        ? 'border-sky-700 bg-sky-50/50 dark:bg-sky-950/30 ring-2 ring-sky-600/30'
                         : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-white dark:bg-slate-900'
                     }`}
                   >
-                    <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center">
-                      <Laptop className="w-5 h-5" />
+                    <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center">
+                      <Laptop className="w-5 h-5" aria-hidden="true" />
                     </div>
                     <div>
                       <span className="font-bold text-slate-900 dark:text-white block">
                         Zgodnie z systemem
                       </span>
-                      <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      <span className="text-[11px] text-slate-600 dark:text-slate-400">
                         Automatycznie dopasowuje motyw do ustawień Windows/macOS/Linux
                       </span>
                     </div>
                     {currentTheme === 'system' && (
-                      <span className="text-[10px] font-semibold text-sky-600 dark:text-sky-400 flex items-center gap-1">
-                        <Check className="w-3 h-3" /> Aktywny
+                      <span className="text-[10px] font-semibold text-sky-700 dark:text-sky-400 flex items-center gap-1">
+                        <Check className="w-3 h-3" aria-hidden="true" /> Aktywny
                       </span>
                     )}
-                  </div>
+                  </button>
                 </div>
               </div>
             )}
@@ -950,7 +988,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="flex items-center justify-between">
                     <div>
                       <h4 className="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-2">
-                        <BellRing className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                        <BellRing className="w-4 h-4 text-amber-700 dark:text-amber-400" aria-hidden="true" />
                         <span>Ostrzeżenia o zbliżającym się terminie zadania (Drzewo Zadań)</span>
                       </h4>
                       <p className="text-slate-600 dark:text-slate-300 text-[11px]">
@@ -961,11 +999,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
 
                   <div className="flex items-center gap-3 pt-1">
-                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                    <label htmlFor="settings-warning-days" className="text-xs font-semibold text-slate-700 dark:text-slate-200">
                       Czas wyprzedzenia ostrzeżenia:
                     </label>
                     <div className="flex items-center gap-2">
                       <input
+                        id="settings-warning-days"
                         type="number"
                         min="1"
                         max="30"
@@ -973,7 +1012,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         onChange={(e) => handleWarningDaysChange(Number(e.target.value))}
                         className="w-20 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 text-xs text-slate-900 dark:text-white font-mono font-bold text-center"
                       />
-                      <span className="text-xs text-slate-500 font-semibold">dni kalendarzowych</span>
+                      <span className="text-xs text-slate-600 dark:text-slate-400 font-semibold">dni kalendarzowych</span>
                     </div>
                   </div>
                 </div>
@@ -983,31 +1022,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="flex items-center justify-between">
                     <div>
                       <h4 className="font-bold text-slate-900 dark:text-white text-sm flex items-center gap-2">
-                        <Percent className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <Percent className="w-4 h-4 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
                         <span>Definicja stawek podatku VAT</span>
                       </h4>
-                      <p className="text-slate-500 dark:text-slate-400 text-xs">
+                      <p className="text-slate-600 dark:text-slate-400 text-xs">
                         Stawki VAT wykorzystywane w wycenach ofertowych oraz kalkulacji kosztów branżowych.
                       </p>
                     </div>
                     <button
+                      type="button"
                       onClick={handleResetVatRates}
-                      className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
+                      className="flex items-center gap-1 text-[11px] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition-colors"
                       title="Przywróć domyślne stawki (23%, 8%, 5%, 0%, ZW)"
                     >
-                      <RotateCcw className="w-3.5 h-3.5" />
+                      <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
                       <span>Domyślne</span>
                     </button>
                   </div>
 
                   <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
+                      <thead className="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
                         <tr>
-                          <th className="py-2 px-3 font-semibold w-24">Stawka %</th>
-                          <th className="py-2 px-3 font-semibold">Nazwa / Opis stawki</th>
-                          <th className="py-2 px-3 font-semibold w-28 text-center">Status</th>
-                          <th className="py-2 px-3 font-semibold w-16 text-center">Usuń</th>
+                          <th scope="col" className="py-2 px-3 font-semibold w-24">Stawka %</th>
+                          <th scope="col" className="py-2 px-3 font-semibold">Nazwa / Opis stawki</th>
+                          <th scope="col" className="py-2 px-3 font-semibold w-28 text-center">Status</th>
+                          <th scope="col" className="py-2 px-3 font-semibold w-16 text-center">Usuń</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
@@ -1025,16 +1065,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                   Domyślna
                                 </span>
                               ) : (
-                                <span className="text-[10px] text-slate-400">Opcjonalna</span>
+                                <span className="text-[10px] text-slate-600 dark:text-slate-400">Opcjonalna</span>
                               )}
                             </td>
                             <td className="py-2 px-3 text-center">
                               <button
+                                type="button"
                                 onClick={() => handleDeleteVatRate(v.id)}
-                                className="text-slate-400 hover:text-rose-600 p-1"
+                                className="text-slate-600 dark:text-slate-400 hover:text-rose-700 dark:hover:text-rose-400 p-1"
+                                aria-label={`Usuń stawkę VAT ${v.label}`}
                                 title="Usuń stawkę VAT"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                               </button>
                             </td>
                           </tr>
@@ -1046,8 +1088,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   {/* Add new VAT rate */}
                   <form onSubmit={handleAddVatRate} className="p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-wrap gap-2 items-end">
                     <div className="w-24">
-                      <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Stawka %</label>
+                      <label htmlFor="settings-new-vat-rate" className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Stawka %</label>
                       <input
+                        id="settings-new-vat-rate"
                         type="number"
                         required
                         min="0"
@@ -1058,8 +1101,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       />
                     </div>
                     <div className="flex-1 min-w-[200px]">
-                      <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Etykieta stawki</label>
+                      <label htmlFor="settings-new-vat-label" className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Etykieta stawki</label>
                       <input
+                        id="settings-new-vat-label"
                         type="text"
                         required
                         value={newVatLabel}
@@ -1070,7 +1114,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                     <button
                       type="submit"
-                      className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-semibold text-xs shadow-xs transition-colors"
+                      className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded font-semibold text-xs shadow-xs transition-colors"
                     >
                       + Dodaj stawkę
                     </button>
@@ -1082,32 +1126,33 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="flex items-center justify-between">
                     <div>
                       <h4 className="font-bold text-slate-900 dark:text-white text-sm flex items-center gap-2">
-                        <Tag className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                        <Tag className="w-4 h-4 text-sky-700 dark:text-sky-400" aria-hidden="true" />
                         <span>Definicja Typów Zadań ({taskTypes.length})</span>
                       </h4>
-                      <p className="text-slate-500 dark:text-slate-400 text-xs">
+                      <p className="text-slate-600 dark:text-slate-400 text-xs">
                         Kategoryzacja zadań w pracowni: Rysunek, Opis, Uzgodnienia, Czekanie na urząd oraz typy zdefiniowane przez biuro.
                       </p>
                     </div>
                     <button
+                      type="button"
                       onClick={handleResetTaskTypes}
-                      className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
+                      className="flex items-center gap-1 text-[11px] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition-colors"
                       title="Przywróć domyślne typy zadań (Rysunek, Opis, Uzgodnienia, Czekanie na urząd)"
                     >
-                      <RotateCcw className="w-3.5 h-3.5" />
+                      <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
                       <span>Domyślne typy</span>
                     </button>
                   </div>
 
                   <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
+                      <thead className="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
                         <tr>
-                          <th className="py-2 px-3 font-semibold w-32">Identyfikator</th>
-                          <th className="py-2 px-3 font-semibold">Nazwa typu zadania</th>
-                          <th className="py-2 px-3 font-semibold">Opis / Zastosowanie</th>
-                          <th className="py-2 px-3 font-semibold w-24 text-center">Status</th>
-                          <th className="py-2 px-3 font-semibold w-16 text-center">Usuń</th>
+                          <th scope="col" className="py-2 px-3 font-semibold w-32">Identyfikator</th>
+                          <th scope="col" className="py-2 px-3 font-semibold">Nazwa typu zadania</th>
+                          <th scope="col" className="py-2 px-3 font-semibold">Opis / Zastosowanie</th>
+                          <th scope="col" className="py-2 px-3 font-semibold w-24 text-center">Status</th>
+                          <th scope="col" className="py-2 px-3 font-semibold w-16 text-center">Usuń</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
@@ -1129,11 +1174,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             </td>
                             <td className="py-2 px-3 text-center">
                               <button
+                                type="button"
                                 onClick={() => handleDeleteTaskType(tt.id)}
-                                className="text-slate-400 hover:text-rose-600 p-1"
+                                className="text-slate-600 dark:text-slate-400 hover:text-rose-700 dark:hover:text-rose-400 p-1"
+                                aria-label={`Usuń typ zadania ${tt.label}`}
                                 title="Usuń ten typ zadania"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                               </button>
                             </td>
                           </tr>
@@ -1145,8 +1192,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   {/* Add new task type form */}
                   <form onSubmit={handleAddTaskType} className="p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-wrap gap-2 items-end">
                     <div className="w-28">
-                      <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Kod / ID</label>
+                      <label htmlFor="settings-task-type-id" className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Kod / ID</label>
                       <input
+                        id="settings-task-type-id"
                         type="text"
                         value={newTaskTypeId}
                         onChange={(e) => setNewTaskTypeId(e.target.value)}
@@ -1155,8 +1203,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       />
                     </div>
                     <div className="flex-1 min-w-[160px]">
-                      <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Nazwa typu *</label>
+                      <label htmlFor="settings-task-type-label" className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Nazwa typu *</label>
                       <input
+                        id="settings-task-type-label"
                         type="text"
                         required
                         value={newTaskTypeLabel}
@@ -1166,8 +1215,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       />
                     </div>
                     <div className="flex-1 min-w-[200px]">
-                      <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Opis / zastosowanie</label>
+                      <label htmlFor="settings-task-type-desc" className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Opis / zastosowanie</label>
                       <input
+                        id="settings-task-type-desc"
                         type="text"
                         value={newTaskTypeDesc}
                         onChange={(e) => setNewTaskTypeDesc(e.target.value)}
@@ -1177,7 +1227,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                     <button
                       type="submit"
-                      className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded font-semibold text-xs shadow-xs transition-colors"
+                      className="px-3.5 py-1.5 bg-sky-700 hover:bg-sky-800 text-white rounded font-semibold text-xs shadow-xs transition-colors"
                     >
                       + Dodaj typ
                     </button>
@@ -1188,29 +1238,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800">
                   <div>
                     <h4 className="font-bold text-slate-900 dark:text-white text-sm flex items-center gap-2">
-                      <Building2 className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                      <Building2 className="w-4 h-4 text-sky-700 dark:text-sky-400" aria-hidden="true" />
                       <span>Baza stałych Zamawiających / Inwestorów ({clients.length})</span>
                     </h4>
-                    <p className="text-slate-500 dark:text-slate-400 text-xs">
+                    <p className="text-slate-600 dark:text-slate-400 text-xs">
                       Każdy wprowadzony w projekcie Zamawiający automatycznie dodaje się do tej listy i jest dostępny w podpowiedziach.
                     </p>
                   </div>
 
                   <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
+                      <thead className="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
                         <tr>
-                          <th className="py-2 px-3 font-semibold">Nazwa Inwestora</th>
-                          <th className="py-2 px-3 font-semibold">Osoba kontaktowa</th>
-                          <th className="py-2 px-3 font-semibold">NIP</th>
-                          <th className="py-2 px-3 font-semibold">Kontakt</th>
-                          <th className="py-2 px-3 font-semibold w-16 text-center">Usuń</th>
+                          <th scope="col" className="py-2 px-3 font-semibold">Nazwa Inwestora</th>
+                          <th scope="col" className="py-2 px-3 font-semibold">Osoba kontaktowa</th>
+                          <th scope="col" className="py-2 px-3 font-semibold">NIP</th>
+                          <th scope="col" className="py-2 px-3 font-semibold">Kontakt</th>
+                          <th scope="col" className="py-2 px-3 font-semibold w-16 text-center">Usuń</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
                         {clients.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="py-4 text-center text-slate-400">
+                            <td colSpan={5} className="py-4 text-center text-slate-600 dark:text-slate-400">
                               Brak stałych inwestorów w bazie. Wpisz pierwszego poniżej lub dodaj projekt z danymi Zamawiającego.
                             </td>
                           </tr>
@@ -1219,7 +1269,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                               <td className="py-2 px-3 font-semibold text-slate-900 dark:text-white">
                                 {c.name}
-                                {c.address && <span className="block text-[10px] text-slate-400 font-normal">{c.address}</span>}
+                                {c.address && <span className="block text-[10px] text-slate-600 dark:text-slate-400 font-normal">{c.address}</span>}
                               </td>
                               <td className="py-2 px-3 text-slate-600 dark:text-slate-400">
                                 {c.contactPerson || '—'}
@@ -1229,16 +1279,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               </td>
                               <td className="py-2 px-3 text-slate-600 dark:text-slate-400 text-[11px]">
                                 {c.phone && <div>{c.phone}</div>}
-                                {c.email && <div className="text-sky-600 dark:text-sky-400">{c.email}</div>}
+                                {c.email && <div className="text-sky-700 dark:text-sky-400">{c.email}</div>}
                                 {!c.phone && !c.email && '—'}
                               </td>
                               <td className="py-2 px-3 text-center">
                                 <button
+                                  type="button"
                                   onClick={() => handleDeleteClient(c.id)}
-                                  className="text-slate-400 hover:text-rose-600 p-1"
+                                  className="text-slate-600 dark:text-slate-400 hover:text-rose-700 dark:hover:text-rose-400 p-1"
+                                  aria-label={`Usuń inwestora ${c.name}`}
                                   title="Usuń inwestora z bazy"
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                                 </button>
                               </td>
                             </tr>
@@ -1257,6 +1309,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <input
                         type="text"
                         required
+                        aria-label="Nazwa firmy lub inwestora"
                         value={newClientName}
                         onChange={(e) => setNewClientName(e.target.value)}
                         placeholder="Nazwa firmy / Inwestora *"
@@ -1264,6 +1317,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       />
                       <input
                         type="text"
+                        aria-label="Osoba kontaktowa"
                         value={newClientContact}
                         onChange={(e) => setNewClientContact(e.target.value)}
                         placeholder="Osoba kontaktowa"
@@ -1271,6 +1325,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       />
                       <input
                         type="text"
+                        aria-label="NIP inwestora"
                         value={newClientNip}
                         onChange={(e) => setNewClientNip(e.target.value)}
                         placeholder="NIP"
@@ -1280,6 +1335,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <input
                         type="text"
+                        aria-label="Telefon inwestora"
                         value={newClientPhone}
                         onChange={(e) => setNewClientPhone(e.target.value)}
                         placeholder="Telefon (+48 ...)"
@@ -1287,6 +1343,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       />
                       <input
                         type="email"
+                        aria-label="Adres e-mail inwestora"
                         value={newClientEmail}
                         onChange={(e) => setNewClientEmail(e.target.value)}
                         placeholder="Adres E-mail"
@@ -1294,7 +1351,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       />
                       <button
                         type="submit"
-                        className="py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded font-semibold text-xs transition-colors shadow-xs"
+                        className="py-1.5 bg-sky-700 hover:bg-sky-800 text-white rounded font-semibold text-xs transition-colors shadow-xs"
                       >
                         Zapisz Inwestora w bazie
                       </button>
@@ -1311,7 +1368,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <h4 className="font-bold text-slate-900 dark:text-white text-base">
                     Konta Użytkowników & Bezpieczeństwo Pracowni
                   </h4>
-                  <p className="text-slate-500 dark:text-slate-400 text-xs">
+                  <p className="text-slate-600 dark:text-slate-400 text-xs">
                     Zarządzaj zespołem projektantów, uwierzytelnianiem dwuskładnikowym (2FA) oraz akceptacjami rejestracji.
                   </p>
                 </div>
@@ -1327,35 +1384,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <KeyRound className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                        <KeyRound className="w-4 h-4 text-sky-700 dark:text-sky-400" aria-hidden="true" />
                         <h5 className="font-bold text-slate-900 dark:text-white text-sm">
                           Zmiana hasła dostępu
                         </h5>
                       </div>
-                      <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      <span className="text-[11px] text-slate-600 dark:text-slate-400">
                         Konto: <strong>{currentUser.email}</strong>
                       </span>
                     </div>
 
                     {settingsPwSuccess && (
-                      <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 rounded text-xs flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <div role="status" className="p-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 rounded text-xs flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" aria-hidden="true" />
                         <span>Hasło zostało pomyślnie zaktualizowane.</span>
                       </div>
                     )}
 
                     {settingsPwError && (
-                      <div className="p-2.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 rounded text-xs">
+                      <div role="alert" className="p-2.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 rounded text-xs">
                         {settingsPwError}
                       </div>
                     )}
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
-                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        <label htmlFor="settings-current-password" className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
                           Dotychczasowe hasło *
                         </label>
                         <input
+                          id="settings-current-password"
                           type="password"
                           required
                           value={settingsCurrentPassword}
@@ -1369,10 +1427,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
 
                       <div>
-                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        <label htmlFor="settings-new-password" className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
                           Nowe hasło (12–128 znaków) *
                         </label>
                         <input
+                          id="settings-new-password"
                           type="password"
                           required
                           minLength={12}
@@ -1388,10 +1447,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
 
                       <div>
-                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        <label htmlFor="settings-confirm-password" className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
                           Powtórz nowe hasło *
                         </label>
                         <input
+                          id="settings-confirm-password"
                           type="password"
                           required
                           minLength={12}
@@ -1413,7 +1473,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     />
 
                     {settingsConfirmPassword.length > 0 && settingsNewPassword !== settingsConfirmPassword && (
-                      <p className="text-[11px] text-rose-600 dark:text-rose-400 font-medium">
+                      <p role="alert" className="text-[11px] text-rose-700 dark:text-rose-400 font-medium">
                         Nowe hasła nie są identyczne.
                       </p>
                     )}
@@ -1430,7 +1490,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           }).ok ||
                           settingsNewPassword !== settingsConfirmPassword
                         }
-                        className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-xs font-semibold transition-colors"
+                        className="px-4 py-1.5 bg-sky-700 hover:bg-sky-800 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-xs font-semibold transition-colors"
                       >
                         {isChangingSettingsPassword ? 'Zapisywanie...' : 'Zmień hasło'}
                       </button>
@@ -1442,12 +1502,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 {pendingUsers.length > 0 && (
                   <div className="p-4 bg-amber-50 dark:bg-amber-950/40 border-2 border-amber-400 dark:border-amber-700 rounded-xl space-y-3 shadow-md animate-in fade-in">
                     <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200">
-                      <Clock className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                      <Clock className="w-5 h-5 text-amber-700 dark:text-amber-400" aria-hidden="true" />
                       <span className="font-bold text-sm">
                         Oczekujące konta na zatwierdzenie przez Administratora ({pendingUsers.length})
                       </span>
                     </div>
-                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                    <p className="text-xs text-amber-800 dark:text-amber-300">
                       Nowo zarejestrowani pracownicy nie mogą zalogować się do systemu, dopóki ich tożsamość nie zostanie potwierdzona przez kierownictwo.
                     </p>
 
@@ -1455,18 +1515,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       {pendingUsers.map((pUser) => (
                         <div key={pUser.id} className="p-3 flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 flex items-center justify-center font-bold text-xs">
+                            <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 flex items-center justify-center font-bold text-xs" aria-hidden="true">
                               {pUser.initials}
                             </div>
                             <div>
                               <div className="font-bold text-slate-900 dark:text-white text-xs">
                                 {pUser.name}
                               </div>
-                              <div className="text-[11px] text-slate-500">
+                              <div className="text-[11px] text-slate-600 dark:text-slate-400">
                                 {pUser.email} · {pUser.department} ({pUser.role})
                               </div>
                               {pUser.registeredAt && (
-                                <div className="text-[10px] text-slate-400 font-mono">
+                                <div className="text-[10px] text-slate-600 dark:text-slate-400 font-mono">
                                   Zarejestrowano: {new Date(pUser.registeredAt).toLocaleString('pl-PL')}
                                 </div>
                               )}
@@ -1478,9 +1538,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onApproveUser(pUser.id)}
-                                className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold shadow-xs transition-colors"
+                                className="flex items-center gap-1 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded text-xs font-semibold shadow-xs transition-colors"
                               >
-                                <Check className="w-3.5 h-3.5" />
+                                <Check className="w-3.5 h-3.5" aria-hidden="true" />
                                 <span>Zatwierdź</span>
                               </button>
                             )}
@@ -1489,10 +1549,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onRejectUser(pUser.id)}
-                                className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-200 dark:bg-slate-800 hover:bg-rose-100 dark:hover:bg-rose-950/60 text-slate-700 dark:text-slate-300 hover:text-rose-600 rounded text-xs font-semibold transition-colors"
+                                className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-200 dark:bg-slate-800 hover:bg-rose-100 dark:hover:bg-rose-950/60 text-slate-700 dark:text-slate-300 hover:text-rose-700 rounded text-xs font-semibold transition-colors"
                                 title="Odrzuć rejestrację"
                               >
-                                <UserX className="w-3.5 h-3.5" />
+                                <UserX className="w-3.5 h-3.5" aria-hidden="true" />
                                 <span>Odrzuć</span>
                               </button>
                             )}
@@ -1511,11 +1571,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </span>
                     {onOpenUserModal && (
                       <button
+                        type="button"
                         onClick={() => {
                           onClose();
                           onOpenUserModal();
                         }}
-                        className="text-xs text-sky-600 dark:text-sky-400 font-semibold hover:underline"
+                        className="text-xs text-sky-700 dark:text-sky-400 font-semibold hover:underline"
                       >
                         + Dodaj użytkownika
                       </button>
@@ -1525,18 +1586,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     {approvedUsers.map((u) => (
                       <div key={u.id} className="p-3 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-full bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300 flex items-center justify-center font-bold text-xs">
+                          <div className="w-8 h-8 rounded-full bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300 flex items-center justify-center font-bold text-xs" aria-hidden="true">
                             {u.initials}
                           </div>
                           <div>
                             <span className="font-bold text-slate-900 dark:text-white block">{u.name}</span>
-                            <span className="text-[11px] text-slate-500">{u.email} · {u.department} ({u.role === 'admin' ? 'Administrator' : 'Projektant'})</span>
+                            <span className="text-[11px] text-slate-600 dark:text-slate-400">{u.email} · {u.department} ({u.role === 'admin' ? 'Administrator' : 'Projektant'})</span>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
                           {u.twoFactorEnabled && (
                             <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-semibold flex items-center gap-1">
-                              <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                              <ShieldCheck className="w-3 h-3 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
                               <span>2FA aktywne</span>
                             </span>
                           )}
@@ -1557,7 +1618,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                   }
                                 }
                               }}
-                              className="px-2 py-1 text-[11px] font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded transition-colors"
+                              className="px-2 py-1 text-[11px] font-semibold text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded transition-colors"
                               title="Zresetuj 2FA użytkownika"
                             >
                               Resetuj 2FA
@@ -1593,10 +1654,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           Aktywne sesje ({activeSessions.length})
                         </span>
                         {isLoadingSessions && (
-                          <span className="text-[11px] text-slate-400 animate-pulse">Ładowanie...</span>
+                          <span className="text-[11px] text-slate-600 dark:text-slate-400 animate-pulse">Ładowanie...</span>
                         )}
                       </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400">
                         Lista zalogowanych urządzeń i przeglądarek powiązanych z Twoim kontem.
                       </p>
                     </div>
@@ -1618,7 +1679,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           disabled={isRevokingOthers}
                           className="px-3 py-1 text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 rounded hover:bg-rose-100 dark:hover:bg-rose-900 transition-colors flex items-center gap-1.5"
                         >
-                          <LogOut className="w-3.5 h-3.5" />
+                          <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
                           <span>{isRevokingOthers ? 'Wylogowywanie...' : 'Wyloguj wszystkie inne'}</span>
                         </button>
                       )}
@@ -1626,32 +1687,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
 
                   {sessionActionError && (
-                    <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border-b border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs">
+                    <div role="alert" className="p-3 bg-rose-50 dark:bg-rose-950/40 border-b border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs">
                       {sessionActionError}
                     </div>
                   )}
 
                   {sessionActionSuccess && (
-                    <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs">
+                    <div role="status" className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs">
                       {sessionActionSuccess}
                     </div>
                   )}
 
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-100/70 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
+                      <thead className="bg-slate-100/70 dark:bg-slate-800/50 text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
                         <tr>
-                          <th className="py-2.5 px-3 font-semibold">Urządzenie / Przeglądarka</th>
-                          <th className="py-2.5 px-3 font-semibold">Adres IP</th>
-                          <th className="py-2.5 px-3 font-semibold">Utworzona</th>
-                          <th className="py-2.5 px-3 font-semibold">Ostatnia aktywność</th>
-                          <th className="py-2.5 px-3 font-semibold text-right">Akcja</th>
+                          <th scope="col" className="py-2.5 px-3 font-semibold">Urządzenie / Przeglądarka</th>
+                          <th scope="col" className="py-2.5 px-3 font-semibold">Adres IP</th>
+                          <th scope="col" className="py-2.5 px-3 font-semibold">Utworzona</th>
+                          <th scope="col" className="py-2.5 px-3 font-semibold">Ostatnia aktywność</th>
+                          <th scope="col" className="py-2.5 px-3 font-semibold text-right">Akcja</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
                         {activeSessions.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="py-6 text-center text-slate-400">
+                            <td colSpan={5} className="py-6 text-center text-slate-600 dark:text-slate-400">
                               {isLoadingSessions ? 'Ładowanie listy sesji...' : 'Brak aktywnych sesji do wyświetlenia.'}
                             </td>
                           </tr>
@@ -1670,7 +1731,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                   )}
                                 </div>
                                 {session.userAgent && (
-                                  <div className="text-[10px] text-slate-400 font-mono truncate max-w-xs" title={session.userAgent}>
+                                  <div className="text-[10px] text-slate-600 dark:text-slate-400 font-mono truncate max-w-xs" title={session.userAgent}>
                                     {session.userAgent}
                                   </div>
                                 )}
@@ -1686,12 +1747,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               </td>
                               <td className="py-2.5 px-3 text-right">
                                 {session.current ? (
-                                  <span className="text-[11px] text-slate-400 italic">Bieżąca</span>
+                                  <span className="text-[11px] text-slate-600 dark:text-slate-400 italic">Bieżąca</span>
                                 ) : (
                                   <button
                                     type="button"
                                     onClick={() => handleRevokeSession(session.id)}
-                                    className="px-2.5 py-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded border border-rose-200 dark:border-rose-900 transition-colors"
+                                    className="px-2.5 py-1 text-[11px] font-semibold text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded border border-rose-200 dark:border-rose-900 transition-colors"
                                     title="Unieważnij tę sesję"
                                   >
                                     Wyloguj
@@ -1714,17 +1775,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h4 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
-                      <Shield className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                      <Shield className="w-4 h-4 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
                       <span>Dziennik bezpieczeństwa</span>
                     </h4>
-                    <p className="text-slate-500 dark:text-slate-400 text-xs">
+                    <p className="text-slate-600 dark:text-slate-400 text-xs">
                       Rejestr zdarzeń uwierzytelniania, operacji na kontach, sesjach oraz zmian konfiguracji 2FA (od najnowszych).
                     </p>
                   </div>
 
                   <div className="flex items-center gap-2">
                     <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1">
-                      <Filter className="w-3.5 h-3.5 text-slate-400" />
+                      <Filter className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" aria-hidden="true" />
                       <select
                         value={securityFilterType}
                         onChange={(e) => setSecurityFilterType(e.target.value)}
@@ -1746,15 +1807,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       disabled={isLoadingSecurityEvents}
                       className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
                     >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isLoadingSecurityEvents ? 'animate-spin' : ''}`} />
+                      <RefreshCw className={`w-3.5 h-3.5 ${isLoadingSecurityEvents ? 'animate-spin' : ''}`} aria-hidden="true" />
                       <span>Odśwież</span>
                     </button>
                   </div>
                 </div>
 
                 {securityLogError && (
-                  <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-lg text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 shrink-0" />
+                  <div role="alert" className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-lg text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
                     <span>{securityLogError}</span>
                   </div>
                 )}
@@ -1762,19 +1823,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
+                      <thead className="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
                         <tr>
-                          <th className="py-2.5 px-3 font-semibold whitespace-nowrap">Data</th>
-                          <th className="py-2.5 px-3 font-semibold">Typ zdarzenia</th>
-                          <th className="py-2.5 px-3 font-semibold">Użytkownik / E-mail</th>
-                          <th className="py-2.5 px-3 font-semibold">Adres IP</th>
-                          <th className="py-2.5 px-3 font-semibold">Szczegóły</th>
+                          <th scope="col" className="py-2.5 px-3 font-semibold whitespace-nowrap">Data</th>
+                          <th scope="col" className="py-2.5 px-3 font-semibold">Typ zdarzenia</th>
+                          <th scope="col" className="py-2.5 px-3 font-semibold">Użytkownik / E-mail</th>
+                          <th scope="col" className="py-2.5 px-3 font-semibold">Adres IP</th>
+                          <th scope="col" className="py-2.5 px-3 font-semibold">Szczegóły</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
                         {securityEvents.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="py-8 text-center text-slate-400">
+                            <td colSpan={5} className="py-8 text-center text-slate-600 dark:text-slate-400">
                               {isLoadingSecurityEvents
                                 ? 'Ładowanie zdarzeń bezpieczeństwa...'
                                 : 'Brak zarejestrowanych zdarzeń dla wybranego filtra.'}
@@ -1820,7 +1881,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                   {matchedUser ? (
                                     <div>
                                       <span className="font-semibold text-slate-900 dark:text-white">{matchedUser.name}</span>
-                                      <span className="block text-[10px] text-slate-500 font-mono">
+                                      <span className="block text-[10px] text-slate-600 dark:text-slate-400 font-mono">
                                         {ev.email || matchedUser.email || ev.userId}
                                       </span>
                                     </div>
@@ -1836,7 +1897,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 <td className="py-2.5 px-3 text-[11px] text-slate-600 dark:text-slate-400 max-w-xs break-words">
                                   {detailsText}
                                   {ev.userAgent && (
-                                    <span className="block text-[10px] text-slate-400 font-mono truncate mt-0.5" title={ev.userAgent}>
+                                    <span className="block text-[10px] text-slate-600 dark:text-slate-400 font-mono truncate mt-0.5" title={ev.userAgent}>
                                       UA: {ev.userAgent}
                                     </span>
                                   )}
@@ -1859,15 +1920,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <h4 className="font-bold text-slate-900 dark:text-white text-base">
                     Subskrypcja Terminarza w Google Calendar (Na Żywo)
                   </h4>
-                  <p className="text-slate-500 dark:text-slate-400 text-xs">
+                  <p className="text-slate-600 dark:text-slate-400 text-xs">
                     Podłącz zadania i terminy urzędowe projektów bezpośrednio do swojego prywatnego lub służbowego Kalendarza Google.
                   </p>
                 </div>
 
                 <div className="p-4 bg-sky-50/70 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 rounded-xl space-y-4">
                   <div className="flex items-start gap-3">
-                    <div className="p-2.5 rounded-xl bg-sky-600 text-white shrink-0 mt-0.5 shadow-sm">
-                      <CalendarIcon className="w-6 h-6" />
+                    <div className="p-2.5 rounded-xl bg-sky-700 text-white shrink-0 mt-0.5 shadow-sm">
+                      <CalendarIcon className="w-6 h-6" aria-hidden="true" />
                     </div>
                     <div>
                       <h5 className="font-bold text-sm text-slate-900 dark:text-white">
@@ -1883,11 +1944,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="space-y-3 pt-2">
                     {/* Link 1: All tasks */}
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      <label htmlFor="settings-cal-all-url" className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
                         1. Adres URL dla WSZYSTKICH zadań i projektów pracowni:
                       </label>
                       <div className="flex gap-1.5">
                         <input
+                          id="settings-cal-all-url"
                           type="text"
                           readOnly
                           value={allCalendarUrl}
@@ -1898,7 +1960,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           onClick={() => handleCopyCode(allCalendarUrl, 'cal-all')}
                           className="px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
                         >
-                          {copiedKey === 'cal-all' ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                          {copiedKey === 'cal-all' ? <Check className="w-4 h-4 text-emerald-700 dark:text-emerald-400" aria-hidden="true" /> : <Copy className="w-4 h-4" aria-hidden="true" />}
                           <span>{copiedKey === 'cal-all' ? 'Skopiowano' : 'Kopiuj'}</span>
                         </button>
                       </div>
@@ -1906,11 +1968,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                     {/* Link 2: My tasks */}
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      <label htmlFor="settings-cal-user-url" className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
                         2. Adres URL dla MOICH ZADAŃ ({currentUser?.name || 'Zalogowany'}):
                       </label>
                       <div className="flex gap-1.5">
                         <input
+                          id="settings-cal-user-url"
                           type="text"
                           readOnly
                           value={userCalendarUrl}
@@ -1921,7 +1984,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           onClick={() => handleCopyCode(userCalendarUrl, 'cal-user')}
                           className="px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
                         >
-                          {copiedKey === 'cal-user' ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                          {copiedKey === 'cal-user' ? <Check className="w-4 h-4 text-emerald-700 dark:text-emerald-400" aria-hidden="true" /> : <Copy className="w-4 h-4" aria-hidden="true" />}
                           <span>{copiedKey === 'cal-user' ? 'Skopiowano' : 'Kopiuj'}</span>
                         </button>
                       </div>
@@ -1934,9 +1997,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       href="https://calendar.google.com/calendar/r/settings/addbyurl"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+                      className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-sky-700 hover:bg-sky-600 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
                     >
-                      <ExternalLink className="w-4 h-4" />
+                      <ExternalLink className="w-4 h-4" aria-hidden="true" />
                       <span>Otwórz Google Calendar (+ Z adresu URL)</span>
                     </a>
                   </div>
@@ -1959,17 +2022,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <h4 className="font-bold text-slate-900 dark:text-white text-base">
                       Status Wersji i Aktualizacje Oprogramowania
                     </h4>
-                    <p className="text-slate-500 dark:text-slate-400 text-xs">
-                      Zainstalowane wydanie: <strong className="font-mono text-emerald-600 dark:text-emerald-400">{CURRENT_APP_VERSION}</strong>
+                    <p className="text-slate-600 dark:text-slate-400 text-xs">
+                      Zainstalowane wydanie: <strong className="font-mono text-emerald-700 dark:text-emerald-400">{CURRENT_APP_VERSION}</strong>
                     </p>
                   </div>
 
                   <button
+                    type="button"
                     onClick={handleCheckUpdateNow}
                     disabled={isCheckingUpdate}
-                    className="flex items-center gap-1.5 px-3.5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow-xs disabled:opacity-50 transition-colors"
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-sky-700 hover:bg-sky-800 text-white rounded-lg text-xs font-semibold shadow-xs disabled:opacity-50 transition-colors"
                   >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isCheckingUpdate ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`w-3.5 h-3.5 ${isCheckingUpdate ? 'animate-spin' : ''}`} aria-hidden="true" />
                     <span>{isCheckingUpdate ? 'Weryfikacja GitHub...' : 'Sprawdź aktualizacje teraz'}</span>
                   </button>
                 </div>
@@ -1980,22 +2044,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     ? isNewerVersion(updateResult.remoteVersion, CURRENT_APP_VERSION)
                     : (hasUpdateAvailable && updateResult?.status === 'update_available');
                   return (
-                    <div className={`p-4 rounded-xl border flex items-start gap-3.5 ${
+                    <div role="status" className={`p-4 rounded-xl border flex items-start gap-3.5 ${
                       isUpdateDetected
                         ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 ring-2 ring-rose-500/30'
                         : 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800'
                     }`}>
                       {isUpdateDetected ? (
-                        <AlertTriangle className="w-6 h-6 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5 animate-bounce" />
+                        <AlertTriangle className="w-6 h-6 text-rose-700 dark:text-rose-400 shrink-0 mt-0.5 animate-bounce" aria-hidden="true" />
                       ) : (
-                        <CheckCircle2 className="w-6 h-6 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                        <CheckCircle2 className="w-6 h-6 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" aria-hidden="true" />
                       )}
                       <div className="flex-1 space-y-1.5">
                         <div className="flex items-center justify-between">
                           <span className="font-bold text-slate-900 dark:text-white text-sm">
                             {isUpdateDetected ? '🚀 Dostępna nowa aktualizacja oprogramowania!' : '✅ System jest w pełni zaktualizowany'}
                           </span>
-                          <span className="text-[11px] text-slate-500 font-mono font-bold">
+                          <span className="text-[11px] text-slate-600 dark:text-slate-400 font-mono font-bold">
                             Wydanie: {CURRENT_APP_VERSION}
                           </span>
                         </div>
@@ -2003,7 +2067,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           {updateResult ? updateResult.message : `Wersja ${CURRENT_APP_VERSION} jest zainstalowana na Twoim serwerze.`}
                         </p>
                         {updateResult?.lastChecked && (
-                          <span className="text-[10px] text-slate-400 block pt-0.5">
+                          <span className="text-[10px] text-slate-600 dark:text-slate-400 block pt-0.5">
                             Ostatnie sprawdzenie: {updateResult.lastChecked}
                           </span>
                         )}
@@ -2014,9 +2078,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               type="button"
                               onClick={handleRunUpdateNow}
                               disabled={isUpdatingServer}
-                              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold shadow-md transition-colors flex items-center gap-2"
+                              className="px-4 py-2 bg-rose-700 hover:bg-rose-800 text-white rounded-lg text-xs font-bold shadow-md transition-colors flex items-center gap-2"
                             >
-                              <RefreshCw className={`w-3.5 h-3.5 ${isUpdatingServer ? 'animate-spin' : ''}`} />
+                              <RefreshCw className={`w-3.5 h-3.5 ${isUpdatingServer ? 'animate-spin' : ''}`} aria-hidden="true" />
                               <span>{isUpdatingServer ? 'Aktualizowanie...' : 'Zaktualizuj z GitHub teraz'}</span>
                             </button>
                             <button
@@ -2024,7 +2088,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               onClick={() => handleCopyCode(RECOMMENDED_UPDATE_COMMAND, 'rec-update')}
                               className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
                             >
-                              {copiedKey === 'rec-update' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                              {copiedKey === 'rec-update' ? <Check className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true" /> : <Copy className="w-3.5 h-3.5" aria-hidden="true" />}
                               <span>{copiedKey === 'rec-update' ? 'Skopiowano polecenie!' : 'Kopiuj komendę terminala'}</span>
                             </button>
                           </div>
@@ -2035,7 +2099,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 })()}
 
                 {updateServerMessage && (
-                  <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-mono text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700">
+                  <div role="status" className="p-3 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-mono text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700">
                     {updateServerMessage}
                   </div>
                 )}
@@ -2044,22 +2108,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="p-4 bg-slate-900 text-slate-100 rounded-xl space-y-3 border border-slate-800">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-mono font-bold text-sky-400 flex items-center gap-1.5">
-                      <Terminal className="w-4 h-4" />
+                      <Terminal className="w-4 h-4" aria-hidden="true" />
                       <span>Oficjalne polecenie aktualizacji na serwerze Linux:</span>
                     </span>
                     <button
                       type="button"
                       onClick={() => handleCopyCode(RECOMMENDED_UPDATE_COMMAND, 'rec-update')}
-                      className="flex items-center gap-1.5 text-xs bg-sky-600 hover:bg-sky-500 px-3 py-1.5 rounded-lg text-white font-semibold transition-colors shadow-xs cursor-pointer"
+                      className="flex items-center gap-1.5 text-xs bg-sky-700 hover:bg-sky-600 px-3 py-1.5 rounded-lg text-white font-semibold transition-colors shadow-xs cursor-pointer"
                     >
-                      {copiedKey === 'rec-update' ? <Check className="w-3.5 h-3.5 text-white" /> : <Copy className="w-3.5 h-3.5" />}
+                      {copiedKey === 'rec-update' ? <Check className="w-3.5 h-3.5 text-white" aria-hidden="true" /> : <Copy className="w-3.5 h-3.5" aria-hidden="true" />}
                       <span>{copiedKey === 'rec-update' ? 'Skopiowano do schowka!' : 'Kopiuj polecenie'}</span>
                     </button>
                   </div>
                   <pre className="font-mono text-xs bg-black/60 p-3 rounded-lg overflow-x-auto text-emerald-300 border border-slate-800 select-all">
                     {RECOMMENDED_UPDATE_COMMAND}
                   </pre>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-slate-300">
                     Polecenie pobiera najnowsze zatwierdzenia z gałęzi main i natychmiastowo przebudowuje kontener bez utraty danych w pliku bazy JSON.
                   </p>
                 </div>
@@ -2073,7 +2137,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <h4 className="font-bold text-slate-900 dark:text-white text-base">
                     Konfiguracja Wdrożenia Docker na Serwerze
                   </h4>
-                  <p className="text-slate-500 dark:text-slate-400 text-xs">
+                  <p className="text-slate-600 dark:text-slate-400 text-xs">
                     Skrypty instalacji i pliki konfiguracyjne dla środowiska produkcyjnego Linux / Docker Compose.
                   </p>
                 </div>
@@ -2085,10 +2149,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         Pierwsza instalacja na serwerze (Linux)
                       </span>
                       <button
+                        type="button"
                         onClick={() => handleCopyCode(INSTALL_COMMAND, 'install-cmd')}
-                        className="flex items-center gap-1 text-[11px] text-sky-600 dark:text-sky-400 hover:underline"
+                        className="flex items-center gap-1 text-[11px] text-sky-700 dark:text-sky-400 hover:underline"
                       >
-                        {copiedKey === 'install-cmd' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                        {copiedKey === 'install-cmd' ? <Check className="w-3 h-3 text-emerald-700 dark:text-emerald-400" aria-hidden="true" /> : <Copy className="w-3 h-3" aria-hidden="true" />}
                         <span>{copiedKey === 'install-cmd' ? 'Skopiowano' : 'Kopiuj komendę'}</span>
                       </button>
                     </div>
@@ -2106,10 +2171,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         Bezpieczna aktualizacja aplikacji
                       </span>
                       <button
+                        type="button"
                         onClick={() => handleCopyCode(UPDATE_COMMAND, 'update-cmd')}
-                        className="flex items-center gap-1 text-[11px] text-sky-600 dark:text-sky-400 hover:underline"
+                        className="flex items-center gap-1 text-[11px] text-sky-700 dark:text-sky-400 hover:underline"
                       >
-                        {copiedKey === 'update-cmd' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                        {copiedKey === 'update-cmd' ? <Check className="w-3 h-3 text-emerald-700 dark:text-emerald-400" aria-hidden="true" /> : <Copy className="w-3 h-3" aria-hidden="true" />}
                         <span>{copiedKey === 'update-cmd' ? 'Skopiowano' : 'Kopiuj komendę'}</span>
                       </button>
                     </div>
@@ -2131,7 +2197,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <h4 className="font-bold text-slate-900 dark:text-white text-base">
                     Kopie Zapasowe i Archiwizacja Bazy
                   </h4>
-                  <p className="text-slate-500 dark:text-slate-400 text-xs">
+                  <p className="text-slate-600 dark:text-slate-400 text-xs">
                     Automatyczne tworzenie kopii snapshot projektów, harmonogramów i komentarzy.
                   </p>
                 </div>
@@ -2139,28 +2205,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="p-4 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="font-bold text-slate-800 dark:text-slate-200 text-xs block">
+                      <label htmlFor="settings-backup-enabled" className="font-bold text-slate-800 dark:text-slate-200 text-xs block cursor-pointer">
                         Automatyczne tworzenie kopii w tle
-                      </span>
-                      <span className="text-slate-500 dark:text-slate-400 text-[11px]">
+                      </label>
+                      <span className="text-slate-600 dark:text-slate-400 text-[11px]">
                         Gdy włączone, system okresowo zapisuje snapshot stanu projektów w pamięci lokalnej.
                       </span>
                     </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
+                    <label htmlFor="settings-backup-enabled" className="relative inline-flex items-center cursor-pointer">
                       <input
+                        id="settings-backup-enabled"
                         type="checkbox"
+                        aria-label="Automatyczne tworzenie kopii w tle"
                         checked={backupEnabled}
                         onChange={(e) => handleToggleBackup(e.target.checked)}
                         className="sr-only peer"
                       />
-                      <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                      <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-sky-500 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-700"></div>
                     </label>
                   </div>
 
                   {backupEnabled && (
                     <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                      <span className="text-xs text-slate-600 dark:text-slate-400">Częstotliwość kopii:</span>
+                      <label htmlFor="settings-backup-interval" className="text-xs text-slate-600 dark:text-slate-400">Częstotliwość kopii:</label>
                       <select
+                        id="settings-backup-interval"
                         value={backupInterval}
                         onChange={(e) => {
                           const val = Number(e.target.value);
@@ -2188,21 +2257,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="flex items-center justify-between">
                     <div>
                       <h4 className="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-1.5">
-                        <Network className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <Network className="w-4 h-4 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
                         <span>Archiwizacja na Dysk Sieciowy / Serwer NAS</span>
                       </h4>
-                      <p className="text-slate-500 dark:text-slate-400 text-[11px]">
+                      <p className="text-slate-600 dark:text-slate-400 text-[11px]">
                         Lokalizacja zamontowanego zasobu sieciowego (SMB/NFS) w pracowni, np. /mnt/nas/projekty/kopie lub \\\\serwer-nas\\projekty.
                       </p>
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                    <label htmlFor="settings-nas-path" className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300">
                       Ścieżka do katalogu sieciowego:
                     </label>
                     <div className="flex items-center gap-2">
                       <input
+                        id="settings-nas-path"
                         type="text"
                         value={nasPath}
                         onChange={(e) => handleSaveNasPath(e.target.value)}
@@ -2218,7 +2288,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </button>
                     </div>
                     {nasTestStatus && (
-                      <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-mono bg-emerald-50 dark:bg-emerald-950/40 p-2 rounded border border-emerald-200 dark:border-emerald-800">
+                      <p role="status" className="text-[11px] text-emerald-700 dark:text-emerald-400 font-mono bg-emerald-50 dark:bg-emerald-950/40 p-2 rounded border border-emerald-200 dark:border-emerald-800">
                         {nasTestStatus}
                       </p>
                     )}
@@ -2230,10 +2300,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="flex items-center justify-between">
                     <div>
                       <h4 className="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-1.5">
-                        <Cloud className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                        <Cloud className="w-4 h-4 text-sky-700 dark:text-sky-400" aria-hidden="true" />
                         <span>Sparowanie z Kontem Google (Kalendarz & Dysk Google)</span>
                       </h4>
-                      <p className="text-slate-500 dark:text-slate-400 text-[11px]">
+                      <p className="text-slate-600 dark:text-slate-400 text-[11px]">
                         Synchronizuj terminarz z osobnym kalendarzem Google oraz wykonuj automatyczne kopie bazy na Google Drive.
                       </p>
                     </div>
@@ -2242,8 +2312,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       onClick={handleToggleGooglePairing}
                       className={`px-3 py-1.5 rounded text-xs font-semibold border transition-colors ${
                         isGooglePaired
-                          ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
-                          : 'bg-white dark:bg-slate-900 text-sky-600 dark:text-sky-400 border-sky-300 dark:border-sky-700 hover:bg-sky-50'
+                          ? 'bg-emerald-700 text-white border-emerald-700 hover:bg-emerald-800'
+                          : 'bg-white dark:bg-slate-900 text-sky-700 dark:text-sky-400 border-sky-300 dark:border-sky-700 hover:bg-sky-50'
                       }`}
                     >
                       {isGooglePaired ? 'Połączono z Google ✓' : 'Sparuj konto Google'}
@@ -2253,27 +2323,33 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   {isGooglePaired && (
                     <div className="pt-2 border-t border-sky-200 dark:border-sky-800/60 space-y-2 text-xs">
                       <div className="flex items-center justify-between">
-                        <span className="text-slate-700 dark:text-slate-300">Synchronizacja Kalendarza Google (osobny kalendarz projektów):</span>
+                        <label htmlFor="settings-google-cal-sync" className="text-slate-700 dark:text-slate-300 cursor-pointer">
+                          Synchronizacja Kalendarza Google (osobny kalendarz projektów):
+                        </label>
                         <input
+                          id="settings-google-cal-sync"
                           type="checkbox"
                           checked={googleCalendarSync}
                           onChange={(e) => {
                             setGoogleCalendarSync(e.target.checked);
                             localStorage.setItem('oph_google_calendar_sync', e.target.checked ? 'true' : 'false');
                           }}
-                          className="rounded text-sky-600 focus:ring-sky-500"
+                          className="rounded text-sky-700 focus:ring-sky-500"
                         />
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-slate-700 dark:text-slate-300">Automatyczna kopia zapasowa na Google Drive:</span>
+                        <label htmlFor="settings-google-drive-sync" className="text-slate-700 dark:text-slate-300 cursor-pointer">
+                          Automatyczna kopia zapasowa na Google Drive:
+                        </label>
                         <input
+                          id="settings-google-drive-sync"
                           type="checkbox"
                           checked={googleDriveSync}
                           onChange={(e) => {
                             setGoogleDriveSync(e.target.checked);
                             localStorage.setItem('oph_google_drive_sync', e.target.checked ? 'true' : 'false');
                           }}
-                          className="rounded text-sky-600 focus:ring-sky-500"
+                          className="rounded text-sky-700 focus:ring-sky-500"
                         />
                       </div>
                     </div>
@@ -2283,13 +2359,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 {onOpenArchiveModal && (
                   <div className="flex justify-end">
                     <button
+                      type="button"
                       onClick={() => {
                         onClose();
                         onOpenArchiveModal();
                       }}
-                      className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 dark:bg-sky-600 hover:bg-slate-800 dark:hover:bg-sky-700 text-white rounded text-xs font-semibold"
+                      className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-800 text-white rounded text-xs font-semibold"
                     >
-                      <HardDrive className="w-3.5 h-3.5" />
+                      <HardDrive className="w-3.5 h-3.5" aria-hidden="true" />
                       <span>Otwórz pełny moduł archiwizacji (eksport/import)</span>
                     </button>
                   </div>
@@ -2303,8 +2380,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Modal Bottom Footer */}
         <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/80 flex items-center justify-end shrink-0">
           <button
+            type="button"
             onClick={onClose}
-            className="px-4 py-1.5 bg-slate-900 dark:bg-sky-600 hover:bg-slate-800 dark:hover:bg-sky-700 text-white rounded text-xs font-semibold shadow-xs"
+            className="px-4 py-1.5 bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-800 text-white rounded text-xs font-semibold shadow-xs"
           >
             Zamknij
           </button>
