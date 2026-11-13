@@ -42,6 +42,7 @@ import {
   toPublicSession,
   computeSessionPublicId,
 } from './src/utils/sessions.js';
+import { SecurityLog, SecurityEventType } from './src/utils/securityLog.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -182,6 +183,7 @@ app.use((req, res, next) => {
 const DATA_DIR = process.env.DATA_DIR || (process.env.NODE_ENV === 'production' ? '/app/data' : './data');
 const STATE_FILE = path.join(DATA_DIR, 'app_state.json');
 const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
+const securityLogger = new SecurityLog(DATA_DIR);
 
 console.log(`[Server] Ścieżka katalogu danych (DATA_DIR): ${DATA_DIR} (tryb: ${isProduction ? 'produkcja' : 'development'})`);
 
@@ -876,6 +878,11 @@ app.use('/api', (req, res, next) => {
   }
 
   if (!isSameOrigin(rawOrigin, effectiveHost)) {
+    securityLogger.record('origin_blocked', {
+      ip: getClientIp(req),
+      userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+      details: { origin: String(rawOrigin).slice(0, 150), host: effectiveHost, path: req.path },
+    }).catch(() => {});
     return res.status(403).json({ error: 'Niedozwolone źródło żądania' });
   }
 
@@ -993,6 +1000,12 @@ app.post('/api/auth/password-reset/request', async (req, res) => {
           </div>`,
         });
         console.log(`[Server Auth] Wysłano kod resetu hasła na adres e-mail: ${cleanEmail}`);
+        securityLogger.record('password_reset_requested', {
+          userId: targetUser.id,
+          ip: clientIp,
+          userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+          details: { emailDomain: cleanEmail.split('@')[1] || '' },
+        }).catch(() => {});
       } catch (mailErr: any) {
         console.error(`[Server Auth] Błąd wysyłania e-maila SMTP na adres ${cleanEmail}:`, mailErr.message);
       }
@@ -1118,6 +1131,13 @@ app.post('/api/auth/password-reset/confirm', async (req, res) => {
     };
     await saveStateAtomicAsync();
 
+    securityLogger.record('password_reset_completed', {
+      userId: targetUser.id,
+      ip: getClientIp(req),
+      userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+      details: { role: targetUser.role },
+    }).catch(() => {});
+
     res.json({ success: true, message: 'Hasło zostało pomyślnie zmienione. Możesz się teraz zalogować nowym hasłem.' });
   } catch (err: any) {
     console.error('[Server Auth] Błąd confirm password reset:', err);
@@ -1160,6 +1180,13 @@ app.post('/api/auth/login', async (req, res) => {
 
     // Sprawdzenie blokady rate-limitu
     if (isRateLimited(identifier, clientIp)) {
+      securityLogger.record('login_failure', {
+        email: identifier.includes('@') ? identifier : undefined,
+        userId: !identifier.includes('@') ? identifier : undefined,
+        ip: clientIp,
+        userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+        details: { reason: 'locked_out' },
+      }).catch(() => {});
       return res.status(429).json({
         error: 'Zbyt wiele nieudanych prób logowania. Konto lub adres IP zablokowany na 15 minut.',
       });
@@ -1175,7 +1202,15 @@ app.post('/api/auth/login', async (req, res) => {
       // Wyeliminowanie różnic czasowych (timing attacks): wykonaj dummy scrypt
       await verifyPasswordScrypt(String(password), DUMMY_SCRYPT_HASH);
       registerFailedLogin(identifier, clientIp);
-      if (isRateLimited(identifier, clientIp)) {
+      const isLocked = isRateLimited(identifier, clientIp);
+      securityLogger.record('login_failure', {
+        email: identifier.includes('@') ? identifier : undefined,
+        userId: !identifier.includes('@') ? identifier : undefined,
+        ip: clientIp,
+        userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+        details: { reason: isLocked ? 'locked_out' : 'unknown_user' },
+      }).catch(() => {});
+      if (isLocked) {
         return res.status(429).json({
           error: 'Zbyt wiele nieudanych prób logowania. Konto lub adres IP zablokowany na 15 minut.',
         });
@@ -1184,13 +1219,28 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     if (user.isApproved === false) {
+      securityLogger.record('login_failure', {
+        email: user.email,
+        userId: user.id,
+        ip: clientIp,
+        userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+        details: { reason: 'pending_approval' },
+      }).catch(() => {});
       return res.status(403).json({ error: 'Konto oczekuje na zatwierdzenie przez Administratora' });
     }
 
     const isPasswordValid = await verifyAndMigratePassword(user, String(password));
     if (!isPasswordValid) {
       registerFailedLogin(identifier, clientIp);
-      if (isRateLimited(identifier, clientIp)) {
+      const isLocked = isRateLimited(identifier, clientIp);
+      securityLogger.record('login_failure', {
+        email: user.email,
+        userId: user.id,
+        ip: clientIp,
+        userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+        details: { reason: isLocked ? 'locked_out' : 'bad_password' },
+      }).catch(() => {});
+      if (isLocked) {
         return res.status(429).json({
           error: 'Zbyt wiele nieudanych prób logowania. Konto lub adres IP zablokowany na 15 minut.',
         });
@@ -1208,6 +1258,7 @@ app.post('/api/auth/login', async (req, res) => {
       }
 
       let authSuccess = false;
+      let usedBackupCode = false;
 
       // 1. Sprawdzenie kodu TOTP gdy 2FA jest już aktywne
       if (user.twoFactorEnabled && user.twoFactorSecret) {
@@ -1218,8 +1269,15 @@ app.post('/api/auth/login', async (req, res) => {
           await saveStateAtomicAsync();
         } else if (verifyAndConsumeBackupCode(user, String(totpCode), effectiveAppSecret)) {
           authSuccess = true;
+          usedBackupCode = true;
           await saveStateAtomicAsync();
           console.log(`[Server Auth] Użytkownik ${user.name} (${user.id}) zalogował się za pomocą jednorazowego kodu zapasowego.`);
+          securityLogger.record('twofa_backup_code_used', {
+            userId: user.id,
+            ip: clientIp,
+            userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+            details: { remainingCodes: user.twoFactorBackupCodes?.length ?? 0 },
+          }).catch(() => {});
         }
       } else if (user.pending2FA && user.pending2FA.secret) {
         // 2. Pierwsze logowanie po rejestracji z 2FA: potwierdzenie pending2FA
@@ -1233,12 +1291,26 @@ app.post('/api/auth/login', async (req, res) => {
           authSuccess = true;
           await saveStateAtomicAsync();
           console.log(`[Server Auth] Użytkownik ${user.name} (${user.id}) potwierdził 2FA przy pierwszym logowaniu.`);
+          securityLogger.record('twofa_enabled', {
+            userId: user.id,
+            ip: clientIp,
+            userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+            details: { context: 'registration_first_login' },
+          }).catch(() => {});
         }
       }
 
       if (!authSuccess) {
         registerFailedLogin(identifier, clientIp);
-        if (isRateLimited(identifier, clientIp)) {
+        const isLocked = isRateLimited(identifier, clientIp);
+        securityLogger.record('login_failure', {
+          email: user.email,
+          userId: user.id,
+          ip: clientIp,
+          userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+          details: { reason: isLocked ? 'locked_out' : 'bad_2fa' },
+        }).catch(() => {});
+        if (isLocked) {
           return res.status(429).json({
             error: 'Zbyt wiele nieudanych prób logowania. Konto lub adres IP zablokowany na 15 minut.',
           });
@@ -1268,6 +1340,14 @@ app.post('/api/auth/login', async (req, res) => {
     sessions.set(tokenHash, session);
     saveSessionsAsync();
 
+    securityLogger.record('login_success', {
+      email: user.email,
+      userId: user.id,
+      ip: clientIp,
+      userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+      details: { role: user.role },
+    }).catch(() => {});
+
     setSessionCookie(req, res, rawToken, SESSION_MAX_HOURS * 3600);
     res.json({ success: true, user: sanitizeUser(user) });
   } catch (err: any) {
@@ -1280,6 +1360,11 @@ app.post('/api/auth/login', async (req, res) => {
 app.post('/api/auth/logout', (req, res) => {
   const session = getSessionFromReq(req);
   if (session) {
+    securityLogger.record('logout', {
+      userId: session.userId,
+      ip: getClientIp(req),
+      userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+    }).catch(() => {});
     sessions.delete(session.tokenHash);
     saveSessionsAsync();
   }
@@ -1347,6 +1432,13 @@ app.delete('/api/auth/sessions/:id', requireAuth, async (req, res) => {
   sessions.delete(foundTokenHash);
   await saveSessionsAsync();
 
+  securityLogger.record('session_revoked', {
+    userId: caller.id,
+    ip: getClientIp(req),
+    userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+    details: { sessionId: id, isCurrent },
+  }).catch(() => {});
+
   if (isCurrent) {
     clearSessionCookie(req, res);
     return res.json({ success: true, message: 'Wylogowano z bieżącej sesji', loggedOutCurrent: true });
@@ -1369,11 +1461,20 @@ app.post('/api/auth/sessions/revoke-others', requireAuth, async (req, res) => {
   }
 
   await saveSessionsAsync();
+
+  securityLogger.record('session_revoked', {
+    userId: caller.id,
+    ip: getClientIp(req),
+    userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+    details: { type: 'revoke_others', revokedCount },
+  }).catch(() => {});
+
   res.json({ success: true, message: `Unieważniono pozostałe sesje (${revokedCount})`, revokedCount });
 });
 
 // DELETE /api/users/:userId/sessions (Admin: unieważnienie wszystkich sesji wskazanego użytkownika)
 app.delete('/api/users/:userId/sessions', requireAdmin, async (req, res) => {
+  const caller = (req as any).user;
   const { userId } = req.params;
   const targetUser = (serverUsersCache || []).find((u: any) => u.id === userId);
   if (!targetUser) {
@@ -1389,6 +1490,14 @@ app.delete('/api/users/:userId/sessions', requireAdmin, async (req, res) => {
   }
 
   await saveSessionsAsync();
+
+  securityLogger.record('session_revoked', {
+    userId,
+    ip: getClientIp(req),
+    userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+    details: { revokedByAdminId: caller?.id, targetUserName: targetUser.name, revokedCount },
+  }).catch(() => {});
+
   res.json({
     success: true,
     message: `Unieważniono wszystkie sesje użytkownika ${targetUser.name} (${revokedCount})`,
@@ -1474,6 +1583,15 @@ app.post('/api/auth/setup-admin', async (req, res) => {
     saveSessionsAsync();
 
     setSessionCookie(req, res, rawToken, SESSION_MAX_HOURS * 3600);
+
+    securityLogger.record('setup_admin', {
+      userId: adminUser.id,
+      email: adminUser.email,
+      ip: clientIp,
+      userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+      details: { name: adminUser.name },
+    }).catch(() => {});
+
     res.json({ success: true, user: sanitizeUser(adminUser) });
   } catch (err: any) {
     console.error('[Server Auth] Błąd setup-admin:', err);
@@ -1567,6 +1685,14 @@ app.post('/api/auth/register', async (req, res) => {
       updatedAt: new Date().toISOString(),
     };
     await saveStateAtomicAsync();
+
+    securityLogger.record('registration', {
+      userId: newUser.id,
+      email: newUser.email,
+      ip: clientIp,
+      userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+      details: { department: newUser.department, withTwoFactor: Boolean(twoFactorEnabled) },
+    }).catch(() => {});
 
     res.json({
       success: true,
@@ -2325,6 +2451,13 @@ app.post('/api/users/:userId/password', requireAuth, async (req, res) => {
     }
     saveSessionsAsync();
 
+    securityLogger.record('password_changed', {
+      userId: targetUser.id,
+      ip: clientIp,
+      userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+      details: { changedByCallerId: caller.id, isSelf },
+    }).catch(() => {});
+
     res.json({ success: true, message: 'Hasło zostało pomyślnie zaktualizowane.' });
   } catch (err: any) {
     console.error('[Server Auth] Błąd zmiany hasła:', err);
@@ -2456,6 +2589,13 @@ app.post('/api/users/:userId/2fa/confirm', requireAuth, async (req, res) => {
     }
     saveSessionsAsync();
 
+    securityLogger.record('twofa_enabled', {
+      userId: targetUser.id,
+      ip: getClientIp(req),
+      userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+      details: { backupCodesCount: targetUser.twoFactorBackupCodes?.length ?? 0 },
+    }).catch(() => {});
+
     res.json({
       success: true,
       twoFactorEnabled: true,
@@ -2549,6 +2689,13 @@ app.post('/api/users/:userId/2fa/disable', requireAuth, async (req, res) => {
       saveSessionsAsync();
     }
 
+    securityLogger.record('twofa_disabled', {
+      userId: targetUser.id,
+      ip: clientIp,
+      userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+      details: { disabledByCallerId: caller.id, isSelf },
+    }).catch(() => {});
+
     res.json({ success: true, twoFactorEnabled: false });
   } catch (err: any) {
     console.error('[Server Auth] Błąd 2fa/disable:', err);
@@ -2558,6 +2705,7 @@ app.post('/api/users/:userId/2fa/disable', requireAuth, async (req, res) => {
 
 // POST /api/users/:userId/approve (Tylko Administrator)
 app.post('/api/users/:userId/approve', requireAdmin, async (req, res) => {
+  const caller = (req as any).user;
   const { userId } = req.params;
   const targetUser = (serverUsersCache || []).find((u) => u.id === userId);
   if (!targetUser) return res.status(404).json({ error: 'Użytkownik nie istnieje' });
@@ -2569,6 +2717,13 @@ app.post('/api/users/:userId/approve', requireAdmin, async (req, res) => {
     updatedAt: new Date().toISOString(),
   };
   await saveStateAtomicAsync();
+
+  securityLogger.record('user_approved', {
+    userId: targetUser.id,
+    ip: getClientIp(req),
+    userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+    details: { approvedByCallerId: caller?.id, targetUserName: targetUser.name, role: targetUser.role },
+  }).catch(() => {});
 
   res.json({ success: true, user: sanitizeUser(targetUser) });
 });
@@ -2582,6 +2737,7 @@ app.delete('/api/users/:userId', requireAdmin, async (req, res) => {
     return res.status(400).json({ error: 'Nie możesz usunąć aktualnie zalogowanego konta Administratora' });
   }
 
+  const deletedUser = (serverUsersCache || []).find((u) => u.id === userId);
   serverUsersCache = serverUsersCache.filter((u) => u.id !== userId);
   serverAppStateCache = {
     ...(serverAppStateCache || {}),
@@ -2590,12 +2746,20 @@ app.delete('/api/users/:userId', requireAdmin, async (req, res) => {
   };
   await saveStateAtomicAsync();
 
+  securityLogger.record('user_deleted', {
+    userId,
+    ip: getClientIp(req),
+    userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+    details: { deletedByCallerId: caller?.id, deletedUserName: deletedUser?.name, deletedUserRole: deletedUser?.role },
+  }).catch(() => {});
+
   res.json({ success: true });
 });
 
 // POST /api/users (Tylko Administrator tworzy nowych użytkowników z hasłem)
 app.post('/api/users', requireAdmin, async (req, res) => {
   try {
+    const caller = (req as any).user;
     const { name, email, role, department, password } = req.body || {};
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Wymagane pola: imię, e-mail i hasło.' });
@@ -2648,9 +2812,38 @@ app.post('/api/users', requireAdmin, async (req, res) => {
     };
     await saveStateAtomicAsync();
 
+    securityLogger.record('user_created', {
+      userId: newUser.id,
+      ip: getClientIp(req),
+      userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+      details: { createdByCallerId: caller?.id, newUserName: newUser.name, role: newUser.role, department: newUser.department },
+    }).catch(() => {});
+
     res.json({ success: true, user: sanitizeUser(newUser) });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/security/events (Tylko Administrator)
+// Parametry: limit (domyślnie 100, maks. 500), type (opcjonalny typ zdarzenia), zwraca od najnowszych
+app.get('/api/security/events', requireAdmin, async (req, res) => {
+  try {
+    const rawLimit = parseInt(String(req.query.limit || '100'), 10);
+    const limit = Number.isNaN(rawLimit) ? 100 : Math.min(Math.max(rawLimit, 1), 500);
+    const filterType = typeof req.query.type === 'string' && req.query.type.trim()
+      ? (req.query.type.trim() as SecurityEventType)
+      : undefined;
+
+    const events = await securityLogger.getRecentEvents(limit, filterType);
+    res.json({
+      success: true,
+      count: events.length,
+      events,
+    });
+  } catch (err: any) {
+    console.error('[Server] Błąd pobierania zdarzeń bezpieczeństwa:', err);
+    res.status(500).json({ error: 'Nie udało się pobrać dziennika bezpieczeństwa' });
   }
 });
 
