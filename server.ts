@@ -3,7 +3,7 @@ import compression from 'compression';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import nodemailer from 'nodemailer';
 import 'dotenv/config';
 import { buildIcs } from './src/utils/icsBuilder.js';
@@ -48,22 +48,57 @@ import { parseBackupFilename } from './src/utils/backupFiles.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const isProduction = process.env.NODE_ENV === 'production';
-const rawAppSecret = (process.env.APP_SECRET || '').trim();
+export type { Session };
+
+export interface CreateAppOptions {
+  dataDir?: string;
+  appSecret?: string;
+  port?: number | string;
+  isProduction?: boolean;
+  allowSelfRegistration?: boolean;
+  setupToken?: string;
+  enableVite?: boolean;
+  staticDir?: string;
+}
+
+export interface CreateAppResult {
+  app: express.Express;
+  close: () => Promise<void>;
+}
+
+const isDirectRun = (() => {
+  if (!process.argv[1]) return false;
+  try {
+    const resolvedArgv = fs.realpathSync(path.resolve(process.argv[1]));
+    const resolvedModule = fs.realpathSync(__filename);
+    return (
+      pathToFileURL(resolvedArgv).href === pathToFileURL(resolvedModule).href ||
+      import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+    );
+  } catch {
+    return import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+  }
+})();
+
+export async function createApp(options: CreateAppOptions = {}): Promise<CreateAppResult> {
+const isProduction = options.isProduction !== undefined
+  ? options.isProduction
+  : process.env.NODE_ENV === 'production';
+const rawAppSecret = (options.appSecret !== undefined ? options.appSecret : (process.env.APP_SECRET || '')).trim();
 
 if (isProduction) {
   const secretValidation = validateAppSecret(rawAppSecret);
   if (!secretValidation.ok) {
     console.error(`[Server FATAL] Niepoprawna wartość APP_SECRET: ${secretValidation.reason}`);
     console.error('[Server FATAL] Wygeneruj bezpieczny klucz poleceniem: openssl rand -hex 32');
-    process.exit(1);
+    throw new Error(`Niepoprawna wartość APP_SECRET: ${secretValidation.reason}`);
   }
 }
 const effectiveAppSecret = rawAppSecret || 'zp_dev_app_secret_fallback_2026';
 
 const app = express();
 app.disable('x-powered-by');
-const PORT = process.env.PORT || 3000;
+const PORT = options.port !== undefined ? options.port : (process.env.PORT || 3000);
 
 // Konfiguracja trust proxy: x-forwarded-proto i x-forwarded-for ufaj TYLKO gdy ustawione TRUST_PROXY
 if (process.env.TRUST_PROXY) {
@@ -181,7 +216,9 @@ app.use((req, res, next) => {
 });
 
 // Persistent shared database directory for all clients
-const DATA_DIR = process.env.DATA_DIR || (process.env.NODE_ENV === 'production' ? '/app/data' : './data');
+const DATA_DIR = options.dataDir !== undefined
+  ? options.dataDir
+  : (process.env.DATA_DIR || (isProduction ? '/app/data' : './data'));
 const STATE_FILE = path.join(DATA_DIR, 'app_state.json');
 const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
 const securityLogger = new SecurityLog(DATA_DIR);
@@ -195,7 +232,7 @@ try {
   }
 } catch (err: any) {
   console.error(`[Server FATAL] Nie można utworzyć katalogu danych "${DATA_DIR}": ${err.message}`);
-  process.exit(1);
+  throw err;
 }
 
 // Sprawdź zapisywalność DATA_DIR (zapis i usunięcie pliku testowego)
@@ -207,7 +244,7 @@ try {
 } catch (err: any) {
   console.error(`[Server FATAL] Brak uprawnień do zapisu w katalogu danych "${DATA_DIR}": ${err.message}`);
   console.error(`[Server FATAL] Upewnij się, że katalog istnieje i posiada odpowiednie uprawnienia zapisu.`);
-  process.exit(1);
+  throw err;
 }
 
 // In-memory cache for live synchronization and Google Calendar iCal feeds
@@ -340,7 +377,7 @@ if (fs.existsSync(STATE_FILE)) {
         console.error(
           'APP_SECRET nie pasuje do danych w app_state.json; przywróć poprawny APP_SECRET z .env sprzed zmiany albo, ostatecznie, uruchom z RESET_2FA_ON_START=true.'
         );
-        process.exit(1);
+        throw new Error('APP_SECRET nie pasuje do danych w app_state.json');
       } else {
         console.warn(
           `[Server WARN] APP_SECRET nie pasuje do danych 2FA użytkowników: ${affectedEmails.join(', ')} (tryb development - kontynuacja).`
@@ -360,7 +397,6 @@ if (fs.existsSync(STATE_FILE)) {
 // ==============================================================================
 // 1. BEZPIECZEŃSTWO SESJI I CIASTECZEK (HttpOnly, SameSite=Lax, Secure gdy HTTPS)
 // ==============================================================================
-export type { Session };
 
 const SESSION_IDLE_MINUTES = parseInt(process.env.SESSION_IDLE_MINUTES || '120', 10) || 120;
 const SESSION_IDLE_MS = SESSION_IDLE_MINUTES * 60 * 1000;
@@ -627,6 +663,9 @@ const setupAdminIpLimiter = createRateLimiter({ max: 10, windowMs: 60 * 60 * 100
 
 // Helpery konfiguracji środowiskowej
 function isSelfRegistrationAllowed(): boolean {
+  if (options.allowSelfRegistration !== undefined) {
+    return Boolean(options.allowSelfRegistration);
+  }
   if (process.env.ALLOW_SELF_REGISTRATION !== undefined) {
     const val = process.env.ALLOW_SELF_REGISTRATION.trim().toLowerCase();
     return val !== 'false' && val !== '0' && val !== 'no';
@@ -635,6 +674,9 @@ function isSelfRegistrationAllowed(): boolean {
 }
 
 function getSetupToken(): string {
+  if (options.setupToken !== undefined) {
+    return String(options.setupToken).trim();
+  }
   return (process.env.SETUP_TOKEN || '').trim();
 }
 
@@ -668,7 +710,8 @@ function cleanupExpiredFailedLogins() {
     }
   }
 }
-setInterval(cleanupExpiredFailedLogins, 5 * 60 * 1000).unref();
+const failedLoginCleanupInterval = setInterval(cleanupExpiredFailedLogins, 5 * 60 * 1000);
+failedLoginCleanupInterval.unref();
 
 function getClientIp(req: express.Request): string {
   if (req.app.get('trust proxy')) {
@@ -768,7 +811,8 @@ function cleanupExpiredResetAttempts() {
     }
   }
 }
-setInterval(cleanupExpiredResetAttempts, 5 * 60 * 1000).unref();
+const resetAttemptsCleanupInterval = setInterval(cleanupExpiredResetAttempts, 5 * 60 * 1000);
+resetAttemptsCleanupInterval.unref();
 
 function isSmtpConfigured(): boolean {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_HOST.trim().length > 0);
@@ -3302,53 +3346,67 @@ app.use('/api', (_req, res) => {
 });
 
 // Vite dev middleware or static file serving
-if (process.env.NODE_ENV !== 'production') {
-  try {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-    console.log('[Server] Mounted Vite development middlewares on port ' + PORT);
-  } catch (viteErr) {
-    console.warn('[Server] Could not initialize Vite dev middleware:', viteErr);
+let viteServer: any = null;
+if (!isProduction) {
+  if (options.enableVite !== false) {
+    try {
+      const { createServer: createViteServer } = await import('vite');
+      viteServer = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(viteServer.middlewares);
+      console.log('[Server] Mounted Vite development middlewares on port ' + PORT);
+    } catch (viteErr) {
+      console.warn('[Server] Could not initialize Vite dev middleware:', viteErr);
+    }
   }
 } else {
-  const staticDir = path.join(__dirname, 'public');
+  const candidatePublicDir = path.join(__dirname, 'public');
+  const candidateDistPublicDir = path.resolve(__dirname, 'dist', 'public');
+  const staticDir = options.staticDir || (
+    fs.existsSync(path.join(candidatePublicDir, 'index.html'))
+      ? candidatePublicDir
+      : fs.existsSync(path.join(candidateDistPublicDir, 'index.html'))
+      ? candidateDistPublicDir
+      : candidatePublicDir
+  );
   const indexPath = path.join(staticDir, 'index.html');
 
   if (!fs.existsSync(indexPath)) {
-    console.error(`[Server FATAL] Brak pliku "${indexPath}". Zbuduj frontend (npm run build) przed uruchomieniem serwera produkcyjnego.`);
-    process.exit(1);
+    if (isDirectRun) {
+      console.error(`[Server FATAL] Brak pliku "${indexPath}". Zbuduj frontend (npm run build) przed uruchomieniem serwera produkcyjnego.`);
+      throw new Error(`Brak pliku "${indexPath}"`);
+    }
+    console.warn(`[Server] Brak katalogu statycznego "${staticDir}" (pominięto serwowanie SPA dla instancji testowej).`);
+  } else {
+    console.log(`[Server] Serving static assets from: ${staticDir}`);
+
+    // Cache statyczny: pliki z hashem w nazwie (assets/*) mają Cache-Control: public, max-age=31536000, immutable
+    // Pozostałe pliki statyczne mają domyślny maxAge
+    app.use(express.static(staticDir, {
+      index: false,
+      dotfiles: 'deny',
+      setHeaders: (res, filePath) => {
+        const normalizedPath = filePath.replace(/\\/g, '/');
+        if (normalizedPath.includes('/assets/')) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        } else if (normalizedPath.endsWith('index.html')) {
+          res.setHeader('Cache-Control', 'no-cache');
+        }
+      },
+    }));
+
+    // Fallback to index.html for SPA client routing (wyłącznie metoda GET poza /api) - Cache-Control: no-cache
+    app.use((req, res, next) => {
+      if (req.method !== 'GET') return next();
+      if (req.path.startsWith('/api')) return next();
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache');
+      return res.sendFile(indexPath);
+    });
   }
-
-  console.log(`[Server] Serving static assets from: ${staticDir}`);
-
-  // Cache statyczny: pliki z hashem w nazwie (assets/*) mają Cache-Control: public, max-age=31536000, immutable
-  // Pozostałe pliki statyczne mają domyślny maxAge
-  app.use(express.static(staticDir, {
-    index: false,
-    dotfiles: 'deny',
-    setHeaders: (res, filePath) => {
-      const normalizedPath = filePath.replace(/\\/g, '/');
-      if (normalizedPath.includes('/assets/')) {
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-      } else if (normalizedPath.endsWith('index.html')) {
-        res.setHeader('Cache-Control', 'no-cache');
-      }
-    },
-  }));
-
-  // Fallback to index.html for SPA client routing (wyłącznie metoda GET poza /api) - Cache-Control: no-cache
-  app.use((req, res, next) => {
-    if (req.method !== 'GET') return next();
-    if (req.path.startsWith('/api')) return next();
-
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache');
-    return res.sendFile(indexPath);
-  });
 }
 
 // Globalny middleware obsługi błędów zwracający ZAWSZE JSON { error: string } (bez HTML, bez stack trace)
@@ -3367,40 +3425,98 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   res.status(status).json({ error: errorMsg });
 });
 
-const server = app.listen(PORT, () => {
-  console.log(`Zarządzanie Projektami running on port ${PORT}`);
-});
+let closed = false;
+const close = async (): Promise<void> => {
+  if (closed) return;
+  closed = true;
 
-// Graceful shutdown: zapis wymuszony przy SIGTERM i SIGINT oraz przed zakończeniem procesu
-let isShuttingDown = false;
-async function handleGracefulShutdown(signal: string) {
-  if (isShuttingDown) return;
-  isShuttingDown = true;
-  console.log(`[Server] Otrzymano sygnał ${signal}. Trwa wymuszony zapis stanu bazy i zamykanie serwera...`);
+  clearInterval(failedLoginCleanupInterval);
+  clearInterval(resetAttemptsCleanupInterval);
 
-  try {
-    await flushPendingStateSave();
-    console.log('[Server] Stan bazy zapisany bezpiecznie.');
-  } catch (err) {
-    console.error('[Server] Błąd wymuszonego zapisu stanu przed zamknięciem:', err);
+  if (pendingSessionSaveTimeout) {
+    clearTimeout(pendingSessionSaveTimeout);
+    pendingSessionSaveTimeout = null;
+    await saveSessionsAsync();
+  } else {
+    await sessionWriteQueue;
   }
 
-  server.close(() => {
-    console.log('[Server] Serwer HTTP zatrzymany. Do widzenia.');
-    process.exit(0);
-  });
+  passwordResetRequestEmailLimiter.destroy();
+  passwordResetRequestIpLimiter.destroy();
+  passwordResetVerifyIpLimiter.destroy();
+  registerIpLimiter.destroy();
+  setupAdminIpLimiter.destroy();
 
-  // Awaryjne zamknięcie jeśli cokolwiek zablokuje pętlę po 3 sekundach
-  setTimeout(() => {
-    process.exit(0);
-  }, 3000).unref();
-}
-
-process.on('SIGTERM', () => handleGracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => handleGracefulShutdown('SIGINT'));
-process.on('beforeExit', async () => {
   try {
     await flushPendingStateSave();
-  } catch {}
-});
+  } catch (err) {
+    console.error('[Server] Błąd wymuszonego zapisu stanu przy zamykaniu:', err);
+  }
+
+  if (viteServer) {
+    await viteServer.close();
+    viteServer = null;
+  }
+};
+
+return { app, close };
+}
+
+if (isDirectRun) {
+  const PORT = process.env.PORT || 3000;
+  let appClose: (() => Promise<void>) | null = null;
+  let server: ReturnType<express.Express['listen']> | null = null;
+
+  try {
+    const instance = await createApp({ port: PORT });
+    appClose = instance.close;
+    server = instance.app.listen(PORT, () => {
+      console.log(`Zarządzanie Projektami running on port ${PORT}`);
+    });
+  } catch (startupErr) {
+    console.error('[Server FATAL] Nie udało się uruchomić serwera:', startupErr);
+    process.exit(1);
+  }
+
+  // Graceful shutdown: zapis wymuszony przy SIGTERM i SIGINT oraz przed zakończeniem procesu
+  let isShuttingDown = false;
+  async function handleGracefulShutdown(signal: string) {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    console.log(`[Server] Otrzymano sygnał ${signal}. Trwa wymuszony zapis stanu bazy i zamykanie serwera...`);
+
+    try {
+      if (appClose) {
+        await appClose();
+      }
+      console.log('[Server] Stan bazy zapisany bezpiecznie.');
+    } catch (err) {
+      console.error('[Server] Błąd wymuszonego zapisu stanu przed zamknięciem:', err);
+    }
+
+    if (server) {
+      server.close(() => {
+        console.log('[Server] Serwer HTTP zatrzymany. Do widzenia.');
+        process.exit(0);
+      });
+    } else {
+      process.exit(0);
+    }
+
+    // Awaryjne zamknięcie jeśli cokolwiek zablokuje pętlę po 3 sekundach
+    setTimeout(() => {
+      process.exit(0);
+    }, 3000).unref();
+  }
+
+  process.on('SIGTERM', () => handleGracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => handleGracefulShutdown('SIGINT'));
+  process.on('beforeExit', async () => {
+    try {
+      if (appClose) {
+        await appClose();
+      }
+    } catch {}
+  });
+}
 
