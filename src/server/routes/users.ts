@@ -16,6 +16,7 @@ import {
   verifyAndMigratePassword,
 } from '../security.js';
 import { SessionStore } from '../sessions.js';
+import { validatePassword } from '../../utils/passwordPolicy.js';
 
 export interface UserRoutesDeps {
   config: ServerConfig;
@@ -72,11 +73,11 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
       const { currentPassword, newPassword } = req.body || {};
       const clientIp = getClientIp(req);
 
-      if (!newPassword || String(newPassword).length < 8) {
-        return res.status(400).json({ error: 'Nowe hasło musi zawierać co najmniej 8 znaków.' });
-      }
-      if (String(newPassword).length > 128) {
-        return res.status(400).json({ error: 'Hasło może mieć maksymalnie 128 znaków.' });
+      if (!newPassword || typeof newPassword !== 'string') {
+        return res.status(400).json({
+          error: 'Hasło musi zawierać co najmniej 12 znaków.',
+          errors: ['Hasło musi zawierać co najmniej 12 znaków.'],
+        });
       }
 
       const users = stateStore.getUsers() || [];
@@ -112,8 +113,15 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
         resetFailedLogin(rateLimitKey, clientIp);
       }
 
-      if (targetUser.role === 'admin' && String(newPassword).length < 12) {
-        return res.status(400).json({ error: 'Hasło administratora musi zawierać co najmniej 12 znaków.' });
+      const pwCheck = validatePassword(String(newPassword), {
+        name: targetUser.name,
+        email: targetUser.email,
+      });
+      if (!pwCheck.ok) {
+        return res.status(400).json({
+          error: pwCheck.errors.join(' '),
+          errors: pwCheck.errors,
+        });
       }
 
       const newHash = await hashPasswordScrypt(String(newPassword));
@@ -465,14 +473,14 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
         });
       }
 
-      if (String(password).length > 128) {
-        return res.status(400).json({ error: 'Hasło może mieć maksymalnie 128 znaków.' });
-      }
-
-      const minLen = assignedRole === 'admin' ? 12 : 8;
-      if (String(password).length < minLen) {
+      const pwCheck = validatePassword(String(password), {
+        name: String(name),
+        email: cleanEmail,
+      });
+      if (!pwCheck.ok) {
         return res.status(400).json({
-          error: `Hasło dla roli ${assignedRole === 'admin' ? 'Administrator' : 'Użytkownik'} musi mieć co najmniej ${minLen} znaków.`,
+          error: pwCheck.errors.join(' '),
+          errors: pwCheck.errors,
         });
       }
 

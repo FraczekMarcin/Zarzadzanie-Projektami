@@ -19,6 +19,8 @@ import {
 
 
 import { TwoFactorManager } from './TwoFactorManager';
+import { validatePassword } from '../utils/passwordPolicy';
+import { PasswordRequirementsChecklist } from './PasswordRequirementsChecklist';
 
 interface UserAuthModalProps {
   isOpen: boolean;
@@ -114,9 +116,9 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
     e.preventDefault();
     if (!name.trim() || !email.trim()) return;
 
-    const minLen = role === 'admin' ? 12 : 8;
-    if (!password.trim() || password.trim().length < minLen) {
-      setPasswordError(`Hasło dla roli ${role === 'admin' ? 'Administrator' : 'Użytkownik'} musi mieć co najmniej ${minLen} znaków.`);
+    const pwCheck = validatePassword(password, { name, email });
+    if (!pwCheck.ok) {
+      setPasswordError(pwCheck.errors.join(' '));
       return;
     }
 
@@ -125,7 +127,7 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
       email: email.trim(),
       role,
       department: department.trim(),
-      password: password.trim(),
+      password,
       isDemo: false,
     });
 
@@ -145,15 +147,12 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
       return;
     }
 
-    const minLen = currentUser.role === 'admin' ? 12 : 8;
-    if (newPassword.length < minLen) {
-      setPasswordError(
-        `Nowe hasło dla roli ${currentUser.role === 'admin' ? 'Administrator' : 'Użytkownik'} musi mieć co najmniej ${minLen} znaków.`
-      );
-      return;
-    }
-    if (newPassword.length > 128) {
-      setPasswordError('Nowe hasło może mieć maksymalnie 128 znaków.');
+    const pwCheck = validatePassword(newPassword, {
+      name: currentUser.name,
+      email: currentUser.email,
+    });
+    if (!pwCheck.ok) {
+      setPasswordError(pwCheck.errors.join(' '));
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -559,15 +558,24 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Hasło początkowe *</label>
+              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Hasło początkowe (12–128 znaków) *</label>
               <input
                 type="password"
                 required
+                minLength={12}
+                maxLength={128}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Wpisz hasło do logowania"
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setPasswordError(null);
+                }}
+                placeholder="Wpisz hasło do logowania (12–128 znaków)"
                 className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
               />
+              <PasswordRequirementsChecklist password={password} context={{ name, email }} />
+              {passwordError && (
+                <p className="text-rose-600 dark:text-rose-400 text-[11px] font-medium mt-1">{passwordError}</p>
+              )}
               <span className="text-[10px] text-slate-400 mt-1 block">
                 Użytkownik będzie musiał podać to hasło podczas logowania.
               </span>
@@ -576,7 +584,8 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
             <div className="pt-2 flex justify-end">
               <button
                 type="submit"
-                className="bg-slate-900 dark:bg-sky-600 hover:bg-slate-800 dark:hover:bg-sky-700 text-white font-medium px-4 py-2 rounded text-xs transition-colors"
+                disabled={!validatePassword(password, { name, email }).ok}
+                className="bg-slate-900 dark:bg-sky-600 hover:bg-slate-800 dark:hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded text-xs transition-colors"
               >
                 Zarejestruj i utwórz konto
               </button>
@@ -619,18 +628,24 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
 
             <div>
               <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Nowe hasło * (min. {currentUser.role === 'admin' ? 12 : 8} znaków)
+                Nowe hasło * (12–128 znaków)
               </label>
               <input
                 type="password"
                 required
+                minLength={12}
+                maxLength={128}
                 value={newPassword}
                 onChange={(e) => {
                   setNewPassword(e.target.value);
                   setPasswordError(null);
                 }}
-                placeholder="Wpisz nowe hasło (min. 4 znaki)"
+                placeholder="Wpisz nowe hasło (12–128 znaków)"
                 className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
+              />
+              <PasswordRequirementsChecklist
+                password={newPassword}
+                context={{ name: currentUser.name, email: currentUser.email }}
               />
             </div>
 
@@ -639,6 +654,8 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
               <input
                 type="password"
                 required
+                minLength={12}
+                maxLength={128}
                 value={confirmPassword}
                 onChange={(e) => {
                   setConfirmPassword(e.target.value);
@@ -647,6 +664,9 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                 placeholder="Wpisz ponownie nowe hasło"
                 className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
               />
+              {confirmPassword.length > 0 && newPassword !== confirmPassword && (
+                <p className="text-rose-600 dark:text-rose-400 text-[11px] font-medium mt-1">Nowe hasła nie są identyczne.</p>
+              )}
             </div>
 
             {passwordError && (
@@ -656,7 +676,12 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
             <div className="pt-2 flex justify-end">
               <button
                 type="submit"
-                className="bg-sky-600 hover:bg-sky-700 text-white font-medium px-4 py-2 rounded text-xs transition-colors"
+                disabled={
+                  !currentPassword ||
+                  !validatePassword(newPassword, { name: currentUser.name, email: currentUser.email }).ok ||
+                  newPassword !== confirmPassword
+                }
+                className="bg-sky-600 hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded text-xs transition-colors"
               >
                 Zapisz nowe hasło
               </button>

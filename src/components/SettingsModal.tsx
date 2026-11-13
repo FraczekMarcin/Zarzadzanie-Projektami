@@ -37,6 +37,7 @@ import {
   Shield,
   Filter,
   AlertCircle,
+  KeyRound,
 } from 'lucide-react';
 import { parseUserAgent, PublicSession } from '../utils/sessions';
 import type { SecurityEvent, SecurityEventType } from '../utils/securityLog';
@@ -68,6 +69,8 @@ import { User, Project } from '../types';
 import { isDemoUser, isDemoProject } from '../utils/demoData';
 import { copyToClipboard } from '../utils/clipboard';
 import { TwoFactorManager } from './TwoFactorManager';
+import { validatePassword } from '../utils/passwordPolicy';
+import { PasswordRequirementsChecklist } from './PasswordRequirementsChecklist';
 import { 
   getVatRates, 
   saveVatRates, 
@@ -102,6 +105,7 @@ interface SettingsModalProps {
   onRejectUser?: (userId: string) => void;
   onUserUpdated?: (updated: Partial<User>) => void;
   onRefreshUsers?: () => void;
+  onUpdateUserPassword?: (userId: string, newPass: string, currentPass?: string) => Promise<boolean | void> | void;
   initialTab?: SettingsTab;
 }
 
@@ -121,6 +125,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onRejectUser,
   onUserUpdated,
   onRefreshUsers,
+  onUpdateUserPassword,
   initialTab = 'theme',
 }) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
@@ -168,6 +173,71 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [nasPath, setNasPath] = useState(() => {
     return localStorage.getItem('oph_nas_backup_path') || '/mnt/nas/projekty/kopie';
   });
+
+  // Change password state in Settings
+  const [settingsCurrentPassword, setSettingsCurrentPassword] = useState('');
+  const [settingsNewPassword, setSettingsNewPassword] = useState('');
+  const [settingsConfirmPassword, setSettingsConfirmPassword] = useState('');
+  const [settingsPwError, setSettingsPwError] = useState<string | null>(null);
+  const [settingsPwSuccess, setSettingsPwSuccess] = useState(false);
+  const [isChangingSettingsPassword, setIsChangingSettingsPassword] = useState(false);
+
+  const handleSettingsPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) return;
+    setSettingsPwError(null);
+
+    if (!settingsCurrentPassword) {
+      setSettingsPwError('Wprowadź dotychczasowe hasło.');
+      return;
+    }
+
+    const pwCheck = validatePassword(settingsNewPassword, {
+      name: currentUser.name,
+      email: currentUser.email,
+    });
+    if (!pwCheck.ok) {
+      setSettingsPwError(pwCheck.errors.join(' '));
+      return;
+    }
+
+    if (settingsNewPassword !== settingsConfirmPassword) {
+      setSettingsPwError('Nowe hasła nie są identyczne.');
+      return;
+    }
+
+    setIsChangingSettingsPassword(true);
+    try {
+      if (onUpdateUserPassword) {
+        const res = await onUpdateUserPassword(currentUser.id, settingsNewPassword, settingsCurrentPassword);
+        if (res === false) {
+          return;
+        }
+      } else {
+        const res = await fetch(`/api/users/${currentUser.id}/password`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            currentPassword: settingsCurrentPassword,
+            newPassword: settingsNewPassword,
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setSettingsPwError(data.error || 'Nie udało się zmienić hasła.');
+          return;
+        }
+      }
+      setSettingsPwSuccess(true);
+      setSettingsCurrentPassword('');
+      setSettingsNewPassword('');
+      setSettingsConfirmPassword('');
+      setTimeout(() => setSettingsPwSuccess(false), 3000);
+    } finally {
+      setIsChangingSettingsPassword(false);
+    }
+  };
   const [nasTestStatus, setNasTestStatus] = useState<string | null>(null);
   const [isGooglePaired, setIsGooglePaired] = useState(() => {
     return localStorage.getItem('oph_google_account_paired') === 'true';
@@ -1248,6 +1318,125 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 {/* Two Factor Authentication Manager for Current User */}
                 <TwoFactorManager currentUser={currentUser} onUserUpdated={onUserUpdated} />
+
+                {/* Password Change Section for Current User */}
+                {currentUser && (
+                  <form
+                    onSubmit={handleSettingsPasswordSubmit}
+                    className="p-4 border border-slate-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-900 space-y-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <KeyRound className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                        <h5 className="font-bold text-slate-900 dark:text-white text-sm">
+                          Zmiana hasła dostępu
+                        </h5>
+                      </div>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Konto: <strong>{currentUser.email}</strong>
+                      </span>
+                    </div>
+
+                    {settingsPwSuccess && (
+                      <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 rounded text-xs flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>Hasło zostało pomyślnie zaktualizowane.</span>
+                      </div>
+                    )}
+
+                    {settingsPwError && (
+                      <div className="p-2.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 rounded text-xs">
+                        {settingsPwError}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                          Dotychczasowe hasło *
+                        </label>
+                        <input
+                          type="password"
+                          required
+                          value={settingsCurrentPassword}
+                          onChange={(e) => {
+                            setSettingsCurrentPassword(e.target.value);
+                            setSettingsPwError(null);
+                          }}
+                          placeholder="Aktualne hasło"
+                          className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                          Nowe hasło (12–128 znaków) *
+                        </label>
+                        <input
+                          type="password"
+                          required
+                          minLength={12}
+                          maxLength={128}
+                          value={settingsNewPassword}
+                          onChange={(e) => {
+                            setSettingsNewPassword(e.target.value);
+                            setSettingsPwError(null);
+                          }}
+                          placeholder="Nowe hasło"
+                          className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                          Powtórz nowe hasło *
+                        </label>
+                        <input
+                          type="password"
+                          required
+                          minLength={12}
+                          maxLength={128}
+                          value={settingsConfirmPassword}
+                          onChange={(e) => {
+                            setSettingsConfirmPassword(e.target.value);
+                            setSettingsPwError(null);
+                          }}
+                          placeholder="Powtórz nowe hasło"
+                          className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    <PasswordRequirementsChecklist
+                      password={settingsNewPassword}
+                      context={{ name: currentUser.name, email: currentUser.email }}
+                    />
+
+                    {settingsConfirmPassword.length > 0 && settingsNewPassword !== settingsConfirmPassword && (
+                      <p className="text-[11px] text-rose-600 dark:text-rose-400 font-medium">
+                        Nowe hasła nie są identyczne.
+                      </p>
+                    )}
+
+                    <div className="flex justify-end">
+                      <button
+                        type="submit"
+                        disabled={
+                          isChangingSettingsPassword ||
+                          !settingsCurrentPassword ||
+                          !validatePassword(settingsNewPassword, {
+                            name: currentUser.name,
+                            email: currentUser.email,
+                          }).ok ||
+                          settingsNewPassword !== settingsConfirmPassword
+                        }
+                        className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-xs font-semibold transition-colors"
+                      >
+                        {isChangingSettingsPassword ? 'Zapisywanie...' : 'Zmień hasło'}
+                      </button>
+                    </div>
+                  </form>
+                )}
 
                 {/* Pending user approval section */}
                 {pendingUsers.length > 0 && (

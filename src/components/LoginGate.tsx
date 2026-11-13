@@ -28,12 +28,14 @@ import {
   formatSecretKey
 } from '../utils/authSecurity';
 import { copyToClipboard } from '../utils/clipboard';
+import { validatePassword } from '../utils/passwordPolicy';
+import { PasswordRequirementsChecklist } from './PasswordRequirementsChecklist';
 
 interface LoginGateProps {
   users: User[];
   onLogin: (user: User) => void;
   onRegister?: (newUser: Omit<User, 'id' | 'initials'>) => void;
-  onUpdateUserPassword?: (userId: string, newPass: string) => Promise<void> | void;
+  onUpdateUserPassword?: (userId: string, newPass: string) => Promise<boolean | void> | void;
   onRefreshUsers?: () => Promise<void> | void;
   setupRequired?: boolean;
 }
@@ -172,8 +174,9 @@ export const LoginGate: React.FC<LoginGateProps> = ({
     e.preventDefault();
     setAdminSetupError(null);
 
-    if (adminPassword.length < 12) {
-      setAdminSetupError('Hasło administratora musi zawierać co najmniej 12 znaków.');
+    const pwCheck = validatePassword(adminPassword, { name: adminName, email: adminEmail });
+    if (!pwCheck.ok) {
+      setAdminSetupError(pwCheck.errors.join(' '));
       return;
     }
     if (adminPassword !== adminConfirmPassword) {
@@ -321,8 +324,9 @@ export const LoginGate: React.FC<LoginGateProps> = ({
     setRegError(null);
     if (!regName.trim() || !regEmail.trim()) return;
 
-    if (regPassword.length < 8) {
-      setRegError('Hasło musi zawierać co najmniej 8 znaków.');
+    const pwCheck = validatePassword(regPassword, { name: regName, email: regEmail });
+    if (!pwCheck.ok) {
+      setRegError(pwCheck.errors.join(' '));
       return;
     }
 
@@ -456,8 +460,10 @@ export const LoginGate: React.FC<LoginGateProps> = ({
     e.preventDefault();
     setRecoveryError(null);
 
-    if (newRecoveryPass.length < 8) {
-      setRecoveryError('Nowe hasło musi zawierać co najmniej 8 znaków.');
+    const matchedUser = users.find((u) => u.email?.toLowerCase() === recoveryEmail.trim().toLowerCase());
+    const pwCheck = validatePassword(newRecoveryPass, { email: recoveryEmail, name: matchedUser?.name });
+    if (!pwCheck.ok) {
+      setRecoveryError(pwCheck.errors.join(' '));
       return;
     }
     if (newRecoveryPass !== confirmRecoveryPass) {
@@ -578,9 +584,9 @@ export const LoginGate: React.FC<LoginGateProps> = ({
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="text-xs font-medium text-slate-300">
-                  Hasło Administratora (min. 12 znaków) <span className="text-rose-400">*</span>
+                  Hasło Administratora (12–128 znaków) <span className="text-rose-400">*</span>
                 </label>
-                <span className={`text-[11px] font-mono font-semibold ${adminPassword.length >= 12 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                <span className={`text-[11px] font-mono font-semibold ${validatePassword(adminPassword, { name: adminName, email: adminEmail }).ok ? 'text-emerald-400' : 'text-amber-400'}`}>
                   {adminPassword.length}/12 znaków
                 </span>
               </div>
@@ -590,12 +596,18 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   type="password"
                   required
                   minLength={12}
+                  maxLength={128}
                   value={adminPassword}
                   onChange={(e) => setAdminPassword(e.target.value)}
-                  placeholder="Wprowadź silne hasło (min. 12 znaków)..."
+                  placeholder="Wprowadź silne hasło (12–128 znaków)..."
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
                 />
               </div>
+              <PasswordRequirementsChecklist
+                password={adminPassword}
+                context={{ name: adminName, email: adminEmail }}
+                variant="dark"
+              />
               <p className="text-[10px] text-slate-400 mt-1">
                 Hasło zostanie zabezpieczone serwerowym algorytmem scrypt z unikalną solą kryptograficzną.
               </p>
@@ -611,12 +623,16 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   type="password"
                   required
                   minLength={12}
+                  maxLength={128}
                   value={adminConfirmPassword}
                   onChange={(e) => setAdminConfirmPassword(e.target.value)}
                   placeholder="Powtórz hasło administratora..."
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
                 />
               </div>
+              {adminConfirmPassword.length > 0 && adminPassword !== adminConfirmPassword && (
+                <p className="text-[11px] text-rose-400 mt-1">Hasła nie są identyczne.</p>
+              )}
             </div>
 
             {requireSetupToken && (
@@ -643,8 +659,13 @@ export const LoginGate: React.FC<LoginGateProps> = ({
 
             <button
               type="submit"
-              disabled={isAdminSubmitting || adminPassword.length < 12 || (requireSetupToken && !adminSetupToken.trim())}
-              className="w-full py-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-amber-600/30 flex items-center justify-center gap-2 mt-4"
+              disabled={
+                isAdminSubmitting ||
+                !validatePassword(adminPassword, { name: adminName, email: adminEmail }).ok ||
+                adminPassword !== adminConfirmPassword ||
+                (requireSetupToken && !adminSetupToken.trim())
+              }
+              className="w-full py-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-amber-600/30 flex items-center justify-center gap-2 mt-4"
             >
               <ShieldCheck className="w-4 h-4" />
               <span>{isAdminSubmitting ? 'Inicjalizacja...' : 'Utwórz konto Administratora i przejdź do systemu'}</span>
@@ -1054,19 +1075,25 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Hasło dostępu (min. 8 znaków) *</label>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Hasło dostępu (12–128 znaków) *</label>
                   <div className="relative">
                     <KeyRound className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                       type="password"
                       required
-                      minLength={8}
+                      minLength={12}
+                      maxLength={128}
                       value={regPassword}
                       onChange={(e) => setRegPassword(e.target.value)}
-                      placeholder="Utwórz bezpieczne hasło (min. 8 znaków)..."
+                      placeholder="Utwórz bezpieczne hasło (12–128 znaków)..."
                       className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                     />
                   </div>
+                  <PasswordRequirementsChecklist
+                    password={regPassword}
+                    context={{ name: regName, email: regEmail }}
+                    variant="dark"
+                  />
                 </div>
 
                 <div className="p-3 bg-slate-900/60 border border-slate-700/80 rounded-lg flex items-center justify-between">
@@ -1089,8 +1116,11 @@ export const LoginGate: React.FC<LoginGateProps> = ({
 
                 <button
                   type="submit"
-                  disabled={isRegistering}
-                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 mt-2"
+                  disabled={
+                    isRegistering ||
+                    !validatePassword(regPassword, { name: regName, email: regEmail }).ok
+                  }
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 mt-2"
                 >
                   <UserPlus className="w-4 h-4" />
                   <span>{isRegistering ? 'Rejestrowanie...' : 'Zarejestruj konto do zatwierdzenia'}</span>
@@ -1245,20 +1275,29 @@ export const LoginGate: React.FC<LoginGateProps> = ({
 
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Nowe hasło dostępu <span className="text-rose-400">*</span>
+                    Nowe hasło dostępu (12–128 znaków) <span className="text-rose-400">*</span>
                   </label>
                   <div className="relative">
                     <KeyRound className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                       type="password"
                       required
-                      minLength={8}
+                      minLength={12}
+                      maxLength={128}
                       value={newRecoveryPass}
                       onChange={(e) => setNewRecoveryPass(e.target.value)}
-                      placeholder="Wprowadź nowe hasło (min. 8 znaków)..."
+                      placeholder="Wprowadź nowe hasło (12–128 znaków)..."
                       className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                     />
                   </div>
+                  <PasswordRequirementsChecklist
+                    password={newRecoveryPass}
+                    context={{
+                      email: recoveryEmail,
+                      name: users.find((u) => u.email?.toLowerCase() === recoveryEmail.trim().toLowerCase())?.name,
+                    }}
+                    variant="dark"
+                  />
                 </div>
 
                 <div>
@@ -1270,19 +1309,30 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                     <input
                       type="password"
                       required
-                      minLength={8}
+                      minLength={12}
+                      maxLength={128}
                       value={confirmRecoveryPass}
                       onChange={(e) => setConfirmRecoveryPass(e.target.value)}
                       placeholder="Powtórz nowe hasło..."
                       className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                     />
                   </div>
+                  {confirmRecoveryPass.length > 0 && newRecoveryPass !== confirmRecoveryPass && (
+                    <p className="text-[11px] text-rose-400 mt-1">Wprowadzone hasła nie są identyczne.</p>
+                  )}
                 </div>
 
                 <button
                   type="submit"
-                  disabled={isRecoveryLoading || newRecoveryPass.length < 8}
-                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2"
+                  disabled={
+                    isRecoveryLoading ||
+                    !validatePassword(newRecoveryPass, {
+                      email: recoveryEmail,
+                      name: users.find((u) => u.email?.toLowerCase() === recoveryEmail.trim().toLowerCase())?.name,
+                    }).ok ||
+                    newRecoveryPass !== confirmRecoveryPass
+                  }
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2"
                 >
                   <KeyRound className="w-4 h-4" />
                   <span>{isRecoveryLoading ? 'Zapisywanie...' : 'Zapisz nowe hasło'}</span>

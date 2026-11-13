@@ -25,6 +25,7 @@ import {
   verifyAndMigratePassword,
 } from '../security.js';
 import { SessionStore } from '../sessions.js';
+import { validatePassword } from '../../utils/passwordPolicy.js';
 
 export interface AuthRoutesDeps {
   config: ServerConfig;
@@ -265,9 +266,15 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
         return res.status(404).json({ error: 'Użytkownik nie istnieje w systemie.' });
       }
 
-      const minLen = targetUser.role === 'admin' ? 12 : 8;
-      if (!newPassword || String(newPassword).length < minLen) {
-        return res.status(400).json({ error: `Nowe hasło musi zawierać co najmniej ${minLen} znaków.` });
+      const pwCheck = validatePassword(String(newPassword || ''), {
+        email: targetUser.email,
+        name: targetUser.name,
+      });
+      if (!pwCheck.ok) {
+        return res.status(400).json({
+          error: pwCheck.errors.join(' '),
+          errors: pwCheck.errors,
+        });
       }
 
       const newHash = await hashPasswordScrypt(String(newPassword));
@@ -653,8 +660,15 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
       if (!name || !email || !password) {
         return res.status(400).json({ error: 'Wszystkie pola są wymagane.' });
       }
-      if (String(password).length < 12) {
-        return res.status(400).json({ error: 'Hasło administratora musi zawierać co najmniej 12 znaków.' });
+      const pwCheck = validatePassword(String(password), {
+        name: String(name),
+        email: String(email),
+      });
+      if (!pwCheck.ok) {
+        return res.status(400).json({
+          error: pwCheck.errors.join(' '),
+          errors: pwCheck.errors,
+        });
       }
 
       const passwordHash = await hashPasswordScrypt(String(password));
@@ -737,8 +751,15 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
       if (!name || !email || !password) {
         return res.status(400).json({ error: 'Wymagane imię, e-mail i hasło.' });
       }
-      if (String(password).length < 8) {
-        return res.status(400).json({ error: 'Hasło musi zawierać co najmniej 8 znaków.' });
+      const pwCheck = validatePassword(String(password), {
+        name: String(name),
+        email: String(email),
+      });
+      if (!pwCheck.ok) {
+        return res.status(400).json({
+          error: pwCheck.errors.join(' '),
+          errors: pwCheck.errors,
+        });
       }
 
       const cleanEmail = String(email).trim().toLowerCase();

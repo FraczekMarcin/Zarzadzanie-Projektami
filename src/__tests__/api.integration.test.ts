@@ -79,7 +79,7 @@ async function setupAdmin(
     body: JSON.stringify({
       name: options.name ?? 'Admin Testowy',
       email: options.email ?? 'admin@pracownia.pl',
-      password: options.password ?? 'BezpieczneHasloAdmin123!',
+      password: options.password ?? 'Księżyc-Wiosna-2026!',
       ...(options.setupToken !== undefined ? { setupToken: options.setupToken } : {}),
     }),
   });
@@ -124,7 +124,7 @@ describe('Integracyjne testy API (server.ts)', () => {
       body: JSON.stringify({
         name: 'Drugi Admin',
         email: 'admin2@pracownia.pl',
-        password: 'BezpieczneHasloAdmin123!',
+        password: 'Księżyc-Wiosna-2026!',
       }),
     });
     expect(dupRes.status).toBe(400);
@@ -158,7 +158,7 @@ describe('Integracyjne testy API (server.ts)', () => {
     ctx = await startTestServer();
     const { res: setupRes } = await setupAdmin(ctx.baseUrl, {
       email: 'jan@pracownia.pl',
-      password: 'AdminHaslo12345!',
+      password: 'Silne-Haslo-Krakow-2026!',
     });
     expect(setupRes.status).toBe(200);
 
@@ -174,7 +174,7 @@ describe('Integracyjne testy API (server.ts)', () => {
     const loginRes = await fetch(`${ctx.baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'jan@pracownia.pl', password: 'AdminHaslo12345!' }),
+      body: JSON.stringify({ email: 'jan@pracownia.pl', password: 'Silne-Haslo-Krakow-2026!' }),
     });
     expect(loginRes.status).toBe(200);
     const setCookieHeader = loginRes.headers.get('set-cookie') || '';
@@ -289,7 +289,7 @@ describe('Integracyjne testy API (server.ts)', () => {
         name: 'Dev Jeden',
         email: 'dev1@pracownia.pl',
         role: 'developer',
-        password: 'DevPassword1!',
+        password: 'Projekt-Most-2026-Krakow!',
       }),
     });
     expect(dev1Res.status).toBe(200);
@@ -302,7 +302,7 @@ describe('Integracyjne testy API (server.ts)', () => {
         name: 'Dev Dwa',
         email: 'dev2@pracownia.pl',
         role: 'developer',
-        password: 'DevPassword2!',
+        password: 'Projekt-Tunel-2026-Gdansk!',
       }),
     });
     expect(dev2Res.status).toBe(200);
@@ -367,7 +367,7 @@ describe('Integracyjne testy API (server.ts)', () => {
     const devLogin = await fetch(`${ctx.baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'dev1@pracownia.pl', password: 'DevPassword1!' }),
+      body: JSON.stringify({ email: 'dev1@pracownia.pl', password: 'Projekt-Most-2026-Krakow!' }),
     });
     expect(devLogin.status).toBe(200);
     const devCookie = extractSessionCookie(devLogin);
@@ -476,7 +476,7 @@ describe('Integracyjne testy API (server.ts)', () => {
         body: JSON.stringify({
           name: `Użytkownik ${i}`,
           email: `user${i}@pracownia.pl`,
-          password: 'HasloUsera123!',
+          password: 'Zielony-rower-2026-xK',
         }),
       });
       expect(res.status, `Próba rejestracji #${i} powinna się powieść`).toBe(200);
@@ -488,7 +488,7 @@ describe('Integracyjne testy API (server.ts)', () => {
       body: JSON.stringify({
         name: 'Użytkownik 6',
         email: 'user6@pracownia.pl',
-        password: 'HasloUsera123!',
+        password: 'Zielony-rower-2026-xK',
       }),
     });
     expect(sixthRes.status).toBe(429);
@@ -536,7 +536,7 @@ describe('Integracyjne testy API (server.ts)', () => {
     ctx = await startTestServer();
     const { cookie: session1, data: setupData } = await setupAdmin(ctx.baseUrl, {
       email: 'anna@pracownia.pl',
-      password: 'StareHasloAdmin1!',
+      password: 'Pierwsze-Mocne-Haslo-2026!',
     });
     const userId = setupData.user.id;
 
@@ -544,7 +544,7 @@ describe('Integracyjne testy API (server.ts)', () => {
     const login2 = await fetch(`${ctx.baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'anna@pracownia.pl', password: 'StareHasloAdmin1!' }),
+      body: JSON.stringify({ email: 'anna@pracownia.pl', password: 'Pierwsze-Mocne-Haslo-2026!' }),
     });
     expect(login2.status).toBe(200);
     const session2 = extractSessionCookie(login2);
@@ -559,8 +559,8 @@ describe('Integracyjne testy API (server.ts)', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Cookie: session1 },
       body: JSON.stringify({
-        currentPassword: 'StareHasloAdmin1!',
-        newPassword: 'NoweHasloAdmin2!',
+        currentPassword: 'Pierwsze-Mocne-Haslo-2026!',
+        newPassword: 'Drugie-Mocne-Haslo-2026!',
       }),
     });
     expect(pwdRes.status).toBe(200);
@@ -568,6 +568,75 @@ describe('Integracyjne testy API (server.ts)', () => {
     // Bieżąca sesja (session1) pozostaje aktywna, ale inna sesja (session2) daje 401
     expect((await fetch(`${ctx.baseUrl}/api/auth/me`, { headers: { Cookie: session1 } })).status).toBe(200);
     expect((await fetch(`${ctx.baseUrl}/api/auth/me`, { headers: { Cookie: session2 } })).status).toBe(401);
+  });
+
+  it('egzekwuje politykę haseł przy setup-admin, rejestracji, tworzeniu użytkownika i zmianie hasła', async () => {
+    ctx = await startTestServer({ allowSelfRegistration: true });
+
+    // setup-admin z popularnym hasłem -> 400 + errors[]
+    const badSetup = await setupAdmin(ctx.baseUrl, { password: 'qwerty123456' });
+    expect(badSetup.res.status).toBe(400);
+    expect(Array.isArray(badSetup.data.errors)).toBe(true);
+    expect(badSetup.data.errors.length).toBeGreaterThan(0);
+
+    // setup-admin z poprawnym hasłem -> 200
+    const { res: okSetup, cookie: adminCookie, data: adminData } = await setupAdmin(ctx.baseUrl);
+    expect(okSetup.status).toBe(200);
+
+    // Rejestracja ze słabym hasłem -> 400 + lista powodów
+    const badReg = await fetch(`${ctx.baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Tomasz Kwiatkowski',
+        email: 't.kwiatkowski@pracownia.pl',
+        password: 'haslo123456',
+      }),
+    });
+    expect(badReg.status).toBe(400);
+    const badRegJson = await badReg.json();
+    expect(Array.isArray(badRegJson.errors)).toBe(true);
+    expect(badRegJson.errors.length).toBeGreaterThan(0);
+
+    // Rejestracja z silnym hasłem -> 200
+    const goodReg = await fetch(`${ctx.baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Tomasz Kwiatkowski',
+        email: 't.kwiatkowski@pracownia.pl',
+        password: 'Zielony-rower-2026-xK',
+      }),
+    });
+    expect(goodReg.status).toBe(200);
+
+    // Tworzenie użytkownika przez admina z hasłem zawierającym imię -> 400 + errors[]
+    const badCreateUser = await fetch(`${ctx.baseUrl}/api/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        name: 'Marek Zielinski',
+        email: 'marek@pracownia.pl',
+        role: 'developer',
+        password: 'Super-Marek-2026!',
+      }),
+    });
+    expect(badCreateUser.status).toBe(400);
+    const badCreateJson = await badCreateUser.json();
+    expect(Array.isArray(badCreateJson.errors)).toBe(true);
+
+    // Zmiana hasła na prostą sekwencję -> 400 + errors[]
+    const badPwdChange = await fetch(`${ctx.baseUrl}/api/users/${adminData.user.id}/password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        currentPassword: 'Księżyc-Wiosna-2026!',
+        newPassword: 'abcdefghijkl',
+      }),
+    });
+    expect(badPwdChange.status).toBe(400);
+    const badPwdJson = await badPwdChange.json();
+    expect(Array.isArray(badPwdJson.errors)).toBe(true);
   });
 
   it('zwraca JSON 404 dla nieznanej trasy pod /api/*', async () => {

@@ -1147,7 +1147,7 @@ export default function App() {
   };
 
   // Update user password via server scrypt endpoint
-  const handleUpdateUserPassword = async (userId: string, newPass: string, currentPass?: string) => {
+  const handleUpdateUserPassword = async (userId: string, newPass: string, currentPass?: string): Promise<boolean> => {
     try {
       const res = await fetch(`/api/users/${userId}/password`, {
         method: 'POST',
@@ -1164,11 +1164,13 @@ export default function App() {
         message: 'Hasło użytkownika zostało pomyślnie zaktualizowane na serwerze (scrypt).',
         type: 'success',
       });
+      return true;
     } catch (e: any) {
       setNotificationToast({
         message: e.message || 'Nie udało się zmienić hasła.',
         type: 'info',
       });
+      return false;
     }
   };
 
@@ -1941,6 +1943,7 @@ export default function App() {
               }
             }}
             onRefreshUsers={refreshUsersList}
+            onUpdateUserPassword={handleUpdateUserPassword}
             initialTab={settingsTab}
           />
         </Suspense>
