@@ -12,3 +12,4 @@ bun.lock
 *.test.ts
 .vscode
 backup.key
+secrets/

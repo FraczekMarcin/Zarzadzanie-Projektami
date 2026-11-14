@@ -30,6 +30,10 @@ export interface CreateAppOptions {
   storage?: string;
   publicBaseUrl?: string;
   sessionIdleMs?: number;
+  googleServiceAccountFile?: string;
+  googleCalendarId?: string;
+  googleSyncClient?: any;
+  googleSyncDisableTimers?: boolean;
 }
 
 export interface ServerConfig {
@@ -52,6 +56,8 @@ export interface ServerConfig {
   isDirectRun: boolean;
   storage: string;
   publicBaseUrl: string;
+  googleServiceAccountFile: string;
+  googleCalendarId: string;
   isSelfRegistrationAllowed: () => boolean;
   getSetupToken: () => string;
   isSetupTokenRequired: () => boolean;
@@ -131,6 +137,17 @@ export function resolveServerConfig(options: CreateAppOptions = {}): ServerConfi
     options.publicBaseUrl !== undefined ? options.publicBaseUrl : (process.env.PUBLIC_BASE_URL || '');
   const publicBaseUrl = rawPublicBaseUrl.trim().replace(/\/+$/, '');
 
+  const googleServiceAccountFile = (
+    options.googleServiceAccountFile !== undefined
+      ? options.googleServiceAccountFile
+      : (process.env.GOOGLE_SERVICE_ACCOUNT_FILE || '')
+  ).trim();
+  const googleCalendarId = (
+    options.googleCalendarId !== undefined
+      ? options.googleCalendarId
+      : (process.env.GOOGLE_CALENDAR_ID || '')
+  ).trim();
+
   const isSelfRegistrationAllowed = (): boolean => {
     if (options.allowSelfRegistration !== undefined) {
       return Boolean(options.allowSelfRegistration);
@@ -174,6 +191,8 @@ export function resolveServerConfig(options: CreateAppOptions = {}): ServerConfi
     isDirectRun: Boolean(options.isDirectRun),
     storage,
     publicBaseUrl,
+    googleServiceAccountFile,
+    googleCalendarId,
     isSelfRegistrationAllowed,
     getSetupToken,
     isSetupTokenRequired,

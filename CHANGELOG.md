@@ -3,6 +3,14 @@
 Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.0.0/), wersjonowanie zgodne z [Semantic Versioning](https://semver.org/lang/pl/).
 
+## [0.9.1] - 2026-11-14
+
+### Dodano
+- **Jednokierunkowa synchronizacja z Kalendarzem Google przez konto usługi (`src/utils/googleCalendar.ts`, `src/server/googleSync.ts`)**: dodano klienta Google Calendar API v3 opartego o wbudowany moduł `crypto` (podpis JWT RS256) i `fetch` z buforowaniem tokena, limitem 5 żądań/s, paginacją, ponawianiem po błędach `429`/`5xx`, wyliczaniem różnic (`diffEvents`, `buildEventPayload`) oraz znakowaniem zarządzanych wydarzeń flagą `zpManaged=true`, uruchamianego 30 s po starcie, z opóźnieniem 60 s po zmianie stanu i w cyklu uzgadniania co 15 min (z blokadą równoległych przebiegów).
+- **Endpointy, dziennik bezpieczeństwa i panel administratora (`src/server/routes/...`, `src/server/app.ts`, `src/utils/securityLog.ts`, `src/components/SettingsModal.tsx`)**: dodano trasy administratora `GET /api/google-sync/status` i `POST /api/google-sync/run` (`202 Accepted`), typy zdarzeń `google_sync_started`, `google_sync_completed` i `google_sync_failed` oraz sekcję *Synchronizacja z Kalendarzem Google* z ręcznym wyzwalaniem i instrukcją konfiguracji.
+- **Konfiguracja Docker i dokumentacja (`docker-compose.google.yml`, `.env.example`, `.gitignore`, `.dockerignore`, `README.md`)**: dodano opcjonalne nadpisanie Compose montujące `./secrets/google_sa.json` (bez przerywania domyślnego startu kontenera), wykluczenia katalogu `secrets/` oraz instrukcję konfiguracji i zastrzeżenie o nadpisywaniu ręcznych edycji wydarzeń `zpManaged=true`.
+- **Testy jednostkowe i integracyjne (`src/__tests__/googleCalendar.test.ts`, `src/__tests__/api.integration.test.ts`)**: dodano testy podpisu RS256, `buildEventPayload`, `diffEvents`, paginacji i ponowień po `429`, ochrony przed wyciekiem sekretów, blokady równoległości oraz pojedynczych operacji `patch`/`delete` przy zmianie i usuwaniu zadania.
+
 ## [0.9.0] - 2026-11-14
 
 ### Dodano

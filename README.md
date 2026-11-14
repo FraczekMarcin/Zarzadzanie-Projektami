@@ -323,6 +323,34 @@ Warstwa utrwalania danych korzysta z abstrakcji `StateStore` (`src/utils/stateSt
 
 ---
 
+## 📅 Jednokierunkowa synchronizacja z Kalendarzem Google (Service Account)
+
+Aplikacja obsługuje opcjonalną, automatyczną i **jednokierunkową** synchronizację zadań (z projektów niezarchiwizowanych i z pominięciem zadań anulowanych lub bez dat) do wspólnego Kalendarza Google przez konto usługi Google (RS256 JWT + REST API v3, bez zewnętrznych zależności). Gdy zmienne nie są ustawione, funkcja pozostaje wyłączona, a kontener uruchamia się normalnie.
+
+> ⚠️ **Ważne zastrzeżenie (synchronizacja jednokierunkowa):**  
+> Synchronizacja działa wyłącznie w kierunku **aplikacja ➔ Kalendarz Google**. Ręczne zmiany dokonane bezpośrednio w Kalendarzu Google na wydarzeniach zarządzanych przez aplikację (`zpManaged=true`) **zostaną nadpisane** podczas kolejnego przebiegu synchronizacji. Wydarzenia utworzone w tym samym kalendarzu poza aplikacją nie są modyfikowane ani usuwane.
+
+### Konfiguracja krok po kroku
+
+1. **Projekt i API w Google Cloud:** w Google Cloud Console utwórz (lub wybierz) projekt i włącz interfejs **Google Calendar API**.
+2. **Konto usługi i klucz JSON:** przejdź do *IAM & Admin ➔ Service Accounts*, utwórz konto usługi (np. `zp-calendar-sync`), wygeneruj klucz typu **JSON** i zapisz go bezpiecznie na serwerze:
+   ```bash
+   mkdir -p /opt/zarzadzanie-projektami/secrets
+   chmod 700 /opt/zarzadzanie-projektami/secrets
+   # skopiuj pobrany plik jako /opt/zarzadzanie-projektami/secrets/google_sa.json
+   chmod 600 /opt/zarzadzanie-projektami/secrets/google_sa.json
+   ```
+3. **Udostępnienie kalendarza kontu usługi:** w Kalendarzu Google otwórz ustawienia wybranego wspólnego kalendarza (*Ustawienia i udostępnianie*), udostępnij go adresowi e-mail konta usługi (`client_email` z pliku JSON) z uprawnieniem **Wprowadzanie zmian w wydarzeniach** (*Make changes to events*) i skopiuj wartość **Identyfikator kalendarza** (*Calendar ID*).
+4. **Konfiguracja `.env` oraz nadpisania Compose:** dopisz do `/opt/zarzadzanie-projektami/.env`:
+   ```env
+   GOOGLE_SERVICE_ACCOUNT_FILE=/run/secrets/google_sa.json
+   GOOGLE_CALENDAR_ID=twoj_identyfikator_kalendarza@group.calendar.google.com
+   COMPOSE_FILE=docker-compose.yml:docker-compose.google.yml
+   ```
+5. **Uruchomienie:** zrestartuj kontener poleceniem `docker compose up -d`. Administrator może sprawdzić status i ręcznie wyzwolić synchronizację w *Ustawienia ➔ Google Calendar ➔ Synchronizacja z Kalendarzem Google* (lub poprzez `GET /api/google-sync/status` i `POST /api/google-sync/run`).
+
+---
+
 ## 📂 Struktura katalogu `/opt/zarzadzanie-projektami`
 
 ```text

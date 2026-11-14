@@ -1,0 +1,15 @@
+# ==============================================================================
+# Opcjonalna jednokierunkowa synchronizacja zadań do wspólnego Kalendarza Google
+# Uruchomienie: dodaj do .env:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.google.yml
+# (lub w trybie HTTPS: docker-compose.yml:docker-compose.https.yml:docker-compose.google.yml)
+# Wymaga pliku ./secrets/google_sa.json na hoście oraz zmiennej GOOGLE_CALENDAR_ID.
+# ==============================================================================
+
+services:
+  app:
+    environment:
+      GOOGLE_SERVICE_ACCOUNT_FILE: ${GOOGLE_SERVICE_ACCOUNT_FILE:-/run/secrets/google_sa.json}
+      GOOGLE_CALENDAR_ID: ${GOOGLE_CALENDAR_ID:?ustaw GOOGLE_CALENDAR_ID w pliku .env}
+    volumes:
+      - ./secrets/google_sa.json:/run/secrets/google_sa.json:ro

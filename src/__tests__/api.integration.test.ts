@@ -1070,4 +1070,180 @@ describe('Integracyjne testy API (server.ts)', () => {
     });
     expect(meRes.status).toBe(401);
   });
+
+  it('Google Calendar Sync API: wyłączony bez konfiguracji, uprawnienia admina oraz 1 patch przy zmianie i 1 delete przy usunięciu', async () => {
+    // 1. Bez konfiguracji: admin widzi enabled: false i POST /run zwraca 400; zwykły użytkownik dostaje 403
+    ctx = await startTestServer({
+      googleServiceAccountFile: '',
+      googleCalendarId: '',
+      googleSyncDisableTimers: true,
+    });
+    const { cookie: adminCookie } = await setupAdmin(ctx.baseUrl);
+
+    const unauthStatus = await fetch(`${ctx.baseUrl}/api/google-sync/status`);
+    expect(unauthStatus.status).toBe(401);
+
+    const disabledStatusRes = await fetch(`${ctx.baseUrl}/api/google-sync/status`, {
+      headers: { Cookie: adminCookie },
+    });
+    expect(disabledStatusRes.status).toBe(200);
+    const disabledStatus = await disabledStatusRes.json();
+    expect(disabledStatus.enabled).toBe(false);
+
+    const disabledRunRes = await fetch(`${ctx.baseUrl}/api/google-sync/run`, {
+      method: 'POST',
+      headers: { Cookie: adminCookie },
+    });
+    expect(disabledRunRes.status).toBe(400);
+
+    // Utwórz zwykłego użytkownika i sprawdź 403
+    const createUserRes = await fetch(`${ctx.baseUrl}/api/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        name: 'Architekt Zwykły',
+        email: 'user@pracownia.pl',
+        role: 'developer',
+        password: 'Projekt-Most-2026-Krakow!',
+      }),
+    });
+    expect(createUserRes.status).toBe(200);
+    const loginUserRes = await fetch(`${ctx.baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'user@pracownia.pl',
+        password: 'Projekt-Most-2026-Krakow!',
+      }),
+    });
+    expect(loginUserRes.status).toBe(200);
+    const userCookie = extractSessionCookie(loginUserRes);
+    const nonAdminStatus = await fetch(`${ctx.baseUrl}/api/google-sync/status`, {
+      headers: { Cookie: userCookie },
+    });
+    expect(nonAdminStatus.status).toBe(403);
+
+    await ctx.close();
+    ctx = null;
+
+    // 2. Z wstrzykniętym mock klientem: admin może uruchomić synchronizację i śledzić postęp
+    const remoteEvents = new Map<string, any>();
+    let seq = 1;
+    let inserts = 0;
+    let patches = 0;
+    let deletes = 0;
+
+    const mockGoogleClient = {
+      listEvents: async () => Array.from(remoteEvents.values()),
+      insertEvent: async (payload: any) => {
+        inserts += 1;
+        const id = `gcal-${seq++}`;
+        const ev = { id, ...payload };
+        remoteEvents.set(id, ev);
+        return ev;
+      },
+      patchEvent: async (eventId: string, payload: any) => {
+        patches += 1;
+        const cur = remoteEvents.get(eventId) || { id: eventId };
+        const updated = { ...cur, ...payload };
+        remoteEvents.set(eventId, updated);
+        return updated;
+      },
+      deleteEvent: async (eventId: string) => {
+        deletes += 1;
+        remoteEvents.delete(eventId);
+      },
+    };
+
+    ctx = await startTestServer({
+      googleSyncClient: mockGoogleClient,
+      googleSyncDisableTimers: true,
+    });
+    const { cookie: admin2Cookie } = await setupAdmin(ctx.baseUrl);
+
+    const projRes = await fetch(`${ctx.baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin2Cookie },
+      body: JSON.stringify({ name: 'Dom nad Wisłą', key: 'DNW' }),
+    });
+    expect(projRes.status).toBe(201);
+    const proj = (await projRes.json()).project;
+
+    const taskRes = await fetch(`${ctx.baseUrl}/api/tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin2Cookie },
+      body: JSON.stringify({
+        projectId: proj.id,
+        title: 'Złożenie wniosku o PnB',
+        startDate: '2026-11-18',
+        dueDate: '2026-11-20',
+      }),
+    });
+    expect(taskRes.status).toBe(201);
+    const createdTask = (await taskRes.json()).task;
+
+    const triggerAndWait = async () => {
+      const runRes = await fetch(`${ctx!.baseUrl}/api/google-sync/run`, {
+        method: 'POST',
+        headers: { Cookie: admin2Cookie },
+      });
+      expect(runRes.status).toBe(202);
+      const runBody = await runRes.json();
+      expect(runBody.accepted).toBe(true);
+
+      for (let i = 0; i < 40; i += 1) {
+        const stRes = await fetch(`${ctx!.baseUrl}/api/google-sync/status`, {
+          headers: { Cookie: admin2Cookie },
+        });
+        const st = await stRes.json();
+        if (!st.running && st.lastSuccessAt) return st;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      throw new Error('Synchronizacja nie zakończyła się w oczekiwanym czasie');
+    };
+
+    const st1 = await triggerAndWait();
+    expect(st1.enabled).toBe(true);
+    expect(st1.counts).toEqual({ created: 1, updated: 0, deleted: 0 });
+    expect(inserts).toBe(1);
+    expect(patches).toBe(0);
+    expect(deletes).toBe(0);
+
+    // Edycja zadania -> 1 PATCH w Google Calendar
+    const patchTaskRes = await fetch(`${ctx.baseUrl}/api/tasks/${createdTask.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: admin2Cookie },
+      body: JSON.stringify({
+        title: 'Złożenie wniosku o PnB (zaktualizowane)',
+        expectedRevision: createdTask.revision,
+      }),
+    });
+    expect(patchTaskRes.status).toBe(200);
+
+    const st2 = await triggerAndWait();
+    expect(st2.counts).toEqual({ created: 0, updated: 1, deleted: 0 });
+    expect(patches).toBe(1);
+
+    // Usunięcie zadania -> 1 DELETE w Google Calendar
+    const delTaskRes = await fetch(`${ctx.baseUrl}/api/tasks/${createdTask.id}`, {
+      method: 'DELETE',
+      headers: { Cookie: admin2Cookie },
+    });
+    expect(delTaskRes.status).toBe(200);
+
+    const st3 = await triggerAndWait();
+    expect(st3.counts).toEqual({ created: 0, updated: 0, deleted: 1 });
+    expect(deletes).toBe(1);
+
+    // Sprawdź wpisy w dzienniku bezpieczeństwa
+    const secRes = await fetch(`${ctx.baseUrl}/api/security/events?limit=50`, {
+      headers: { Cookie: admin2Cookie },
+    });
+    expect(secRes.status).toBe(200);
+    const secJson = await secRes.json();
+    const types = (secJson.events || []).map((e: any) => e.type);
+    expect(types).toContain('google_sync_started');
+    expect(types).toContain('google_sync_completed');
+  });
 });
+

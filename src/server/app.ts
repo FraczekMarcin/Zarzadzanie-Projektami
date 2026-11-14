@@ -15,6 +15,7 @@ import { registerCommentRoutes } from './routes/comments.js';
 import { registerUserRoutes } from './routes/users.js';
 import { registerCalendarRoutes } from './routes/calendar.js';
 import { registerEventRoutes, EventRoutesHandle } from './routes/events.js';
+import { createGoogleSyncService, registerGoogleSyncRoutes } from './googleSync.js';
 import { setupStaticAndSpa } from './static.js';
 
 export type { CreateAppOptions };
@@ -30,6 +31,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
   const stateStore: StateStore = await createStateStore(config);
   const security: SecurityContext = createSecurityContext();
   const sessionStore: SessionStore = createSessionStore(config, stateStore);
+  const googleSync = createGoogleSyncService({
+    config,
+    stateStore,
+    clientOverride: options.googleSyncClient,
+    disableTimers: options.googleSyncDisableTimers,
+  });
 
   let closeStatic: (() => Promise<void>) | null = null;
   let eventsHandle: EventRoutesHandle | null = null;
@@ -39,6 +46,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
     if (closed) return;
     closed = true;
 
+    googleSync.stop();
     eventsHandle?.closeAll();
     security.destroy();
 
@@ -70,6 +78,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
     registerCommentRoutes(app, { stateStore, sessionStore });
     registerUserRoutes(app, { config, stateStore, sessionStore, security });
     registerCalendarRoutes(app, { config, stateStore, sessionStore });
+    registerGoogleSyncRoutes(app, { googleSync, sessionStore });
     eventsHandle = registerEventRoutes(app, { stateStore, sessionStore });
 
     // 404 handler dla nieznanych tras /api (dla każdej metody HTTP)

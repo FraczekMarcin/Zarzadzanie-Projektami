@@ -56,6 +56,9 @@ const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   registration: 'Wniosek rejestracyjny',
   setup_admin: 'Inicjalizacja administratora',
   origin_blocked: 'Zablokowane źródło Origin',
+  google_sync_started: 'Rozpoczęcie synchronizacji Google Calendar',
+  google_sync_completed: 'Zakończenie synchronizacji Google Calendar',
+  google_sync_failed: 'Błąd synchronizacji Google Calendar',
 };
 import { ThemeMode, getThemePreference, setThemePreference } from '../utils/theme';
 import { CURRENT_APP_VERSION, GITHUB_REPO_URL, INSTALL_COMMAND, UPDATE_COMMAND } from '../data/dockerConfig';
@@ -371,6 +374,68 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
+  // Google Service Account Sync state (admin only)
+  const [googleSyncStatus, setGoogleSyncStatus] = useState<{
+    enabled: boolean;
+    running: boolean;
+    lastSyncAt: string | null;
+    lastSuccessAt: string | null;
+    counts: { created: number; updated: number; deleted: number } | null;
+    lastError: string | null;
+  } | null>(null);
+  const [isLoadingGoogleSync, setIsLoadingGoogleSync] = useState(false);
+  const [isTriggeringGoogleSync, setIsTriggeringGoogleSync] = useState(false);
+  const [googleSyncActionMessage, setGoogleSyncActionMessage] = useState<string | null>(null);
+  const [googleSyncActionError, setGoogleSyncActionError] = useState<string | null>(null);
+
+  const loadGoogleSyncStatus = async () => {
+    if (currentUser?.role !== 'admin') return;
+    setIsLoadingGoogleSync(true);
+    try {
+      const res = await fetch('/api/google-sync/status', { credentials: 'same-origin' });
+      if (res.ok) {
+        const data = await res.json();
+        setGoogleSyncStatus(data);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setGoogleSyncActionError(errData.error || 'Błąd pobierania statusu synchronizacji Google Calendar');
+      }
+    } catch (err: any) {
+      setGoogleSyncActionError(err.message || 'Błąd połączenia z serwerem');
+    } finally {
+      setIsLoadingGoogleSync(false);
+    }
+  };
+
+  const handleTriggerGoogleSync = async () => {
+    if (currentUser?.role !== 'admin') return;
+    setIsTriggeringGoogleSync(true);
+    setGoogleSyncActionMessage(null);
+    setGoogleSyncActionError(null);
+    try {
+      const res = await fetch('/api/google-sync/run', {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setGoogleSyncActionError(data.error || 'Nie udało się uruchomić synchronizacji.');
+      } else {
+        if (data.status) {
+          setGoogleSyncStatus(data.status);
+        }
+        setGoogleSyncActionMessage(data.message || 'Uruchomiono synchronizację z Kalendarzem Google.');
+        setTimeout(() => {
+          void loadGoogleSyncStatus();
+        }, 700);
+      }
+    } catch (err: any) {
+      setGoogleSyncActionError(err.message || 'Błąd połączenia z serwerem');
+    } finally {
+      setIsTriggeringGoogleSync(false);
+    }
+  };
+
   useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab);
@@ -383,6 +448,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
     if (isOpen && activeTab === 'security') {
       loadSecurityEvents();
+    }
+    if (isOpen && activeTab === 'calendar' && currentUser?.role === 'admin') {
+      void loadGoogleSyncStatus();
     }
   }, [isOpen, activeTab, securityFilterType]);
 
@@ -1843,7 +1911,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           </tr>
                         ) : (
                           securityEvents.map((ev, idx) => {
-                            const isFailure = ev.type === 'login_failure' || ev.type === 'origin_blocked';
+                            const isFailure =
+                              ev.type === 'login_failure' ||
+                              ev.type === 'origin_blocked' ||
+                              ev.type === 'google_sync_failed';
                             const matchedUser = ev.userId ? users.find((u) => u.id === ev.userId) : undefined;
                             const label = SECURITY_EVENT_LABELS[ev.type] || ev.type;
                             const detailsText = ev.details && Object.keys(ev.details).length > 0
@@ -1869,7 +1940,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                     className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold border ${
                                       isFailure
                                         ? 'bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-800'
-                                        : ev.type === 'login_success' || ev.type === 'twofa_enabled' || ev.type === 'user_approved'
+                                        : ev.type === 'login_success' ||
+                                          ev.type === 'twofa_enabled' ||
+                                          ev.type === 'user_approved' ||
+                                          ev.type === 'google_sync_completed'
                                         ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
                                         : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
                                     }`}
@@ -2011,6 +2085,114 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <div>3. Wklej skopiowany link w polu „URL kalendarza” i kliknij „Dodaj kalendarz”. Gotowe!</div>
                   </div>
                 </div>
+
+                {currentUser?.role === 'admin' && (
+                  <div className="p-4 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl space-y-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h5 className="font-bold text-sm text-slate-900 dark:text-white">
+                            Synchronizacja z Kalendarzem Google
+                          </h5>
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold border ${
+                              googleSyncStatus?.enabled
+                                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                            }`}
+                          >
+                            {isLoadingGoogleSync && !googleSyncStatus
+                              ? 'Sprawdzanie...'
+                              : googleSyncStatus?.enabled
+                              ? googleSyncStatus.running
+                                ? 'Włączona (trwa synchronizacja)'
+                                : 'Włączona'
+                              : 'Wyłączona'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                          Opcjonalna, jednokierunkowa synchronizacja zadań (aplikacja ➔ wspólny Kalendarz Google) przez konto usługi (Service Account).
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void loadGoogleSyncStatus()}
+                          disabled={isLoadingGoogleSync}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${isLoadingGoogleSync ? 'animate-spin' : ''}`} aria-hidden="true" />
+                          <span>Odśwież status</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleTriggerGoogleSync()}
+                          disabled={!googleSyncStatus?.enabled || googleSyncStatus?.running || isTriggeringGoogleSync}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
+                        >
+                          <Cloud className="w-3.5 h-3.5" aria-hidden="true" />
+                          <span>{isTriggeringGoogleSync || googleSyncStatus?.running ? 'Synchronizowanie...' : 'Synchronizuj teraz'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {googleSyncActionMessage && (
+                      <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg text-emerald-800 dark:text-emerald-300 text-xs flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden="true" />
+                        <span>{googleSyncActionMessage}</span>
+                      </div>
+                    )}
+
+                    {(googleSyncActionError || googleSyncStatus?.lastError) && (
+                      <div role="alert" className="p-2.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-lg text-rose-700 dark:text-rose-300 text-xs flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
+                        <span>{googleSyncActionError || googleSyncStatus?.lastError}</span>
+                      </div>
+                    )}
+
+                    {googleSyncStatus?.enabled ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                        <div className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">Ostatnia synchronizacja</div>
+                          <div className="font-mono font-semibold text-slate-900 dark:text-white mt-0.5">
+                            {googleSyncStatus.lastSyncAt
+                              ? new Date(googleSyncStatus.lastSyncAt).toLocaleString('pl-PL')
+                              : 'Jeszcze nie uruchomiono'}
+                          </div>
+                          {googleSyncStatus.lastSuccessAt && (
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                              Ostatni sukces: {new Date(googleSyncStatus.lastSuccessAt).toLocaleString('pl-PL')}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">Liczniki ostatniego przebiegu</div>
+                          {googleSyncStatus.counts ? (
+                            <div className="flex flex-wrap gap-3 mt-1 font-semibold text-slate-900 dark:text-white">
+                              <span>Utworzone: {googleSyncStatus.counts.created}</span>
+                              <span>Zmienione: {googleSyncStatus.counts.updated}</span>
+                              <span>Usunięte: {googleSyncStatus.counts.deleted}</span>
+                            </div>
+                          ) : (
+                            <div className="text-slate-600 dark:text-slate-400 mt-1">Brak danych z przebiegu</div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-300 space-y-1.5">
+                        <div className="font-semibold text-slate-800 dark:text-slate-100">
+                          Jak włączyć synchronizację po stronie serwera:
+                        </div>
+                        <div>1. W Google Cloud Console utwórz projekt, włącz API <strong className="font-mono">Google Calendar API</strong> oraz utwórz konto usługi (Service Account) z kluczem JSON.</div>
+                        <div>2. Zapisz pobrany klucz w <code className="font-mono">secrets/google_sa.json</code> na serwerze (<code className="font-mono">chmod 600</code>).</div>
+                        <div>3. Udostępnij wybrany Kalendarz Google adresowi e-mail konta usługi z uprawnieniem <strong className="font-semibold">Wprowadzanie zmian w wydarzeniach</strong>.</div>
+                        <div>4. Ustaw w <code className="font-mono">.env</code> zmienne <code className="font-mono">GOOGLE_SERVICE_ACCOUNT_FILE=/run/secrets/google_sa.json</code>, <code className="font-mono">GOOGLE_CALENDAR_ID</code> oraz <code className="font-mono">COMPOSE_FILE=docker-compose.yml:docker-compose.google.yml</code>, a następnie wykonaj <code className="font-mono">docker compose up -d</code>.</div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
