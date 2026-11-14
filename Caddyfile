@@ -1,3 +1,7 @@
+{
+	default_sni {$APP_HOST}
+}
+
 {$APP_HOST} {
 	tls internal
 	encode gzip

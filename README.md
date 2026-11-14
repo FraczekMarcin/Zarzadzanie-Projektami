@@ -75,6 +75,17 @@ docker compose down
 docker compose up -d --build
 ```
 
+### 6. Diagnostyka
+Jeśli po uruchomieniu trybu HTTPS adres `https://<APP_HOST>` nie odpowiada lub zgłasza błąd TLS, sprawdź logi serwera Caddy oraz handshake TLS:
+```bash
+docker compose logs caddy --tail 40
+openssl s_client -connect <APP_HOST>:443 -servername <APP_HOST>
+```
+
+- **Połączenia po adresie IP (`default_sni`):** Klienci TLS (np. `curl` lub przeglądarki) łączący się bezpośrednio po adresie IP zazwyczaj nie wysyłają rozszerzenia SNI. Dyrektywa `default_sni {$APP_HOST}` w pliku `Caddyfile` wskazuje serwerowi Caddy domyślny host i certyfikat do użycia w takich połączeniach.
+- **Zalecenie dla sieci lokalnej:** W razie problemów z obsługą TLS dla surowego adresu IP użyj lokalnej nazwy hosta (np. `APP_HOST=projekty.lan` skonfigurowanej w lokalnym DNS routera lub w `/etc/hosts` na stanowiskach pracy) zamiast adresu IP.
+- **Ostrzeżenie dotyczące `git stash`:** Lokalnych zmian w pliku `Caddyfile` nie odkładaj przez `git stash`, ponieważ przywróci to plik do wersji z repozytorium.
+
 ---
 
 ## 🚀 Główne moduły i możliwości
@@ -159,7 +170,7 @@ Przed wykonaniem aktualizacji na serwerze produkcyjnym sprawdź, czy ostatni com
 
 Pojedyncze, bezpieczne polecenie aktualizacji z automatyczną kopią zapasową (działa identycznie w trybie HTTP i HTTPS, ponieważ przy włączonym HTTPS zmienna `COMPOSE_FILE` jest zdefiniowana w pliku `.env`):
 ```bash
-cd /opt/zarzadzanie-projektami && ./backup.sh && git pull origin main && docker compose up -d --build
+cd /opt/zarzadzanie-projektami && /bin/bash backup.sh && git pull origin main && docker compose up -d --build
 ```
 
 ⚠️ **Ważne ostrzeżenie:** Nigdy nie uruchamiaj polecenia `docker compose down -v` (flaga `-v` usuwa wolumeny). Do standardowego zatrzymania używaj zawsze samego `docker compose down`.
@@ -247,7 +258,7 @@ W razie błędu kopiowania poza serwerem kopia lokalna **nie jest usuwana** — 
 
 Skrypt `restore-test.sh` automatycznie weryfikuje, czy kopia zapasowa rzeczywiście uruchamia aplikację i poprawnie odszyfrowuje sekrety 2FA:
 
-1. Pobiera najnowszą kopię z `BACKUP_DIR` (lub plik wskazany w argumencie: `./restore-test.sh /ścieżka/do/kopii`).
+1. Pobiera najnowszą kopię z `BACKUP_DIR` (lub plik wskazany w argumencie: `/bin/bash /opt/zarzadzanie-projektami/restore-test.sh /ścieżka/do/kopii`).
 2. Jeśli kopia ma rozszerzenie `.enc`, odszyfrowuje ją z użyciem `BACKUP_PASSPHRASE_FILE`.
 3. Rozpakowuje archiwum, sprawdza poprawność JSON (`jq` lub `node`), wgrywa `app_state.json` do tymczasowego wolumenu Dockera i uruchamia izolowany kontener bez publikowania portów (z `APP_SECRET` z `.env`).
 4. Sprawdza endpoint `/api/health`, brak błędów odszyfrowania sekretów oraz odczytuje z logów liczbę zadań i użytkowników, a następnie zawsze usuwa tymczasowy kontener i wolumen.
@@ -334,12 +345,12 @@ Warstwa utrwalania danych korzysta z abstrakcji `StateStore` (`src/utils/stateSt
 Instalator automatycznie tworzy wpis w pliku `/etc/cron.d/zarzadzanie-projektami-backup`:
 ```cron
 # Codzienna kopia zapasowa pliku app_state.json o 02:00 w nocy (kompresja gzip, walidacja, retencja min. 7 kopii)
-0 2 * * * root /opt/zarzadzanie-projektami/backup.sh >/dev/null 2>&1
+0 2 * * * root /bin/bash /opt/zarzadzanie-projektami/backup.sh >> /var/log/zarzadzanie-backup.log 2>&1
 ```
 
 Ręczne wykonanie kopii stanu w dowolnym momencie:
 ```bash
-sudo /opt/zarzadzanie-projektami/backup.sh
+sudo /bin/bash /opt/zarzadzanie-projektami/backup.sh
 ```
 
 ---

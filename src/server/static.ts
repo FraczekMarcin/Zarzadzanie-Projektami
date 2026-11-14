@@ -57,9 +57,9 @@ export async function setupStaticAndSpa(
         },
       }));
 
-      // Fallback to index.html for SPA client routing (wyłącznie metoda GET poza /api) - Cache-Control: no-cache
+      // Fallback to index.html for SPA client routing (wyłącznie metody GET i HEAD poza /api) - Cache-Control: no-cache
       app.use((req, res, next) => {
-        if (req.method !== 'GET') return next();
+        if (req.method !== 'GET' && req.method !== 'HEAD') return next();
         if (req.path.startsWith('/api')) return next();
 
         res.setHeader('Content-Type', 'text/html; charset=utf-8');

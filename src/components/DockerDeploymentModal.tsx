@@ -266,10 +266,10 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
                 Instalator dodaje zadanie w <code className="font-mono text-slate-800 bg-slate-100 px-1 rounded">/etc/cron.d/zarzadzanie-projektami-backup</code>, które codziennie o 02:00 wykonuje kompresję gzip, walidację integralności oraz rotację starych kopii z zachowaniem minimum 7 ostatnich zrzutów.
               </p>
               <div className="bg-slate-900 text-slate-200 rounded-lg p-3 font-mono text-xs flex items-center justify-between">
-                <code>/opt/zarzadzanie-projektami/backup.sh</code>
+                <code>/bin/bash /opt/zarzadzanie-projektami/backup.sh</code>
                 <button
                   type="button"
-                  onClick={() => handleCopy('/opt/zarzadzanie-projektami/backup.sh', 'cron-backup')}
+                  onClick={() => handleCopy('/bin/bash /opt/zarzadzanie-projektami/backup.sh', 'cron-backup')}
                   className="flex items-center gap-1 text-sky-400 hover:text-sky-300 text-xs"
                 >
                   {copiedKey === 'cron-backup' ? <Check className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true" /> : <Copy className="w-3.5 h-3.5" aria-hidden="true" />}

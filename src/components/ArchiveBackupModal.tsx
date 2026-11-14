@@ -441,7 +441,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
     reader.readAsText(file);
   };
 
-  const cronSnippet = `0 2 * * * root ${INSTALL_TARGET_DIR}/backup.sh >/dev/null 2>&1`;
+  const cronSnippet = `0 2 * * * root /bin/bash ${INSTALL_TARGET_DIR}/backup.sh >> /var/log/zarzadzanie-backup.log 2>&1`;
 
   const handleCopyCron = async () => {
     await copyToClipboard(cronSnippet);

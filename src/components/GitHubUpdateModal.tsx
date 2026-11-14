@@ -42,23 +42,19 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
 
   const updateSteps = [
     {
-      title: 'Krok 1: Kopia zapasowa bazy danych (./backup.sh)',
+      title: 'Krok 1: Kopia zapasowa bazy danych (/bin/bash backup.sh)',
       desc: 'Wykonanie skompresowanej i zweryfikowanej kopii pliku app_state.json w katalogu backups/.',
     },
     {
-      title: 'Krok 2: Zabezpieczenie lokalnych zmian (git stash)',
-      desc: 'Ukrycie ewentualnych lokalnych modyfikacji (jeśli istnieją), aby git pull wykonał się bez konfliktów.',
-    },
-    {
-      title: 'Krok 3: Pobranie najnowszego kodu (git pull origin main)',
+      title: 'Krok 2: Pobranie najnowszego kodu (git pull origin main)',
       desc: 'Pobranie najnowszych zmian z oficjalnego repozytorium GitHub.',
     },
     {
-      title: 'Krok 4: Przebudowa i start kontenerów (docker compose up -d --build)',
+      title: 'Krok 3: Przebudowa i start kontenerów (docker compose up -d --build)',
       desc: 'Uruchomienie nowej wersji z zachowaniem dotychczasowego wolumenu danych zarzadzanie_app_data.',
     },
     {
-      title: 'Krok 5: Weryfikacja działania usług (docker compose ps)',
+      title: 'Krok 4: Weryfikacja działania usług (docker compose ps)',
       desc: 'Sprawdzenie czy kontener zarzadzanie_app działa i odpowiada prawidłowo.',
     },
   ];
@@ -66,24 +62,25 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
   const handleRunSimulation = () => {
     setUpdating(true);
     setCurrentStep(1);
+    const totalSteps = updateSteps.length;
 
     const stepInterval = setInterval(() => {
       setCurrentStep((prev) => {
-        if (prev >= 5) {
+        if (prev >= totalSteps) {
           clearInterval(stepInterval);
           setUpdating(false);
           setIsDone(true);
           if (onUpdateCompleted) {
             onUpdateCompleted();
           }
-          return 5;
+          return totalSteps;
         }
         return prev + 1;
       });
     }, 850);
   };
 
-  const terminalUpdateCommand = `cd ${INSTALL_TARGET_DIR} && ./backup.sh && git stash && git pull origin main && docker compose up -d --build && docker compose ps`;
+  const terminalUpdateCommand = `cd ${INSTALL_TARGET_DIR} && /bin/bash backup.sh && git pull origin main && docker compose up -d --build && docker compose ps`;
 
   const handleCopyCommand = async () => {
     const success = await copyToClipboard(terminalUpdateCommand);
@@ -259,8 +256,7 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
               <div className="bg-slate-950 text-slate-200 rounded-lg p-3 font-mono text-[11px] space-y-1 overflow-x-auto">
                 <div className="text-slate-400 font-sans text-[10px]"># Komenda terminala na serwerze produkcyjnym Linux:</div>
                 <div className="text-sky-300">cd {INSTALL_TARGET_DIR}</div>
-                <div className="text-emerald-400">./backup.sh</div>
-                <div className="text-slate-400">git stash # (jeśli są lokalne zmiany)</div>
+                <div className="text-emerald-400">/bin/bash backup.sh</div>
                 <div className="text-amber-300">git pull origin main</div>
                 <div className="text-emerald-300 font-bold">docker compose up -d --build</div>
                 <div className="text-sky-400">docker compose ps</div>

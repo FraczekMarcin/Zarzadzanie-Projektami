@@ -158,6 +158,9 @@ if [ "$ENABLE_BACKUP_ENCRYPTION" = "t" ] && [ ! -f "$BACKUP_KEY_FILE" ]; then
 fi
 
 # 7. Konfiguracja automatycznego skryptu kopii zapasowych w cronie
+if command -v git &>/dev/null && [ -d .git ]; then
+    git config core.fileMode false || true
+fi
 if [ -f backup.sh ]; then
     chmod +x backup.sh
 fi
@@ -166,14 +169,22 @@ if [ -f restore-test.sh ]; then
 fi
 
 CRON_FILE="/etc/cron.d/zarzadzanie-projektami-backup"
-if [ -d /etc/cron.d ] && [ ! -f "$CRON_FILE" ]; then
-    if [ -f "$BACKUP_KEY_FILE" ]; then
-        echo "0 2 * * * root BACKUP_PASSPHRASE_FILE=${BACKUP_KEY_FILE} ${INSTALL_DIR}/backup.sh >/dev/null 2>&1" > "$CRON_FILE"
-    else
-        echo "0 2 * * * root ${INSTALL_DIR}/backup.sh >/dev/null 2>&1" > "$CRON_FILE"
+if [ -f "$BACKUP_KEY_FILE" ]; then
+    CRON_LINE="0 2 * * * root BACKUP_PASSPHRASE_FILE=${BACKUP_KEY_FILE} /bin/bash ${INSTALL_DIR}/backup.sh >> /var/log/zarzadzanie-backup.log 2>&1"
+else
+    CRON_LINE="0 2 * * * root /bin/bash ${INSTALL_DIR}/backup.sh >> /var/log/zarzadzanie-backup.log 2>&1"
+fi
+
+if [ -d /etc/cron.d ]; then
+    if [ ! -f "$CRON_FILE" ]; then
+        printf '%s\n' "$CRON_LINE" > "$CRON_FILE"
+        chmod 644 "$CRON_FILE"
+        echo -e "${GREEN}Automatyczne kopie zapasowe skonfigurowane w cronie: codziennie o 02:00.${NC}"
+    elif grep -q "backup\.sh" "$CRON_FILE" && ! grep -qE "/bin/bash[[:space:]]+.*backup\.sh" "$CRON_FILE"; then
+        printf '%s\n' "$CRON_LINE" > "$CRON_FILE"
+        chmod 644 "$CRON_FILE"
+        echo -e "${YELLOW}Zaktualizowano wpis crona (${CRON_FILE}): dodano jawne wywołanie /bin/bash i logowanie do /var/log/zarzadzanie-backup.log.${NC}"
     fi
-    chmod 644 "$CRON_FILE"
-    echo -e "${GREEN}Automatyczne kopie zapasowe skonfigurowane w cronie: codziennie o 02:00.${NC}"
 fi
 
 # 8. Opcjonalna konfiguracja HTTPS dla sieci lokalnej (Caddy)
@@ -236,6 +247,24 @@ fi
 echo -e "${BLUE}==> Uruchamianie kontenerów Zarządzanie Projektami...${NC}"
 $DOCKER_CMD up -d --build
 
+if [ "$ENABLE_HTTPS" = "t" ]; then
+    echo -e "${BLUE}==> Oczekiwanie na gotowość HTTPS (do 30 s)...${NC}"
+    HTTPS_STATUS="000"
+    for _ in $(seq 1 15); do
+        HTTPS_STATUS=$(curl -sk -o /dev/null -w '%{http_code}' "https://${APP_HOST}/api/health" || true)
+        if [ "$HTTPS_STATUS" = "200" ]; then
+            break
+        fi
+        sleep 2
+    done
+    if [ "$HTTPS_STATUS" != "200" ]; then
+        echo -e "${YELLOW}Ostrzeżenie: Sprawdzenie HTTPS (https://${APP_HOST}/api/health) zwróciło kod HTTP ${HTTPS_STATUS:-000} (oczekiwano 200).${NC}"
+        echo -e "${YELLOW}Instalacja nie została przerwana. Polecenia diagnostyczne:${NC}"
+        echo -e "  ${YELLOW}docker compose logs caddy --tail 40${NC}"
+        echo -e "  ${YELLOW}openssl s_client -connect ${APP_HOST}:443 -servername ${APP_HOST}${NC}"
+    fi
+fi
+
 INSTALLED_VERSION=$(cat VERSION 2>/dev/null | tr -d '\r\n' || echo "brak")
 echo -e "${GREEN}=================================================================${NC}"
 echo -e "${GREEN}  ✅ WDROŻENIE ZAKOŃCZONE SUKCESEM!${NC}"
@@ -262,10 +291,10 @@ echo -e "🛡️  Trwałość danych: Wolumen '${BLUE}zarzadzanie_app_data${NC}'
 echo -e "💾  Kopie zapasowe: Skonfigurowane w '${BLUE}${INSTALL_DIR}/backups${NC}'."
 echo -e "Zarządzanie:"
 echo -e "  - Podgląd logów:           ${YELLOW}cd ${INSTALL_DIR} && $DOCKER_CMD logs -f${NC}"
-echo -e "  - Aktualizacja z GitHub:   ${YELLOW}cd ${INSTALL_DIR} && ./backup.sh && git pull origin main && $DOCKER_CMD up -d --build${NC}"
+echo -e "  - Aktualizacja z GitHub:   ${YELLOW}cd ${INSTALL_DIR} && /bin/bash backup.sh && git pull origin main && $DOCKER_CMD up -d --build${NC}"
 if [ "$ENABLE_HTTPS" = "t" ]; then
 echo -e "    ${BLUE}(Nota: COMPOSE_FILE jest ustawione w .env – komenda automatycznie stosuje plik override HTTPS)${NC}"
 fi
-echo -e "  - Ręczna kopia zapasowa:   ${YELLOW}${INSTALL_DIR}/backup.sh${NC}"
+echo -e "  - Ręczna kopia zapasowa:   ${YELLOW}/bin/bash ${INSTALL_DIR}/backup.sh${NC}"
 echo -e "  - Zatrzymanie:             ${YELLOW}cd ${INSTALL_DIR} && $DOCKER_CMD down${NC}"
 echo -e "${GREEN}=================================================================${NC}"

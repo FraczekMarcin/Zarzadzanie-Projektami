@@ -676,6 +676,35 @@ describe('Integracyjne testy API (server.ts)', () => {
     }
   });
 
+  it('obsługuje HEAD / (200 text/html), nie zwraca index.html dla POST / oraz zwraca 404 dla HEAD /api/nieistnieje', async () => {
+    const fakeStaticDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zp-static-head-'));
+    try {
+      fs.writeFileSync(path.join(fakeStaticDir, 'index.html'), '<!doctype html><html><body>SPA</body></html>', 'utf-8');
+      ctx = await startTestServer({ isProduction: true, staticDir: fakeStaticDir });
+
+      const headRoot = await fetch(`${ctx.baseUrl}/`, { method: 'HEAD' });
+      expect(headRoot.status).toBe(200);
+      expect(headRoot.headers.get('content-type')).toContain('text/html');
+      expect(await headRoot.text()).toBe('');
+
+      const postRoot = await fetch(`${ctx.baseUrl}/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const postText = await postRoot.text();
+      expect(postRoot.status).not.toBe(200);
+      expect(postText).not.toContain('<!doctype html>');
+      expect(postText).not.toContain('SPA');
+
+      const headApiUnknown = await fetch(`${ctx.baseUrl}/api/nieistnieje`, { method: 'HEAD' });
+      expect(headApiUnknown.status).toBe(404);
+      expect(await headApiUnknown.text()).toBe('');
+    } finally {
+      fs.rmSync(fakeStaticDir, { recursive: true, force: true });
+    }
+  });
+
   it('wykonuje 100 kolejnych żądań POST /api/tasks w czasie poniżej 5 sekund', { timeout: 15000 }, async () => {
     ctx = await startTestServer();
     const { cookie } = await setupAdmin(ctx.baseUrl);

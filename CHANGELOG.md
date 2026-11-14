@@ -15,6 +15,15 @@ Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.0.0/), wersj
 - **Abstrakcja magazynu danych (`src/utils/stateStore.ts`)**: interfejs `StateStore` z implementacjami `JsonFileStateStore` (atomowy zapis `fsync` + `rename`, migracja sekretów) i `MemoryStateStore` oraz wyborem przez zmienną `STORAGE`.
 - **Jedno źródło prawdy dla wersji**: odczyt wersji wyłącznie z pliku `VERSION` (`vite.config.ts` → `__APP_VERSION__` dla frontendu oraz `getLocalInstalledVersion()` dla backendu).
 
+### Naprawiono
+- **Obsługa SNI przy połączeniach HTTPS po adresie IP (`Caddyfile`)**: dodano globalną dyrektywę `default_sni {$APP_HOST}`, dzięki której Caddy dopasowuje właściwy certyfikat TLS także wtedy, gdy klient łączący się po adresie IP nie wysyła nagłówka SNI.
+- **Healthcheck kontenera Caddy (`docker-compose.https.yml`)**: zmieniono sondę na żądanie HTTP `GET` pod adresem `127.0.0.1:2019/config/` z interwałem `10s`, zapewniając stabilny stan `healthy` w ok. 30 s od uruchomienia.
+- **Obsługa zapytań `HEAD /` w trybie produkcyjnym (`src/server/static.ts`)**: dopuszczono metodę `HEAD` w fallbacku SPA (zwraca `200` i `Content-Type: text/html`), pozostawiając odrzucanie metod mutujących (np. `POST /`) oraz `404` dla nieznanych tras `/api/*`.
+- **Polecenia aktualizacji bez `./backup.sh` i `git stash`**: zastąpiono wywołanie `./backup.sh` jawnym `/bin/bash backup.sh` w `README.md`, `install.sh`, `src/data/dockerConfig.ts`, `src/components/GitHubUpdateModal.tsx` oraz modalach wdrożenia/kopii, a także usunięto `git stash` z kreatora aktualizacji.
+- **Konfiguracja crona kopii zapasowych i uprawnień gita w `install.sh`**: ustandaryzowano wpis `/etc/cron.d/zarzadzanie-projektami-backup` do formatu z `/bin/bash`, pełną ścieżką i logowaniem do `/var/log/zarzadzanie-backup.log`, dodano automatyczną migrację istniejących wpisów bez `/bin/bash` oraz ustawienie `git config core.fileMode false` w katalogu repozytorium.
+- **Weryfikacja gotowości HTTPS po instalacji (`install.sh`)**: dodano oczekiwanie do 30 s na odpowiedź `200` z `https://${APP_HOST}/api/health` oraz wypisywanie ostrzeżenia z poleceniami diagnostycznymi (`docker compose logs caddy --tail 40`, `openssl s_client`) bez przerywania instalacji.
+- **Dokumentacja diagnostyki HTTPS (`README.md`)**: dodano podsekcję `Diagnostyka` z poleceniami weryfikacji Caddy i TLS, opisem roli `default_sni` dla adresów IP, zaleceniem użycia nazwy hosta (np. `projekty.lan`) oraz ostrzeżeniem przed użyciem `git stash` na lokalnie zmienionym pliku `Caddyfile`.
+
 ## [0.5.0] - 2026-11-06
 
 ### Dodano
