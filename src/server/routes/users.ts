@@ -29,7 +29,7 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
   const { config, stateStore, sessionStore, security } = deps;
   const { effectiveAppSecret } = config;
   const { securityLogger } = stateStore;
-  const { sessions, saveSessionsAsync, getSessionFromReq, requireAuth, requireAdmin } = sessionStore;
+  const { saveSessionsAsync, getSessionFromReq, revokeUserSessions, requireAuth, requireAdmin } = sessionStore;
   const { isRateLimited, registerFailedLogin, resetFailedLogin } = security;
 
   // DELETE /api/users/:userId/sessions (Admin)
@@ -41,14 +41,7 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
       return res.status(404).json({ error: `Użytkownik o ID "${userId}" nie istnieje` });
     }
 
-    let revokedCount = 0;
-    for (const [tokenHash, s] of sessions.entries()) {
-      if (s.userId === userId) {
-        sessions.delete(tokenHash);
-        revokedCount++;
-      }
-    }
-
+    const revokedCount = revokeUserSessions(userId);
     await saveSessionsAsync();
 
     securityLogger.record('session_revoked', {
@@ -136,14 +129,7 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
       await stateStore.saveStateAtomicAsync();
 
       const currentSession = getSessionFromReq(req);
-      for (const [tokenHash, session] of sessions.entries()) {
-        if (session.userId === targetUser.id) {
-          if (isSelf && tokenHash === currentSession?.tokenHash) {
-            continue;
-          }
-          sessions.delete(tokenHash);
-        }
-      }
+      revokeUserSessions(targetUser.id, isSelf ? currentSession?.tokenHash : undefined);
       saveSessionsAsync();
 
       securityLogger.record('password_changed', {
@@ -274,11 +260,7 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
       await stateStore.saveStateAtomicAsync();
 
       const currentSession = getSessionFromReq(req);
-      for (const [tokenHash, session] of sessions.entries()) {
-        if (session.userId === targetUser.id && tokenHash !== currentSession?.tokenHash) {
-          sessions.delete(tokenHash);
-        }
-      }
+      revokeUserSessions(targetUser.id, currentSession?.tokenHash);
       saveSessionsAsync();
 
       securityLogger.record('twofa_enabled', {
@@ -371,11 +353,7 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
       await stateStore.saveStateAtomicAsync();
 
       if (!isSelf) {
-        for (const [token, session] of sessions.entries()) {
-          if (session.userId === targetUser.id) {
-            sessions.delete(token);
-          }
-        }
+        revokeUserSessions(targetUser.id);
         saveSessionsAsync();
       }
 
@@ -438,6 +416,8 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
       updatedAt: new Date().toISOString(),
     });
     await stateStore.saveStateAtomicAsync();
+    revokeUserSessions(userId);
+    saveSessionsAsync();
 
     securityLogger.record('user_deleted', {
       userId,

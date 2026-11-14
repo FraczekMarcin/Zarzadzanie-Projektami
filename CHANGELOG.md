@@ -3,6 +3,16 @@
 Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.0.0/), wersjonowanie zgodne z [Semantic Versioning](https://semver.org/lang/pl/).
 
+## [0.9.0] - 2026-11-14
+
+### Dodano
+- **Strumień zdarzeń SSE (`src/server/routes/events.ts`, `src/server/state.ts`, `src/server/sessions.ts`)**: dodano uwierzytelniony endpoint `GET /api/events` (`text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive`, `X-Accel-Buffering: no`) wysyłający zdarzenie `revision` przy połączeniu i po każdej zmianie rewizji stanu oraz komentarz `: keep-alive` co 25 s, z limitem 5 jednoczesnych strumieni na użytkownika (`429`) i automatycznym zamykaniem po wygaśnięciu lub unieważnieniu sesji bez odświeżania `lastSeenAt`.
+- **Testy integracyjne SSE (`src/__tests__/api.integration.test.ts`)**: dodano weryfikację odrzucania żądań bez sesji (`401`), dostarczania zdarzeń `revision` do wielu klientów poniżej 1 s, limitu 5 połączeń (`429`) oraz zamykania strumieni po wylogowaniu i wygaśnięciu sesji.
+
+### Zmieniono
+- **Synchronizacja stanu w przeglądarce (`src/App.tsx`)**: zastąpiono stałe odpytywanie `GET /api/state/revision` co 15 s strumieniem `EventSource('/api/events')` z automatycznym przejściem na rezerwowe odpytywanie co 15 s po 3 błędach połączenia, powrotem do SSE po udanym połączeniu oraz zamykaniem strumienia przy wylogowaniu i odpowiedzi `401`.
+- **Konfiguracja serwera i proxy (`src/server/security.ts`, `src/server/app.ts`, `src/server/routes/auth.ts`, `src/server/routes/users.ts`, `Caddyfile`)**: wyłączono buforującą kompresję dla `/api/events`, powiązano unieważnianie sesji ze zamykaniem strumieni SSE oraz dodano `flush_interval -1` w bloku `reverse_proxy` pliku `Caddyfile`.
+
 ## [0.8.2] - 2026-11-14
 
 ### Dodano

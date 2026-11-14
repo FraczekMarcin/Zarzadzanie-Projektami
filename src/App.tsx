@@ -261,12 +261,21 @@ export default function App() {
 
   // Kolejka debouncingu 500 ms dla aktualizacji wielu pól jednego zadania
   const taskPatchDebounceTimers = useRef<Map<string, { timer: any; patch: Partial<Task>; baseRevision: number }>>(new Map());
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  const closeEventSource = () => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+  };
 
   // Pobranie świeżego stanu z serwera (z zachowaniem otwartego formularza edycji)
   const fetchFreshState = async (showNotification = false) => {
     try {
       const res = await fetch('/api/state', { credentials: 'same-origin' });
       if (res.status === 401) {
+        closeEventSource();
         setIsAuthenticated(false);
         localStorage.removeItem('oph_is_authenticated');
         return;
@@ -323,30 +332,153 @@ export default function App() {
     fetchFreshState(false);
   }, [isAuthenticated]);
 
-  // Odświeżanie: klient co 15 s odpytuje lekki endpoint GET /api/state/revision
-  // Zatrzymanie odpytywania gdy karta w tle (document.hidden)
+  // Strumień zdarzeń SSE (/api/events) z rezerwą odpytywania co 15 s po 3 nieudanych próbach
   useEffect(() => {
-    if (!isAuthenticated) return;
-    const interval = setInterval(async () => {
-      if (document.hidden) return;
+    if (!isAuthenticated) {
+      closeEventSource();
+      return;
+    }
+
+    let disposed = false;
+    let consecutiveErrors = 0;
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+    let retryClosedTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const stopFallbackPolling = () => {
+      if (fallbackInterval) {
+        clearInterval(fallbackInterval);
+        fallbackInterval = null;
+      }
+    };
+
+    const clearRetryClosedTimer = () => {
+      if (retryClosedTimer) {
+        clearTimeout(retryClosedTimer);
+        retryClosedTimer = null;
+      }
+    };
+
+    const pollRevisionOnce = async (): Promise<boolean> => {
       try {
         const res = await fetch('/api/state/revision', { credentials: 'same-origin' });
         if (res.status === 401) {
+          closeEventSource();
+          stopFallbackPolling();
+          clearRetryClosedTimer();
           setIsAuthenticated(false);
           localStorage.removeItem('oph_is_authenticated');
-          return;
+          return false;
         }
-        if (!res.ok) return;
+        if (!res.ok) return false;
         const data = await res.json();
         if (typeof data.revision === 'number' && data.revision > stateRevisionRef.current) {
           await fetchFreshState(true);
         }
+        return true;
       } catch (err) {
         console.warn('Błąd odpytywania rewizji:', err);
+        return false;
       }
-    }, 15000);
+    };
 
-    return () => clearInterval(interval);
+    const startFallbackPolling = () => {
+      if (disposed || fallbackInterval) return;
+      fallbackInterval = setInterval(async () => {
+        if (disposed || document.hidden) return;
+        const ok = await pollRevisionOnce();
+        if (
+          ok &&
+          !disposed &&
+          typeof EventSource !== 'undefined' &&
+          (!eventSourceRef.current || eventSourceRef.current.readyState === EventSource.CLOSED)
+        ) {
+          connectSse();
+        }
+      }, 15000);
+    };
+
+    const connectSse = () => {
+      if (disposed) return;
+      clearRetryClosedTimer();
+      closeEventSource();
+
+      if (typeof EventSource === 'undefined') {
+        startFallbackPolling();
+        return;
+      }
+
+      const es = new EventSource('/api/events');
+      eventSourceRef.current = es;
+
+      es.onopen = () => {
+        if (disposed) {
+          es.close();
+          return;
+        }
+        consecutiveErrors = 0;
+        stopFallbackPolling();
+      };
+
+      es.addEventListener('revision', (event: MessageEvent) => {
+        if (disposed) return;
+        consecutiveErrors = 0;
+        stopFallbackPolling();
+
+        let incomingRevision: number | null = null;
+        try {
+          const parsed = JSON.parse(String(event.data));
+          if (typeof parsed === 'number') {
+            incomingRevision = parsed;
+          } else if (parsed && typeof parsed.revision === 'number') {
+            incomingRevision = parsed.revision;
+          }
+        } catch {
+          const parsedNum = Number(event.data);
+          if (!Number.isNaN(parsedNum)) {
+            incomingRevision = parsedNum;
+          }
+        }
+
+        if (incomingRevision !== null && incomingRevision > stateRevisionRef.current) {
+          void fetchFreshState(true);
+        }
+      });
+
+      es.onerror = () => {
+        if (disposed) return;
+        consecutiveErrors += 1;
+
+        const isClosed = es.readyState === EventSource.CLOSED;
+        if (isClosed) {
+          if (eventSourceRef.current === es) {
+            eventSourceRef.current = null;
+          }
+          // Sprawdź, czy powodem zamknięcia nie jest 401 (wygasła/unieważniona sesja)
+          void pollRevisionOnce().then((ok) => {
+            if (disposed) return;
+            if (ok && consecutiveErrors < 3 && !retryClosedTimer) {
+              retryClosedTimer = setTimeout(() => {
+                retryClosedTimer = null;
+                connectSse();
+              }, 2000);
+            }
+          });
+        }
+
+        if (consecutiveErrors >= 3) {
+          startFallbackPolling();
+        }
+      };
+    };
+
+    connectSse();
+
+    return () => {
+      disposed = true;
+      stopFallbackPolling();
+      clearRetryClosedTimer();
+      closeEventSource();
+    };
   }, [isAuthenticated]);
 
   // Periodic Auto-Backup Engine
@@ -1182,7 +1314,8 @@ export default function App() {
     // 1. Najpierw wywołaj logActivity
     logActivity(`${currentUser?.name || 'Użytkownik'} wylogował się z systemu`);
 
-    // 2. Potem /api/auth/logout
+    // 2. Zamknij strumień SSE przed wylogowaniem i wywołaj /api/auth/logout
+    closeEventSource();
     try {
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
     } catch {}

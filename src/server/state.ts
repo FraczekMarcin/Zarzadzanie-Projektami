@@ -16,6 +16,7 @@ export interface StateStore {
   setUsers: (next: any[]) => void;
   ensureStateStructure: () => any;
   bumpStateRevision: () => number;
+  onRevisionChange: (listener: (revision: number) => void) => () => void;
   saveStateAtomicAsync: () => Promise<void>;
   flushPendingStateSave: () => Promise<void>;
   securityLogger: SecurityLog;
@@ -111,6 +112,7 @@ export async function createStateStore(config: ServerConfig): Promise<StateStore
 
   let serverAppStateCache: any = null;
   let serverUsersCache: any[] = [];
+  const revisionListeners = new Set<(revision: number) => void>();
 
   const appStateWriter = new StateWriter(async () => {
     await store.save(serverAppStateCache);
@@ -134,7 +136,22 @@ export async function createStateStore(config: ServerConfig): Promise<StateStore
     ensureStateStructure();
     serverAppStateCache.revision = (serverAppStateCache.revision || 0) + 1;
     serverAppStateCache.updatedAt = new Date().toISOString();
-    return serverAppStateCache.revision;
+    const nextRevision = serverAppStateCache.revision;
+    for (const listener of revisionListeners) {
+      try {
+        listener(nextRevision);
+      } catch (err) {
+        console.error('[Server] Błąd powiadomienia słuchacza zmiany rewizji:', err);
+      }
+    }
+    return nextRevision;
+  }
+
+  function onRevisionChange(listener: (revision: number) => void): () => void {
+    revisionListeners.add(listener);
+    return () => {
+      revisionListeners.delete(listener);
+    };
   }
 
   // Wczytanie istniejącego stanu przy starcie przez store.load()
@@ -171,6 +188,7 @@ export async function createStateStore(config: ServerConfig): Promise<StateStore
     },
     ensureStateStructure,
     bumpStateRevision,
+    onRevisionChange,
     saveStateAtomicAsync,
     flushPendingStateSave,
     securityLogger,

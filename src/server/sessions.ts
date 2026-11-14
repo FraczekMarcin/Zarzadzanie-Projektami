@@ -17,7 +17,12 @@ export interface SessionStore {
   scheduleThrottledSessionsSave: () => void;
   setSessionCookie: (req: express.Request, res: express.Response, rawToken: string, maxAgeSec?: number) => void;
   clearSessionCookie: (req: express.Request, res: express.Response) => void;
-  getSessionFromReq: (req: express.Request) => Session | null;
+  getSessionFromReq: (req: express.Request, options?: { touchLastSeen?: boolean }) => Session | null;
+  isSessionValid: (tokenHash: string) => boolean;
+  getSessionExpiryMs: (tokenHash: string) => number | null;
+  revokeSession: (tokenHash: string) => boolean;
+  revokeUserSessions: (userId: string, exceptTokenHash?: string) => number;
+  onSessionsRevoked: (listener: (tokenHashes: string[]) => void) => () => void;
   requireAuth: (req: express.Request, res: express.Response, next: express.NextFunction) => void;
   requireAdmin: (req: express.Request, res: express.Response, next: express.NextFunction) => void;
   close: () => Promise<void>;
@@ -151,7 +156,70 @@ export function createSessionStore(config: ServerConfig, stateStore: StateStore)
     res.setHeader('Set-Cookie', cookiesToClear);
   }
 
-  function getSessionFromReq(req: express.Request): Session | null {
+  const revocationListeners = new Set<(tokenHashes: string[]) => void>();
+
+  function notifySessionsRevoked(tokenHashes: string[]) {
+    if (tokenHashes.length === 0) return;
+    for (const listener of revocationListeners) {
+      try {
+        listener(tokenHashes);
+      } catch (err) {
+        console.error('[Server Auth] Błąd powiadomienia o unieważnieniu sesji:', err);
+      }
+    }
+  }
+
+  function onSessionsRevoked(listener: (tokenHashes: string[]) => void): () => void {
+    revocationListeners.add(listener);
+    return () => {
+      revocationListeners.delete(listener);
+    };
+  }
+
+  function revokeSession(tokenHash: string): boolean {
+    const existed = sessions.delete(tokenHash);
+    if (existed) {
+      notifySessionsRevoked([tokenHash]);
+    }
+    return existed;
+  }
+
+  function revokeUserSessions(userId: string, exceptTokenHash?: string): number {
+    const revoked: string[] = [];
+    for (const [tokenHash, s] of sessions.entries()) {
+      if (s.userId === userId && tokenHash !== exceptTokenHash) {
+        sessions.delete(tokenHash);
+        revoked.push(tokenHash);
+      }
+    }
+    notifySessionsRevoked(revoked);
+    return revoked.length;
+  }
+
+  function isSessionValid(tokenHash: string): boolean {
+    const session = sessions.get(tokenHash);
+    if (!session) return false;
+    const now = Date.now();
+    if (isSessionExpired(session, now, sessionIdleMs, sessionMaxMs)) {
+      sessions.delete(tokenHash);
+      saveSessionsAsync();
+      notifySessionsRevoked([tokenHash]);
+      return false;
+    }
+    return true;
+  }
+
+  function getSessionExpiryMs(tokenHash: string): number | null {
+    const session = sessions.get(tokenHash);
+    if (!session) return null;
+    const lastSeen = typeof session.lastSeenAt === 'number' ? session.lastSeenAt : session.createdAt;
+    const idleDeadline = lastSeen + sessionIdleMs;
+    const maxDeadline = typeof session.expiresAt === 'number' ? session.expiresAt : session.createdAt + sessionMaxMs;
+    return Math.min(idleDeadline, maxDeadline);
+  }
+
+  function getSessionFromReq(req: express.Request, options?: { touchLastSeen?: boolean }): Session | null {
+    const touchLastSeen = options?.touchLastSeen !== false;
     const cookies = parseCookies(req.headers.cookie);
     let rawToken = cookies['__Host-zp_session'] || cookies['zp_session'];
     if (!rawToken && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
@@ -167,15 +235,18 @@ export function createSessionStore(config: ServerConfig, stateStore: StateStore)
     if (isSessionExpired(session, now, sessionIdleMs, sessionMaxMs)) {
       sessions.delete(tokenHash);
       saveSessionsAsync();
+      notifySessionsRevoked([tokenHash]);
       return null;
     }
 
-    const effectiveLastSeen = typeof session.lastSeenAt === 'number' ? session.lastSeenAt : session.createdAt;
-    if (now - effectiveLastSeen >= 60 * 1000) {
-      session.lastSeenAt = now;
-      if (!session.ip) session.ip = getClientIp(req);
-      if (!session.userAgent) session.userAgent = (req.headers['user-agent'] || '').slice(0, 200);
-      scheduleThrottledSessionsSave();
+    if (touchLastSeen) {
+      const effectiveLastSeen = typeof session.lastSeenAt === 'number' ? session.lastSeenAt : session.createdAt;
+      if (now - effectiveLastSeen >= 60 * 1000) {
+        session.lastSeenAt = now;
+        if (!session.ip) session.ip = getClientIp(req);
+        if (!session.userAgent) session.userAgent = (req.headers['user-agent'] || '').slice(0, 200);
+        scheduleThrottledSessionsSave();
+      }
     }
 
     return session;
@@ -223,6 +294,11 @@ export function createSessionStore(config: ServerConfig, stateStore: StateStore)
     setSessionCookie,
     clearSessionCookie,
     getSessionFromReq,
+    isSessionValid,
+    getSessionExpiryMs,
+    revokeSession,
+    revokeUserSessions,
+    onSessionsRevoked,
     requireAuth,
     requireAdmin,
     close,

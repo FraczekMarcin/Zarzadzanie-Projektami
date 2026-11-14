@@ -29,6 +29,7 @@ export interface CreateAppOptions {
   isDirectRun?: boolean;
   storage?: string;
   publicBaseUrl?: string;
+  sessionIdleMs?: number;
 }
 
 export interface ServerConfig {
@@ -113,7 +114,10 @@ export function resolveServerConfig(options: CreateAppOptions = {}): ServerConfi
     process.env.RESET_2FA_ON_START === 'true' || process.env.RESET_2FA_ON_START === '1';
 
   const sessionIdleMinutes = parseInt(process.env.SESSION_IDLE_MINUTES || '120', 10) || 120;
-  const sessionIdleMs = sessionIdleMinutes * 60 * 1000;
+  const sessionIdleMs =
+    typeof options.sessionIdleMs === 'number' && options.sessionIdleMs > 0
+      ? options.sessionIdleMs
+      : sessionIdleMinutes * 60 * 1000;
   const sessionMaxHours = parseInt(process.env.SESSION_MAX_HOURS || '12', 10) || 12;
   const sessionMaxMs = sessionMaxHours * 60 * 60 * 1000;
 

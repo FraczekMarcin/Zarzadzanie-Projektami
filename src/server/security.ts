@@ -179,7 +179,7 @@ export function applyCoreMiddleware(
     if (!reqPath.startsWith('/api/') && reqPath !== '/api') {
       return next();
     }
-    if (reqPath === '/api/health' || reqPath === '/api/state/revision') {
+    if (reqPath === '/api/health' || reqPath === '/api/state/revision' || reqPath === '/api/events') {
       return next();
     }
 
@@ -201,6 +201,10 @@ export function applyCoreMiddleware(
     app.use(
       compression({
         filter: (req, res) => {
+          const cleanPath = (req.originalUrl || req.path || '').split('?')[0];
+          if (req.path === '/api/events' || cleanPath === '/api/events') {
+            return false;
+          }
           if (req.headers['x-no-compression']) {
             return false;
           }

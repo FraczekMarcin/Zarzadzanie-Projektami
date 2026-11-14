@@ -55,6 +55,8 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
     setSessionCookie,
     clearSessionCookie,
     getSessionFromReq,
+    revokeSession,
+    revokeUserSessions,
     requireAuth,
   } = sessionStore;
   const {
@@ -281,11 +283,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
       targetUser.passwordHash = newHash;
       delete targetUser.password;
 
-      for (const [sToken, s] of sessions.entries()) {
-        if (s.userId === targetUser.id) {
-          sessions.delete(sToken);
-        }
-      }
+      revokeUserSessions(targetUser.id);
       saveSessionsAsync();
 
       passwordResetTokens.delete(cleanEmail);
@@ -523,7 +521,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
         ip: getClientIp(req),
         userAgent: (req.headers['user-agent'] || '').slice(0, 100),
       }).catch(() => {});
-      sessions.delete(session.tokenHash);
+      revokeSession(session.tokenHash);
       saveSessionsAsync();
     }
     clearSessionCookie(req, res);
@@ -586,7 +584,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
       return res.status(404).json({ error: 'Sesja nie istnieje lub należy do kogoś innego' });
     }
 
-    sessions.delete(foundTokenHash);
+    revokeSession(foundTokenHash);
     await saveSessionsAsync();
 
     securityLogger.record('session_revoked', {
@@ -608,14 +606,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
   app.post('/api/auth/sessions/revoke-others', requireAuth, async (req, res) => {
     const caller = (req as any).user;
     const currentSession = (req as any).session as Session;
-    let revokedCount = 0;
-
-    for (const [tokenHash, s] of sessions.entries()) {
-      if (s.userId === caller.id && tokenHash !== currentSession.tokenHash) {
-        sessions.delete(tokenHash);
-        revokedCount++;
-      }
-    }
+    const revokedCount = revokeUserSessions(caller.id, currentSession.tokenHash);
 
     await saveSessionsAsync();
 

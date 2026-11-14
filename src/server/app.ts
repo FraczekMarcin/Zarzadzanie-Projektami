@@ -14,6 +14,7 @@ import { registerProjectRoutes } from './routes/projects.js';
 import { registerCommentRoutes } from './routes/comments.js';
 import { registerUserRoutes } from './routes/users.js';
 import { registerCalendarRoutes } from './routes/calendar.js';
+import { registerEventRoutes, EventRoutesHandle } from './routes/events.js';
 import { setupStaticAndSpa } from './static.js';
 
 export type { CreateAppOptions };
@@ -31,12 +32,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
   const sessionStore: SessionStore = createSessionStore(config, stateStore);
 
   let closeStatic: (() => Promise<void>) | null = null;
+  let eventsHandle: EventRoutesHandle | null = null;
   let closed = false;
 
   const close = async (): Promise<void> => {
     if (closed) return;
     closed = true;
 
+    eventsHandle?.closeAll();
     security.destroy();
 
     try {
@@ -67,6 +70,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
     registerCommentRoutes(app, { stateStore, sessionStore });
     registerUserRoutes(app, { config, stateStore, sessionStore, security });
     registerCalendarRoutes(app, { config, stateStore, sessionStore });
+    eventsHandle = registerEventRoutes(app, { stateStore, sessionStore });
 
     // 404 handler dla nieznanych tras /api (dla każdej metody HTTP)
     app.use('/api', (_req, res) => {

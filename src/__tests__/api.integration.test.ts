@@ -828,4 +828,246 @@ describe('Integracyjne testy API (server.ts)', () => {
     expect(ev.url).toBe(`https://kalendarz.pracownia.pl/?task=${encodeURIComponent(createdTask.id)}`);
     expect(icsBody).not.toContain(token);
   });
+
+  it('SSE /api/events: wymaga sesji (401), dostarcza rewizję do dwóch klientów w <1s, ogranicza do 5 połączeń (429) i zamyka po wylogowaniu', async () => {
+    ctx = await startTestServer();
+    const { cookie } = await setupAdmin(ctx.baseUrl);
+
+    // 1. Brak sesji -> 401
+    const unauthRes = await fetch(`${ctx.baseUrl}/api/events`);
+    expect(unauthRes.status).toBe(401);
+
+    interface SseHandle {
+      statusCode: number;
+      headers: http.IncomingHttpHeaders;
+      events: Array<{ event: string; data: any }>;
+      waitForEvent: (predicate: (ev: { event: string; data: any }) => boolean, timeoutMs?: number) => Promise<{ event: string; data: any }>;
+      ended: Promise<void>;
+      close: () => void;
+    }
+
+    const openStreams: SseHandle[] = [];
+
+    const openSse = (sessionCookie: string): Promise<SseHandle> => {
+      return new Promise((resolve, reject) => {
+        const req = http.get(
+          `${ctx!.baseUrl}/api/events`,
+          { headers: { Cookie: sessionCookie, 'Accept-Encoding': 'gzip, deflate' } },
+          (res) => {
+            const events: Array<{ event: string; data: any }> = [];
+            const waiters: Array<{
+              predicate: (ev: { event: string; data: any }) => boolean;
+              resolve: (ev: { event: string; data: any }) => void;
+              reject: (err: Error) => void;
+              timer: NodeJS.Timeout;
+            }> = [];
+
+            let buffer = '';
+            let endedResolved = false;
+            let resolveEnded: () => void = () => {};
+            const ended = new Promise<void>((r) => {
+              resolveEnded = () => {
+                if (!endedResolved) {
+                  endedResolved = true;
+                  r();
+                }
+              };
+            });
+
+            res.setEncoding('utf-8');
+            res.on('data', (chunk: string) => {
+              buffer += chunk;
+              const frames = buffer.split('\n\n');
+              buffer = frames.pop() || '';
+              for (const frame of frames) {
+                const lines = frame.split('\n').filter((l) => !l.startsWith(':'));
+                if (lines.length === 0) continue;
+                let eventName = 'message';
+                const dataParts: string[] = [];
+                for (const line of lines) {
+                  if (line.startsWith('event:')) {
+                    eventName = line.slice(6).trim();
+                  } else if (line.startsWith('data:')) {
+                    dataParts.push(line.slice(5).trim());
+                  }
+                }
+                if (dataParts.length === 0) continue;
+                const rawData = dataParts.join('\n');
+                let parsedData: any = rawData;
+                try {
+                  parsedData = JSON.parse(rawData);
+                } catch {
+                  // ignore
+                }
+                const ev = { event: eventName, data: parsedData };
+                events.push(ev);
+                for (let i = waiters.length - 1; i >= 0; i--) {
+                  const w = waiters[i];
+                  if (w.predicate(ev)) {
+                    clearTimeout(w.timer);
+                    waiters.splice(i, 1);
+                    w.resolve(ev);
+                  }
+                }
+              }
+            });
+
+            res.on('end', resolveEnded);
+            res.on('close', resolveEnded);
+
+            const handle: SseHandle = {
+              statusCode: res.statusCode || 0,
+              headers: res.headers,
+              events,
+              ended,
+              waitForEvent: (predicate, timeoutMs = 1000) => {
+                const existing = events.find(predicate);
+                if (existing) return Promise.resolve(existing);
+                return new Promise((resWait, rejWait) => {
+                  const timer = setTimeout(() => {
+                    rejWait(new Error(`Timeout (${timeoutMs} ms) oczekiwania na zdarzenie SSE`));
+                  }, timeoutMs);
+                  waiters.push({ predicate, resolve: resWait, reject: rejWait, timer });
+                });
+              },
+              close: () => {
+                req.destroy();
+                res.destroy();
+                resolveEnded();
+              },
+            };
+
+            openStreams.push(handle);
+            resolve(handle);
+          }
+        );
+
+        req.on('error', (err) => {
+          reject(err);
+        });
+      });
+    };
+
+    try {
+      // 2. Dwa połączenia SSE dla zalogowanego użytkownika
+      const stream1 = await openSse(cookie);
+      const stream2 = await openSse(cookie);
+
+      expect(stream1.statusCode).toBe(200);
+      expect(stream1.headers['content-type']).toContain('text/event-stream');
+      expect(stream1.headers['cache-control']).toBe('no-cache');
+      expect(stream1.headers['x-accel-buffering']).toBe('no');
+      expect(stream1.headers['content-encoding']).toBeUndefined();
+
+      // Początkowe zdarzenie rewizji
+      const init1 = await stream1.waitForEvent((e) => e.event === 'revision');
+      const init2 = await stream2.waitForEvent((e) => e.event === 'revision');
+      expect(Object.keys(init1.data)).toEqual(['revision']);
+      expect(typeof init1.data.revision).toBe('number');
+      expect(init2.data.revision).toBe(init1.data.revision);
+
+      const initialRev = init1.data.revision;
+
+      // 3. Zmiana zadania -> oba strumienie dostają zdarzenie w < 1 s
+      const projRes = await fetch(`${ctx.baseUrl}/api/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({ name: 'Projekt SSE', key: 'SSE' }),
+      });
+      const proj = (await projRes.json()).project;
+
+      const tStart = Date.now();
+      const taskRes = await fetch(`${ctx.baseUrl}/api/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({
+          projectId: proj.id,
+          title: 'Zadanie SSE na żywo',
+        }),
+      });
+      expect(taskRes.status).toBe(201);
+      const taskJson = await taskRes.json();
+      const targetRev = taskJson.revision;
+      expect(targetRev).toBeGreaterThan(initialRev);
+
+      const [ev1, ev2] = await Promise.all([
+        stream1.waitForEvent((e) => e.event === 'revision' && e.data?.revision === targetRev, 1000),
+        stream2.waitForEvent((e) => e.event === 'revision' && e.data?.revision === targetRev, 1000),
+      ]);
+      expect(Date.now() - tStart).toBeLessThan(1000);
+      expect(Object.keys(ev1.data)).toEqual(['revision']);
+      expect(Object.keys(ev2.data)).toEqual(['revision']);
+
+      // 4. Limit 5 jednoczesnych strumieni na użytkownika -> 6. dostaje 429
+      const stream3 = await openSse(cookie);
+      const stream4 = await openSse(cookie);
+      const stream5 = await openSse(cookie);
+      expect(stream3.statusCode).toBe(200);
+      expect(stream4.statusCode).toBe(200);
+      expect(stream5.statusCode).toBe(200);
+
+      const sixthRes = await fetch(`${ctx.baseUrl}/api/events`, {
+        headers: { Cookie: cookie },
+      });
+      expect(sixthRes.status).toBe(429);
+
+      // 5. Po wylogowaniu otwarte strumienie są zamykane przez serwer
+      const logoutRes = await fetch(`${ctx.baseUrl}/api/auth/logout`, {
+        method: 'POST',
+        headers: { Cookie: cookie },
+      });
+      expect(logoutRes.status).toBe(200);
+
+      await Promise.all([
+        Promise.race([
+          stream1.ended,
+          new Promise((_, rej) => setTimeout(() => rej(new Error('stream1 nie zamknął się po wylogowaniu')), 1500)),
+        ]),
+        Promise.race([
+          stream2.ended,
+          new Promise((_, rej) => setTimeout(() => rej(new Error('stream2 nie zamknął się po wylogowaniu')), 1500)),
+        ]),
+      ]);
+    } finally {
+      for (const s of openStreams) {
+        s.close();
+      }
+    }
+  });
+
+  it('SSE /api/events nie odświeża lastSeenAt i zamyka strumień po wygaśnięciu bezczynnej sesji', async () => {
+    ctx = await startTestServer({ sessionIdleMs: 250 }); // 250 ms idle timeout
+    const { cookie } = await setupAdmin(ctx.baseUrl);
+
+    const closedPromise = new Promise<number>((resolve, reject) => {
+      const req = http.get(
+        `${ctx!.baseUrl}/api/events`,
+        { headers: { Cookie: cookie } },
+        (res) => {
+          expect(res.statusCode).toBe(200);
+          res.resume();
+          const t = Date.now();
+          const timeout = setTimeout(() => {
+            req.destroy();
+            res.destroy();
+            reject(new Error('Strumień SSE nie zamknął się po wygaśnięciu sesji'));
+          }, 2000);
+          res.on('end', () => {
+            clearTimeout(timeout);
+            resolve(Date.now() - t);
+          });
+        }
+      );
+      req.on('error', reject);
+    });
+
+    const elapsedMs = await closedPromise;
+    expect(elapsedMs).toBeLessThan(1500);
+
+    // Sesja wygasła mimo otwartego wcześniej strumienia SSE
+    const meRes = await fetch(`${ctx.baseUrl}/api/auth/me`, {
+      headers: { Cookie: cookie },
+    });
+    expect(meRes.status).toBe(401);
+  });
 });
