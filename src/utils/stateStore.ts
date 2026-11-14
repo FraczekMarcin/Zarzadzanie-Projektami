@@ -147,8 +147,9 @@ export class JsonFileStateStore implements StateStore {
     const content = serializeStateForDisk(state, this.appSecret);
     let handle: fs.promises.FileHandle | null = null;
     try {
-      handle = await fs.promises.open(tmpFile, 'w');
+      handle = await fs.promises.open(tmpFile, 'w', 0o600);
       await handle.writeFile(content, 'utf-8');
+      await handle.chmod(0o600);
       await handle.sync();
       await handle.close();
       handle = null;

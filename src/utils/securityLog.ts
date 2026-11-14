@@ -192,12 +192,14 @@ export class SecurityLog {
         const dst = path.join(this.dataDir, `security_log.${i + 1}.jsonl`);
         if (fs.existsSync(src)) {
           await fs.promises.rename(src, dst).catch(() => {});
+          await fs.promises.chmod(dst, 0o600).catch(() => {});
         }
       }
 
       if (fs.existsSync(this.logPath)) {
         const firstRotated = path.join(this.dataDir, 'security_log.1.jsonl');
         await fs.promises.rename(this.logPath, firstRotated).catch(() => {});
+        await fs.promises.chmod(firstRotated, 0o600).catch(() => {});
       }
     } catch (err: any) {
       console.warn('[SecurityLog] Błąd podczas rotacji plików dziennika:', err?.message);
@@ -224,7 +226,7 @@ export class SecurityLog {
       }
 
       const line = JSON.stringify(event) + '\n';
-      await fs.promises.appendFile(this.logPath, line, 'utf-8');
+      await fs.promises.appendFile(this.logPath, line, { encoding: 'utf-8', mode: 0o600 });
     } catch (err: any) {
       console.warn('[SecurityLog] Nie można zapisać zdarzenia bezpieczeństwa:', err?.message);
     }

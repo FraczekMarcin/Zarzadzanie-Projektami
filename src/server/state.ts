@@ -42,8 +42,22 @@ export function sanitizeUser(u: any) {
   };
 }
 
+export async function tightenDataFilePermissions(filePath: string): Promise<void> {
+  try {
+    const st = await fs.promises.stat(filePath);
+    if (!st.isFile()) return;
+    const mode = st.mode & 0o777;
+    if ((mode & 0o177) !== 0) {
+      await fs.promises.chmod(filePath, 0o600);
+    }
+  } catch (err: any) {
+    if (err?.code === 'ENOENT') return;
+    console.warn(`[Server WARN] Nie udało się ustawić uprawnień 0o600 dla pliku "${filePath}": ${err?.message || err}`);
+  }
+}
+
 export async function createStateStore(config: ServerConfig): Promise<StateStore> {
-  const { dataDir, stateFile, effectiveAppSecret, isProduction, reset2faOnStart, storage } = config;
+  const { dataDir, stateFile, sessionsFile, effectiveAppSecret, isProduction, reset2faOnStart, storage } = config;
 
   if (storage !== 'json') {
     console.error(`[Server FATAL] Nieobsługiwany typ magazynu STORAGE="${storage}".`);
@@ -65,13 +79,27 @@ export async function createStateStore(config: ServerConfig): Promise<StateStore
 
   const testFilePath = path.join(dataDir, `.write_check_${Date.now()}`);
   try {
-    fs.writeFileSync(testFilePath, 'ok', 'utf-8');
+    fs.writeFileSync(testFilePath, 'ok', { encoding: 'utf-8', mode: 0o600 });
     fs.unlinkSync(testFilePath);
     console.log(`[Server] Potwierdzono uprawnienia do zapisu w katalogu: ${dataDir}`);
   } catch (err: any) {
     console.error(`[Server FATAL] Brak uprawnień do zapisu w katalogu danych "${dataDir}": ${err.message}`);
     console.error(`[Server FATAL] Upewnij się, że katalog istnieje i posiada odpowiednie uprawnienia zapisu.`);
     throw err;
+  }
+
+  const dataFilesToHarden = [
+    stateFile,
+    `${stateFile}.tmp`,
+    sessionsFile,
+    `${sessionsFile}.tmp`,
+    path.join(dataDir, 'security_log.jsonl'),
+    path.join(dataDir, 'security_log.1.jsonl'),
+    path.join(dataDir, 'security_log.2.jsonl'),
+    path.join(dataDir, 'security_log.3.jsonl'),
+  ];
+  for (const filePath of dataFilesToHarden) {
+    await tightenDataFilePermissions(filePath);
   }
 
   const store: PersistenceStateStore = new JsonFileStateStore({

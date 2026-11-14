@@ -9,7 +9,7 @@ FROM node:22-slim AS builder
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 COPY . .
 RUN npm run build
@@ -39,7 +39,7 @@ COPY --chown=appuser:nodejs VERSION ./VERSION
 
 # Instalacja wyłącznie zależności produkcyjnych
 COPY --chown=appuser:nodejs package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 USER appuser
 

@@ -11,6 +11,7 @@ export type { CreateAppOptions, CreateAppResult, Session };
 const __filename = fileURLToPath(import.meta.url);
 
 if (isDirectRunEntry(__filename, import.meta.url)) {
+  process.umask(0o077);
   const PORT = process.env.PORT || 3000;
   let appClose: (() => Promise<void>) | null = null;
   let server: ReturnType<express.Express['listen']> | null = null;

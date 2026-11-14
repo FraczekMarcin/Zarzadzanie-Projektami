@@ -24,6 +24,7 @@ export interface CreateAppResult {
 }
 
 export async function createApp(options: CreateAppOptions = {}): Promise<CreateAppResult> {
+  process.umask(0o077);
   const config: ServerConfig = resolveServerConfig(options);
   const stateStore: StateStore = await createStateStore(config);
   const security: SecurityContext = createSecurityContext();

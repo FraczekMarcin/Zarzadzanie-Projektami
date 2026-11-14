@@ -87,7 +87,8 @@ export function createSessionStore(config: ServerConfig, stateStore: StateStore)
           (s) => !isSessionExpired(s, now, sessionIdleMs, sessionMaxMs)
         );
         const tmp = path.join(dataDir, 'sessions.json.tmp');
-        await fs.promises.writeFile(tmp, JSON.stringify(active), 'utf-8');
+        await fs.promises.writeFile(tmp, JSON.stringify(active), { encoding: 'utf-8', mode: 0o600 });
+        await fs.promises.chmod(tmp, 0o600);
         await fs.promises.rename(tmp, sessionsFile);
       } catch (err) {
         console.error('[Server Auth] Błąd zapisu sessions.json:', err);

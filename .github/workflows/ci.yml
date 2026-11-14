@@ -13,6 +13,7 @@ jobs:
   test-and-build:
     name: Lint, Test, Audit and Build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Pobierz kod źródłowy (Checkout)
@@ -26,6 +27,9 @@ jobs:
 
       - name: Instalacja zależności (npm ci)
         run: npm ci
+
+      - name: Weryfikacja podpisów pakietów npm (npm audit signatures)
+        run: npm audit signatures
 
       - name: Weryfikacja typów TypeScript (lint)
         run: npm run lint
