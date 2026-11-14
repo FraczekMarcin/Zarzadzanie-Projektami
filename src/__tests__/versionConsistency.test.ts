@@ -25,7 +25,7 @@ function collectFilesRecursively(dir: string): string[] {
 }
 
 describe('Spójność wersji aplikacji (Single Source of Truth)', () => {
-  it('plik VERSION zawiera poprawną pojedynczą linię wersji zgodną z package.json', () => {
+  it('plik VERSION zawiera poprawną pojedynczą linię wersji zgodną z package.json i package-lock.json', () => {
     const rawVersion = fs.readFileSync(path.join(ROOT_DIR, 'VERSION'), 'utf-8');
     const lines = rawVersion.trim().split(/\r?\n/);
     expect(lines).toHaveLength(1);
@@ -33,10 +33,16 @@ describe('Spójność wersji aplikacji (Single Source of Truth)', () => {
     const expectedVersion = lines[0].trim();
     expect(expectedVersion).toMatch(/^20\d\d-\d\d-\d\d v\d+\.\d+\.\d+$/);
 
-    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf-8'));
     const semverMatch = expectedVersion.match(/v(\d+\.\d+\.\d+)$/);
     expect(semverMatch).not.toBeNull();
-    expect(pkg.version).toBe(semverMatch![1]);
+    const expectedSemver = semverMatch![1];
+
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf-8'));
+    expect(pkg.version).toBe(expectedSemver);
+
+    const pkgLock = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package-lock.json'), 'utf-8'));
+    expect(pkgLock.version).toBe(expectedSemver);
+    expect(pkgLock.packages?.['']?.version).toBe(expectedSemver);
   });
 
   it('w repozytorium (poza CHANGELOG.md i package-lock.json) nie ma zaszytych literałów wersji innych niż VERSION', () => {
@@ -44,8 +50,12 @@ describe('Spójność wersji aplikacji (Single Source of Truth)', () => {
 
     const filesToCheck: string[] = [
       ...collectFilesRecursively(path.join(ROOT_DIR, 'src')),
+      ...collectFilesRecursively(path.join(ROOT_DIR, '.github')),
+      path.join(ROOT_DIR, 'server.ts'),
+      path.join(ROOT_DIR, 'vite.config.ts'),
       path.join(ROOT_DIR, 'index.html'),
       path.join(ROOT_DIR, 'Dockerfile'),
+      path.join(ROOT_DIR, 'Caddyfile'),
       path.join(ROOT_DIR, 'install.sh'),
       path.join(ROOT_DIR, 'backup.sh'),
       path.join(ROOT_DIR, 'restore-test.sh'),

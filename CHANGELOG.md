@@ -3,6 +3,19 @@
 Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.0.0/), wersjonowanie zgodne z [Semantic Versioning](https://semver.org/lang/pl/).
 
+## [0.8.1] - 2026-11-14
+
+### Naprawiono
+- **Uprawnienia plików danych serwera (`umask 0o077` i tryb `0o600`)**: ustawiono `process.umask(0o077)` na początku startu serwera (`server.ts`, `src/server/app.ts`), wymuszono tryb `0o600` przy zapisie i rotacji `app_state.json`, `sessions.json`, `security_log.jsonl` oraz plików tymczasowych, a także dodano zawężanie szerszych uprawnień istniejących plików przy starcie (`src/server/state.ts`) i testy w `src/__tests__/filePermissions.test.ts`.
+- **Spójność wersji w pliku blokady i testach**: zsynchronizowano pole `version` w `package-lock.json` do `0.8.1` oraz rozszerzono `src/__tests__/versionConsistency.test.ts` o walidację `package-lock.json`.
+
+### Zmieniono
+- **Budowanie Docker bez skryptów instalacyjnych (`Dockerfile`)**: dodano flagę `--ignore-scripts` przy wywołaniach `npm ci` w etapie `builder` oraz `npm ci --omit=dev` w etapie `runner`.
+- **Utwardzenie potoku CI (`.github/workflows/ci.yml`)**: dodano limit czasu `timeout-minutes: 15` oraz krok `npm audit signatures` po `npm ci`.
+- **Grupowanie aktualizacji Dependabot (`.github/dependabot.yml`)**: skonfigurowano `open-pull-requests-limit: 5`, grupę `minor-and-patch` dla `npm` oraz oddzielny wpis dla `github-actions`.
+
+Wersje 0.6.0 i 0.7.0 zostały wydane bez osobnych wpisów; ich zawartość opisuje wpis 0.8.0.
+
 ## [0.8.0] - 2026-11-13
 
 ### Dodano
