@@ -1,7 +1,7 @@
 # 🏗️ Zarządzanie Projektami (Pracownia Projektowa / Budownictwo)
 
 [![CI](https://github.com/FraczekMarcin/Zarzadzanie-Projektami/actions/workflows/ci.yml/badge.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami/actions/workflows/ci.yml)
-[![Wersja](https://img.shields.io/badge/Wersja-2026--11--13%20v%200.7.0-emerald.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
+[![Wersja](https://img.shields.io/badge/Wersja-plik%20VERSION-emerald.svg)](VERSION)
 [![Docker](https://img.shields.io/badge/Docker-App%20Data%20Volume-blue.svg)](https://www.docker.com/)
 [![Licencja](https://img.shields.io/badge/Licencja-MIT-green.svg)](LICENSE)
 [![GitHub](https://img.shields.io/badge/GitHub-FraczekMarcin%2FZarzadzanie--Projektami-purple.svg)](https://github.com/FraczekMarcin/Zarzadzanie-Projektami)
@@ -102,7 +102,7 @@ docker compose up -d --build
    - Pełna synchronizacja stanów zadań (Do zrobienia, W toku, Do weryfikacji, Zablokowane).
    - **Wyróżnik "Ukończone":** zakończone zadania są automatycznie filtrowane z aktywnego widoku roboczego i przenoszone do dedykowanego wyróżnika z możliwością łatwego przywrócenia.
 
-6. **Finanse, Zamawiający & Kosztorys Projektu (Nowość v 0.3.1):**
+6. **Finanse, Zamawiający & Kosztorys Projektu:**
    - **Dane Zamawiającego (Inwestora):** NIP, osoba kontaktowa, telefon, e-mail, adres inwestycji.
    - **Ramy czasowe i terminy:** data rozpoczęcia, zakończenia, kalkulacja dni roboczych/kalendarzowych.
    - **Wyceny z listą pozycji:** rejestr składowych oferty dla Inwestora (stawki VAT, netto, brutto, statusy).
@@ -114,10 +114,10 @@ docker compose up -d --build
      - 🏛️ Opłaty urzędowe i skarbowe
    - **Kalkulator rentowności:** automatyczne wyliczanie zysku netto pracowni i procentowej marży.
 
-7. **Ciemny motyw & Personalizacja (Nowość v 0.3.1):**
+7. **Ciemny motyw & Personalizacja:**
    - Możliwość wyboru motywu: Jasny, Ciemny (Dark Mode) lub automatyczny zgodny z systemem operacyjnym.
 
-8. **Uwierzytelnianie & Bezpieczeństwo Zespołu (Nowość v 0.3.1):**
+8. **Uwierzytelnianie & Bezpieczeństwo Zespołu:**
    - Wymóg podania hasła przy przełączaniu profilu projektanta (ochrona przed nieautoryzowanym działaniem).
    - Pełna możliwość usuwania niepotrzebnych lub pokazowych użytkowników i tematów demo.
 

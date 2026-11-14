@@ -73,6 +73,10 @@ class RootErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundar
   }
 }
 
+if (typeof document !== 'undefined' && typeof __APP_VERSION__ !== 'undefined' && __APP_VERSION__) {
+  document.title = `Zarządzanie Projektami - ${__APP_VERSION__}`;
+}
+
 createRoot(document.getElementById('root')!).render(
   <RootErrorBoundary>
     <App />

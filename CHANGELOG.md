@@ -3,6 +3,18 @@
 Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.0.0/), wersjonowanie zgodne z [Semantic Versioning](https://semver.org/lang/pl/).
 
+## [0.8.0] - 2026-11-13
+
+### Dodano
+- **Zarządzanie sesjami i wygasanie po bezczynności**: obsługa zmiennych `SESSION_IDLE_MINUTES` (domyślnie 120 min) i `SESSION_MAX_HOURS` (domyślnie 12 h), śledzenie `lastSeenAt`, `userAgent` oraz `ip`, podgląd i zdalne unieważnianie aktywnych sesji w API oraz panelu Ustawień.
+- **Dziennik zdarzeń bezpieczeństwa (`src/utils/securityLog.ts`)**: zapis w formacie JSONL (`security_log.jsonl`) z rotacją plików co 5 MB (3 archiwa), rejestracja zdarzeń uwierzytelniania, 2FA, zmian haseł, operacji na kontach i sesjach oraz podgląd przez Administratora (`GET /api/security/events`).
+- **Szyfrowane kopie zapasowe i test przywracania**: opcjonalne szyfrowanie AES-256-CBC w `backup.sh` (`BACKUP_PASSPHRASE_FILE`), kopia poza serwer (`BACKUP_COPY_DIR` / `BACKUP_REMOTE`), obsługa obu rozszerzeń w rotacji oraz izolowany skrypt weryfikacji kopii `restore-test.sh`.
+- **Modularyzacja serwera i testy integracyjne (`src/server/`)**: wydzielenie `createApp(options)` oraz podział logiki `server.ts` na wyspecjalizowane moduły (`config`, `state`, `sessions`, `security`, `routes/*`, `static`, `app`) wraz z zestawem testów integracyjnych API (`src/__tests__/api.integration.test.ts`).
+- **Spójna polityka haseł (`src/utils/passwordPolicy.ts`)**: walidacja długości 12–128 znaków, odrzucanie najczęstszych haseł, sekwencji, powtórzeń i danych użytkownika zarówno po stronie serwera, jak i w formularzach klienta (`PasswordRequirementsChecklist`).
+- **Poprawki dostępności (WCAG AA)**: własny hook pułapki fokusu `useFocusTrap`, atrybuty `role="dialog"`, `aria-modal`, `aria-labelledby`, obsługa klawiatury i skrótów `Esc`, etykiety formularzy i przycisków ikonowych, zamiana `alert()` na komunikaty `role="alert"`/`role="status"`, poprawa kontrastu oraz `:focus-visible` i `prefers-reduced-motion`.
+- **Abstrakcja magazynu danych (`src/utils/stateStore.ts`)**: interfejs `StateStore` z implementacjami `JsonFileStateStore` (atomowy zapis `fsync` + `rename`, migracja sekretów) i `MemoryStateStore` oraz wyborem przez zmienną `STORAGE`.
+- **Jedno źródło prawdy dla wersji**: odczyt wersji wyłącznie z pliku `VERSION` (`vite.config.ts` → `__APP_VERSION__` dla frontendu oraz `getLocalInstalledVersion()` dla backendu).
+
 ## [0.5.0] - 2026-11-06
 
 ### Dodano

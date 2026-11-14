@@ -1,6 +1,5 @@
 # ==========================================
 # Zarządzanie Projektami - Dockerfile
-# Wersja: 2026-11-10 v0.6.0
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # ==========================================
 
@@ -26,7 +25,6 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV DATA_DIR=/app/data
 ENV BACKUP_DIR=/app/backups
-ENV APP_VERSION="2026-11-10 v0.6.0"
 
 # Użytkownik o ograniczonych uprawnieniach (Security best practice)
 RUN addgroup -g 1001 -S nodejs && \
@@ -35,8 +33,9 @@ RUN addgroup -g 1001 -S nodejs && \
 # Tworzenie i uprawnienia do trwałego katalogu danych
 RUN mkdir -p /app/data && chown -R appuser:nodejs /app/data
 
-# Kopiowanie skompilowanego frontendu i serwera
+# Kopiowanie skompilowanego frontendu, serwera i pliku VERSION
 COPY --chown=appuser:nodejs --from=builder /app/dist ./dist
+COPY --chown=appuser:nodejs VERSION ./VERSION
 
 # Instalacja wyłącznie zależności produkcyjnych
 COPY --chown=appuser:nodejs package*.json ./

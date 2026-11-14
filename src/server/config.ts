@@ -171,6 +171,10 @@ export function resolveServerConfig(options: CreateAppOptions = {}): ServerConfi
 }
 
 export function getLocalInstalledVersion(): string {
+  const envVersion = process.env.APP_VERSION?.trim();
+  if (envVersion) {
+    return envVersion;
+  }
   try {
     const candidates = [
       path.resolve(process.cwd(), 'VERSION'),
@@ -180,11 +184,11 @@ export function getLocalInstalledVersion(): string {
     for (const p of candidates) {
       if (fs.existsSync(p)) {
         const v = fs.readFileSync(p, 'utf8').trim();
-        if (v && v.length > 2) return v;
+        if (v && v.length > 0) return v;
       }
     }
   } catch {}
-  return process.env.APP_VERSION || '2026-11-10 v0.6.0';
+  return 'unknown';
 }
 
 export function isNewerVersion(remote: string, local: string): boolean {

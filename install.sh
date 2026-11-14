@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Zarządzanie Projektami - Pracownia Projektowa / Budownictwo
-# Wersja: 2026-11-13 v0.7.0
 # Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami
 # Lokalizacja docelowa na serwerze: /opt/zarzadzanie-projektami
 # ==============================================================================
@@ -14,7 +13,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 echo -e "${BLUE}=================================================================${NC}"
-echo -e "${GREEN}  🏗️  Zarządzanie Projektami - Instalator (Wersja 2026-11-13 v0.7.0)${NC}"
+echo -e "${GREEN}  🏗️  Zarządzanie Projektami - Instalator${NC}"
 echo -e "${BLUE}  Repozytorium: https://github.com/FraczekMarcin/Zarzadzanie-Projektami${NC}"
 echo -e "${BLUE}=================================================================${NC}"
 
@@ -101,7 +100,6 @@ PORT=3000
 NODE_ENV=production
 DATA_DIR=/app/data
 BACKUP_DIR=/app/backups
-APP_VERSION=2026-11-13 v0.7.0
 APP_SECRET=${APP_SECRET}
 EOF
     chmod 600 .env
@@ -238,9 +236,10 @@ fi
 echo -e "${BLUE}==> Uruchamianie kontenerów Zarządzanie Projektami...${NC}"
 $DOCKER_CMD up -d --build
 
+INSTALLED_VERSION=$(cat VERSION 2>/dev/null | tr -d '\r\n' || echo "brak")
 echo -e "${GREEN}=================================================================${NC}"
 echo -e "${GREEN}  ✅ WDROŻENIE ZAKOŃCZONE SUKCESEM!${NC}"
-echo -e "${GREEN}  Wersja: 2026-11-13 v0.7.0${NC}"
+echo -e "${GREEN}  Wersja: ${INSTALLED_VERSION}${NC}"
 echo -e "${GREEN}=================================================================${NC}"
 
 if [ "$ENABLE_HTTPS" = "t" ]; then
