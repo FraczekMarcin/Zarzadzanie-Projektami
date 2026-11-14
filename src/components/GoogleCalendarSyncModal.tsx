@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useId, useRef } from 'react';
 import { User, Task, Project } from '../types';
-import { downloadIcsFile, generateGoogleCalendarSubscribeUrl } from '../utils/calendar';
+import { downloadIcsFile, generateGoogleCalendarSubscribeUrl, isPrivateOrLocalUrl } from '../utils/calendar';
 import { copyToClipboard } from '../utils/clipboard';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { 
@@ -35,12 +35,13 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
   currentUser,
   users,
   tasks,
-  projects: _projects,
+  projects,
   onSwitchUser,
 }) => {
   const [copied, setCopied] = useState(false);
   const [syncScope, setSyncScope] = useState<'my_tasks' | 'all_tasks'>('my_tasks');
   const [token, setToken] = useState<string | null>(null);
+  const [publicBaseUrl, setPublicBaseUrl] = useState<string | null>(null);
   const [hasServerToken, setHasServerToken] = useState<boolean>(Boolean(currentUser.hasCalendarToken));
   const [tokenCreatedAt, setTokenCreatedAt] = useState<string | null>(currentUser.calendarTokenCreatedAt || null);
   const [_isLoadingToken, setIsLoadingToken] = useState(false);
@@ -70,6 +71,7 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
           const data = await res.json();
           setHasServerToken(Boolean(data.hasToken));
           setTokenCreatedAt(data.createdAt || null);
+          setPublicBaseUrl(data.publicBaseUrl || null);
           if (!data.hasToken) {
             setToken(null);
           }
@@ -91,7 +93,8 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
     ? tasks.filter((t) => t.assigneeId === currentUser.id || !t.assigneeId)
     : tasks;
 
-  const baseUrl = window.location.origin;
+  const baseUrl = (publicBaseUrl || window.location.origin).replace(/\/+$/, '');
+  const isLocalOnly = isPrivateOrLocalUrl(baseUrl);
   const feedPath = token
     ? (syncScope === 'my_tasks'
         ? `/api/calendar/${token}/user/${currentUser.id}.ics`
@@ -125,6 +128,9 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
       setToken(data.token);
       setHasServerToken(true);
       setTokenCreatedAt(data.createdAt);
+      if (data.publicBaseUrl !== undefined) {
+        setPublicBaseUrl(data.publicBaseUrl || null);
+      }
     } catch (err: any) {
       setError(err.message || 'Błąd sieci podczas generowania tokenu');
     } finally {
@@ -175,10 +181,10 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
             </div>
             <div>
               <h3 id={titleId} className="text-sm font-bold text-slate-900">
-                Prywatna synchronizacja z Kalendarzem Google (RFC 5545)
+                Prywatna synchronizacja z kalendarzami (RFC 5545)
               </h3>
               <p className="text-[11px] text-slate-600">
-                Bezpieczny strumień iCal chroniony unikalnym tokenem kryptograficznym.
+                Prywatny feed iCalendar chroniony unikalnym tokenem kryptograficznym.
               </p>
             </div>
           </div>
@@ -305,6 +311,18 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
           {/* Sekcja gdy token jest dostępny */}
           {token ? (
             <>
+              {isLocalOnly && (
+                <div role="alert" className="p-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl space-y-1.5">
+                  <div className="flex items-center gap-2 font-bold text-xs">
+                    <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" aria-hidden="true" />
+                    <span>Adres niedostępny z internetu</span>
+                  </div>
+                  <p className="text-xs leading-relaxed text-amber-900">
+                    Ten adres jest dostępny tylko w Twojej sieci. Kalendarz Google pobiera dane z własnych serwerów i go nie otworzy. Użyj subskrypcji w Apple Calendar, Outlooku lub Thunderbirdzie albo jednorazowo pobierz plik .ics i zaimportuj go w Kalendarzu Google.
+                  </p>
+                </div>
+              )}
+
               {/* Przycisk 1-Click do Google Calendar */}
               <div className="p-4 bg-sky-50 border border-sky-200 rounded-xl space-y-3">
                 <div className="flex items-center justify-between">
@@ -318,31 +336,42 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
                 </div>
 
                 <p className="text-sky-900 leading-relaxed text-xs">
-                  Kliknij poniższy przycisk, aby otworzyć Kalendarz Google i dodać ten terminarz na stałe do listy <strong>"Inne kalendarze"</strong>. Kalendarz Google będzie automatycznie pobierać wszystkie aktualizacje i nowe terminy!
+                  Kliknij poniższy przycisk (wymaga publicznego adresu HTTPS), aby otworzyć Kalendarz Google i dodać terminarz na stałe do listy <strong>„Inne kalendarze”</strong>.
                 </p>
 
                 <div className="pt-1">
-                  <a
-                    href={gCalSubscribeUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs px-4 py-2.5 rounded-lg shadow-sm transition-all hover:scale-[1.01]"
-                  >
-                    <CalendarIcon className="w-4 h-4" aria-hidden="true" />
-                    <span>Dodaj do Kalendarza Google</span>
-                    <ExternalLink className="w-3.5 h-3.5 opacity-90" aria-hidden="true" />
-                  </a>
+                  {isLocalOnly ? (
+                    <button
+                      type="button"
+                      disabled
+                      aria-disabled="true"
+                      title="Niedostępne dla adresów lokalnych lub HTTP — Kalendarz Google wymaga publicznego adresu HTTPS"
+                      className="inline-flex items-center gap-2 bg-slate-300 text-slate-600 font-bold text-xs px-4 py-2.5 rounded-lg cursor-not-allowed"
+                    >
+                      <CalendarIcon className="w-4 h-4" aria-hidden="true" />
+                      <span>Dodaj do Kalendarza Google</span>
+                      <ExternalLink className="w-3.5 h-3.5 opacity-70" aria-hidden="true" />
+                    </button>
+                  ) : (
+                    <a
+                      href={gCalSubscribeUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs px-4 py-2.5 rounded-lg shadow-sm transition-all hover:scale-[1.01]"
+                    >
+                      <CalendarIcon className="w-4 h-4" aria-hidden="true" />
+                      <span>Dodaj do Kalendarza Google</span>
+                      <ExternalLink className="w-3.5 h-3.5 opacity-90" aria-hidden="true" />
+                    </a>
+                  )}
                 </div>
               </div>
 
               {/* Pole z bezpośrednim URL */}
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label htmlFor={feedUrlInputId} className="font-semibold text-slate-700">
-                    Prywatny adres URL strumienia na żywo (RFC 5545 WebCal):
-                  </label>
-                  <span className="text-slate-600 text-[10px]">Częstotliwość odświeżania: co 15 minut</span>
-                </div>
+                <label htmlFor={feedUrlInputId} className="font-semibold text-slate-700 block">
+                  Prywatny adres URL feedu iCalendar (RFC 5545):
+                </label>
 
                 <div className="flex items-center gap-2">
                   <input
@@ -370,31 +399,44 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
                     )}
                   </button>
                 </div>
+
+                <p className="text-slate-600 text-[11px] leading-relaxed">
+                  Kalendarz Google odświeża subskrybowane kalendarze samodzielnie, zwykle co kilka do kilkunastu godzin; Apple Calendar, Outlook i Thunderbird odświeżają co kilkanaście minut.
+                </p>
               </div>
 
-              {/* Instrukcja ręcznego dodania */}
-              <div className="border border-slate-200 rounded-lg p-3.5 bg-slate-50 space-y-2">
-                <span className="font-bold text-slate-900 block text-xs">
-                  Jak dodać ten link ręcznie w Kalendarzu Google na komputerze lub telefonie:
-                </span>
+              {/* Instrukcje subskrypcji w klientach kalendarza */}
+              <div className="border border-slate-200 rounded-lg p-3.5 bg-slate-50 space-y-3">
+                <div>
+                  <span className="font-bold text-slate-900 block text-xs mb-1.5">
+                    Jak zasubskrybować link w programach kalendarza:
+                  </span>
+                  <ul className="space-y-1.5 text-slate-700 text-[11px] leading-relaxed">
+                    <li>
+                      <strong>Apple Calendar (macOS):</strong>{' '}
+                      <strong>Plik &gt; Nowa subskrypcja kalendarza</strong>, wklej skopiowany adres URL i ustaw częstotliwość automatycznego odświeżania (np. co 15 minut).
+                    </li>
+                    <li>
+                      <strong>Microsoft Outlook:</strong>{' '}
+                      W Outlooku wybierz <strong>Dodaj kalendarz &gt; Subskrybuj z internetu</strong> (Outlook Web / Nowy Outlook) lub{' '}
+                      <strong>Plik &gt; Ustawienia kont &gt; Kalendarze internetowe &gt; Nowy</strong> (klasyczny Outlook) i wklej link.
+                    </li>
+                    <li>
+                      <strong>Mozilla Thunderbird:</strong>{' '}
+                      Otwórz zakładkę <strong>Kalendarz &gt; Nowy kalendarz &gt; W sieci</strong>, wybierz format <strong>iCalendar (ICS)</strong> i wklej adres URL w polu Położenie.
+                    </li>
+                    {!isLocalOnly && (
+                      <li>
+                        <strong>Kalendarz Google (ręcznie):</strong>{' '}
+                        Na <a href="https://calendar.google.com" target="_blank" rel="noopener noreferrer" className="text-sky-700 underline font-medium">calendar.google.com</a> w sekcji <strong>„Inne kalendarze”</strong> kliknij <strong>+ &gt; Z adresu URL</strong> i wklej link.
+                      </li>
+                    )}
+                  </ul>
+                </div>
 
-                <ol className="list-decimal list-inside space-y-1.5 text-slate-600 text-[11px] leading-relaxed">
-                  <li>
-                    Wejdź na stronę <a href="https://calendar.google.com" target="_blank" rel="noopener noreferrer" className="text-sky-700 underline font-medium">calendar.google.com</a>.
-                  </li>
-                  <li>
-                    W lewym panelu bocznym znajdź sekcję <strong>"Inne kalendarze"</strong> i kliknij znak <strong>+</strong>.
-                  </li>
-                  <li>
-                    Wybierz opcję <strong>"Z adresu URL"</strong> (From URL).
-                  </li>
-                  <li>
-                    Wklej powyższy skopiowany link i kliknij <strong>"Dodaj kalendarz"</strong>.
-                  </li>
-                  <li>
-                    Kalendarz pojawi się na liście Twoich kalendarzy, również w aplikacji mobilnej Google Calendar na smartfonie z Androidem / iPhone!
-                  </li>
-                </ol>
+                <p className="text-[11px] text-slate-600 border-t border-slate-200 pt-2 leading-relaxed">
+                  <strong>Uwaga dotycząca HTTPS z certyfikatem lokalnym:</strong> gdy serwer działa przez HTTPS z lokalnym certyfikatem (np. Caddy w sieci wewnętrznej), Apple Calendar i Outlook wymagają zainstalowania certyfikatu głównego (Root CA) na tym urządzeniu.
+                </p>
               </div>
             </>
           ) : (
@@ -406,34 +448,40 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
               <p className="text-xs leading-relaxed text-amber-800">
                 {hasServerToken
                   ? 'Posiadasz aktywny token na serwerze, ale nie jest on zapisany w pamięci tej przeglądarki. Kliknij przycisk „Wygeneruj nowy token”, aby utworzyć nowy unikalny adres URL.'
-                  : 'Aby zsynchronizować terminarz z Kalendarzem Google lub Apple Calendar, wygeneruj swój prywatny token subskrypcji za pomocą powyższego przycisku.'}
+                  : 'Aby zasubskrybować terminarz w Apple Calendar, Outlooku, Thunderbirdzie lub Kalendarzu Google, wygeneruj swój prywatny token subskrypcji za pomocą powyższego przycisku.'}
               </p>
             </div>
           )}
 
-          {/* Opcja pobrania pliku offline */}
-          <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-slate-600">
-            <span>Potrzebujesz jednorazowego pliku bez subskrypcji?</span>
-            <button
-              type="button"
-              onClick={() =>
-                downloadIcsFile(
-                  userTasks,
-                  `${currentUser.name.replace(/\s+/g, '_')}_zadania.ics`,
-                  `Zadania: ${currentUser.name}`
-                )
-              }
-              className="flex items-center gap-1 text-slate-700 hover:text-sky-700 text-xs font-medium"
-            >
-              <Download className="w-3.5 h-3.5" aria-hidden="true" />
-              <span>Pobierz plik .ics offline</span>
-            </button>
+          {/* Opcja pobrania i jednorazowego importu pliku .ics */}
+          <div className="p-3.5 border border-slate-200 rounded-lg bg-slate-50/70 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-slate-700">
+              <span className="font-semibold text-xs">Jednorazowy eksport i import pliku .ics (bez subskrypcji):</span>
+              <button
+                type="button"
+                onClick={() =>
+                  downloadIcsFile(
+                    userTasks,
+                    `${currentUser.name.replace(/\s+/g, '_')}_zadania.ics`,
+                    `Zadania: ${currentUser.name}`,
+                    projects
+                  )
+                }
+                className="flex items-center gap-1.5 bg-white border border-slate-300 hover:border-sky-400 text-slate-800 hover:text-sky-700 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+              >
+                <Download className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Pobierz plik .ics offline</span>
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-600 leading-relaxed">
+              <strong>Import pliku .ics w Kalendarzu Google:</strong> pobierz plik powyżej, otwórz <a href="https://calendar.google.com" target="_blank" rel="noopener noreferrer" className="text-sky-700 underline font-medium">calendar.google.com</a>, przejdź do <strong>Ustawienia &gt; Importuj i eksportuj</strong>, wybierz pobrany plik <code>.ics</code> oraz kalendarz docelowy i kliknij <strong>Importuj</strong>.
+            </p>
           </div>
         </div>
 
         {/* Stopka */}
         <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-slate-600">
-          <span>Strumień jest w 100% zgodny ze standardem RFC 5545 i Google Calendar.</span>
+          <span>Format iCalendar zgodny ze standardem RFC 5545.</span>
           <button
             type="button"
             onClick={onClose}

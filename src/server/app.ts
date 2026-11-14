@@ -66,7 +66,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
     registerProjectRoutes(app, { stateStore, sessionStore });
     registerCommentRoutes(app, { stateStore, sessionStore });
     registerUserRoutes(app, { config, stateStore, sessionStore, security });
-    registerCalendarRoutes(app, { stateStore, sessionStore });
+    registerCalendarRoutes(app, { config, stateStore, sessionStore });
 
     // 404 handler dla nieznanych tras /api (dla każdej metody HTTP)
     app.use('/api', (_req, res) => {

@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import http from 'http';
+import ical from 'node-ical';
 import { createApp, CreateAppOptions } from '../../server.js';
 
 const TEST_APP_SECRET = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
@@ -731,5 +732,100 @@ describe('Integracyjne testy API (server.ts)', () => {
     const elapsedMs = Date.now() - startMs;
 
     expect(elapsedMs).toBeLessThan(5000);
+  });
+
+  it('feedy iCal zwracają ETag, Last-Modified, Cache-Control, obsługują 304, respektują PUBLIC_BASE_URL i parsują się przez node-ical', async () => {
+    ctx = await startTestServer({ publicBaseUrl: 'https://kalendarz.pracownia.pl' });
+    const { cookie, data: setupData } = await setupAdmin(ctx.baseUrl);
+    const adminId = setupData.user.id;
+
+    // 1. Token i publicBaseUrl
+    const tokenStatusBefore = await fetch(`${ctx.baseUrl}/api/calendar/token`, {
+      headers: { Cookie: cookie },
+    });
+    expect(tokenStatusBefore.status).toBe(200);
+    const statusJson = await tokenStatusBefore.json();
+    expect(statusJson.hasToken).toBe(false);
+    expect(statusJson.publicBaseUrl).toBe('https://kalendarz.pracownia.pl');
+
+    const genRes = await fetch(`${ctx.baseUrl}/api/calendar/token/generate`, {
+      method: 'POST',
+      headers: { Cookie: cookie },
+    });
+    expect(genRes.status).toBe(200);
+    const genJson = await genRes.json();
+    expect(genJson.success).toBe(true);
+    expect(genJson.token).toBeTruthy();
+    expect(genJson.publicBaseUrl).toBe('https://kalendarz.pracownia.pl');
+    const token = genJson.token as string;
+
+    // 2. Projekt + zadania
+    const projRes = await fetch(`${ctx.baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ name: 'Dom nad Wisłą', key: 'DNW' }),
+    });
+    expect(projRes.status).toBe(201);
+    const proj = (await projRes.json()).project;
+
+    const taskRes = await fetch(`${ctx.baseUrl}/api/tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({
+        projectId: proj.id,
+        title: 'Projekt wykonawczy',
+        priority: 'normal',
+        status: 'to_do',
+        assigneeId: adminId,
+        startDate: '2026-11-20',
+        dueDate: '2026-11-21',
+        durationDays: 2,
+      }),
+    });
+    expect(taskRes.status).toBe(201);
+    const createdTask = (await taskRes.json()).task;
+
+    // 3. Dwa kolejne żądania na niezmienionych danych zwracają identyczny ETag i Cache-Control
+    const feedUrl = `${ctx.baseUrl}/api/calendar/${token}/all.ics`;
+    const feedRes1 = await fetch(feedUrl);
+    expect(feedRes1.status).toBe(200);
+    const etag1 = feedRes1.headers.get('etag');
+    const lastModified1 = feedRes1.headers.get('last-modified');
+    expect(etag1).toBeTruthy();
+    expect(lastModified1).toBeTruthy();
+    expect(feedRes1.headers.get('cache-control')).toBe('private, max-age=0, must-revalidate');
+    const icsBody = await feedRes1.text();
+
+    const feedRes2 = await fetch(feedUrl);
+    expect(feedRes2.status).toBe(200);
+    expect(feedRes2.headers.get('etag')).toBe(etag1);
+
+    // 4. If-None-Match -> 304 Not Modified
+    const res304Etag = await fetch(feedUrl, {
+      headers: { 'If-None-Match': etag1! },
+    });
+    expect(res304Etag.status).toBe(304);
+    expect(await res304Etag.text()).toBe('');
+
+    // 5. If-Modified-Since -> 304 Not Modified
+    const res304Ims = await fetch(feedUrl, {
+      headers: { 'If-Modified-Since': lastModified1! },
+    });
+    expect(res304Ims.status).toBe(304);
+    expect(await res304Ims.text()).toBe('');
+
+    // 6. Walidacja treści parserem node-ical
+    const parsed = ical.parseICS(icsBody);
+    const events = Object.values(parsed).filter((e: any) => e.type === 'VEVENT') as any[];
+    expect(events.length).toBe(1);
+    const ev = events[0];
+    expect(ev.status).toBe('CONFIRMED');
+    expect(ev.categories).toContain('Dom nad Wisłą');
+    expect(ev.description).toContain('Projekt: Dom nad Wisłą');
+    expect(ev.description).toContain('Priorytet: Normalny');
+    expect(ev.description).toContain('Status: Do zrobienia');
+    expect(ev.description).toContain('2 dni');
+    expect(ev.url).toBe(`https://kalendarz.pracownia.pl/?task=${encodeURIComponent(createdTask.id)}`);
+    expect(icsBody).not.toContain(token);
   });
 });

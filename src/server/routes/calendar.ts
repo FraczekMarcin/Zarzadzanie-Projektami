@@ -1,15 +1,75 @@
 import express from 'express';
 import crypto from 'crypto';
-import { buildIcs } from '../../utils/icsBuilder.js';
+import { buildIcs, IcsProject, IcsTask } from '../../utils/icsBuilder.js';
 import { canAccessProject } from '../../utils/access.js';
+import { ServerConfig } from '../config.js';
 import { StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
 
+function computeLastModifiedMs(tasks: IcsTask[], stateUpdatedAt?: string): number {
+  let maxMs = 0;
+  for (const t of tasks) {
+    const raw = t.updatedAt || t.createdAt;
+    if (!raw) continue;
+    const ms = Date.parse(raw);
+    if (!isNaN(ms) && ms > maxMs) {
+      maxMs = ms;
+    }
+  }
+  if (maxMs === 0 && stateUpdatedAt) {
+    const stateMs = Date.parse(stateUpdatedAt);
+    if (!isNaN(stateMs) && stateMs > 0) {
+      maxMs = stateMs;
+    }
+  }
+  if (maxMs === 0) {
+    maxMs = Date.UTC(2026, 0, 1);
+  }
+  return maxMs;
+}
+
+function sendIcsWithCaching(
+  req: express.Request,
+  res: express.Response,
+  icsBody: string,
+  filename: string,
+  lastModifiedMs: number
+) {
+  const etagHash = crypto.createHash('sha256').update(icsBody, 'utf-8').digest('hex');
+  const etag = `"${etagHash}"`;
+  const lastModifiedHttp = new Date(lastModifiedMs).toUTCString();
+
+  res.setHeader('ETag', etag);
+  res.setHeader('Last-Modified', lastModifiedHttp);
+  res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+
+  const ifNoneMatch = req.headers['if-none-match'];
+  if (typeof ifNoneMatch === 'string' && ifNoneMatch.trim() !== '') {
+    const candidates = ifNoneMatch.split(',').map((s) => s.trim().replace(/^W\//, ''));
+    if (candidates.includes('*') || candidates.includes(etag)) {
+      return res.status(304).end();
+    }
+  }
+
+  const ifModifiedSince = req.headers['if-modified-since'];
+  if (!ifNoneMatch && typeof ifModifiedSince === 'string') {
+    const imsMs = Date.parse(ifModifiedSince);
+    const lmSecMs = Math.floor(lastModifiedMs / 1000) * 1000;
+    if (!isNaN(imsMs) && lmSecMs <= imsMs) {
+      return res.status(304).end();
+    }
+  }
+
+  res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+  res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+  return res.send(icsBody);
+}
+
 export function registerCalendarRoutes(
   app: express.Express,
-  deps: { stateStore: StateStore; sessionStore: SessionStore }
+  deps: { config: ServerConfig; stateStore: StateStore; sessionStore: SessionStore }
 ): void {
-  const { stateStore, sessionStore } = deps;
+  const { config, stateStore, sessionStore } = deps;
   const { requireAuth } = sessionStore;
 
   function getUserByCalendarToken(token: string) {
@@ -29,6 +89,7 @@ export function registerCalendarRoutes(
     res.json({
       hasToken: Boolean(user?.calendarTokenHash),
       createdAt: user?.calendarTokenCreatedAt || null,
+      ...(config.publicBaseUrl ? { publicBaseUrl: config.publicBaseUrl } : {}),
     });
   });
 
@@ -56,7 +117,12 @@ export function registerCalendarRoutes(
       }
 
       await stateStore.saveStateAtomicAsync();
-      res.json({ success: true, token: rawToken, createdAt: nowIso });
+      res.json({
+        success: true,
+        token: rawToken,
+        createdAt: nowIso,
+        ...(config.publicBaseUrl ? { publicBaseUrl: config.publicBaseUrl } : {}),
+      });
     } catch (err: any) {
       console.error('[Server Calendar] Błąd generowania tokenu:', err);
       res.status(500).json({ error: err.message });
@@ -111,24 +177,30 @@ export function registerCalendarRoutes(
     const allProjects = appState?.projects || [];
     const allTasks = appState?.tasks || [];
 
+    const projectsMap = new Map<string, IcsProject>();
     let visibleTasks: any[];
     if (user.role === 'admin' || user.role === 'project_manager') {
       visibleTasks = allTasks;
+      for (const p of allProjects) {
+        if (p && p.id) projectsMap.set(p.id, p);
+      }
     } else {
-      const accessibleProjectIds = new Set(
-        allProjects.filter((p: any) => canAccessProject(user, p)).map((p: any) => p.id)
-      );
+      const accessibleProjects = allProjects.filter((p: any) => canAccessProject(user, p));
+      const accessibleProjectIds = new Set(accessibleProjects.map((p: any) => p.id));
+      for (const p of accessibleProjects) {
+        if (p && p.id) projectsMap.set(p.id, p);
+      }
       visibleTasks = allTasks.filter(
         (t: any) => accessibleProjectIds.has(t.projectId) || t.assigneeId === user.id || t.reporterId === user.id
       );
     }
 
-    const icsBody = buildIcs(visibleTasks, 'Wszystkie Projekty - Terminarz');
-
-    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
-    res.setHeader('Content-Disposition', 'inline; filename="wszystkie-projekty.ics"');
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.send(icsBody);
+    const icsBody = buildIcs(visibleTasks, 'Wszystkie Projekty - Terminarz', {
+      projects: projectsMap,
+      publicBaseUrl: config.publicBaseUrl,
+    });
+    const lastModifiedMs = computeLastModifiedMs(visibleTasks, appState?.updatedAt);
+    return sendIcsWithCaching(req, res, icsBody, 'wszystkie-projekty.ics', lastModifiedMs);
   });
 
   // RFC 5545 iCalendar feed dla konkretnego użytkownika (z tokenem w URL)
@@ -151,17 +223,28 @@ export function registerCalendarRoutes(
     const allTasks = appState?.tasks || [];
 
     let userTasks = allTasks.filter((t: any) => t.assigneeId === userId || (!t.assigneeId && authUser.id === userId));
+    const projectsMap = new Map<string, IcsProject>();
 
     if (authUser.role !== 'admin' && authUser.role !== 'project_manager') {
-      const accessibleProjectIds = new Set(
-        allProjects.filter((p: any) => canAccessProject(authUser, p)).map((p: any) => p.id)
-      );
+      const accessibleProjects = allProjects.filter((p: any) => canAccessProject(authUser, p));
+      const accessibleProjectIds = new Set(accessibleProjects.map((p: any) => p.id));
+      for (const p of accessibleProjects) {
+        if (p && p.id) projectsMap.set(p.id, p);
+      }
       userTasks = userTasks.filter(
         (t: any) => accessibleProjectIds.has(t.projectId) || t.assigneeId === authUser.id || t.reporterId === authUser.id
       );
+    } else {
+      for (const p of allProjects) {
+        if (p && p.id) projectsMap.set(p.id, p);
+      }
     }
 
-    const icsBody = buildIcs(userTasks, `${userName} - Moje Zadania`);
+    const icsBody = buildIcs(userTasks, `${userName} - Moje Zadania`, {
+      projects: projectsMap,
+      publicBaseUrl: config.publicBaseUrl,
+    });
+    const lastModifiedMs = computeLastModifiedMs(userTasks, appState?.updatedAt);
 
     const safeBaseName = (userId || 'kalendarz')
       .toLowerCase()
@@ -169,9 +252,6 @@ export function registerCalendarRoutes(
       .replace(/-+/g, '-')
       .replace(/^-|-$/g, '') || 'kalendarz';
 
-    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
-    res.setHeader('Content-Disposition', `inline; filename="${safeBaseName}.ics"`);
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.send(icsBody);
+    return sendIcsWithCaching(req, res, icsBody, `${safeBaseName}.ics`, lastModifiedMs);
   });
 }

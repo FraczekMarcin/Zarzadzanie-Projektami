@@ -1,4 +1,8 @@
 import { Task, Project } from '../types';
+import { PRIORITY_LABELS, STATUS_LABELS } from './labels';
+import { buildIcs } from './icsBuilder';
+
+export { PRIORITY_LABELS, STATUS_LABELS };
 
 /**
  * Formats a date string 'YYYY-MM-DD' to Google Calendar compact format 'YYYYMMDD'
@@ -34,21 +38,66 @@ function getNextDayGCalDate(dateStr?: string): string {
   }
 }
 
-export const PRIORITY_LABELS: Record<string, string> = {
-  critical: 'Krytyczny (P1)',
-  high: 'Wysoki (P2)',
-  normal: 'Normalny (P3)',
-  medium: 'Normalny (P3)',
-  low: 'Niski (P4)',
-};
+function isPrivateIpv4(hostname: string): boolean {
+  const parts = hostname.split('.');
+  if (parts.length !== 4) return false;
+  const nums = parts.map((p) => (/^\d+$/.test(p) ? Number(p) : -1));
+  if (nums.some((n) => n < 0 || n > 255)) return false;
+  const [a, b] = nums;
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 0) return true;
+  return false;
+}
 
-export const STATUS_LABELS: Record<string, string> = {
-  to_do: 'Do zrobienia',
-  in_progress: 'W toku',
-  review: 'Do weryfikacji',
-  done: 'Ukończone',
-  blocked: 'Zablokowane',
-};
+/**
+ * Sprawdza, czy podany adres URL lub nazwa hosta jest lokalna / prywatna
+ * (lub używa niezaszyfrowanego protokołu http://) i nie może zostać pobrana przez serwery Google.
+ */
+export function isPrivateOrLocalUrl(url: string): boolean {
+  const trimmed = (url || '').trim();
+  if (!trimmed) return true;
+
+  const hasScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed);
+  let parsed: URL;
+  try {
+    parsed = new URL(hasScheme ? trimmed : `https://${trimmed}`);
+  } catch {
+    return true;
+  }
+
+  if (hasScheme && parsed.protocol.toLowerCase() === 'http:') {
+    return true;
+  }
+
+  const rawHost = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  if (!rawHost) return true;
+
+  if (rawHost === 'localhost' || rawHost.endsWith('.localhost')) {
+    return true;
+  }
+
+  if (rawHost === '::1' || rawHost.startsWith('fe80:') || rawHost.startsWith('fc') || rawHost.startsWith('fd')) {
+    return true;
+  }
+
+  if (isPrivateIpv4(rawHost)) {
+    return true;
+  }
+
+  if (!rawHost.includes('.')) {
+    return true;
+  }
+
+  if (rawHost.endsWith('.local') || rawHost.endsWith('.lan') || rawHost.endsWith('.home')) {
+    return true;
+  }
+
+  return false;
+}
 
 /**
  * Generates direct Google Calendar Web Event creation URL.
@@ -109,21 +158,32 @@ export function generateGoogleCalendarSubscribeUrl(feedUrl: string): string {
   return `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(feedUrl)}`;
 }
 
-import { buildIcs } from './icsBuilder';
-
 /**
  * Generates RFC 5545 compliant iCalendar (.ics) string using buildIcs.
  * Compatible with Google Calendar (Import/Export & URL subscription), Apple Calendar, and Outlook.
  */
-export function generateIcsContent(tasks: Task[] = [], projectName: string = 'Zarządzanie Projektami'): string {
-  return buildIcs(tasks as any, `${projectName} - Terminarz Zadań`);
+export function generateIcsContent(
+  tasks: Task[] = [],
+  projectName: string = 'Zarządzanie Projektami',
+  projects: Project[] = []
+): string {
+  const projectsMap = new Map<string, Project>();
+  for (const p of projects || []) {
+    if (p && p.id) projectsMap.set(p.id, p);
+  }
+  return buildIcs(tasks as any, `${projectName} - Terminarz Zadań`, { projects: projectsMap });
 }
 
 /**
  * Triggers instant browser download of .ics file
  */
-export function downloadIcsFile(tasks: Task[], filename: string = 'terminarz.ics', projectName?: string) {
-  const content = generateIcsContent(tasks, projectName);
+export function downloadIcsFile(
+  tasks: Task[],
+  filename: string = 'terminarz.ics',
+  projectName?: string,
+  projects?: Project[]
+) {
+  const content = generateIcsContent(tasks, projectName, projects);
   const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');

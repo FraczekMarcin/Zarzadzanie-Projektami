@@ -3,6 +3,17 @@
 Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.0.0/), wersjonowanie zgodne z [Semantic Versioning](https://semver.org/lang/pl/).
 
+## [0.8.2] - 2026-11-14
+
+### Dodano
+- **Wspólne etykiety i odmiana dni (`src/utils/labels.ts`)**: wydzielono `PRIORITY_LABELS`, `STATUS_LABELS` oraz funkcję `formatDurationDays` współdzielone między frontendem a backendem.
+- **Metadane i linki w zdarzeniach iCal (`src/utils/icsBuilder.ts`, `src/server/config.ts`)**: dodano obsługę zmiennej `PUBLIC_BASE_URL` (zwracanej także przez `/api/calendar/token` i `/api/calendar/token/generate`), pola `LAST-MODIFIED`, `CATEGORIES`, `URL`, `SEQUENCE`, status `STATUS:CANCELLED` dla anulowanych zadań oraz nazwę projektu w `DESCRIPTION`.
+- **Wykrywanie adresów lokalnych (`src/utils/calendar.ts`)**: dodano funkcję `isPrivateOrLocalUrl` wykrywającą protokół `http://`, sieci prywatne RFC 1918, `localhost`, nazwy bez kropki oraz domeny `.local`/`.lan`/`.home`.
+
+### Zmieniono
+- **Feed iCalendar i buforowanie HTTP (`src/server/routes/calendar.ts`, `src/utils/icsBuilder.ts`)**: zastąpiono surowe kody w `DESCRIPTION` polskimi etykietami i odmianą czasu trwania, zapewniono deterministyczny wynik `buildIcs` oraz dodano nagłówki `ETag`, `Last-Modified` i `Cache-Control: private, max-age=0, must-revalidate` z obsługą `If-None-Match` i `If-Modified-Since` (`304 Not Modified`).
+- **Okno synchronizacji z kalendarzami (`src/components/GoogleCalendarSyncModal.tsx`)**: usunięto nieprawdziwe zapewnienia o odświeżaniu co 15 minut w Google Calendar i strumieniu na żywo, zablokowano przycisk 1-Click dla adresów lokalnych/HTTP z komunikatem ostrzegawczym oraz dodano instrukcje subskrypcji dla Apple Calendar, Outlooka i Thunderbirda, importu `.ics` w Kalendarzu Google i instalowania lokalnego certyfikatu głównego.
+
 ## [0.8.1] - 2026-11-14
 
 ### Naprawiono

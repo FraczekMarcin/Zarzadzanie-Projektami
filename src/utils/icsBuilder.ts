@@ -1,6 +1,22 @@
 /**
  * Generator feedu iCalendar zgodny ze specyfikacją RFC 5545
  */
+import { PRIORITY_LABELS, STATUS_LABELS, formatDurationDays } from './labels.js';
+
+export interface IcsProject {
+  id: string;
+  name?: string;
+  key?: string;
+}
+
+export type IcsProjectsMap =
+  | Map<string, IcsProject | string>
+  | Record<string, IcsProject | string>;
+
+export interface BuildIcsOptions {
+  projects?: IcsProjectsMap;
+  publicBaseUrl?: string;
+}
 
 export interface IcsTask {
   id: string;
@@ -15,6 +31,7 @@ export interface IcsTask {
   startDate?: string;
   dueDate?: string;
   durationDays?: number;
+  revision?: number;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -45,10 +62,13 @@ export function getNextDayDateStr(dateStr: string): string {
 /**
  * Konwertuje datę/timestamp na format UTC YYYYMMDDTHHMMSSZ dla DTSTAMP
  */
+const DETERMINISTIC_FALLBACK_UTC = '20260101T000000Z';
+
 export function toIcsUtcTimestamp(dateInput?: string | number | Date): string {
-  const d = dateInput ? new Date(dateInput) : new Date();
-  const valid = !isNaN(d.getTime()) ? d : new Date();
-  const iso = valid.toISOString(); // np. 2026-11-05T18:00:00.000Z
+  if (!dateInput) return DETERMINISTIC_FALLBACK_UTC;
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return DETERMINISTIC_FALLBACK_UTC;
+  const iso = d.toISOString(); // np. 2026-11-05T18:00:00.000Z
   return iso.replace(/[-:]/g, '').split('.')[0] + 'Z';
 }
 
@@ -114,10 +134,38 @@ export function foldLine(line: string, maxBytes = 75): string {
   return chunks.join('\r\n ');
 }
 
+function resolveProjectName(
+  projects: IcsProjectsMap | undefined,
+  projectId?: string
+): string | undefined {
+  if (!projects || !projectId) return undefined;
+  const entry = projects instanceof Map ? projects.get(projectId) : projects[projectId];
+  if (!entry) return undefined;
+  if (typeof entry === 'string') return entry.trim() || undefined;
+  return entry.name?.trim() || undefined;
+}
+
+function isBuildIcsOptions(
+  arg: BuildIcsOptions | IcsProjectsMap | undefined
+): arg is BuildIcsOptions {
+  if (!arg || arg instanceof Map) return false;
+  return 'projects' in arg || 'publicBaseUrl' in arg;
+}
+
 /**
  * Jedna wspólna funkcja budująca feed RFC 5545 dla dowolnej listy zadań i nazwy kalendarza.
  */
-export function buildIcs(tasks: IcsTask[], calendarName: string): string {
+export function buildIcs(
+  tasks: IcsTask[],
+  calendarName: string,
+  optionsOrProjects?: BuildIcsOptions | IcsProjectsMap
+): string {
+  const options: BuildIcsOptions = isBuildIcsOptions(optionsOrProjects)
+    ? optionsOrProjects
+    : { projects: optionsOrProjects };
+  const projectsMap = options.projects;
+  const cleanPublicBaseUrl = (options.publicBaseUrl || '').trim().replace(/\/+$/, '');
+
   const lines: string[] = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -134,7 +182,7 @@ export function buildIcs(tasks: IcsTask[], calendarName: string): string {
     const hasStart = isValidDateStr(t.startDate);
     const hasDue = isValidDateStr(t.dueDate);
 
-    // Wymóg 2: Pomijaj zadania bez poprawnej daty
+    // Pomijaj zadania bez poprawnej daty
     if (!hasStart && !hasDue) {
       continue;
     }
@@ -142,43 +190,72 @@ export function buildIcs(tasks: IcsTask[], calendarName: string): string {
     let start = hasStart ? (t.startDate as string) : (t.dueDate as string);
     let due = hasDue ? (t.dueDate as string) : (t.startDate as string);
 
-    // Wymóg 2: dueDate < startDate -> użyj startDate
+    // dueDate < startDate -> użyj startDate
     if (due < start) {
       due = start;
     }
 
     const dtStart = start.replace(/-/g, '');
     const dtEnd = getNextDayDateStr(due);
-    const dtStamp = toIcsUtcTimestamp(t.updatedAt || t.createdAt);
+    const utcTimestamp = toIcsUtcTimestamp(t.updatedAt || t.createdAt);
 
-    // Wymóg 3: Ukończone: STATUS:CONFIRMED i "✓ " w SUMMARY
+    // Ukończone: STATUS:CONFIRMED i "✓ " w SUMMARY; anulowane: STATUS:CANCELLED
     const isDone = t.status === 'done';
+    const icsStatus = t.status === 'cancelled' ? 'CANCELLED' : 'CONFIRMED';
     const checkPrefix = isDone ? '✓ ' : '';
     const codePart = t.code ? `[${t.code}] ` : '';
     const rawSummary = `${checkPrefix}${codePart}${t.title || 'Zadanie'}`;
     const summary = escapeIcsText(rawSummary);
 
-    const descParts = [
-      `Priorytet: ${t.priority || 'Normalny'}`,
-      `Status: ${t.status || 'W toku'}`,
-      `Czas: ${t.durationDays || 1} dni`,
-    ];
+    const priorityKey = t.priority || 'normal';
+    const priorityText = PRIORITY_LABELS[priorityKey] || t.priority || PRIORITY_LABELS.normal;
+    const statusKey = t.status || 'to_do';
+    const statusText = STATUS_LABELS[statusKey] || t.status || STATUS_LABELS.to_do;
+    const durationText = formatDurationDays(t.durationDays);
+    const projectName = resolveProjectName(projectsMap, t.projectId);
+    const taskUrl = cleanPublicBaseUrl && t.id
+      ? `${cleanPublicBaseUrl}/?task=${encodeURIComponent(t.id)}`
+      : undefined;
+
+    const descParts: string[] = [];
+    if (projectName) {
+      descParts.push(`Projekt: ${projectName}`);
+    }
+    descParts.push(`Priorytet: ${priorityText}`);
+    descParts.push(`Status: ${statusText}`);
+    descParts.push(`Czas: ${durationText}`);
+    if (taskUrl) {
+      descParts.push(`URL: ${taskUrl}`);
+    }
     if (t.description) {
       descParts.push(t.description);
     }
     const description = escapeIcsText(descParts.join('\n'));
 
-    // Wymóg 4: UID stabilny
-    const uid = `${t.id || 'tsk-' + Math.random().toString(36).substring(2, 8)}@zarzadzanierp.local`;
+    const sequence =
+      typeof t.revision === 'number' && !isNaN(t.revision)
+        ? Math.max(0, Math.floor(t.revision) - 1)
+        : 0;
+
+    // UID stabilny
+    const uid = `${t.id || 'tsk-unknown'}@zarzadzanierp.local`;
 
     lines.push('BEGIN:VEVENT');
     lines.push(`UID:${uid}`);
-    lines.push(`DTSTAMP:${dtStamp}`);
+    lines.push(`DTSTAMP:${utcTimestamp}`);
+    lines.push(`LAST-MODIFIED:${utcTimestamp}`);
     lines.push(`DTSTART;VALUE=DATE:${dtStart}`);
     lines.push(`DTEND;VALUE=DATE:${dtEnd}`);
     lines.push(`SUMMARY:${summary}`);
     lines.push(`DESCRIPTION:${description}`);
-    lines.push('STATUS:CONFIRMED');
+    if (projectName) {
+      lines.push(`CATEGORIES:${escapeIcsText(projectName)}`);
+    }
+    if (taskUrl) {
+      lines.push(`URL:${taskUrl}`);
+    }
+    lines.push(`SEQUENCE:${sequence}`);
+    lines.push(`STATUS:${icsStatus}`);
     lines.push('CLASS:PUBLIC');
     lines.push('TRANSP:TRANSPARENT');
     lines.push('END:VEVENT');

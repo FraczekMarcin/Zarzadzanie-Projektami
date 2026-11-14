@@ -28,6 +28,7 @@ export interface CreateAppOptions {
   staticDir?: string;
   isDirectRun?: boolean;
   storage?: string;
+  publicBaseUrl?: string;
 }
 
 export interface ServerConfig {
@@ -49,6 +50,7 @@ export interface ServerConfig {
   staticDir?: string;
   isDirectRun: boolean;
   storage: string;
+  publicBaseUrl: string;
   isSelfRegistrationAllowed: () => boolean;
   getSetupToken: () => string;
   isSetupTokenRequired: () => boolean;
@@ -121,6 +123,10 @@ export function resolveServerConfig(options: CreateAppOptions = {}): ServerConfi
       ? rawStorage.trim().toLowerCase()
       : 'json';
 
+  const rawPublicBaseUrl =
+    options.publicBaseUrl !== undefined ? options.publicBaseUrl : (process.env.PUBLIC_BASE_URL || '');
+  const publicBaseUrl = rawPublicBaseUrl.trim().replace(/\/+$/, '');
+
   const isSelfRegistrationAllowed = (): boolean => {
     if (options.allowSelfRegistration !== undefined) {
       return Boolean(options.allowSelfRegistration);
@@ -163,6 +169,7 @@ export function resolveServerConfig(options: CreateAppOptions = {}): ServerConfi
     staticDir: options.staticDir,
     isDirectRun: Boolean(options.isDirectRun),
     storage,
+    publicBaseUrl,
     isSelfRegistrationAllowed,
     getSetupToken,
     isSetupTokenRequired,
