@@ -319,6 +319,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
 
     if (!session) {
       return res.json({
+        authenticated: false,
         setupRequired,
         allowSelfRegistration,
         requireSetupToken,
@@ -326,6 +327,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
     }
 
     res.json({
+      authenticated: true,
       setupRequired,
       userCount: users.length,
       users: users.filter((u) => u.isApproved !== false).map(sanitizeUser),

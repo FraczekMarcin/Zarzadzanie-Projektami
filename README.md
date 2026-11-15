@@ -412,6 +412,25 @@ npm run dev
 
 ---
 
+## 🧪 Testy end-to-end (Playwright)
+
+Testy przeglądarkowe weryfikują pełny interfejs użytkownika uruchomiony na zbudowanym serwerze produkcyjnym (`dist/server.js`) w izolowanym katalogu tymczasowym:
+
+```bash
+# 1. Zbuduj aplikację (frontend + backend)
+npm run build
+
+# 2. Zainstaluj przeglądarkę Chromium z zależnościami systemowymi (jednorazowo)
+npm run e2e:install
+
+# 3. Uruchom testy end-to-end
+npm run test:e2e
+```
+
+W przypadku niepowodzenia testów raport HTML jest zapisywany w katalogu `playwright-report/`, a ślady wykonania (`trace`) w `test-results/`.
+
+---
+
 ## 👥 Zespół i Wsparcie
 
 * **Autor & Opiekun:** Marcin Frączek

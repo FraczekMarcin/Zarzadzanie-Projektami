@@ -13,3 +13,5 @@ bun.lock
 .vscode
 backup.key
 secrets/
+playwright-report/
+test-results/

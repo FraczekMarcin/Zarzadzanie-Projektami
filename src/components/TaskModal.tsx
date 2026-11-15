@@ -59,7 +59,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   const [statusError, setStatusError] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const baseId = useId();
-  const titleId = `${baseId}-title`;
+  const titleId = `${baseId}-dialog-title`;
 
   useFocusTrap({ isOpen, onClose, containerRef: modalRef });
 

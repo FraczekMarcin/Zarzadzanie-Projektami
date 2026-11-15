@@ -156,8 +156,9 @@ export default function App() {
     return cleanup;
   }, []);
 
-  // Automatyczna weryfikacja aktualizacji przez serwerowy endpoint /api/system/check-update
+  // Automatyczna weryfikacja aktualizacji przez serwerowy endpoint /api/system/check-update (wyłącznie po zalogowaniu)
   useEffect(() => {
+    if (!isAuthenticated) return;
     try {
       const lastCheck = localStorage.getItem('oph_last_daily_update_check');
       const now = Date.now();
@@ -175,40 +176,53 @@ export default function App() {
           .catch(() => {});
       }
     } catch {}
-  }, []);
+  }, [isAuthenticated]);
 
-  // Weryfikacja aktywnej sesji HTTP w ciasteczku na starcie aplikacji
+  // Weryfikacja statusu konfiguracji oraz aktywnej sesji HTTP bez wywoływania zbędnych błędów 401 w konsoli
   useEffect(() => {
     let isMounted = true;
-    fetch('/api/auth/me', { credentials: 'same-origin' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!isMounted) return;
-        if (data && data.authenticated && data.user) {
-          setIsAuthenticated(true);
-          setCurrentUser(data.user);
-          localStorage.setItem('oph_is_authenticated', 'true');
-        } else {
-          setIsAuthenticated(false);
-          localStorage.removeItem('oph_is_authenticated');
-        }
-      })
-      .catch(() => {
-        if (!isMounted) return;
-        setIsAuthenticated(false);
-        localStorage.removeItem('oph_is_authenticated');
-      });
 
-    // Pobierz status konfiguracji oraz publiczną listę profili dla ekranu logowania (bez hashy haseł)
     fetch('/api/auth/setup-status', { credentials: 'same-origin' })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
+      .then(async (data) => {
         if (!isMounted || !data) return;
         if (typeof data.setupRequired === 'boolean') {
           setSetupRequired(data.setupRequired);
         }
         if (Array.isArray(data.users)) {
           setUsers(data.users);
+        }
+
+        if (data.authenticated === false) {
+          setIsAuthenticated(false);
+          try {
+            localStorage.removeItem('oph_is_authenticated');
+          } catch {}
+          return;
+        }
+
+        try {
+          const meRes = await fetch('/api/auth/me', { credentials: 'same-origin' });
+          const meData = meRes.ok ? await meRes.json() : null;
+          if (!isMounted) return;
+          if (meData && meData.authenticated && meData.user) {
+            setIsAuthenticated(true);
+            setCurrentUser(meData.user);
+            try {
+              localStorage.setItem('oph_is_authenticated', 'true');
+            } catch {}
+          } else {
+            setIsAuthenticated(false);
+            try {
+              localStorage.removeItem('oph_is_authenticated');
+            } catch {}
+          }
+        } catch {
+          if (!isMounted) return;
+          setIsAuthenticated(false);
+          try {
+            localStorage.removeItem('oph_is_authenticated');
+          } catch {}
         }
       })
       .catch(() => {});
@@ -797,9 +811,13 @@ export default function App() {
 
   // Activity logger helper
   const logActivity = (action: string, taskId?: string, details?: string) => {
+    const validProject =
+      (selectedProjectId ? projects.find((p) => p.id === selectedProjectId && !isDemoProject(p)) : undefined) ||
+      projects.find((p) => !isDemoProject(p));
+
     const newLog: ActivityLog = {
       id: `act-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      projectId: selectedProjectId || projects[0]?.id || 'prj-1',
+      projectId: validProject?.id || selectedProjectId || projects[0]?.id || 'prj-1',
       taskId,
       userId: currentUser.id,
       action,
@@ -807,7 +825,9 @@ export default function App() {
       details,
     };
     setActivityLogs((prev) => [newLog, ...prev]);
-    createActivityOnServer(newLog);
+    if (validProject) {
+      createActivityOnServer(newLog);
+    }
   };
 
   /**
@@ -2156,6 +2176,7 @@ export default function App() {
             onDeleteAllDemoData={handleDeleteAllDemoData}
             onOpenUserModal={() => setIsUserModalOpen(true)}
             onOpenArchiveModal={() => setIsArchiveModalOpen(true)}
+            onOpenCalendarSyncModal={() => setIsCalendarSyncModalOpen(true)}
             onApproveUser={handleApproveUser}
             onRejectUser={handleRejectUser}
             onUserUpdated={(updated) => {

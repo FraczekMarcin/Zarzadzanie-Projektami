@@ -458,7 +458,10 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
                       Klucz konfiguracyjny (wpisanie ręczne):
                     </span>
                     <div className="flex gap-1.5 items-center">
-                      <div className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-mono tracking-wider font-semibold text-sky-900 dark:text-sky-300 break-all select-all">
+                      <div
+                        aria-label="Klucz konfiguracyjny 2FA"
+                        className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-mono tracking-wider font-semibold text-sky-900 dark:text-sky-300 break-all select-all"
+                      >
                         {formatSecretKey(generatedSecret)}
                       </div>
                       <button

@@ -9,3 +9,5 @@ coverage/
 bun.lock
 backup.key
 secrets/
+playwright-report/
+test-results/

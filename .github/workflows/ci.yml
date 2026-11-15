@@ -91,3 +91,42 @@ jobs:
         run: |
           docker logs zp || true
           docker stop zp || true
+
+  e2e:
+    name: End-to-End (Playwright)
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Pobierz kod źródłowy (Checkout)
+        uses: actions/checkout@v4
+
+      - name: Konfiguracja Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Instalacja zależności (npm ci)
+        run: npm ci
+
+      - name: Budowanie aplikacji produkcyjnej (build)
+        run: npm run build
+
+      - name: Instalacja przeglądarki Chromium dla Playwright
+        run: npm run e2e:install
+
+      - name: Uruchomienie testów end-to-end (Playwright)
+        run: npm run test:e2e
+
+      - name: Prześlij raport HTML i ślady Playwright w razie błędu
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+

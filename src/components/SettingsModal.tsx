@@ -100,6 +100,7 @@ interface SettingsModalProps {
   onDeleteAllDemoData?: () => void;
   onOpenUserModal?: () => void;
   onOpenArchiveModal?: () => void;
+  onOpenCalendarSyncModal?: () => void;
   onApproveUser?: (userId: string) => void;
   onRejectUser?: (userId: string) => void;
   onUserUpdated?: (updated: Partial<User>) => void;
@@ -120,6 +121,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onDeleteAllDemoData,
   onOpenUserModal,
   onOpenArchiveModal,
+  onOpenCalendarSyncModal,
   onApproveUser,
   onRejectUser,
   onUserUpdated,
@@ -2076,6 +2078,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <ExternalLink className="w-4 h-4" aria-hidden="true" />
                       <span>Otwórz Google Calendar (+ Z adresu URL)</span>
                     </a>
+                    {onOpenCalendarSyncModal && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onOpenCalendarSyncModal();
+                        }}
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-lg text-xs font-semibold shadow-xs transition-colors"
+                      >
+                        <CalendarIcon className="w-4 h-4 text-sky-700 dark:text-sky-400" aria-hidden="true" />
+                        <span>Konfiguracja subskrypcji iCal i tokenu</span>
+                      </button>
+                    )}
                   </div>
 
                   <div className="p-3 bg-white/70 dark:bg-slate-900/70 rounded-lg border border-sky-100 dark:border-sky-900/50 text-[11px] text-slate-600 dark:text-slate-400 space-y-1">
