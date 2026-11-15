@@ -25,6 +25,11 @@ jobs:
           node-version: 24
           cache: 'npm'
 
+      - name: Wersje Node.js i npm
+        run: |
+          node -v
+          npm -v
+
       - name: Instalacja zależności (npm ci)
         run: npm ci
 
@@ -107,6 +112,11 @@ jobs:
         with:
           node-version: 24
           cache: 'npm'
+
+      - name: Wersje Node.js i npm
+        run: |
+          node -v
+          npm -v
 
       - name: Instalacja zależności (npm ci)
         run: npm ci

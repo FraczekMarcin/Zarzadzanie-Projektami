@@ -3,6 +3,15 @@
 Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.0.0/), wersjonowanie zgodne z [Semantic Versioning](https://semver.org/lang/pl/).
 
+## [0.9.7] - 2026-11-15
+
+### Dodano
+- **Test spójności `optionalDependencies` w `package-lock.json` (`src/__tests__/lockfile.test.ts`)**: dodano test Vitest sprawdzający, że każda zależność wymieniona w `optionalDependencies` dowolnego pakietu ma swój wpis w `packages` (chroni przed utratą wpisów innych platform przy zapisie pliku przez starszą wersję `npm`).
+
+### Zmieniono
+- **Naprawa `package-lock.json` dla `npm 11` (Node 24)**: zregenerowano plik blokady poleceniem `npx -y npm@11 install --package-lock-only --ignore-scripts`, dodając brakujące wpisy `optionalDependencies` innych platform (96 pakietów natywnych, bez zmian wersji istniejących zależności), dzięki czemu `npm ci` działa poprawnie pod `npm 10` i `npm 11` (także z `--omit=dev`).
+- **Logowanie wersji Node.js i npm w CI (`.github/workflows/ci.yml`)**: dodano kroki wypisujące `node -v` oraz `npm -v` przed `npm ci` w zadaniach `test-and-build` i `e2e`.
+
 ## [0.9.6] - 2026-11-15
 
 ### Zmieniono
