@@ -116,9 +116,12 @@ export function registerSystemRoutes(
         });
       }
 
+      const { serverSettings: _ignoredServerSettings, ...safeIncoming } = incoming;
+
       const nextState = {
         ...appState,
-        ...incoming,
+        ...safeIncoming,
+        serverSettings: appState.serverSettings,
         users: nextUsers,
         initialized: true,
         updatedAt: new Date().toISOString(),

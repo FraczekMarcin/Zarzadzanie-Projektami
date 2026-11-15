@@ -11,3 +11,4 @@ backup.key
 secrets/
 playwright-report/
 test-results/
+.dev_app_secret

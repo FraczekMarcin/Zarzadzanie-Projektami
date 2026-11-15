@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer';
 import { BackupStatusResult, computeBackupStatus } from './backupStatus.js';
 import { ServerConfig } from './config.js';
 import { logger } from './logger.js';
+import type { MailerService } from './mailer.js';
 import { StateStore } from './state.js';
 
 export const BACKUP_WATCH_INITIAL_DELAY_MS = 2 * 60 * 1000;
@@ -79,6 +80,7 @@ async function sendSmtpMail(payload: BackupAlertEmailPayload): Promise<void> {
 export function createBackupWatchService(deps: {
   config: ServerConfig;
   stateStore: StateStore;
+  mailer?: MailerService;
   disableTimers?: boolean;
   checkStatusOverride?: () => Promise<BackupStatusResult>;
   mailerOverride?: BackupAlertMailer;
@@ -86,7 +88,13 @@ export function createBackupWatchService(deps: {
 }): BackupWatchService {
   const { config, stateStore, disableTimers, checkStatusOverride, mailerOverride } = deps;
   const now = deps.now ?? (() => Date.now());
-  const mailer: BackupAlertMailer = mailerOverride ?? sendSmtpMail;
+  const isMailConfigured = () =>
+    deps.mailer ? deps.mailer.isMailConfigured() : config.isSmtpConfigured();
+  const mailer: BackupAlertMailer =
+    mailerOverride ??
+    (deps.mailer
+      ? (payload) => deps.mailer!.sendMail(payload)
+      : sendSmtpMail);
 
   let stopped = false;
   let checking = false;
@@ -128,7 +136,7 @@ export function createBackupWatchService(deps: {
             })
             .catch(() => {});
 
-          if (!config.isSmtpConfigured()) {
+          if (!isMailConfigured()) {
             logger.warn(
               `[BackupWatch] Brak świeżej kopii zapasowej (wiek: ${ageHours !== null ? `${ageHours} h` : 'brak'}); SMTP nie jest skonfigurowane — zapisano wyłącznie zdarzenie.`
             );
@@ -176,7 +184,7 @@ export function createBackupWatchService(deps: {
           })
           .catch(() => {});
 
-        if (!config.isSmtpConfigured()) {
+        if (!isMailConfigured()) {
           logger.info(
             `[BackupWatch] Kopia zapasowa znów aktualna (wiek: ${ageHours !== null ? `${ageHours} h` : '0 h'}); SMTP nie jest skonfigurowane.`
           );

@@ -1,6 +1,5 @@
 import express from 'express';
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
 import {
   generateBase32Secret,
   generate10BackupCodes,
@@ -25,6 +24,8 @@ import {
   verifyAndMigratePassword,
 } from '../security.js';
 import { SessionStore } from '../sessions.js';
+import { SettingsService } from '../settings.js';
+import { MailerService } from '../mailer.js';
 import { validatePassword } from '../../utils/passwordPolicy.js';
 import { logger } from '../logger.js';
 
@@ -33,20 +34,20 @@ export interface AuthRoutesDeps {
   stateStore: StateStore;
   sessionStore: SessionStore;
   security: SecurityContext;
+  settingsService: SettingsService;
+  mailer: MailerService;
 }
 
 export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): void {
-  const { config, stateStore, sessionStore, security } = deps;
+  const { config, stateStore, sessionStore, security, settingsService, mailer } = deps;
   const {
     effectiveAppSecret,
-    sessionIdleMs,
-    sessionMaxHours,
-    sessionMaxMs,
-    isSelfRegistrationAllowed,
     getSetupToken,
     isSetupTokenRequired,
-    isSmtpConfigured,
   } = config;
+  const isSelfRegistrationAllowed = () =>
+    settingsService.getEffectiveSettings().access.allowSelfRegistration.value;
+  const isSmtpConfigured = () => mailer.isMailConfigured();
   const { securityLogger } = stateStore;
   const {
     sessions,
@@ -138,21 +139,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
         });
 
         try {
-          const port = parseInt(process.env.SMTP_PORT || '587', 10);
-          const transporter = nodemailer.createTransport({
-            host: process.env.SMTP_HOST,
-            port,
-            secure: port === 465,
-            auth: process.env.SMTP_USER
-              ? {
-                  user: process.env.SMTP_USER,
-                  pass: process.env.SMTP_PASS || '',
-                }
-              : undefined,
-          });
-
-          await transporter.sendMail({
-            from: process.env.SMTP_FROM || '"Zarządzanie Projektami" <noreply@pracownia.pl>',
+          await mailer.sendMail({
             to: cleanEmail,
             subject: 'Kod weryfikacyjny resetu hasła - Zarządzanie Projektami',
             text: `Twój jednorazowy 6-cyfrowy kod do zresetowania hasła to: ${code}\n\nKod jest ważny przez 10 minut (maksymalnie 5 prób weryfikacji).\nJeśli to nie Ty prosiłeś o reset hasła, zignoruj tę wiadomość.`,
@@ -482,6 +469,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
 
       resetFailedLogin(identifier, clientIp);
 
+      const sessionPolicy = settingsService.getEffectiveSessionPolicy();
       const userAgent = (req.headers['user-agent'] || '').slice(0, 200);
       const now = Date.now();
       const rawToken = crypto.randomBytes(32).toString('hex');
@@ -491,7 +479,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
         userId: user.id,
         role: user.role,
         createdAt: now,
-        expiresAt: now + sessionMaxMs,
+        expiresAt: now + sessionPolicy.maxMs,
         lastSeenAt: now,
         userAgent: userAgent || undefined,
         ip: clientIp || undefined,
@@ -507,7 +495,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
         details: { role: user.role },
       }).catch(() => {});
 
-      setSessionCookie(req, res, rawToken, sessionMaxHours * 3600);
+      setSessionCookie(req, res, rawToken, sessionPolicy.maxHours * 3600);
       res.json({ success: true, user: sanitizeUser(user) });
     } catch (err: any) {
       logger.error('[Server Auth] Błąd logowania:', err);
@@ -542,11 +530,12 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
     const caller = (req as any).user;
     const currentSession = (req as any).session as Session;
     const now = Date.now();
+    const sessionPolicy = settingsService.getEffectiveSessionPolicy();
     const userSessions: PublicSession[] = [];
 
     for (const [tokenHash, s] of sessions.entries()) {
       if (s.userId === caller.id) {
-        if (isSessionExpired(s, now, sessionIdleMs, sessionMaxMs)) {
+        if (isSessionExpired(s, now, sessionPolicy.idleMs, sessionPolicy.maxMs)) {
           sessions.delete(tokenHash);
           scheduleThrottledSessionsSave();
           continue;
@@ -688,6 +677,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
       });
       await stateStore.saveStateAtomicAsync();
 
+      const sessionPolicy = settingsService.getEffectiveSessionPolicy();
       const userAgent = (req.headers['user-agent'] || '').slice(0, 200);
       const now = Date.now();
       const rawToken = crypto.randomBytes(32).toString('hex');
@@ -697,7 +687,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
         userId: adminUser.id,
         role: adminUser.role,
         createdAt: now,
-        expiresAt: now + sessionMaxMs,
+        expiresAt: now + sessionPolicy.maxMs,
         lastSeenAt: now,
         userAgent: userAgent || undefined,
         ip: clientIp || undefined,
@@ -705,7 +695,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
       sessions.set(tokenHash, session);
       saveSessionsAsync();
 
-      setSessionCookie(req, res, rawToken, sessionMaxHours * 3600);
+      setSessionCookie(req, res, rawToken, sessionPolicy.maxHours * 3600);
 
       securityLogger.record('setup_admin', {
         userId: adminUser.id,

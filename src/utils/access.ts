@@ -110,9 +110,11 @@ export function filterStateForUser(
   user: { id: string; role?: string } | null | undefined
 ): any {
   if (!state) return state;
+  const { serverSettings: _serverSettings, ...safeState } = state;
+
   if (!user) {
     return {
-      ...state,
+      ...safeState,
       projects: [],
       tasks: [],
       comments: [],
@@ -122,11 +124,11 @@ export function filterStateForUser(
 
   const isAdminOrManager = user.role === 'admin' || user.role === 'project_manager';
   if (isAdminOrManager) {
-    return { ...state };
+    return { ...safeState };
   }
 
   // 1. Dostępne projekty
-  const allProjects = Array.isArray(state.projects) ? state.projects : [];
+  const allProjects = Array.isArray(safeState.projects) ? safeState.projects : [];
   const accessibleProjects = allProjects
     .filter((p: any) => canAccessProject(user, p))
     .map((p: any) => filterProjectForUser(p, user));
@@ -134,7 +136,7 @@ export function filterStateForUser(
   const allowedProjectIds = new Set(accessibleProjects.map((p: any) => p.id));
 
   // 2. Dostępne zadania: z dostępnych projektów LUB przypisane / zgłoszone przez użytkownika
-  const allTasks = Array.isArray(state.tasks) ? state.tasks : [];
+  const allTasks = Array.isArray(safeState.tasks) ? safeState.tasks : [];
   const filteredTasks = allTasks.filter((t: any) => {
     if (!t) return false;
     return (
@@ -147,14 +149,14 @@ export function filterStateForUser(
   const allowedTaskIds = new Set(filteredTasks.map((t: any) => t.id));
 
   // 3. Komentarze: tylko do dostępnych zadań
-  const allComments = Array.isArray(state.comments) ? state.comments : [];
+  const allComments = Array.isArray(safeState.comments) ? safeState.comments : [];
   const filteredComments = allComments.filter((c: any) => {
     if (!c) return false;
     return c.taskId && allowedTaskIds.has(c.taskId);
   });
 
   // 4. Logi aktywności: powiązane z dostępnymi projektami lub zadaniami, albo wykonane przez usera
-  const allLogs = Array.isArray(state.activityLogs) ? state.activityLogs : [];
+  const allLogs = Array.isArray(safeState.activityLogs) ? safeState.activityLogs : [];
   const filteredLogs = allLogs.filter((log: any) => {
     if (!log) return false;
     if (log.projectId && allowedProjectIds.has(log.projectId)) return true;
@@ -164,7 +166,7 @@ export function filterStateForUser(
   });
 
   return {
-    ...state,
+    ...safeState,
     projects: accessibleProjects,
     tasks: filteredTasks,
     comments: filteredComments,

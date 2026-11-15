@@ -405,7 +405,7 @@ sudo /bin/bash /opt/zarzadzanie-projektami/backup.sh
 
 ## ⚙️ Konfiguracja zmiennych środowiskowych
 
-Wszystkie poniższe zmienne można skonfigurować w pliku `.env` (wzór w `.env.example`).
+Wszystkie poniższe zmienne można skonfigurować w pliku `.env` (wzór wdrożeniowy dla Dockera znajduje się w `docker.env.example`; minimalny plik `.env.example` przypomina, że w trybie deweloperskim żadne zmienne nie są wymagane).
 
 | Zmienna | Wartość domyślna | Status | Opis |
 | :--- | :--- | :--- | :--- |
@@ -416,27 +416,45 @@ Wszystkie poniższe zmienne można skonfigurować w pliku `.env` (wzór w `.env.
 | `BACKUP_DIR` | `./backups` / `/opt/zarzadzanie-projektami/backups` | Opcjonalna | Dodatkowy katalog przeszukiwany przez `GET /api/backup/status` w celu wyznaczania statusu kopii w interfejsie. |
 | `BACKUP_MAX_AGE_HOURS` | `36` | Opcjonalna | Maksymalny dopuszczalny wiek najnowszej kopii zapasowej (w godzinach) przed oznaczeniem kopii jako nieaktualnej i wysłaniem alertu. |
 | `BACKUP_ALERT_EMAILS` | `""` | Opcjonalna | Lista adresów e-mail (rozdzielona przecinkami) do wysyłki alertów o braku świeżej kopii zapasowej; gdy pusta, używa adresów aktywnych administratorów (wymaga SMTP). |
-| `APP_SECRET` | fallback deweloperski w dev; brak w prod | **Wymagana w prod** | Klucz szyfrowania sekretów 2FA (AES-256-GCM) i hashowania kodów zapasowych (co najmniej 64 znaki hex / 32 bajty entropii). |
+| `APP_SECRET` | losowy klucz w `<DATA_DIR>/.dev_app_secret` (dev); brak w prod | **Wymagana w prod** | Klucz szyfrowania sekretów 2FA i haseł SMTP (AES-256-GCM) oraz hashowania kodów zapasowych (co najmniej 64 znaki hex / 32 bajty entropii). |
 | `APP_VERSION` | zawartość pliku `VERSION` | Opcjonalna | Ręczne nadpisanie wersji zgłaszanej przez `/api/health` i `/api/system-info`. |
 | `LOG_LEVEL` | `info` | Opcjonalna | Poziom logowania serwera (`debug`, `info`, `warn`, `error`). |
 | `LOG_FORMAT` | `text` | Opcjonalna | Format wpisów logu (`text` z prefiksem czasu ISO i poziomu lub `json` – jedna linia JSON na wpis). |
 | `TRUST_PROXY` | `false` (`1` w `docker-compose.https.yml`) | Opcjonalna | Zaufanie nagłówkom proxy (`X-Forwarded-Proto`, `X-Forwarded-For`); akceptuje `true`, `false`, liczbę przeskoków lub adres IP. |
 | `PUBLIC_BASE_URL` | `""` | Opcjonalna | Publiczny adres bazowy HTTPS używany przy generowaniu linków subskrypcji iCal / Kalendarza Google. |
-| `ALLOW_SELF_REGISTRATION` | `true` | Opcjonalna | Czy zezwalać na samodzielne składanie wniosków rejestracyjnych na ekranie logowania (`true`/`false`). |
+| `ALLOW_SELF_REGISTRATION` | `true` | Opcjonalna | Czy zezwalać na samodzielne składanie wniosków rejestracyjnych na ekranie logowania (`true`/`false`). Nadpisuje ustawienie w UI. |
 | `SETUP_TOKEN` | `""` | Opcjonalna | Jeśli ustawiony, wymaga podania tego samego tokenu przy rejestracji pierwszego administratora (`POST /api/auth/setup-admin`). |
 | `RESET_2FA_ON_START` | `false` | Opcjonalna | Awaryjny reset niemożliwych do odszyfrowania sekretów 2FA podczas startu serwera (`true`/`1`). |
-| `SESSION_IDLE_MINUTES` | `120` | Opcjonalna | Limit bezczynności sesji użytkownika w minutach. |
-| `SESSION_MAX_HOURS` | `12` | Opcjonalna | Maksymalny bezwzględny czas ważności sesji użytkownika w godzinach. |
-| `SMTP_HOST` | `""` | Opcjonalna | Adres serwera SMTP; jego ustawienie włącza funkcję resetowania hasła kodem jednorazowym przez e-mail. |
-| `SMTP_PORT` | `587` | Opcjonalna | Port serwera SMTP (`465` włącza TLS/SMTPS). |
-| `SMTP_USER` | `""` | Opcjonalna | Nazwa użytkownika SMTP do uwierzytelniania. |
-| `SMTP_PASS` | `""` | Opcjonalna | Hasło do konta SMTP. |
-| `SMTP_FROM` | `"Zarządzanie Projektami" <noreply@pracownia.pl>` | Opcjonalna | Adres nadawcy w wysyłanych wiadomościach resetu hasła. |
+| `SESSION_IDLE_MINUTES` | `120` | Opcjonalna | Limit bezczynności sesji użytkownika w minutach (5–1440). Nadpisuje ustawienie w UI. |
+| `SESSION_MAX_HOURS` | `12` | Opcjonalna | Maksymalny bezwzględny czas ważności sesji użytkownika w godzinach (1–168). Nadpisuje ustawienie w UI. |
+| `SMTP_HOST` | `""` | Opcjonalna | Adres serwera SMTP; jego ustawienie włącza resetowanie hasła przez e-mail i alerty kopii. Nadpisuje ustawienie w UI. |
+| `SMTP_PORT` | `587` | Opcjonalna | Port serwera SMTP (`465` domyślnie używa TLS/SMTPS). Nadpisuje ustawienie w UI. |
+| `SMTP_ENCRYPTION` | `starttls` (`tls` dla portu `465`) | Opcjonalna | Tryb szyfrowania SMTP (`none`, `starttls`, `tls`). Nadpisuje ustawienie w UI. |
+| `SMTP_USER` | `""` | Opcjonalna | Nazwa użytkownika SMTP do uwierzytelniania. Nadpisuje ustawienie w UI. |
+| `SMTP_PASS` | `""` | Opcjonalna | Hasło do konta SMTP. Nadpisuje ustawienie w UI. |
+| `SMTP_FROM` | `"Zarządzanie Projektami" <noreply@pracownia.pl>` | Opcjonalna | Adres nadawcy w wysyłanych wiadomościach (nazwa + e-mail). Nadpisuje ustawienia w UI. |
+| `SMTP_ALLOW_SELF_SIGNED` | `false` | Opcjonalna | Zezwolenie na samopodpisane certyfikaty TLS serwera SMTP (`true`/`false`). Nadpisuje ustawienie w UI. |
 | `GOOGLE_SERVICE_ACCOUNT_FILE` | `""` | Opcjonalna | Ścieżka do pliku klucza JSON konta usługi Google wewnątrz kontenera (np. `/run/secrets/google_sa.json`). |
 | `GOOGLE_CALENDAR_ID` | `""` | Opcjonalna | Identyfikator wspólnego Kalendarza Google do jednokierunkowej synchronizacji zadań. |
 | `COMPOSE_FILE` | `docker-compose.yml` (gdy nieustawiona) | Opcjonalna (Docker) | Lista plików Docker Compose rozdzielona znakiem `:`. Pominięcie `docker-compose.https.yml` wyłącza Caddy i HTTPS. |
 | `APP_HOST` | `""` | Wymagana dla HTTPS | Nazwa hosta lub adres IP serwera używany przez Caddy w `Caddyfile`. |
 | `APP_BIND` / `APP_PORT` | `0.0.0.0` / `3000` | Opcjonalna (Docker) | Adres i port hosta mapowane w trybie HTTP (`docker-compose.yml`). |
+
+---
+
+## 🛠️ Ustawienia administratora
+
+Administrator może zarządzać wybranymi parametrami serwera bezpośrednio z poziomu interfejsu aplikacji (**Ustawienia → Poczta (SMTP)** oraz **Ustawienia → Dostęp i sesje**), bez konieczności restartowania kontenera. Zmiany są zapisywane w `app_state.json` (hasło SMTP jest szyfrowane kluczem `APP_SECRET`), a obowiązuje zasada pierwszeństwa: **zmienna środowiskowa (`.env`) > wartość zapisana w interfejsie > wartość domyślna**. Pola zablokowane zmienną środowiskową są w interfejsie oznaczone jako zablokowane.
+
+| Kategoria / parametr | Konfiguracja w UI | Konfiguracja w `.env` | Dlaczego w UI / dlaczego wyłącznie w `.env` |
+| :--- | :--- | :--- | :--- |
+| Poczta SMTP (`host`, `port`, szyfrowanie, login, hasło, nadawca, `allowSelfSigned`) | Tak (`Poczta (SMTP)`) | Tak (`SMTP_*`, ma pierwszeństwo) | Wygodna konfiguracja i testowanie wysyłki w panelu bez edycji plików na serwerze; hasło szyfrowane `APP_SECRET`. |
+| Samodzielna rejestracja użytkowników | Tak (`Dostęp i sesje`) | Tak (`ALLOW_SELF_REGISTRATION`, ma pierwszeństwo) | Możliwość szybkiego otwierania lub zamykania rejestracji w trakcie działania systemu bez restartu. |
+| Limity sesji (`idleMinutes`, `maxHours`) | Tak (`Dostęp i sesje`) | Tak (`SESSION_IDLE_MINUTES`, `SESSION_MAX_HOURS`, mają pierwszeństwo) | Natychmiastowa zmiana polityki wygasania sesji bez przerywania aktywnej pracy zespołu. |
+| Katalog danych (`DATA_DIR`) | Tylko odczyt | Tak (wyłącznie `.env`) | Serwer musi znać lokalizację plików bazy danych przed uruchomieniem i wczytaniem `app_state.json`. |
+| Klucz szyfrowania (`APP_SECRET`) | Tylko status (bez wartości) | Tak (wyłącznie `.env` w prod) | Kryptograficzne oddzielenie klucza od bazy danych: wykradzenie samego pliku `app_state.json` nie pozwala odszyfrować sekretów 2FA ani hasła SMTP. |
+| Zaufane proxy (`TRUST_PROXY`) | Tylko odczyt (+ ostrzeżenie przy proxy/HTTPS) | Tak (wyłącznie `.env`) | Ustawienie warstwy sieciowej Express i zaufania nagłówkom proxy musi być ustalone przy starcie procesu. |
+| Port i tryb (`PORT`, `NODE_ENV`) | Tylko odczyt | Tak (wyłącznie `.env`) | Parametry uruchomienia procesu Node.js oraz mapowania portów kontenera. |
 
 ---
 

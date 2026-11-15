@@ -3,6 +3,18 @@
 Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.0.0/), wersjonowanie zgodne z [Semantic Versioning](https://semver.org/lang/pl/).
 
+## [0.9.8] - 2026-11-15
+
+### Dodano
+- **Schemat i serwis ustawień administratora (`src/utils/settingsSchema.ts`, `src/server/settings.ts`, `src/server/routes/adminSettings.ts`)**: dodano walidację oraz dynamiczne wyliczanie ustawień według zasady pierwszeństwa `zmienna środowiskowa > UI (appState.serverSettings) > wartość domyślna`, szyfrowanie hasła SMTP w bazie kluczem `APP_SECRET` (`secretBox.ts`), obsługę `GET /api/admin/settings` (z sekcją tylko do odczytu dla `DATA_DIR`, `TRUST_PROXY`, `APP_SECRET`, trybu i wersji), `PUT /api/admin/settings` (limit 20 żądań/godz., wymagane aktualne hasło administratora, `409` przy próbie zmiany pola zablokowanego zmienną środowiskową) oraz `POST /api/admin/settings/smtp-test` (limit 3/min, polskie komunikaty błędów bez ujawniania hasła).
+- **Centralny moduł poczty (`src/server/mailer.ts`)**: dodano wspólny serwis `createMailer` obsługujący dynamiczną konfigurację SMTP oraz tryby szyfrowania `none`, `starttls` i `tls` wraz z opcją `allowSelfSigned`.
+- **Zakładki administratora w interfejsie (`src/components/settings/SmtpTab.tsx`, `src/components/settings/AccessSessionsTab.tsx`, `src/components/SettingsModal.tsx`)**: dodano leniwie ładowane zakładki `Poczta (SMTP)` oraz `Dostęp i sesje` z blokowaniem pól sterowanych zmiennymi środowiskowymi, ostrzeżeniami bezpieczeństwa (brak szyfrowania, samopodpisane certyfikaty, ruch przez proxy/HTTPS przy wyłączonym `TRUST_PROXY`) oraz testem wysyłki SMTP.
+- **Zdarzenia dziennika i testy ustawień (`src/utils/securityLog.ts`, `src/components/settings/SecurityTab.tsx`, `src/__tests__/adminSettings.test.ts`)**: dodano typy zdarzeń `settings_changed`, `smtp_test_sent` i `smtp_test_failed` (bez logowania wartości ustawień i haseł) oraz testy walidacji, pierwszeństwa, szyfrowania, izolacji od `/api/state`, natychmiastowego działania zmian bez restartu, trybów `mailer` oraz startu dev bez `.env`.
+
+### Zmieniono
+- **Dynamiczna obsługa sesji, rejestracji, poczty i izolacja `serverSettings` (`src/server/sessions.ts`, `src/server/routes/auth.ts`, `src/server/backupWatch.ts`, `src/server/app.ts`, `src/utils/access.ts`, `src/server/routes/system.ts`, `src/App.tsx`)**: przełączono limity sesji, przełącznik samodzielnej rejestracji oraz wysyłkę maili na dynamiczny odczyt bez restartu (bez zrywania istniejących ważnych sesji), zastąpiono ręczne wywołania `nodemailer.createTransport` centralnym `mailer.ts` i odfiltrowano `serverSettings` z odpowiedzi `/api/state` przy zachowaniu ich podczas `POST /api/state`.
+- **Bezkonfiguracyjny start deweloperski i porządek w szablonach `.env` (`src/server/config.ts`, `src/server/state.ts`, `docker.env.example`, `.env.example`, `.gitignore`, `.dockerignore`, `README.md`, `src/__tests__/envDocs.test.ts`)**: przeniesiono szablon zmiennych Docker do `docker.env.example`, pozostawiono minimalny `.env.example` dla trybu dev, dodano automatyczne generowanie i trwały zapis `<DATA_DIR>/.dev_app_secret` (`chmod 600`) w trybie dev przy braku `APP_SECRET` oraz dodano w `README.md` sekcję `Ustawienia administratora` z tabelą porównawczą UI vs `.env`.
+
 ## [0.9.7] - 2026-11-15
 
 ### Dodano

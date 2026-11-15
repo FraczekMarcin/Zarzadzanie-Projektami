@@ -17,6 +17,9 @@ import { registerCalendarRoutes } from './routes/calendar.js';
 import { registerEventRoutes, EventRoutesHandle } from './routes/events.js';
 import { createGoogleSyncService, registerGoogleSyncRoutes } from './googleSync.js';
 import { createBackupWatchService } from './backupWatch.js';
+import { createSettingsService } from './settings.js';
+import { createMailer } from './mailer.js';
+import { registerAdminSettingsRoutes } from './routes/adminSettings.js';
 import { setupStaticAndSpa } from './static.js';
 import { logger } from './logger.js';
 
@@ -31,8 +34,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
   process.umask(0o077);
   const config: ServerConfig = resolveServerConfig(options);
   const stateStore: StateStore = await createStateStore(config);
+  const settingsService = createSettingsService({ config, stateStore });
+  const mailer = createMailer(settingsService);
   const security: SecurityContext = createSecurityContext();
-  const sessionStore: SessionStore = createSessionStore(config, stateStore);
+  const sessionStore: SessionStore = createSessionStore(
+    config,
+    stateStore,
+    () => settingsService.getEffectiveSessionPolicy()
+  );
   const googleSync = createGoogleSyncService({
     config,
     stateStore,
@@ -42,6 +51,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
   const backupWatch = createBackupWatchService({
     config,
     stateStore,
+    mailer,
     disableTimers: options.backupWatchDisableTimers,
     checkStatusOverride: options.backupStatusCheckOverride,
     mailerOverride: options.backupAlertMailer,
@@ -82,13 +92,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
     applyCoreMiddleware(app, config, stateStore.securityLogger);
 
     registerSystemRoutes(app, { config, stateStore, sessionStore });
-    registerAuthRoutes(app, { config, stateStore, sessionStore, security });
+    registerAuthRoutes(app, { config, stateStore, sessionStore, security, settingsService, mailer });
     registerTaskRoutes(app, { stateStore, sessionStore });
     registerProjectRoutes(app, { stateStore, sessionStore });
     registerCommentRoutes(app, { stateStore, sessionStore });
     registerUserRoutes(app, { config, stateStore, sessionStore, security });
     registerCalendarRoutes(app, { config, stateStore, sessionStore });
     registerGoogleSyncRoutes(app, { googleSync, sessionStore });
+    registerAdminSettingsRoutes(app, { stateStore, sessionStore, security, settingsService, mailer });
     eventsHandle = registerEventRoutes(app, { stateStore, sessionStore });
 
     // 404 handler dla nieznanych tras /api (dla każdej metody HTTP)

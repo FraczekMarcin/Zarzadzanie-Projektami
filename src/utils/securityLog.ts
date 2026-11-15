@@ -23,7 +23,10 @@ export type SecurityEventType =
   | 'google_sync_failed'
   | 'google_sync_completed'
   | 'backup_stale'
-  | 'backup_recovered';
+  | 'backup_recovered'
+  | 'settings_changed'
+  | 'smtp_test_sent'
+  | 'smtp_test_failed';
 
 export type LoginFailureReason =
   | 'bad_password'
@@ -156,6 +159,9 @@ export const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   google_sync_completed: 'Zakończenie synchronizacji z Google Calendar',
   backup_stale: 'Brak świeżej kopii zapasowej',
   backup_recovered: 'Kopia zapasowa znów aktualna',
+  settings_changed: 'Zmiana ustawień administratora',
+  smtp_test_sent: 'Wysłano wiadomość testową SMTP',
+  smtp_test_failed: 'Błąd wysyłki testowej SMTP',
 };
 
 /**

@@ -34,6 +34,8 @@ export interface SecurityContext {
   passwordResetVerifyIpLimiter: RateLimiter;
   registerIpLimiter: RateLimiter;
   setupAdminIpLimiter: RateLimiter;
+  adminSettingsLimiter: RateLimiter;
+  smtpTestLimiter: RateLimiter;
   passwordResetTokens: Map<string, PasswordResetToken>;
   passwordResetEmailAttempts: Map<string, EmailResetAttempts>;
   isRateLimited: (account: string, clientIp: string) => boolean;
@@ -319,6 +321,8 @@ export function createSecurityContext(): SecurityContext {
   const passwordResetVerifyIpLimiter = createRateLimiter({ max: 10, windowMs: 15 * 60 * 1000 });
   const registerIpLimiter = createRateLimiter({ max: 5, windowMs: 60 * 60 * 1000 });
   const setupAdminIpLimiter = createRateLimiter({ max: 10, windowMs: 60 * 60 * 1000 });
+  const adminSettingsLimiter = createRateLimiter({ max: 20, windowMs: 60 * 60 * 1000 });
+  const smtpTestLimiter = createRateLimiter({ max: 3, windowMs: 60 * 1000 });
 
   const failedLogins = new Map<string, FailedLoginRec>();
   const passwordResetTokens = new Map<string, PasswordResetToken>();
@@ -414,6 +418,8 @@ export function createSecurityContext(): SecurityContext {
     passwordResetVerifyIpLimiter.destroy();
     registerIpLimiter.destroy();
     setupAdminIpLimiter.destroy();
+    adminSettingsLimiter.destroy();
+    smtpTestLimiter.destroy();
   }
 
   return {
@@ -422,6 +428,8 @@ export function createSecurityContext(): SecurityContext {
     passwordResetVerifyIpLimiter,
     registerIpLimiter,
     setupAdminIpLimiter,
+    adminSettingsLimiter,
+    smtpTestLimiter,
     passwordResetTokens,
     passwordResetEmailAttempts,
     isRateLimited,

@@ -20,6 +20,7 @@ import { useTaskActions } from './hooks/useTaskActions';
 const SettingsModal = lazy(() =>
   import('./components/SettingsModal').then((m) => ({ default: m.SettingsModal }))
 );
+import type { SettingsTab } from './components/SettingsModal';
 const ArchiveBackupModal = lazy(() =>
   import('./components/ArchiveBackupModal').then((m) => ({ default: m.ArchiveBackupModal }))
 );
@@ -117,7 +118,7 @@ export default function App() {
 
   // Settings & Theme State
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'theme' | 'update' | 'docker' | 'users' | 'backup' | 'variables'>('theme');
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('theme');
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => getThemePreference());
   const [serverBackupStatus, setServerBackupStatus] = useState<{
     active: boolean;

@@ -22,7 +22,7 @@ function collectTsFiles(dir: string): string[] {
 }
 
 describe('Dokumentacja zmiennych środowiskowych i czystość logowania serwera', () => {
-  it('każda zmienna process.env.* odczytywana przez kod serwera jest udokumentowana w README.md i .env.example', () => {
+  it('każda zmienna process.env.* odczytywana przez kod serwera jest udokumentowana w README.md i docker.env.example', () => {
     const serverFiles = [
       path.join(ROOT_DIR, 'server.ts'),
       ...collectTsFiles(path.join(ROOT_DIR, 'src', 'server')),
@@ -47,7 +47,7 @@ describe('Dokumentacja zmiennych środowiskowych i czystość logowania serwera'
     expect(discoveredVars.size).toBeGreaterThan(10);
 
     const readme = fs.readFileSync(path.join(ROOT_DIR, 'README.md'), 'utf-8');
-    const envExample = fs.readFileSync(path.join(ROOT_DIR, '.env.example'), 'utf-8');
+    const envExample = fs.readFileSync(path.join(ROOT_DIR, 'docker.env.example'), 'utf-8');
 
     const missingInReadme: string[] = [];
     const missingInEnvExample: string[] = [];

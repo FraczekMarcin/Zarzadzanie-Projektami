@@ -90,11 +90,25 @@ export async function createStateStore(config: ServerConfig): Promise<StateStore
     throw err;
   }
 
+  if (config.devAppSecretNeedsPersist && !config.isProduction) {
+    const devSecretFile = path.join(dataDir, '.dev_app_secret');
+    try {
+      if (!fs.existsSync(devSecretFile)) {
+        fs.writeFileSync(devSecretFile, effectiveAppSecret + '\n', { encoding: 'utf-8', mode: 0o600 });
+        fs.chmodSync(devSecretFile, 0o600);
+        logger.info(`[Server] Wygenerowano lokalny klucz szyfrowania dev w ${devSecretFile} (uprawnienia 600).`);
+      }
+    } catch (err: any) {
+      logger.warn(`[Server WARN] Nie udało się zapisać pliku ${devSecretFile}: ${err?.message || err}`);
+    }
+  }
+
   const dataFilesToHarden = [
     stateFile,
     `${stateFile}.tmp`,
     sessionsFile,
     `${sessionsFile}.tmp`,
+    path.join(dataDir, '.dev_app_secret'),
     path.join(dataDir, 'security_log.jsonl'),
     path.join(dataDir, 'security_log.1.jsonl'),
     path.join(dataDir, 'security_log.2.jsonl'),

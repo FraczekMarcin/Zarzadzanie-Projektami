@@ -33,17 +33,34 @@ export function hashSessionToken(token: string): string {
   return crypto.createHash('sha256').update(token.trim()).digest('hex');
 }
 
-export function createSessionStore(config: ServerConfig, stateStore: StateStore): SessionStore {
-  const {
-    dataDir,
-    sessionsFile,
-    sessionIdleMinutes,
-    sessionIdleMs,
-    sessionMaxHours,
-    sessionMaxMs,
-  } = config;
+export interface SessionPolicy {
+  idleMs: number;
+  maxMs: number;
+  maxHours: number;
+}
 
-  logger.info(`[Server Auth] Polityka sesji: bezczynność maks. ${sessionIdleMinutes} min, czas trwania maks. ${sessionMaxHours} h`);
+export function createSessionStore(
+  config: ServerConfig,
+  stateStore: StateStore,
+  getSessionPolicy?: () => SessionPolicy
+): SessionStore {
+  const { dataDir, sessionsFile } = config;
+
+  const resolvePolicy = (): SessionPolicy => {
+    if (getSessionPolicy) {
+      return getSessionPolicy();
+    }
+    return {
+      idleMs: config.sessionIdleMs,
+      maxMs: config.sessionMaxMs,
+      maxHours: config.sessionMaxHours,
+    };
+  };
+
+  const initialPolicy = resolvePolicy();
+  logger.info(
+    `[Server Auth] Polityka sesji: bezczynność maks. ${Math.round(initialPolicy.idleMs / 60000)} min, czas trwania maks. ${initialPolicy.maxHours} h`
+  );
 
   const sessions = new Map<string, Session>();
 
@@ -56,7 +73,7 @@ export function createSessionStore(config: ServerConfig, stateStore: StateStore)
         if (!s) continue;
         const createdAt = typeof s.createdAt === 'number' ? s.createdAt : now;
         const lastSeenAt = typeof s.lastSeenAt === 'number' ? s.lastSeenAt : createdAt;
-        const expiresAt = typeof s.expiresAt === 'number' ? s.expiresAt : (createdAt + sessionMaxMs);
+        const expiresAt = typeof s.expiresAt === 'number' ? s.expiresAt : (createdAt + initialPolicy.maxMs);
         let tokenHash = s.tokenHash;
         if (!tokenHash && s.token) {
           tokenHash = hashSessionToken(s.token);
@@ -74,7 +91,7 @@ export function createSessionStore(config: ServerConfig, stateStore: StateStore)
           ip: typeof s.ip === 'string' ? s.ip : undefined,
         };
 
-        if (!isSessionExpired(loadedSession, now, sessionIdleMs, sessionMaxMs)) {
+        if (!isSessionExpired(loadedSession, now, initialPolicy.idleMs, initialPolicy.maxMs)) {
           sessions.set(tokenHash, loadedSession);
         }
       }
@@ -89,8 +106,9 @@ export function createSessionStore(config: ServerConfig, stateStore: StateStore)
     const doWrite = async () => {
       try {
         const now = Date.now();
+        const policy = resolvePolicy();
         const active = Array.from(sessions.values()).filter(
-          (s) => !isSessionExpired(s, now, sessionIdleMs, sessionMaxMs)
+          (s) => !isSessionExpired(s, now, policy.idleMs, policy.maxMs)
         );
         const tmp = path.join(dataDir, 'sessions.json.tmp');
         await fs.promises.writeFile(tmp, JSON.stringify(active), { encoding: 'utf-8', mode: 0o600 });
@@ -131,7 +149,7 @@ export function createSessionStore(config: ServerConfig, stateStore: StateStore)
     req: express.Request,
     res: express.Response,
     rawToken: string,
-    maxAgeSec = sessionMaxHours * 3600
+    maxAgeSec = resolvePolicy().maxHours * 3600
   ) {
     const isHttps = isRequestHttps(req);
     const cookieName = isHttps ? '__Host-zp_session' : 'zp_session';
@@ -201,7 +219,8 @@ export function createSessionStore(config: ServerConfig, stateStore: StateStore)
     const session = sessions.get(tokenHash);
     if (!session) return false;
     const now = Date.now();
-    if (isSessionExpired(session, now, sessionIdleMs, sessionMaxMs)) {
+    const policy = resolvePolicy();
+    if (isSessionExpired(session, now, policy.idleMs, policy.maxMs)) {
       sessions.delete(tokenHash);
       saveSessionsAsync();
       notifySessionsRevoked([tokenHash]);
@@ -213,9 +232,10 @@ export function createSessionStore(config: ServerConfig, stateStore: StateStore)
   function getSessionExpiryMs(tokenHash: string): number | null {
     const session = sessions.get(tokenHash);
     if (!session) return null;
+    const policy = resolvePolicy();
     const lastSeen = typeof session.lastSeenAt === 'number' ? session.lastSeenAt : session.createdAt;
-    const idleDeadline = lastSeen + sessionIdleMs;
-    const maxDeadline = typeof session.expiresAt === 'number' ? session.expiresAt : session.createdAt + sessionMaxMs;
+    const idleDeadline = lastSeen + policy.idleMs;
+    const maxDeadline = typeof session.expiresAt === 'number' ? session.expiresAt : session.createdAt + policy.maxMs;
     return Math.min(idleDeadline, maxDeadline);
   }
 
@@ -233,7 +253,8 @@ export function createSessionStore(config: ServerConfig, stateStore: StateStore)
     if (!session) return null;
 
     const now = Date.now();
-    if (isSessionExpired(session, now, sessionIdleMs, sessionMaxMs)) {
+    const policy = resolvePolicy();
+    if (isSessionExpired(session, now, policy.idleMs, policy.maxMs)) {
       sessions.delete(tokenHash);
       saveSessionsAsync();
       notifySessionsRevoked([tokenHash]);
