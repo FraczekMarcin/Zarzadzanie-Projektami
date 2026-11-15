@@ -453,7 +453,7 @@ docker compose logs --tail 100 -f
 
 ## 🛠️ Wdrożenie deweloperskie (Lokalne)
 
-Wymagania: Node.js 20+, npm.
+Wymagania: Node.js 24 LTS (`>=24`), npm.
 
 ```bash
 # 1. Sklonuj repozytorium

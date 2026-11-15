@@ -1,8 +1,11 @@
 {
   "name": "zarzadzanie-projektami",
   "private": true,
-  "version": "0.9.4",
+  "version": "0.9.5",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "tsx server.ts",
     "start": "node dist/server.js",

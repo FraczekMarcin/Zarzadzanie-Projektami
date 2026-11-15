@@ -3,6 +3,11 @@
 Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.0.0/), wersjonowanie zgodne z [Semantic Versioning](https://semver.org/lang/pl/).
 
+## [0.9.5] - 2026-11-15
+
+### Zmieniono
+- **Aktualizacja środowiska uruchomieniowego do Node.js 24 LTS (`Dockerfile`, `package.json`, `.github/workflows/ci.yml`, `README.md`)**: przełączono obrazy `Dockerfile` na `node:24-slim` (etap `builder`) oraz `node:24-alpine` (etap `runner`), ustawiono `engines.node` na `>=24` w `package.json`, zaktualizowano `node-version` do `24` w zadaniach `test-and-build` i `e2e` w `.github/workflows/ci.yml` oraz zaktualizowano wymagania w `README.md` do Node.js 24 LTS (`>=24`).
+
 ## [0.9.4] - 2026-11-15
 
 ### Dodano
