@@ -3,6 +3,17 @@
 Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.0.0/), wersjonowanie zgodne z [Semantic Versioning](https://semver.org/lang/pl/).
 
+## [0.9.4] - 2026-11-15
+
+### Dodano
+- **Wspólny moduł statusu i monitorowania kopii zapasowych (`src/server/backupStatus.ts`, `src/server/backupWatch.ts`)**: wyodrębniono logikę `GET /api/backup/status` do `computeBackupStatus` i dodano cykliczną usługę `backupWatch` uruchamianą w `createApp` (2 min po starcie i co 6 h), monitorującą próg `BACKUP_MAX_AGE_HOURS` (domyślnie `36` h).
+- **Alerty e-mail i zdarzenia bezpieczeństwa kopii zapasowych (`src/server/config.ts`, `src/utils/securityLog.ts`, `src/components/SettingsModal.tsx`)**: dodano obsługę zmiennych `BACKUP_MAX_AGE_HOURS` i `BACKUP_ALERT_EMAILS` (z domyślnym wyborem aktywnych administratorów posiadających adres e-mail), ograniczenie alertów do maks. 1 na 24 h, jednorazowe powiadomienie o powrocie kopii do normy (`kopia znów aktualna`) oraz zdarzenia `backup_stale` i `backup_recovered` zapisujące wyłącznie wiek kopii w godzinach (`ageHours`, bez ścieżek systemowych), z obsługą pracy bez SMTP.
+- **Testy alertów kopii zapasowych (`src/__tests__/backupWatch.test.ts`)**: dodano testy jednostkowe z fałszywymi timerami i atrapą wysyłki e-mail sprawdzające próg wieku kopii, dobór odbiorców, tłumienie powtórek w oknie 24 h, pojedyncze powiadomienie o powrocie do normy, tryb bez SMTP oraz brak ścieżek systemowych w dzienniku zdarzeń.
+
+### Zmieniono
+- **Nagłówek statusu kopii dla administratora (`src/App.tsx`, `src/server/routes/system.ts`, `src/server/app.ts`)**: przełączono `GET /api/backup/status` na wspólny moduł `computeBackupStatus`, podpięto cykl życia `backupWatch` do `createApp`/`close()` oraz zaktualizowano czerwony wskaźnik w nagłówku dla administratora, wyświetlając komunikat `Brak świeżej kopii zapasowej (ostatnia: X h temu)` (lub `brak`).
+- **Dokumentacja konfiguracji (`README.md`, `.env.example`)**: opisano zmienne środowiskowe `BACKUP_MAX_AGE_HOURS` i `BACKUP_ALERT_EMAILS`.
+
 ## [0.9.3] - 2026-11-15
 
 ### Dodano

@@ -2,6 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { validateAppSecret } from '../utils/secretBox.js';
+import type { BackupStatusResult } from './backupStatus.js';
 import { logger } from './logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -35,6 +36,11 @@ export interface CreateAppOptions {
   googleCalendarId?: string;
   googleSyncClient?: any;
   googleSyncDisableTimers?: boolean;
+  backupMaxAgeHours?: number;
+  backupAlertEmails?: string[];
+  backupWatchDisableTimers?: boolean;
+  backupStatusCheckOverride?: () => Promise<BackupStatusResult>;
+  backupAlertMailer?: (mail: { to: string[]; subject: string; text: string; html?: string }) => Promise<void>;
 }
 
 export interface ServerConfig {
@@ -59,6 +65,8 @@ export interface ServerConfig {
   publicBaseUrl: string;
   googleServiceAccountFile: string;
   googleCalendarId: string;
+  backupMaxAgeHours: number;
+  backupAlertEmails: string[];
   isSelfRegistrationAllowed: () => boolean;
   getSetupToken: () => string;
   isSetupTokenRequired: () => boolean;
@@ -169,6 +177,24 @@ export function resolveServerConfig(options: CreateAppOptions = {}): ServerConfi
 
   const isSetupTokenRequired = (): boolean => getSetupToken().length > 0;
 
+  const rawBackupMaxAge = Number(process.env.BACKUP_MAX_AGE_HOURS);
+  const backupMaxAgeHours =
+    typeof options.backupMaxAgeHours === 'number' &&
+    Number.isFinite(options.backupMaxAgeHours) &&
+    options.backupMaxAgeHours > 0
+      ? options.backupMaxAgeHours
+      : Number.isFinite(rawBackupMaxAge) && rawBackupMaxAge > 0
+      ? rawBackupMaxAge
+      : 36;
+
+  const backupAlertEmails = (
+    options.backupAlertEmails !== undefined
+      ? options.backupAlertEmails
+      : String(process.env.BACKUP_ALERT_EMAILS || '').split(',')
+  )
+    .map((e) => e.trim())
+    .filter(Boolean);
+
   const isSmtpConfigured = (): boolean =>
     Boolean(process.env.SMTP_HOST && process.env.SMTP_HOST.trim().length > 0);
 
@@ -194,6 +220,8 @@ export function resolveServerConfig(options: CreateAppOptions = {}): ServerConfi
     publicBaseUrl,
     googleServiceAccountFile,
     googleCalendarId,
+    backupMaxAgeHours,
+    backupAlertEmails,
     isSelfRegistrationAllowed,
     getSetupToken,
     isSetupTokenRequired,

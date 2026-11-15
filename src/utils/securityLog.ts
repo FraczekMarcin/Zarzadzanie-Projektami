@@ -21,7 +21,9 @@ export type SecurityEventType =
   | 'origin_blocked'
   | 'google_sync_started'
   | 'google_sync_failed'
-  | 'google_sync_completed';
+  | 'google_sync_completed'
+  | 'backup_stale'
+  | 'backup_recovered';
 
 export type LoginFailureReason =
   | 'bad_password'
@@ -152,6 +154,8 @@ export const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   google_sync_started: 'Rozpoczęcie synchronizacji z Google Calendar',
   google_sync_failed: 'Błąd synchronizacji z Google Calendar',
   google_sync_completed: 'Zakończenie synchronizacji z Google Calendar',
+  backup_stale: 'Brak świeżej kopii zapasowej',
+  backup_recovered: 'Kopia zapasowa znów aktualna',
 };
 
 /**

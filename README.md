@@ -414,6 +414,8 @@ Wszystkie poniższe zmienne można skonfigurować w pliku `.env` (wzór w `.env.
 | `DATA_DIR` | `./data` (dev) / `/app/data` (prod) | Opcjonalna | Katalog trwałych plików danych (`app_state.json`, `sessions.json`, `security_log.jsonl`). |
 | `STORAGE` | `json` | Opcjonalna | Wybór warstwy utrwalania stanu (`json`). |
 | `BACKUP_DIR` | `./backups` / `/opt/zarzadzanie-projektami/backups` | Opcjonalna | Dodatkowy katalog przeszukiwany przez `GET /api/backup/status` w celu wyznaczania statusu kopii w interfejsie. |
+| `BACKUP_MAX_AGE_HOURS` | `36` | Opcjonalna | Maksymalny dopuszczalny wiek najnowszej kopii zapasowej (w godzinach) przed oznaczeniem kopii jako nieaktualnej i wysłaniem alertu. |
+| `BACKUP_ALERT_EMAILS` | `""` | Opcjonalna | Lista adresów e-mail (rozdzielona przecinkami) do wysyłki alertów o braku świeżej kopii zapasowej; gdy pusta, używa adresów aktywnych administratorów (wymaga SMTP). |
 | `APP_SECRET` | fallback deweloperski w dev; brak w prod | **Wymagana w prod** | Klucz szyfrowania sekretów 2FA (AES-256-GCM) i hashowania kodów zapasowych (co najmniej 64 znaki hex / 32 bajty entropii). |
 | `APP_VERSION` | zawartość pliku `VERSION` | Opcjonalna | Ręczne nadpisanie wersji zgłaszanej przez `/api/health` i `/api/system-info`. |
 | `LOG_LEVEL` | `info` | Opcjonalna | Poziom logowania serwera (`debug`, `info`, `warn`, `error`). |

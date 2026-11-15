@@ -1700,41 +1700,57 @@ export default function App() {
 
         {/* Zone 3: Primary Actions & User Auth */}
         <div className="flex items-center gap-2 shrink-0">
-          {/* Symbol archiwizacji: zielony gdy kopia na serwerze <= 36h, czerwony gdy brak lub przeterminowana */}
-          <button
-            type="button"
-            onClick={() => {
-              setSettingsTab('backup');
-              setIsSettingsModalOpen(true);
-            }}
-            aria-label={isBackupActive ? 'Status kopii zapasowej na serwerze: Aktywna' : 'Uwaga: Brak aktualnej kopii zapasowej na serwerze poniżej 36 godzin'}
-            className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-all whitespace-nowrap border ${
-              isBackupActive
-                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100'
-                : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border-rose-400 dark:border-rose-800 hover:bg-rose-100 animate-pulse'
-            }`}
-            title={
-              isBackupActive
-                ? `Kopia zapasowa na serwerze: Aktywna (ostatnia: ${serverBackupStatus?.lastBackup ? `${serverBackupStatus.lastBackup.ageHours}h temu, ${serverBackupStatus.lastBackup.filename}` : 'w ciągu 36h'})`
-                : serverBackupStatus?.lastBackup
-                ? `UWAGA! Ostatnia kopia na serwerze ma ${serverBackupStatus.lastBackup.ageHours}h (przekroczono limit 36h)! Kliknij, aby sprawdzić.`
-                : 'UWAGA! Brak aktualnej kopii zapasowej na serwerze (w ciągu ostatnich 36h)! Kliknij, aby skonfigurować.'
-            }
-          >
-            <Cloud className={`w-3.5 h-3.5 ${isBackupActive ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`} aria-hidden="true" />
-            <span className="hidden sm:inline">
-              {isBackupActive ? 'Kopia: Aktywna' : 'Kopia: Brak (<36h)'}
-            </span>
-            <span className="sr-only sm:hidden">
-              {isBackupActive ? 'Kopia: Aktywna' : 'Uwaga: Kopia brak lub przeterminowana'}
-            </span>
-            <span
-              aria-hidden="true"
-              className={`w-2 h-2 rounded-full ${
-                isBackupActive ? 'bg-emerald-500' : 'bg-rose-500 animate-ping'
-              }`}
-            />
-          </button>
+          {/* Symbol archiwizacji: zielony gdy kopia na serwerze <= maxAgeHours, czerwony gdy brak lub przeterminowana */}
+          {(() => {
+            const maxAgeHours = serverBackupStatus?.maxAgeHours ?? 36;
+            const isAdminStale = !isBackupActive && currentUser?.role === 'admin';
+            const adminStaleLabel = isAdminStale
+              ? serverBackupStatus?.lastBackup
+                ? `Brak świeżej kopii zapasowej (ostatnia: ${serverBackupStatus.lastBackup.ageHours} h temu)`
+                : 'Brak świeżej kopii zapasowej (ostatnia: brak)'
+              : null;
+
+            return (
+              <button
+                type="button"
+                onClick={() => {
+                  setSettingsTab('backup');
+                  setIsSettingsModalOpen(true);
+                }}
+                aria-label={
+                  isBackupActive
+                    ? 'Status kopii zapasowej na serwerze: Aktywna'
+                    : adminStaleLabel || `Uwaga: Brak aktualnej kopii zapasowej na serwerze poniżej ${maxAgeHours} godzin`
+                }
+                className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-all whitespace-nowrap border ${
+                  isBackupActive
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100'
+                    : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border-rose-400 dark:border-rose-800 hover:bg-rose-100 animate-pulse'
+                }`}
+                title={
+                  isBackupActive
+                    ? `Kopia zapasowa na serwerze: Aktywna (ostatnia: ${serverBackupStatus?.lastBackup ? `${serverBackupStatus.lastBackup.ageHours}h temu, ${serverBackupStatus.lastBackup.filename}` : `w ciągu ${maxAgeHours}h`})`
+                    : serverBackupStatus?.lastBackup
+                    ? `UWAGA! Ostatnia kopia na serwerze ma ${serverBackupStatus.lastBackup.ageHours}h (przekroczono limit ${maxAgeHours}h)! Kliknij, aby sprawdzić.`
+                    : `UWAGA! Brak aktualnej kopii zapasowej na serwerze (w ciągu ostatnich ${maxAgeHours}h)! Kliknij, aby skonfigurować.`
+                }
+              >
+                <Cloud className={`w-3.5 h-3.5 ${isBackupActive ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`} aria-hidden="true" />
+                <span className="hidden sm:inline">
+                  {isBackupActive ? 'Kopia: Aktywna' : adminStaleLabel || 'Kopia: Brak (<36h)'}
+                </span>
+                <span className="sr-only sm:hidden">
+                  {isBackupActive ? 'Kopia: Aktywna' : adminStaleLabel || 'Uwaga: Kopia brak lub przeterminowana'}
+                </span>
+                <span
+                  aria-hidden="true"
+                  className={`w-2 h-2 rounded-full ${
+                    isBackupActive ? 'bg-emerald-500' : 'bg-rose-500 animate-ping'
+                  }`}
+                />
+              </button>
+            );
+          })()}
 
           {/* Przycisk bieżącej wersji: zielony gdy aktualna, czerwony gdy nowa wersja */}
           <button

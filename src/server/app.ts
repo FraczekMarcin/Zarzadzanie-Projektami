@@ -16,6 +16,7 @@ import { registerUserRoutes } from './routes/users.js';
 import { registerCalendarRoutes } from './routes/calendar.js';
 import { registerEventRoutes, EventRoutesHandle } from './routes/events.js';
 import { createGoogleSyncService, registerGoogleSyncRoutes } from './googleSync.js';
+import { createBackupWatchService } from './backupWatch.js';
 import { setupStaticAndSpa } from './static.js';
 import { logger } from './logger.js';
 
@@ -38,6 +39,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
     clientOverride: options.googleSyncClient,
     disableTimers: options.googleSyncDisableTimers,
   });
+  const backupWatch = createBackupWatchService({
+    config,
+    stateStore,
+    disableTimers: options.backupWatchDisableTimers,
+    checkStatusOverride: options.backupStatusCheckOverride,
+    mailerOverride: options.backupAlertMailer,
+  });
 
   let closeStatic: (() => Promise<void>) | null = null;
   let eventsHandle: EventRoutesHandle | null = null;
@@ -47,6 +55,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
     if (closed) return;
     closed = true;
 
+    backupWatch.stop();
     googleSync.stop();
     eventsHandle?.closeAll();
     security.destroy();

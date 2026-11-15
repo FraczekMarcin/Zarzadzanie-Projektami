@@ -1,9 +1,7 @@
 import express from 'express';
-import fs from 'fs';
-import path from 'path';
 import { filterStateForUser } from '../../utils/access.js';
-import { parseBackupFilename } from '../../utils/backupFiles.js';
 import { SecurityEventType } from '../../utils/securityLog.js';
+import { computeBackupStatus } from '../backupStatus.js';
 import {
   BACKUP_STATUS_CACHE_TTL_MS,
   UPDATE_CACHE_TTL_MS,
@@ -166,83 +164,11 @@ export function registerSystemRoutes(
         return res.json(backupStatusCache.data);
       }
 
-      const candidateDirs = [
-        process.env.BACKUP_DIR,
-        '/opt/zarzadzanie-projektami/backups',
-        path.resolve(config.dataDir, '..', 'backups'),
-        path.resolve(config.dataDir, 'backups'),
-        path.resolve(process.cwd(), 'backups'),
-      ].filter(Boolean) as string[];
-
-      interface BackupFileInfo {
-        filePath: string;
-        filename: string;
-        mtime: Date;
-        size: number;
-        encrypted: boolean;
-      }
-
-      const foundBackups: BackupFileInfo[] = [];
-
-      for (const dir of candidateDirs) {
-        try {
-          const stat = await fs.promises.stat(dir).catch(() => null);
-          if (stat && stat.isDirectory()) {
-            const files = await fs.promises.readdir(dir);
-            for (const file of files) {
-              const parsed = parseBackupFilename(file);
-              if (parsed.isBackup) {
-                const fullPath = path.join(dir, file);
-                const fileStat = await fs.promises.stat(fullPath).catch(() => null);
-                if (fileStat && fileStat.isFile()) {
-                  foundBackups.push({
-                    filePath: fullPath,
-                    filename: file,
-                    mtime: fileStat.mtime,
-                    size: fileStat.size,
-                    encrypted: parsed.encrypted,
-                  });
-                }
-              }
-            }
-          }
-        } catch (readErr) {
-          logger.warn(`[Server] Błąd odczytu katalogu kopii:`, readErr);
-        }
-      }
-
-      if (foundBackups.length === 0) {
-        const emptyResult = {
-          active: false,
-          lastBackup: null,
-          maxAgeHours: 36,
-          message: 'Brak kopii zapasowej na serwerze',
-        };
-        backupStatusCache = { data: emptyResult, cachedAt: now };
-        return res.json(emptyResult);
-      }
-
-      foundBackups.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
-      const newest = foundBackups[0];
-      const ageMs = Date.now() - newest.mtime.getTime();
-      const ageHours = Math.max(0, ageMs / (1000 * 60 * 60));
-      const isRecent = ageHours <= 36;
-
-      const result = {
-        active: isRecent,
-        lastBackup: {
-          filename: newest.filename,
-          timestamp: newest.mtime.toISOString(),
-          ageHours: Math.round(ageHours * 10) / 10,
-          size: newest.size,
-          encrypted: newest.encrypted,
-        },
-        totalBackups: foundBackups.length,
-        maxAgeHours: 36,
-        message: isRecent
-          ? 'Ostatnia kopia wykonana pomyślnie w ciągu ostatnich 36h'
-          : `Ostatnia kopia zapasowa jest starsza niż 36h (${Math.round(ageHours)}h temu)`,
-      };
+      const result = await computeBackupStatus({
+        dataDir: config.dataDir,
+        maxAgeHours: config.backupMaxAgeHours,
+        nowMs: now,
+      });
 
       backupStatusCache = { data: result, cachedAt: now };
       res.json(result);

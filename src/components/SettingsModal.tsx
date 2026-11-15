@@ -59,6 +59,8 @@ const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   google_sync_started: 'Rozpoczęcie synchronizacji Google Calendar',
   google_sync_completed: 'Zakończenie synchronizacji Google Calendar',
   google_sync_failed: 'Błąd synchronizacji Google Calendar',
+  backup_stale: 'Brak świeżej kopii zapasowej',
+  backup_recovered: 'Kopia zapasowa znów aktualna',
 };
 import { ThemeMode, getThemePreference, setThemePreference } from '../utils/theme';
 import { CURRENT_APP_VERSION, GITHUB_REPO_URL, INSTALL_COMMAND, UPDATE_COMMAND } from '../data/dockerConfig';
