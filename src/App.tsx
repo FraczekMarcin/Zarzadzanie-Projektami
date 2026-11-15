@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
-import { Task, Project, User, Priority, TaskStatus, ActivityLog, Comment, ProjectTemplate } from './types';
+import { Task, Project, ActivityLog, Comment, ProjectTemplate } from './types';
 import { INITIAL_PROJECTS, INITIAL_TASKS, INITIAL_ACTIVITY } from './data/initialData';
 import { GanttChart } from './components/GanttChart';
 import { CalendarView } from './components/CalendarView';
@@ -12,6 +12,9 @@ import { TaskDetailDrawer } from './components/TaskDetailDrawer';
 import { UserAuthModal } from './components/UserAuthModal';
 import { TaskFilterModal } from './components/TaskFilterModal';
 import { LoginGate } from './components/LoginGate';
+import { useAuthSession, NotificationToast } from './hooks/useAuthSession';
+import { useServerSync } from './hooks/useServerSync';
+import { useTaskActions } from './hooks/useTaskActions';
 
 // Lazy loading dla rzadziej otwieranych dużych modali (optymalizacja wielkości chunku)
 const SettingsModal = lazy(() =>
@@ -29,16 +32,14 @@ const GitHubUpdateModal = lazy(() =>
 const GoogleCalendarSyncModal = lazy(() =>
   import('./components/GoogleCalendarSyncModal').then((m) => ({ default: m.GoogleCalendarSyncModal }))
 );
-import { getTodayIso, addDaysIso } from './utils/today';
 import { instantiateTasksFromTemplate } from './utils/projectTemplates';
 import { getNextProjectCode } from './utils/projectCode';
 import { downloadIcsFile } from './utils/calendar';
 import { getAutoBackupConfig, createAutoBackupSnapshot } from './utils/autoBackup';
 import { ThemeMode, getThemePreference, setThemePreference, initThemeListener } from './utils/theme';
 import { CURRENT_APP_VERSION, GITHUB_REPO_URL } from './data/dockerConfig';
-import { isDemoUser, isDemoProject } from './utils/demoData';
+import { isDemoProject } from './utils/demoData';
 import { sortTasksByPriorityAndDueDate } from './utils/taskSorting';
-import { cascadeScheduleDates } from './utils/scheduleCascade';
 import { 
   FolderKanban, 
   Calendar as CalendarIcon, 
@@ -78,30 +79,6 @@ import {
 type ActiveView = 'gantt' | 'calendar' | 'tasks' | 'tree' | 'kanban' | 'projects';
 
 export default function App() {
-  // Authentication session gate: requires login on first visit or after logout
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('oph_is_authenticated') === 'true';
-    } catch {
-      return false;
-    }
-  });
-
-  // Setup required state (detected from server /api/auth/setup-status)
-  const [setupRequired, setSetupRequired] = useState<boolean | null>(null);
-
-  // Persistence state with users loaded strictly from server
-  const [users, setUsers] = useState<User[]>([]);
-
-  const [currentUser, setCurrentUser] = useState<User>({
-    id: '',
-    name: '',
-    email: '',
-    role: 'admin',
-    department: '',
-    initials: '',
-  });
-
   const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
 
   const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS);
@@ -116,11 +93,13 @@ export default function App() {
   // UI state
   const [activeView, setActiveView] = useState<ActiveView>('gantt');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const [notificationToast, setNotificationToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
+  const [notificationToast, setNotificationToast] = useState<NotificationToast | null>(null);
 
   // Modals & Drawers
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const editingTaskRef = useRef<Task | null>(null);
+  editingTaskRef.current = editingTask;
   const [defaultTaskDate, setDefaultTaskDate] = useState<string | undefined>(undefined);
   const [defaultParentId, setDefaultParentId] = useState<string | undefined>(undefined);
   const [selectedTaskDetail, setSelectedTaskDetail] = useState<Task | null>(null);
@@ -148,6 +127,9 @@ export default function App() {
   } | null>(null);
   const [isBackupActive, setIsBackupActive] = useState<boolean>(false);
 
+  const closeEventSourceRef = useRef<() => void>(() => {});
+  const logActivityRef = useRef<(action: string, taskId?: string, details?: string) => void>(() => {});
+
   // Initialize theme listener on mount
   useEffect(() => {
     const cleanup = initThemeListener((isDark) => {
@@ -155,6 +137,35 @@ export default function App() {
     });
     return cleanup;
   }, []);
+
+  const {
+    isAuthenticated,
+    setIsAuthenticated,
+    setupRequired,
+    users,
+    setUsers,
+    currentUser,
+    setCurrentUser,
+    refreshUsersList,
+    handleLoginSuccess,
+    handleLogout,
+    handleRegisterUser,
+    handleApproveUser,
+    handleRejectUser,
+    handleAddUser,
+    handleDeleteUser,
+    handleDeleteDemoUsers,
+    handleUpdateUserPassword,
+  } = useAuthSession({
+    setProjects,
+    setTasks,
+    setActivityLogs,
+    setComments,
+    setNotificationToast,
+    setIsUserModalOpen,
+    closeEventSourceRef,
+    logActivityRef,
+  });
 
   // Automatyczna weryfikacja aktualizacji przez serwerowy endpoint /api/system/check-update (wyłącznie po zalogowaniu)
   useEffect(() => {
@@ -177,60 +188,6 @@ export default function App() {
       }
     } catch {}
   }, [isAuthenticated]);
-
-  // Weryfikacja statusu konfiguracji oraz aktywnej sesji HTTP bez wywoływania zbędnych błędów 401 w konsoli
-  useEffect(() => {
-    let isMounted = true;
-
-    fetch('/api/auth/setup-status', { credentials: 'same-origin' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then(async (data) => {
-        if (!isMounted || !data) return;
-        if (typeof data.setupRequired === 'boolean') {
-          setSetupRequired(data.setupRequired);
-        }
-        if (Array.isArray(data.users)) {
-          setUsers(data.users);
-        }
-
-        if (data.authenticated === false) {
-          setIsAuthenticated(false);
-          try {
-            localStorage.removeItem('oph_is_authenticated');
-          } catch {}
-          return;
-        }
-
-        try {
-          const meRes = await fetch('/api/auth/me', { credentials: 'same-origin' });
-          const meData = meRes.ok ? await meRes.json() : null;
-          if (!isMounted) return;
-          if (meData && meData.authenticated && meData.user) {
-            setIsAuthenticated(true);
-            setCurrentUser(meData.user);
-            try {
-              localStorage.setItem('oph_is_authenticated', 'true');
-            } catch {}
-          } else {
-            setIsAuthenticated(false);
-            try {
-              localStorage.removeItem('oph_is_authenticated');
-            } catch {}
-          }
-        } catch {
-          if (!isMounted) return;
-          setIsAuthenticated(false);
-          try {
-            localStorage.removeItem('oph_is_authenticated');
-          } catch {}
-        }
-      })
-      .catch(() => {});
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   // Odpytuj endpoint /api/backup/status - co 5 minut, pomijaj gdy document.hidden
   useEffect(() => {
@@ -266,234 +223,26 @@ export default function App() {
     };
   }, [isAuthenticated]);
 
-  // Rewizja stanu na serwerze i referencje dla współbieżnej synchronizacji
-  const [stateRevision, setStateRevision] = useState<number>(0);
-  const stateRevisionRef = useRef<number>(0);
-  stateRevisionRef.current = stateRevision;
-  const editingTaskRef = useRef<Task | null>(null);
-  editingTaskRef.current = editingTask;
-
-  // Kolejka debouncingu 500 ms dla aktualizacji wielu pól jednego zadania
-  const taskPatchDebounceTimers = useRef<Map<string, { timer: any; patch: Partial<Task>; baseRevision: number }>>(new Map());
-  const eventSourceRef = useRef<EventSource | null>(null);
-
-  const closeEventSource = () => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
-  };
-
-  // Pobranie świeżego stanu z serwera (z zachowaniem otwartego formularza edycji)
-  const fetchFreshState = async (showNotification = false) => {
-    try {
-      const res = await fetch('/api/state', { credentials: 'same-origin' });
-      if (res.status === 401) {
-        closeEventSource();
-        setIsAuthenticated(false);
-        localStorage.removeItem('oph_is_authenticated');
-        return;
-      }
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data.initialized && data.state) {
-        const s = data.state;
-        if (typeof s.revision === 'number') {
-          setStateRevision(s.revision);
-          stateRevisionRef.current = s.revision;
-        }
-        if (Array.isArray(s.users) && s.users.length > 0) {
-          setUsers(s.users);
-        }
-        if (Array.isArray(s.projects)) {
-          setProjects(s.projects);
-        }
-        if (Array.isArray(s.tasks)) {
-          const currentEditingId = editingTaskRef.current?.id;
-          setTasks((prevTasks) => {
-            if (!currentEditingId) return s.tasks;
-            // Nie nadpisuj pól zadania edytowanego obecnie w otwartym formularzu
-            return s.tasks.map((incomingTask: Task) => {
-              if (incomingTask.id === currentEditingId) {
-                const localTask = prevTasks.find((t) => t.id === currentEditingId);
-                return localTask || incomingTask;
-              }
-              return incomingTask;
-            });
-          });
-        }
-        if (Array.isArray(s.activityLogs)) {
-          setActivityLogs(s.activityLogs);
-        }
-        if (Array.isArray(s.comments)) {
-          setComments(s.comments);
-        }
-        if (showNotification) {
-          setNotificationToast({
-            message: 'Zmiany od innych użytkowników zostały pobrane',
-            type: 'info',
-          });
-        }
-      }
-    } catch (err) {
-      console.warn('Błąd odświeżania stanu z serwera:', err);
-    }
-  };
-
-  // Inicjalne pobranie stanu przy starcie sesji
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    fetchFreshState(false);
-  }, [isAuthenticated]);
-
-  // Strumień zdarzeń SSE (/api/events) z rezerwą odpytywania co 15 s po 3 nieudanych próbach
-  useEffect(() => {
-    if (!isAuthenticated) {
-      closeEventSource();
-      return;
-    }
-
-    let disposed = false;
-    let consecutiveErrors = 0;
-    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
-    let retryClosedTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const stopFallbackPolling = () => {
-      if (fallbackInterval) {
-        clearInterval(fallbackInterval);
-        fallbackInterval = null;
-      }
-    };
-
-    const clearRetryClosedTimer = () => {
-      if (retryClosedTimer) {
-        clearTimeout(retryClosedTimer);
-        retryClosedTimer = null;
-      }
-    };
-
-    const pollRevisionOnce = async (): Promise<boolean> => {
-      try {
-        const res = await fetch('/api/state/revision', { credentials: 'same-origin' });
-        if (res.status === 401) {
-          closeEventSource();
-          stopFallbackPolling();
-          clearRetryClosedTimer();
-          setIsAuthenticated(false);
-          localStorage.removeItem('oph_is_authenticated');
-          return false;
-        }
-        if (!res.ok) return false;
-        const data = await res.json();
-        if (typeof data.revision === 'number' && data.revision > stateRevisionRef.current) {
-          await fetchFreshState(true);
-        }
-        return true;
-      } catch (err) {
-        console.warn('Błąd odpytywania rewizji:', err);
-        return false;
-      }
-    };
-
-    const startFallbackPolling = () => {
-      if (disposed || fallbackInterval) return;
-      fallbackInterval = setInterval(async () => {
-        if (disposed || document.hidden) return;
-        const ok = await pollRevisionOnce();
-        if (
-          ok &&
-          !disposed &&
-          typeof EventSource !== 'undefined' &&
-          (!eventSourceRef.current || eventSourceRef.current.readyState === EventSource.CLOSED)
-        ) {
-          connectSse();
-        }
-      }, 15000);
-    };
-
-    const connectSse = () => {
-      if (disposed) return;
-      clearRetryClosedTimer();
-      closeEventSource();
-
-      if (typeof EventSource === 'undefined') {
-        startFallbackPolling();
-        return;
-      }
-
-      const es = new EventSource('/api/events');
-      eventSourceRef.current = es;
-
-      es.onopen = () => {
-        if (disposed) {
-          es.close();
-          return;
-        }
-        consecutiveErrors = 0;
-        stopFallbackPolling();
-      };
-
-      es.addEventListener('revision', (event: MessageEvent) => {
-        if (disposed) return;
-        consecutiveErrors = 0;
-        stopFallbackPolling();
-
-        let incomingRevision: number | null = null;
-        try {
-          const parsed = JSON.parse(String(event.data));
-          if (typeof parsed === 'number') {
-            incomingRevision = parsed;
-          } else if (parsed && typeof parsed.revision === 'number') {
-            incomingRevision = parsed.revision;
-          }
-        } catch {
-          const parsedNum = Number(event.data);
-          if (!Number.isNaN(parsedNum)) {
-            incomingRevision = parsedNum;
-          }
-        }
-
-        if (incomingRevision !== null && incomingRevision > stateRevisionRef.current) {
-          void fetchFreshState(true);
-        }
-      });
-
-      es.onerror = () => {
-        if (disposed) return;
-        consecutiveErrors += 1;
-
-        const isClosed = es.readyState === EventSource.CLOSED;
-        if (isClosed) {
-          if (eventSourceRef.current === es) {
-            eventSourceRef.current = null;
-          }
-          // Sprawdź, czy powodem zamknięcia nie jest 401 (wygasła/unieważniona sesja)
-          void pollRevisionOnce().then((ok) => {
-            if (disposed) return;
-            if (ok && consecutiveErrors < 3 && !retryClosedTimer) {
-              retryClosedTimer = setTimeout(() => {
-                retryClosedTimer = null;
-                connectSse();
-              }, 2000);
-            }
-          });
-        }
-
-        if (consecutiveErrors >= 3) {
-          startFallbackPolling();
-        }
-      };
-    };
-
-    connectSse();
-
-    return () => {
-      disposed = true;
-      stopFallbackPolling();
-      clearRetryClosedTimer();
-      closeEventSource();
-    };
-  }, [isAuthenticated]);
+  const {
+    applyRevision,
+    fetchFreshState,
+    createProjectOnServer,
+    patchProjectOnServer,
+    deleteProjectOnServer,
+    createActivityOnServer,
+  } = useServerSync({
+    isAuthenticated,
+    setIsAuthenticated,
+    editingTaskRef,
+    closeEventSourceRef,
+    setUsers,
+    setProjects,
+    setTasks,
+    setActivityLogs,
+    setComments,
+    setSelectedProjectId,
+    setNotificationToast,
+  });
 
   // Periodic Auto-Backup Engine
   useEffect(() => {
@@ -533,276 +282,6 @@ export default function App() {
     };
   }, [projects, tasks, users, comments, activityLogs]);
 
-  // ============================================================================
-  // OPERACJE NA ZASOBACH (POST / PATCH / DELETE) Z OBSŁUGĄ 409 I DEBOUNCEM 500MS
-  // ============================================================================
-
-  const saveTaskPatchToServer = async (taskId: string, patch: Partial<Task>, baseRevision?: number, retryCount = 0): Promise<void> => {
-    try {
-      const targetRev = baseRevision !== undefined ? baseRevision : 1;
-      const res = await fetch(`/api/tasks/${taskId}`, {
-        method: 'PATCH',
-        credentials: 'same-origin',
-        headers: {
-          'Content-Type': 'application/json',
-          'If-Match': String(targetRev),
-        },
-        body: JSON.stringify(patch),
-      });
-
-      if (res.status === 401) {
-        setIsAuthenticated(false);
-        return;
-      }
-
-      if (res.status === 409) {
-        // Obsługa 409 Conflict: pobranie aktualnego zasobu, scalenie lokalnych zmian i ponowienie
-        const conflictData = await res.json();
-        const currentTask: Task = conflictData.currentTask;
-        if (currentTask && retryCount < 3) {
-          // Last-write-wins dla edytowanego pola
-          const mergedPatch: Partial<Task> = { ...patch };
-          setNotificationToast({
-            message: 'Zadanie zostało zmienione przez innego użytkownika, zastosowano Twoją wersję',
-            type: 'info',
-          });
-          await saveTaskPatchToServer(taskId, mergedPatch, currentTask.revision || 1, retryCount + 1);
-          return;
-        }
-      }
-
-      if (res.ok) {
-        const data = await res.json();
-        if (typeof data.revision === 'number') {
-          setStateRevision(data.revision);
-          stateRevisionRef.current = data.revision;
-        }
-        if (data.task) {
-          setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, ...data.task } : t)));
-        }
-      }
-    } catch (err) {
-      console.warn('Błąd zapisu zadania do API:', err);
-    }
-  };
-
-  const queueTaskPatch = (taskId: string, patch: Partial<Task>, baseRevision?: number) => {
-    const existing = taskPatchDebounceTimers.current.get(taskId);
-    if (existing) {
-      clearTimeout(existing.timer);
-      existing.patch = { ...existing.patch, ...patch };
-    } else {
-      taskPatchDebounceTimers.current.set(taskId, {
-        timer: null,
-        patch,
-        baseRevision: baseRevision || 1,
-      });
-    }
-
-    const record = taskPatchDebounceTimers.current.get(taskId)!;
-    record.timer = setTimeout(() => {
-      const queued = taskPatchDebounceTimers.current.get(taskId);
-      taskPatchDebounceTimers.current.delete(taskId);
-      if (queued) {
-        saveTaskPatchToServer(taskId, queued.patch, queued.baseRevision);
-      }
-    }, 500);
-  };
-
-  const createTaskOnServer = async (task: Task) => {
-    try {
-      const res = await fetch('/api/tasks', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(task),
-      });
-      if (res.status === 401) {
-        setIsAuthenticated(false);
-        return;
-      }
-      if (res.ok) {
-        const data = await res.json();
-        if (typeof data.revision === 'number') {
-          setStateRevision(data.revision);
-          stateRevisionRef.current = data.revision;
-        }
-        if (data.task) {
-          setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, ...data.task } : t)));
-        }
-      }
-    } catch (err) {
-      console.warn('Błąd tworzenia zadania na serwerze:', err);
-    }
-  };
-
-  const deleteTaskOnServer = async (taskId: string) => {
-    try {
-      const res = await fetch(`/api/tasks/${taskId}`, {
-        method: 'DELETE',
-        credentials: 'same-origin',
-      });
-      if (res.status === 401) {
-        setIsAuthenticated(false);
-        return;
-      }
-      if (!res.ok) {
-        const errData = await res.json();
-        setNotificationToast({
-          message: errData.error || 'Nie udało się usunąć zadania',
-          type: 'error',
-        });
-        await fetchFreshState(false);
-        return;
-      }
-      const data = await res.json();
-      if (typeof data.revision === 'number') {
-        setStateRevision(data.revision);
-        stateRevisionRef.current = data.revision;
-      }
-    } catch (err) {
-      console.warn('Błąd usuwania zadania z serwera:', err);
-    }
-  };
-
-  const createProjectOnServer = async (project: Project) => {
-    try {
-      const res = await fetch('/api/projects', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(project),
-      });
-      if (res.status === 401) {
-        setIsAuthenticated(false);
-        return;
-      }
-      if (res.ok) {
-        const data = await res.json();
-        if (typeof data.revision === 'number') {
-          setStateRevision(data.revision);
-          stateRevisionRef.current = data.revision;
-        }
-        if (data.project) {
-          setProjects((prev) => prev.map((p) => (p.id === project.id ? { ...p, ...data.project } : p)));
-          setSelectedProjectId((prev) => (prev === project.id ? data.project.id : prev));
-          setTasks((prev) => prev.map((t) => (t.projectId === project.id ? { ...t, projectId: data.project.id } : t)));
-        }
-      }
-    } catch (err) {
-      console.warn('Błąd tworzenia projektu na serwerze:', err);
-    }
-  };
-
-  const patchProjectOnServer = async (projectId: string, patch: Partial<Project>, expectedRevision?: number) => {
-    try {
-      const res = await fetch(`/api/projects/${projectId}`, {
-        method: 'PATCH',
-        credentials: 'same-origin',
-        headers: {
-          'Content-Type': 'application/json',
-          'If-Match': String(expectedRevision || 1),
-        },
-        body: JSON.stringify(patch),
-      });
-      if (res.status === 401) {
-        setIsAuthenticated(false);
-        return;
-      }
-      if (res.status === 409) {
-        const conflict = await res.json();
-        if (conflict.currentProject) {
-          setNotificationToast({
-            message: 'Projekt został zmieniony przez innego użytkownika, zastosowano Twoją wersję',
-            type: 'info',
-          });
-          await patchProjectOnServer(projectId, patch, conflict.currentProject.revision || 1);
-          return;
-        }
-      }
-      if (res.ok) {
-        const data = await res.json();
-        if (typeof data.revision === 'number') {
-          setStateRevision(data.revision);
-          stateRevisionRef.current = data.revision;
-        }
-      }
-    } catch (err) {
-      console.warn('Błąd aktualizacji projektu na serwerze:', err);
-    }
-  };
-
-  const deleteProjectOnServer = async (projectId: string) => {
-    try {
-      const res = await fetch(`/api/projects/${projectId}`, {
-        method: 'DELETE',
-        credentials: 'same-origin',
-      });
-      if (res.status === 401) {
-        setIsAuthenticated(false);
-        return;
-      }
-      if (!res.ok) {
-        const errData = await res.json();
-        setNotificationToast({
-          message: errData.error || 'Brak uprawnień do usunięcia projektu',
-          type: 'error',
-        });
-        await fetchFreshState(false);
-        return;
-      }
-      const data = await res.json();
-      if (typeof data.revision === 'number') {
-        setStateRevision(data.revision);
-        stateRevisionRef.current = data.revision;
-      }
-    } catch (err) {
-      console.warn('Błąd usuwania projektu na serwerze:', err);
-    }
-  };
-
-  const createCommentOnServer = async (comment: Comment) => {
-    try {
-      const res = await fetch('/api/comments', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(comment),
-      });
-      if (res.status === 401) {
-        setIsAuthenticated(false);
-        return;
-      }
-      if (res.ok) {
-        const data = await res.json();
-        if (typeof data.revision === 'number') {
-          setStateRevision(data.revision);
-          stateRevisionRef.current = data.revision;
-        }
-      }
-    } catch (err) {
-      console.warn('Błąd dodawania komentarza na serwerze:', err);
-    }
-  };
-
-  const createActivityOnServer = async (log: ActivityLog) => {
-    try {
-      const res = await fetch('/api/activity', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(log),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (typeof data.revision === 'number') {
-          setStateRevision(data.revision);
-          stateRevisionRef.current = data.revision;
-        }
-      }
-    } catch {}
-  };
-
   // Toast auto-dismiss
   useEffect(() => {
     if (notificationToast) {
@@ -831,294 +310,33 @@ export default function App() {
       createActivityOnServer(newLog);
     }
   };
+  logActivityRef.current = logActivity;
 
-  /**
-   * Helper to add days to a date string 'YYYY-MM-DD'
-   */
-  const addDaysToDate = (dateStr: string, daysToAdd: number): string => {
-    try {
-      const d = new Date(dateStr + 'T00:00:00');
-      d.setDate(d.getDate() + daysToAdd);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${y}-${m}-${day}`;
-    } catch {
-      return dateStr;
-    }
-  };
-
-  /**
-   * Safe task selection handler: normalizes all fields to prevent any drawer crash
-   */
-  const handleSelectTask = (task: Task) => {
-    if (!task) return;
-    const priority = (task.priority as any) === 'medium' ? 'normal' : (task.priority || 'normal');
-    const safeTask: Task = {
-      ...task,
-      title: task.title || 'Zadanie',
-      code: task.code || 'ZAD',
-      priority,
-      status: task.status || 'to_do',
-      durationDays: task.durationDays || 7,
-      startDate: task.startDate || getTodayIso(),
-      dueDate: task.dueDate || addDaysIso(getTodayIso(), 7),
-      progress: task.progress !== undefined ? task.progress : 0,
-      blockingTaskIds: Array.isArray(task.blockingTaskIds) ? task.blockingTaskIds : (task.dependencies || []),
-      dependencies: Array.isArray(task.dependencies) ? task.dependencies : (task.blockingTaskIds || []),
-      tags: Array.isArray(task.tags) ? task.tags : [],
-    };
-    setSelectedTaskDetail(safeTask);
-  };
-
-  /**
-   * DEPENDENCY & TREE HIERARCHY ENGINE
-   */
-  const processDependencyRules = (currentTasks: Task[]): { updatedTasks: Task[]; triggeredEvents: string[] } => {
-    // Krok 0: Kaskadowe dostosowanie dat kolejnych etapów (w dzień zakończenia poprzedzającego zadania)
-    const { updatedTasks: cascadedTasks, cascadedEvents } = cascadeScheduleDates(currentTasks);
-    let tasksCopy = [...cascadedTasks];
-    const events: string[] = [...cascadedEvents];
-
-    // Step 1: Check all tasks with blockingTaskIds
-    tasksCopy = tasksCopy.map((task) => {
-      const blockerIds = task.blockingTaskIds || task.dependencies || [];
-      if (blockerIds.length === 0) return task;
-
-      const blockers = tasksCopy.filter((t) => blockerIds.includes(t.id));
-      const allBlockersDone = blockers.length > 0 && blockers.every((b) => b.status === 'done');
-
-      // Rule: If all blockers are done, unlock task (transition from 'blocked' to 'in_progress')
-      // and adjust start date to the latest finish date of blockers!
-      if (allBlockersDone && task.status === 'blocked') {
-        let latestBlockerDueDate = task.startDate || getTodayIso();
-        blockers.forEach((b) => {
-          if (b.dueDate && b.dueDate > latestBlockerDueDate) {
-            latestBlockerDueDate = b.dueDate;
-          }
-        });
-
-        const newStartDate = latestBlockerDueDate;
-        const taskDuration = task.durationDays || 7;
-        const newDueDate = addDaysToDate(newStartDate, taskDuration - 1);
-
-        events.push(
-          `Odblokowano zadanie [${task.code}]: po ukończeniu poprzedników przeszło w stan "W toku", a czas trwania (${taskDuration} dni) liczony jest od ${newStartDate}.`
-        );
-
-        return {
-          ...task,
-          status: 'in_progress',
-          startDate: newStartDate,
-          dueDate: newDueDate,
-          updatedAt: new Date().toISOString(),
-        };
-      }
-
-      // Rule: If any blocker is NOT done and task was not marked as done, ensure it stays blocked
-      if (!allBlockersDone && task.status !== 'done') {
-        return {
-          ...task,
-          status: 'blocked',
-          updatedAt: new Date().toISOString(),
-        };
-      }
-
-      return task;
-    });
-
-    // Step 2: Parent-Subtask Tree Hierarchy Rule
-    const parentIds = Array.from(new Set(tasksCopy.map((t) => t.parentId).filter(Boolean))) as string[];
-
-    parentIds.forEach((parentId) => {
-      const subtasks = tasksCopy.filter((t) => t.parentId === parentId);
-      const allSubtasksDone = subtasks.length > 0 && subtasks.every((s) => s.status === 'done');
-      const parentTask = tasksCopy.find((t) => t.id === parentId);
-
-      if (parentTask && allSubtasksDone && parentTask.status !== 'done') {
-        tasksCopy = tasksCopy.map((t) =>
-          t.id === parentId
-            ? {
-                ...t,
-                status: 'done',
-                progress: 100,
-                updatedAt: new Date().toISOString(),
-              }
-            : t
-        );
-        events.push(
-          `Wszystkie podzadania zostały ukończone! Zadanie nadrzędne [${parentTask.code}] "${parentTask.title}" zostało automatycznie zakończone.`
-        );
-      } else if (parentTask && subtasks.length > 0) {
-        const avgProgress = Math.round(
-          subtasks.reduce((acc, s) => acc + (s.progress || 0), 0) / subtasks.length
-        );
-        if (parentTask.progress !== avgProgress && parentTask.status !== 'done') {
-          tasksCopy = tasksCopy.map((t) =>
-            t.id === parentId ? { ...t, progress: avgProgress } : t
-          );
-        }
-      }
-    });
-
-    return { updatedTasks: tasksCopy, triggeredEvents: events };
-  };
-
-  // Task actions
-  const handleSaveTask = (taskData: Omit<Task, 'id' | 'code' | 'createdAt' | 'updatedAt'>) => {
-    let newTaskList: Task[];
-
-    if (editingTask) {
-      const updated: Task = {
-        ...editingTask,
-        ...taskData,
-        updatedAt: new Date().toISOString(),
-      };
-      newTaskList = tasks.map((t) => (t.id === editingTask.id ? updated : t));
-      queueTaskPatch(editingTask.id, taskData, editingTask.revision || 1);
-      logActivity(
-        `${currentUser.name} zaktualizował zadanie [${editingTask.code}]: ${updated.title}`,
-        editingTask.id,
-        `Status: ${updated.status}, Czas trwania: ${updated.durationDays} dni, Priorytet: ${updated.priority}`
-      );
-    } else {
-      const targetProject = projects.find((p) => p.id === taskData.projectId) || projects[0];
-      const count = tasks.filter((t) => t.projectId === targetProject.id).length + 1;
-      const code = `${targetProject.key}-${String(count).padStart(2, '0')}`;
-
-      const newTask: Task = {
-        ...taskData,
-        id: `tsk-${Date.now()}`,
-        code,
-        revision: 1,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      newTaskList = [newTask, ...tasks];
-      createTaskOnServer(newTask);
-      logActivity(
-        `${currentUser.name} utworzył nowe zadanie [${code}]: ${newTask.title}`,
-        newTask.id,
-        `Czas: ${newTask.durationDays} dni, Priorytet: ${newTask.priority}`
-      );
-    }
-
-    const { updatedTasks, triggeredEvents } = processDependencyRules(newTaskList);
-    setTasks(updatedTasks);
-
-    if (triggeredEvents.length > 0) {
-      triggeredEvents.forEach((evt) => logActivity(evt));
-      setNotificationToast({ message: triggeredEvents[0], type: 'success' });
-    }
-
-    if (selectedTaskDetail) {
-      const refreshed = updatedTasks.find((t) => t.id === selectedTaskDetail.id);
-      if (refreshed) handleSelectTask(refreshed);
-    }
-
-    setEditingTask(null);
-  };
-
-  const handleDeleteTask = (taskId: string) => {
-    const taskToDelete = tasks.find((t) => t.id === taskId);
-    if (!taskToDelete) return;
-    if (confirm(`Czy na pewno usunąć zadanie [${taskToDelete.code}] "${taskToDelete.title}"?`)) {
-      const filtered = tasks.filter((t) => t.id !== taskId);
-      const { updatedTasks } = processDependencyRules(filtered);
-      setTasks(updatedTasks);
-      if (selectedTaskDetail?.id === taskId) {
-        setSelectedTaskDetail(null);
-      }
-      deleteTaskOnServer(taskId);
-      logActivity(`${currentUser.name} usunął zadanie [${taskToDelete.code}]`, taskId);
-    }
-  };
-
-  const handleUpdateStatus = (taskId: string, newStatus: TaskStatus) => {
-    const task = tasks.find((t) => t.id === taskId);
-    if (!task) return;
-
-    const blockerIds = task.blockingTaskIds || task.dependencies || [];
-    const unfinishedBlockers = tasks.filter((t) => blockerIds.includes(t.id) && t.status !== 'done');
-
-    if (unfinishedBlockers.length > 0 && (newStatus === 'in_progress' || newStatus === 'done')) {
-      setNotificationToast({
-        message:
-          `Nie można przenieść zadania [${task.code}] przed ukończeniem zadań blokujących: ` +
-          unfinishedBlockers.map((b) => `[${b.code}] ${b.title}`).join(', '),
-        type: 'error',
-      });
-      return;
-    }
-
-    const progress = newStatus === 'done' ? 100 : task.progress;
-    const updated: Task = {
-      ...task,
-      status: newStatus,
-      progress,
-      updatedAt: new Date().toISOString(),
-    };
-
-    const newTaskList = tasks.map((t) => (t.id === taskId ? updated : t));
-    const { updatedTasks, triggeredEvents } = processDependencyRules(newTaskList);
-    setTasks(updatedTasks);
-
-    queueTaskPatch(taskId, { status: newStatus, progress }, task.revision || 1);
-    logActivity(`${currentUser.name} zmienił status [${task.code}] na "${newStatus}"`, taskId);
-
-    if (triggeredEvents.length > 0) {
-      triggeredEvents.forEach((evt) => logActivity(evt));
-      setNotificationToast({ message: triggeredEvents[0], type: 'success' });
-    }
-
-    if (selectedTaskDetail?.id === taskId) {
-      const refreshed = updatedTasks.find((t) => t.id === taskId);
-      if (refreshed) handleSelectTask(refreshed);
-    }
-  };
-
-  const handleUpdateProgress = (taskId: string, progress: number) => {
-    const task = tasks.find((t) => t.id === taskId);
-    if (!task) return;
-
-    const status: TaskStatus = progress === 100 ? 'done' : task.status;
-    const updated: Task = {
-      ...task,
-      progress,
-      status,
-      updatedAt: new Date().toISOString(),
-    };
-
-    const newTaskList = tasks.map((t) => (t.id === taskId ? updated : t));
-    const { updatedTasks, triggeredEvents } = processDependencyRules(newTaskList);
-    setTasks(updatedTasks);
-
-    queueTaskPatch(taskId, { progress, status }, task.revision || 1);
-
-    if (triggeredEvents.length > 0) {
-      triggeredEvents.forEach((evt) => logActivity(evt));
-      setNotificationToast({ message: triggeredEvents[0], type: 'success' });
-    }
-
-    if (selectedTaskDetail?.id === taskId) {
-      const refreshed = updatedTasks.find((t) => t.id === taskId);
-      if (refreshed) handleSelectTask(refreshed);
-    }
-  };
-
-  const handleAddComment = (taskId: string, content: string) => {
-    const newComment: Comment = {
-      id: `com-${Date.now()}`,
-      taskId,
-      userId: currentUser.id,
-      content,
-      createdAt: new Date().toISOString(),
-    };
-    setComments((prev) => [...prev, newComment]);
-    createCommentOnServer(newComment);
-    logActivity(`${currentUser.name} dodał komentarz do zadania`, taskId, content);
-  };
+  const {
+    createTaskOnServer,
+    processDependencyRules,
+    handleSelectTask,
+    handleSaveTask,
+    handleDeleteTask,
+    handleUpdateStatus,
+    handleUpdateProgress,
+    handleAddComment,
+  } = useTaskActions({
+    tasks,
+    setTasks,
+    projects,
+    currentUser,
+    editingTask,
+    setEditingTask,
+    selectedTaskDetail,
+    setSelectedTaskDetail,
+    setComments,
+    setIsAuthenticated,
+    setNotificationToast,
+    applyRevision,
+    fetchFreshState,
+    logActivity,
+  });
 
   const handleAddProject = (newProjData: Omit<Project, 'id'>, selectedTemplate?: ProjectTemplate) => {
     const key = newProjData.key ? newProjData.key.trim().toUpperCase() : getNextProjectCode(projects);
@@ -1184,54 +402,6 @@ export default function App() {
     handleSelectTask(task);
   };
 
-  const handleAddUser = async (newUserData: Omit<User, 'id' | 'initials'>) => {
-    if (!newUserData.password || !newUserData.password.trim()) {
-      setNotificationToast({
-        message: 'Hasło jest wymagane do utworzenia konta użytkownika.',
-        type: 'error',
-      });
-      return;
-    }
-    try {
-      const res = await fetch('/api/users', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: newUserData.name,
-          email: newUserData.email,
-          role: newUserData.role,
-          department: newUserData.department,
-          password: newUserData.password.trim(),
-          twoFactorEnabled: newUserData.twoFactorEnabled,
-        }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        setNotificationToast({
-          message: err.error || 'Nie udało się dodać użytkownika.',
-          type: 'error',
-        });
-        return;
-      }
-
-      const data = await res.json();
-      setUsers((prev) => [...prev, data.user]);
-      logActivity(`Utworzono nowe konto użytkownika: ${data.user.name} (${data.user.role})`);
-      setNotificationToast({
-        message: `Użytkownik ${data.user.name} został pomyślnie dodany i zabezpieczony scrypt.`,
-        type: 'success',
-      });
-    } catch {
-      setNotificationToast({
-        message: 'Błąd połączenia z serwerem podczas dodawania użytkownika.',
-        type: 'error',
-      });
-    }
-  };
-
-
   // Delete all demo data (projects and their tasks)
   const handleDeleteAllDemoData = () => {
     const demoProjectIds = projects.filter(isDemoProject).map((p) => p.id);
@@ -1245,257 +415,6 @@ export default function App() {
       message: 'Usunięto wszystkie tematy demonstracyjne. Baza projektów jest czysta.',
       type: 'success',
     });
-  };
-
-  // Delete demo users
-  const handleDeleteDemoUsers = () => {
-    setUsers((prev) => {
-      const nonDemo = prev.filter((u) => !isDemoUser(u));
-      if (nonDemo.length === 0) {
-        return prev;
-      }
-      if (isDemoUser(currentUser)) {
-        setCurrentUser(nonDemo[0]);
-      }
-      return nonDemo;
-    });
-    logActivity('Usunięto konta demonstracyjne użytkowników');
-    setNotificationToast({
-      message: 'Konta demonstracyjne zostały usunięte z bazy.',
-      type: 'success',
-    });
-  };
-
-  // Delete specific user via server endpoint
-  const handleDeleteUser = async (userId: string) => {
-    if (currentUser && currentUser.id === userId) {
-      setNotificationToast({
-        message: 'Nie możesz usunąć aktualnie aktywnego użytkownika.',
-        type: 'error',
-      });
-      return;
-    }
-    const user = users.find((u) => u.id === userId);
-    try {
-      const res = await fetch(`/api/users/${userId}`, {
-        method: 'DELETE',
-        credentials: 'same-origin',
-      });
-      if (res.ok) {
-        setUsers((prev) => prev.filter((u) => u.id !== userId));
-        logActivity(`Usunięto użytkownika ${user?.name || userId}`);
-        setNotificationToast({
-          message: `Użytkownik ${user?.name || userId} został usunięty.`,
-          type: 'info',
-        });
-      } else {
-        const err = await res.json();
-        setNotificationToast({
-          message: err.error || 'Błąd usuwania użytkownika.',
-          type: 'error',
-        });
-      }
-    } catch {
-      setNotificationToast({
-        message: 'Błąd połączenia z serwerem.',
-        type: 'error',
-      });
-    }
-  };
-
-  // Update user password via server scrypt endpoint
-  const handleUpdateUserPassword = async (userId: string, newPass: string, currentPass?: string): Promise<boolean> => {
-    try {
-      const res = await fetch(`/api/users/${userId}/password`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newPassword: newPass, currentPassword: currentPass }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Błąd podczas zmiany hasła');
-      }
-      logActivity('Zaktualizowano hasło dostępu użytkownika (zabezpieczone scrypt)');
-      setNotificationToast({
-        message: 'Hasło użytkownika zostało pomyślnie zaktualizowane na serwerze (scrypt).',
-        type: 'success',
-      });
-      return true;
-    } catch (e: any) {
-      setNotificationToast({
-        message: e.message || 'Nie udało się zmienić hasła.',
-        type: 'error',
-      });
-      return false;
-    }
-  };
-
-  // Logout handler - calls logActivity first, then server logout, cleans localStorage and React state
-  const handleLogout = async () => {
-    // 1. Najpierw wywołaj logActivity
-    logActivity(`${currentUser?.name || 'Użytkownik'} wylogował się z systemu`);
-
-    // 2. Zamknij strumień SSE przed wylogowaniem i wywołaj /api/auth/logout
-    closeEventSource();
-    try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
-    } catch {}
-
-    // 3. Po wylogowaniu usuń z localStorage wszystkie klucze zaczynające się od 'oph_' z wyjątkiem preferencji wyglądu (motyw: oph_theme_mode)
-    try {
-      const keysToRemove: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith('oph_') && k !== 'oph_theme_mode') {
-          keysToRemove.push(k);
-        }
-      }
-      for (const k of keysToRemove) {
-        localStorage.removeItem(k);
-      }
-    } catch {}
-
-    // 4. Wyczyść stan React (projects, tasks, comments, activityLogs, currentUser) do wartości początkowych
-    setProjects(INITIAL_PROJECTS);
-    setTasks(INITIAL_TASKS);
-    setComments([]);
-    setActivityLogs(INITIAL_ACTIVITY);
-    setCurrentUser({
-      id: '',
-      name: '',
-      email: '',
-      role: 'admin',
-      department: '',
-      initials: '',
-    });
-
-    setIsAuthenticated(false);
-    setIsUserModalOpen(false);
-    setNotificationToast({
-      message: 'Wylogowano z systemu. Ekran logowania jest aktywny.',
-      type: 'info',
-    });
-  };
-
-  // Helper to refresh public user profiles
-  const refreshUsersList = async () => {
-    try {
-      const res = await fetch('/api/auth/setup-status', { credentials: 'same-origin' });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.users)) {
-          setUsers(data.users);
-        }
-      }
-    } catch {}
-  };
-
-  // Login handler
-  const handleLoginSuccess = (user: User) => {
-    setCurrentUser(user);
-    setIsAuthenticated(true);
-    try {
-      localStorage.setItem('oph_is_authenticated', 'true');
-    } catch {}
-
-    // Synchronize latest state immediately
-    fetch('/api/state', { credentials: 'same-origin' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data && data.state) {
-          if (Array.isArray(data.state.projects)) setProjects(data.state.projects);
-          if (Array.isArray(data.state.tasks)) setTasks(data.state.tasks);
-          if (Array.isArray(data.state.users)) setUsers(data.state.users);
-          if (Array.isArray(data.state.activityLogs)) setActivityLogs(data.state.activityLogs);
-          if (Array.isArray(data.state.comments)) setComments(data.state.comments);
-        }
-      })
-      .catch(() => {});
-
-    logActivity(`${user.name} zalogował się do systemu`);
-    setNotificationToast({
-      message: `Zalogowano jako ${user.name}. Dobrej pracy w pracowni!`,
-      type: 'success',
-    });
-  };
-
-  // Registration handler via server endpoint
-  const handleRegisterUser = async (newUserData: Omit<User, 'id' | 'initials'>) => {
-    if (!newUserData.password || !newUserData.password.trim()) {
-      setNotificationToast({
-        message: 'Hasło jest wymagane do rejestracji konta.',
-        type: 'error',
-      });
-      return;
-    }
-    try {
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: newUserData.name,
-          email: newUserData.email,
-          role: newUserData.role,
-          department: newUserData.department,
-          password: newUserData.password.trim(),
-          twoFactorEnabled: newUserData.twoFactorEnabled,
-        }),
-      });
-
-      if (res.ok) {
-        await refreshUsersList();
-        logActivity(`Nowa rejestracja konta: ${newUserData.name} (${newUserData.email}) - oczekuje na zatwierdzenie przez Administratora`);
-        setNotificationToast({
-          message: `Wniosek rejestracji użytkownika ${newUserData.name} został zarejestrowany. Administrator musi zatwierdzić konto przed pierwszym logowaniem.`,
-          type: 'info',
-        });
-      }
-    } catch {}
-  };
-
-  // Administrator approval handlers via dedicated endpoints
-  const handleApproveUser = async (userId: string) => {
-    const user = users.find((u) => u.id === userId);
-    try {
-      const res = await fetch(`/api/users/${userId}/approve`, {
-        method: 'POST',
-        credentials: 'same-origin',
-      });
-      if (res.ok) {
-        setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, isApproved: true } : u)));
-        logActivity(`Administrator zatwierdził konto użytkownika: ${user?.name || userId}`);
-        setNotificationToast({
-          message: `Konto ${user?.name || userId} zostało pomyślnie zatwierdzone. Użytkownik ma teraz dostęp do systemu.`,
-          type: 'success',
-        });
-      } else {
-        const err = await res.json();
-        setNotificationToast({
-          message: err.error || 'Błąd zatwierdzania konta.',
-          type: 'error',
-        });
-      }
-    } catch {}
-  };
-
-  const handleRejectUser = async (userId: string) => {
-    const user = users.find((u) => u.id === userId);
-    try {
-      const res = await fetch(`/api/users/${userId}`, {
-        method: 'DELETE',
-        credentials: 'same-origin',
-      });
-      if (res.ok) {
-        setUsers((prev) => prev.filter((u) => u.id !== userId));
-        logActivity(`Administrator odrzucił wniosek rejestracji użytkownika: ${user?.name || userId}`);
-        setNotificationToast({
-          message: `Wniosek rejestracyjny ${user?.name || userId} został odrzucony i usunięty.`,
-          type: 'info',
-        });
-      }
-    } catch {}
   };
 
   // Quick theme toggle

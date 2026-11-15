@@ -3,6 +3,11 @@
 Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.0.0/), wersjonowanie zgodne z [Semantic Versioning](https://semver.org/lang/pl/).
 
+## [0.9.6] - 2026-11-15
+
+### Zmieniono
+- **Podział największych komponentów bez zmiany zachowania (`src/components/SettingsModal.tsx`, `src/components/settings/*`, `src/App.tsx`, `src/hooks/*`)**: wydzielono 8 zakładek z `SettingsModal.tsx` do osobnych komponentów ładowanych leniwie przez `React.lazy` i `Suspense` w `src/components/settings/` (`ThemeTab`, `VariablesTab`, `UsersTab`, `SecurityTab`, `CalendarTab`, `UpdateTab`, `DockerTab`, `BackupTab`) oraz wydzielono logikę synchronizacji z serwerem, operacji na zadaniach i sesji uwierzytelniania z `App.tsx` do hooków `useServerSync`, `useTaskActions` i `useAuthSession` w `src/hooks/`.
+
 ## [0.9.5] - 2026-11-15
 
 ### Zmieniono
