@@ -17,6 +17,7 @@ import { registerCalendarRoutes } from './routes/calendar.js';
 import { registerEventRoutes, EventRoutesHandle } from './routes/events.js';
 import { createGoogleSyncService, registerGoogleSyncRoutes } from './googleSync.js';
 import { setupStaticAndSpa } from './static.js';
+import { logger } from './logger.js';
 
 export type { CreateAppOptions };
 
@@ -53,13 +54,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
     try {
       await sessionStore.close();
     } catch (err) {
-      console.error('[Server] Błąd zapisu sesji przy zamykaniu:', err);
+      logger.error('[Server] Błąd zapisu sesji przy zamykaniu:', err);
     }
 
     try {
       await stateStore.flushPendingStateSave();
     } catch (err) {
-      console.error('[Server] Błąd wymuszonego zapisu stanu przy zamykaniu:', err);
+      logger.error('[Server] Błąd wymuszonego zapisu stanu przy zamykaniu:', err);
     }
 
     if (closeStatic) {

@@ -797,10 +797,10 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                 id="login-2fa-code"
                 type="text"
                 required
-                maxLength={10}
+                maxLength={16}
                 value={totpInput}
                 onChange={(e) => setTotpInput(e.target.value.toUpperCase())}
-                placeholder="000000 lub XXXX-XXXX"
+                placeholder="000000 lub XXXXX-XXXXX"
                 autoFocus
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-center text-lg tracking-[0.2em] font-mono font-bold text-emerald-400 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />

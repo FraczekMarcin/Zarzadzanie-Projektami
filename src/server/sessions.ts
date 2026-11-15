@@ -6,6 +6,7 @@ import { Session, isSessionExpired } from '../utils/sessions.js';
 import { ServerConfig, SESSION_DISK_FLUSH_INTERVAL_MS } from './config.js';
 import { StateStore } from './state.js';
 import { getClientIp, isRequestHttps, parseCookies } from './security.js';
+import { logger } from './logger.js';
 
 export type { Session };
 export { parseCookies };
@@ -42,7 +43,7 @@ export function createSessionStore(config: ServerConfig, stateStore: StateStore)
     sessionMaxMs,
   } = config;
 
-  console.log(`[Server Auth] Polityka sesji: bezczynność maks. ${sessionIdleMinutes} min, czas trwania maks. ${sessionMaxHours} h`);
+  logger.info(`[Server Auth] Polityka sesji: bezczynność maks. ${sessionIdleMinutes} min, czas trwania maks. ${sessionMaxHours} h`);
 
   const sessions = new Map<string, Session>();
 
@@ -77,9 +78,9 @@ export function createSessionStore(config: ServerConfig, stateStore: StateStore)
           sessions.set(tokenHash, loadedSession);
         }
       }
-      console.log(`[Server Auth] Załadowano ${sessions.size} aktywnych sesji z pliku ${sessionsFile}`);
+      logger.info(`[Server Auth] Załadowano ${sessions.size} aktywnych sesji z pliku ${sessionsFile}`);
     } catch (err) {
-      console.warn('[Server Auth] Błąd odczytu sessions.json:', err);
+      logger.warn('[Server Auth] Błąd odczytu sessions.json:', err);
     }
   }
 
@@ -96,7 +97,7 @@ export function createSessionStore(config: ServerConfig, stateStore: StateStore)
         await fs.promises.chmod(tmp, 0o600);
         await fs.promises.rename(tmp, sessionsFile);
       } catch (err) {
-        console.error('[Server Auth] Błąd zapisu sessions.json:', err);
+        logger.error('[Server Auth] Błąd zapisu sessions.json:', err);
       }
     };
     sessionWriteQueue = sessionWriteQueue.then(doWrite, doWrite);
@@ -164,7 +165,7 @@ export function createSessionStore(config: ServerConfig, stateStore: StateStore)
       try {
         listener(tokenHashes);
       } catch (err) {
-        console.error('[Server Auth] Błąd powiadomienia o unieważnieniu sesji:', err);
+        logger.error('[Server Auth] Błąd powiadomienia o unieważnieniu sesji:', err);
       }
     }
   }

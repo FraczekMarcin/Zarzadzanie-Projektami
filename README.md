@@ -42,14 +42,32 @@ APP_HOST=192.168.1.100
 # lub np. APP_HOST=serwer.local albo APP_HOST=projekty.twojafirma.pl
 ```
 
-### 2. Uruchomienie aplikacji z obsługą HTTPS
-Podczas instalacji skrypt `install.sh` automatycznie dopisuje do pliku `.env` linię `COMPOSE_FILE=docker-compose.yml:docker-compose.https.yml`. Przy ręcznej konfiguracji dopisz tę linię oraz `TRUST_PROXY=1` do pliku `.env`, a następnie uruchom:
+### 2. Uruchomienie aplikacji z obsługą HTTPS (łączenie plików `COMPOSE_FILE`)
+Docker Compose odczytuje zmienną `COMPOSE_FILE` z pliku `.env` (pliki oddzielone dwukropkiem `:`) i automatycznie łączy konfiguracje bez konieczności podawania flag `-f`:
+
+- **Tylko HTTP (port 3000, bez Caddy):**
+  ```env
+  COMPOSE_FILE=docker-compose.yml
+  ```
+  *(lub brak zmiennej `COMPOSE_FILE` w `.env`)*
+- **HTTPS w sieci lokalnej (Caddy Reverse Proxy, wymaga ustawienia `APP_HOST`):**
+  ```env
+  COMPOSE_FILE=docker-compose.yml:docker-compose.https.yml
+  ```
+- **HTTPS + jednokierunkowa synchronizacja z Kalendarzem Google:**
+  ```env
+  COMPOSE_FILE=docker-compose.yml:docker-compose.https.yml:docker-compose.google.yml
+  ```
+
+> ⚠️ **Ważne ostrzeżenie dotyczące HTTPS i Caddy:** Ustawienie zmiennej `COMPOSE_FILE` w pliku `.env` **bez** `docker-compose.https.yml` (np. samo `COMPOSE_FILE=docker-compose.yml:docker-compose.google.yml`) **wyłącza kontener Caddy oraz obsługę HTTPS**! Jeśli używasz HTTPS i jednocześnie włączasz integrację z Kalendarzem Google, w `COMPOSE_FILE` muszą znaleźć się wszystkie trzy pliki.
+
+Po ustawieniu `APP_HOST` i `COMPOSE_FILE` w `.env` (instalator `install.sh` robi to automatycznie) uruchom:
 ```bash
 docker compose up -d --build
 ```
-> **Uwaga dotycząca wersji:** Plik `docker-compose.https.yml` korzysta z dyrektywy `ports: !reset []`, która wymaga Docker Compose w wersji **>= 2.24**. Dzięki wpisowi `COMPOSE_FILE` w `.env` nie trzeba podawać flag `-f` – Docker Compose automatycznie łączy oba pliki konfiguracyjne.
+> **Uwaga dotycząca wersji:** Plik `docker-compose.https.yml` korzysta z dyrektywy `ports: !reset []`, która wymaga Docker Compose w wersji **>= 2.24**.
 >
-> W tym trybie Caddy nasłuchuje na standardowych portach **443** (HTTPS) i **80** (automatyczne przekierowanie do HTTPS). Bezpośredni port aplikacji `3000` jest zresetowany i niedostępny z zewnątrz, a aplikacja działa w trybie `TRUST_PROXY=1`, wymuszając bezpieczne ciasteczka sesyjne (`Secure`, `__Host-zp_session`).
+> W trybie HTTPS Caddy nasłuchuje na standardowych portach **443** (HTTPS) i **80** (automatyczne przekierowanie do HTTPS). Bezpośredni port aplikacji `3000` jest zresetowany i niedostępny z zewnątrz, a aplikacja działa w trybie `TRUST_PROXY=1`, wymuszając bezpieczne ciasteczka sesyjne (`Secure`, `__Host-zp_session`).
 
 ### 3. Eksport certyfikatu głównego Caddy (Local Root CA)
 Aby przeglądarki na stanowiskach pracy ufały połączeniu HTTPS bez ostrzeżenia o certyfikacie wystawionym przez lokalne CA, wyeksportuj certyfikat główny Caddy:
@@ -341,11 +359,13 @@ Aplikacja obsługuje opcjonalną, automatyczną i **jednokierunkową** synchroni
    chmod 600 /opt/zarzadzanie-projektami/secrets/google_sa.json
    ```
 3. **Udostępnienie kalendarza kontu usługi:** w Kalendarzu Google otwórz ustawienia wybranego wspólnego kalendarza (*Ustawienia i udostępnianie*), udostępnij go adresowi e-mail konta usługi (`client_email` z pliku JSON) z uprawnieniem **Wprowadzanie zmian w wydarzeniach** (*Make changes to events*) i skopiuj wartość **Identyfikator kalendarza** (*Calendar ID*).
-4. **Konfiguracja `.env` oraz nadpisania Compose:** dopisz do `/opt/zarzadzanie-projektami/.env`:
+4. **Konfiguracja `.env` oraz nadpisania Compose:** dopisz do `/opt/zarzadzanie-projektami/.env` (jeśli używasz trybu HTTPS z Caddy, zachowaj w `COMPOSE_FILE` również `docker-compose.https.yml`):
    ```env
    GOOGLE_SERVICE_ACCOUNT_FILE=/run/secrets/google_sa.json
    GOOGLE_CALENDAR_ID=twoj_identyfikator_kalendarza@group.calendar.google.com
-   COMPOSE_FILE=docker-compose.yml:docker-compose.google.yml
+   # Wariant HTTPS + Kalendarz Google:
+   COMPOSE_FILE=docker-compose.yml:docker-compose.https.yml:docker-compose.google.yml
+   # (lub w trybie HTTP bez Caddy: COMPOSE_FILE=docker-compose.yml:docker-compose.google.yml)
    ```
 5. **Uruchomienie:** zrestartuj kontener poleceniem `docker compose up -d`. Administrator może sprawdzić status i ręcznie wyzwolić synchronizację w *Ustawienia ➔ Google Calendar ➔ Synchronizacja z Kalendarzem Google* (lub poprzez `GET /api/google-sync/status` i `POST /api/google-sync/run`).
 
@@ -383,9 +403,44 @@ sudo /bin/bash /opt/zarzadzanie-projektami/backup.sh
 
 ---
 
+## ⚙️ Konfiguracja zmiennych środowiskowych
+
+Wszystkie poniższe zmienne można skonfigurować w pliku `.env` (wzór w `.env.example`).
+
+| Zmienna | Wartość domyślna | Status | Opis |
+| :--- | :--- | :--- | :--- |
+| `NODE_ENV` | `development` (`production` w Dockerze) | Opcjonalna | Tryb pracy serwera (`development` lub `production`). W trybie produkcyjnym wymusza poprawny `APP_SECRET` i serwuje statyczny build z `dist/public`. |
+| `PORT` | `3000` | Opcjonalna | Port TCP, na którym nasłuchuje serwer Express. |
+| `DATA_DIR` | `./data` (dev) / `/app/data` (prod) | Opcjonalna | Katalog trwałych plików danych (`app_state.json`, `sessions.json`, `security_log.jsonl`). |
+| `STORAGE` | `json` | Opcjonalna | Wybór warstwy utrwalania stanu (`json`). |
+| `BACKUP_DIR` | `./backups` / `/opt/zarzadzanie-projektami/backups` | Opcjonalna | Dodatkowy katalog przeszukiwany przez `GET /api/backup/status` w celu wyznaczania statusu kopii w interfejsie. |
+| `APP_SECRET` | fallback deweloperski w dev; brak w prod | **Wymagana w prod** | Klucz szyfrowania sekretów 2FA (AES-256-GCM) i hashowania kodów zapasowych (co najmniej 64 znaki hex / 32 bajty entropii). |
+| `APP_VERSION` | zawartość pliku `VERSION` | Opcjonalna | Ręczne nadpisanie wersji zgłaszanej przez `/api/health` i `/api/system-info`. |
+| `LOG_LEVEL` | `info` | Opcjonalna | Poziom logowania serwera (`debug`, `info`, `warn`, `error`). |
+| `LOG_FORMAT` | `text` | Opcjonalna | Format wpisów logu (`text` z prefiksem czasu ISO i poziomu lub `json` – jedna linia JSON na wpis). |
+| `TRUST_PROXY` | `false` (`1` w `docker-compose.https.yml`) | Opcjonalna | Zaufanie nagłówkom proxy (`X-Forwarded-Proto`, `X-Forwarded-For`); akceptuje `true`, `false`, liczbę przeskoków lub adres IP. |
+| `PUBLIC_BASE_URL` | `""` | Opcjonalna | Publiczny adres bazowy HTTPS używany przy generowaniu linków subskrypcji iCal / Kalendarza Google. |
+| `ALLOW_SELF_REGISTRATION` | `true` | Opcjonalna | Czy zezwalać na samodzielne składanie wniosków rejestracyjnych na ekranie logowania (`true`/`false`). |
+| `SETUP_TOKEN` | `""` | Opcjonalna | Jeśli ustawiony, wymaga podania tego samego tokenu przy rejestracji pierwszego administratora (`POST /api/auth/setup-admin`). |
+| `RESET_2FA_ON_START` | `false` | Opcjonalna | Awaryjny reset niemożliwych do odszyfrowania sekretów 2FA podczas startu serwera (`true`/`1`). |
+| `SESSION_IDLE_MINUTES` | `120` | Opcjonalna | Limit bezczynności sesji użytkownika w minutach. |
+| `SESSION_MAX_HOURS` | `12` | Opcjonalna | Maksymalny bezwzględny czas ważności sesji użytkownika w godzinach. |
+| `SMTP_HOST` | `""` | Opcjonalna | Adres serwera SMTP; jego ustawienie włącza funkcję resetowania hasła kodem jednorazowym przez e-mail. |
+| `SMTP_PORT` | `587` | Opcjonalna | Port serwera SMTP (`465` włącza TLS/SMTPS). |
+| `SMTP_USER` | `""` | Opcjonalna | Nazwa użytkownika SMTP do uwierzytelniania. |
+| `SMTP_PASS` | `""` | Opcjonalna | Hasło do konta SMTP. |
+| `SMTP_FROM` | `"Zarządzanie Projektami" <noreply@pracownia.pl>` | Opcjonalna | Adres nadawcy w wysyłanych wiadomościach resetu hasła. |
+| `GOOGLE_SERVICE_ACCOUNT_FILE` | `""` | Opcjonalna | Ścieżka do pliku klucza JSON konta usługi Google wewnątrz kontenera (np. `/run/secrets/google_sa.json`). |
+| `GOOGLE_CALENDAR_ID` | `""` | Opcjonalna | Identyfikator wspólnego Kalendarza Google do jednokierunkowej synchronizacji zadań. |
+| `COMPOSE_FILE` | `docker-compose.yml` (gdy nieustawiona) | Opcjonalna (Docker) | Lista plików Docker Compose rozdzielona znakiem `:`. Pominięcie `docker-compose.https.yml` wyłącza Caddy i HTTPS. |
+| `APP_HOST` | `""` | Wymagana dla HTTPS | Nazwa hosta lub adres IP serwera używany przez Caddy w `Caddyfile`. |
+| `APP_BIND` / `APP_PORT` | `0.0.0.0` / `3000` | Opcjonalna (Docker) | Adres i port hosta mapowane w trybie HTTP (`docker-compose.yml`). |
+
+---
+
 ## 📋 Logi i diagnostyka kontenerów Docker
 
-Usługi kontenerowe posiadają włączoną rotację logów (`driver: json-file`, `max-size: 10m`, `max-file: 3`), co zabezpiecza serwer przed wyczerpaniem miejsca na dysku. Serwer aplikacji rejestruje wyłącznie błędy (status >= 400) oraz żądania przekraczające 500 ms (z pominięciem `/api/health` i `/api/state/revision`), bez utrwalania nagłówków, ciasteczek ani danych osobowych.
+Usługi kontenerowe posiadają włączoną rotację logów (`driver: json-file`, `max-size: 10m`, `max-file: 3`), co zabezpiecza serwer przed wyczerpaniem miejsca na dysku. Serwer aplikacji loguje zdarzenia ustrukturyzowanym loggerem (`src/server/logger.ts`) z prefiksem czasu ISO i poziomu (lub jedną linią JSON przy `LOG_FORMAT=json`), bez zapisywania adresów e-mail, imion i nazwisk użytkowników oraz bez nagłówków lub ciasteczek.
 
 Podgląd logów na żywo na serwerze produkcyjnym:
 ```bash

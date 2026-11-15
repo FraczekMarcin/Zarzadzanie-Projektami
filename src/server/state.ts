@@ -8,6 +8,7 @@ import {
 import { StateWriter } from '../utils/stateWriter.js';
 import { SecurityLog } from '../utils/securityLog.js';
 import { ServerConfig } from './config.js';
+import { logger } from './logger.js';
 
 export interface StateStore {
   getAppState: () => any;
@@ -53,7 +54,7 @@ export async function tightenDataFilePermissions(filePath: string): Promise<void
     }
   } catch (err: any) {
     if (err?.code === 'ENOENT') return;
-    console.warn(`[Server WARN] Nie udało się ustawić uprawnień 0o600 dla pliku "${filePath}": ${err?.message || err}`);
+    logger.warn(`[Server WARN] Nie udało się ustawić uprawnień 0o600 dla pliku "${filePath}": ${err?.message || err}`);
   }
 }
 
@@ -61,20 +62,20 @@ export async function createStateStore(config: ServerConfig): Promise<StateStore
   const { dataDir, stateFile, sessionsFile, effectiveAppSecret, isProduction, reset2faOnStart, storage } = config;
 
   if (storage !== 'json') {
-    console.error(`[Server FATAL] Nieobsługiwany typ magazynu STORAGE="${storage}".`);
+    logger.error(`[Server FATAL] Nieobsługiwany typ magazynu STORAGE="${storage}".`);
     throw new Error('Nieobsługiwany typ magazynu');
   }
 
   const securityLogger = new SecurityLog(dataDir);
 
-  console.log(`[Server] Ścieżka katalogu danych (DATA_DIR): ${dataDir} (tryb: ${isProduction ? 'produkcja' : 'development'})`);
+  logger.info(`[Server] Ścieżka katalogu danych (DATA_DIR): ${dataDir} (tryb: ${isProduction ? 'produkcja' : 'development'})`);
 
   try {
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir, { recursive: true });
     }
   } catch (err: any) {
-    console.error(`[Server FATAL] Nie można utworzyć katalogu danych "${dataDir}": ${err.message}`);
+    logger.error(`[Server FATAL] Nie można utworzyć katalogu danych "${dataDir}": ${err.message}`);
     throw err;
   }
 
@@ -82,10 +83,10 @@ export async function createStateStore(config: ServerConfig): Promise<StateStore
   try {
     fs.writeFileSync(testFilePath, 'ok', { encoding: 'utf-8', mode: 0o600 });
     fs.unlinkSync(testFilePath);
-    console.log(`[Server] Potwierdzono uprawnienia do zapisu w katalogu: ${dataDir}`);
+    logger.info(`[Server] Potwierdzono uprawnienia do zapisu w katalogu: ${dataDir}`);
   } catch (err: any) {
-    console.error(`[Server FATAL] Brak uprawnień do zapisu w katalogu danych "${dataDir}": ${err.message}`);
-    console.error(`[Server FATAL] Upewnij się, że katalog istnieje i posiada odpowiednie uprawnienia zapisu.`);
+    logger.error(`[Server FATAL] Brak uprawnień do zapisu w katalogu danych "${dataDir}": ${err.message}`);
+    logger.error(`[Server FATAL] Upewnij się, że katalog istnieje i posiada odpowiednie uprawnienia zapisu.`);
     throw err;
   }
 
@@ -141,7 +142,7 @@ export async function createStateStore(config: ServerConfig): Promise<StateStore
       try {
         listener(nextRevision);
       } catch (err) {
-        console.error('[Server] Błąd powiadomienia słuchacza zmiany rewizji:', err);
+        logger.error('[Server] Błąd powiadomienia słuchacza zmiany rewizji:', err);
       }
     }
     return nextRevision;
@@ -160,7 +161,7 @@ export async function createStateStore(config: ServerConfig): Promise<StateStore
     if (loadedState) {
       serverAppStateCache = loadedState;
       ensureStateStructure();
-      console.log(
+      logger.info(
         `[Server] Loaded persistent state from ${stateFile} (${serverAppStateCache.tasks.length} tasks, ${serverUsersCache.length} users, revision: ${serverAppStateCache.revision})`
       );
     }
@@ -168,7 +169,7 @@ export async function createStateStore(config: ServerConfig): Promise<StateStore
     if (isProduction && err?.message === 'APP_SECRET nie pasuje do danych w app_state.json') {
       throw err;
     }
-    console.error('[Server] Error reading app_state.json:', err);
+    logger.error('[Server] Error reading app_state.json:', err);
   }
 
   return {

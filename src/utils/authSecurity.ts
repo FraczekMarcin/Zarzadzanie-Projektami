@@ -21,24 +21,6 @@ export function sanitizeUsersForBackup(users: User[]): User[] {
 }
 
 /**
- * Generator losowego klucza Base32 (RFC 4648)
- */
-export function generate2FASecret(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  let secret = '';
-  const randomBytes = new Uint8Array(20);
-  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-    crypto.getRandomValues(randomBytes);
-  } else {
-    for (let i = 0; i < 20; i++) randomBytes[i] = Math.floor(Math.random() * 256);
-  }
-  for (let i = 0; i < 20; i++) {
-    secret += chars[randomBytes[i] % chars.length];
-  }
-  return secret;
-}
-
-/**
  * Formatowanie klucza w czytelne 4-znakowe bloki (np. "JBSW Y3DP EHPK 3PXP")
  */
 export function formatSecretKey(secret: string): string {

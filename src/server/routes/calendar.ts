@@ -5,6 +5,7 @@ import { canAccessProject } from '../../utils/access.js';
 import { ServerConfig } from '../config.js';
 import { StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
+import { logger } from '../logger.js';
 
 function computeLastModifiedMs(tasks: IcsTask[], stateUpdatedAt?: string): number {
   let maxMs = 0;
@@ -124,7 +125,7 @@ export function registerCalendarRoutes(
         ...(config.publicBaseUrl ? { publicBaseUrl: config.publicBaseUrl } : {}),
       });
     } catch (err: any) {
-      console.error('[Server Calendar] Błąd generowania tokenu:', err);
+      logger.error('[Server Calendar] Błąd generowania tokenu:', err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -151,7 +152,7 @@ export function registerCalendarRoutes(
       await stateStore.saveStateAtomicAsync();
       res.json({ success: true });
     } catch (err: any) {
-      console.error('[Server Calendar] Błąd odwoływania tokenu:', err);
+      logger.error('[Server Calendar] Błąd odwoływania tokenu:', err);
       res.status(500).json({ error: err.message });
     }
   });

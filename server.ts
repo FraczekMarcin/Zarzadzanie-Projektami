@@ -3,6 +3,7 @@ import { fileURLToPath } from 'url';
 import 'dotenv/config';
 import { isDirectRunEntry } from './src/server/config.js';
 import { createApp, CreateAppOptions, CreateAppResult } from './src/server/app.js';
+import { logger } from './src/server/logger.js';
 import type { Session } from './src/server/sessions.js';
 
 export { createApp };
@@ -20,10 +21,10 @@ if (isDirectRunEntry(__filename, import.meta.url)) {
     const instance = await createApp({ port: PORT, isDirectRun: true });
     appClose = instance.close;
     server = instance.app.listen(PORT, () => {
-      console.log(`Zarządzanie Projektami running on port ${PORT}`);
+      logger.info(`Zarządzanie Projektami running on port ${PORT}`);
     });
   } catch (startupErr) {
-    console.error('[Server FATAL] Nie udało się uruchomić serwera:', startupErr);
+    logger.error('[Server FATAL] Nie udało się uruchomić serwera:', startupErr);
     process.exit(1);
   }
 
@@ -31,20 +32,20 @@ if (isDirectRunEntry(__filename, import.meta.url)) {
   async function handleGracefulShutdown(signal: string) {
     if (isShuttingDown) return;
     isShuttingDown = true;
-    console.log(`[Server] Otrzymano sygnał ${signal}. Trwa wymuszony zapis stanu bazy i zamykanie serwera...`);
+    logger.info(`[Server] Otrzymano sygnał ${signal}. Trwa wymuszony zapis stanu bazy i zamykanie serwera...`);
 
     try {
       if (appClose) {
         await appClose();
       }
-      console.log('[Server] Stan bazy zapisany bezpiecznie.');
+      logger.info('[Server] Stan bazy zapisany bezpiecznie.');
     } catch (err) {
-      console.error('[Server] Błąd wymuszonego zapisu stanu przed zamknięciem:', err);
+      logger.error('[Server] Błąd wymuszonego zapisu stanu przed zamknięciem:', err);
     }
 
     if (server) {
       server.close(() => {
-        console.log('[Server] Serwer HTTP zatrzymany. Do widzenia.');
+        logger.info('[Server] Serwer HTTP zatrzymany. Do widzenia.');
         process.exit(0);
       });
     } else {

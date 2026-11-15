@@ -13,6 +13,7 @@ import {
 } from '../config.js';
 import { StateStore, sanitizeUser } from '../state.js';
 import { SessionStore } from '../sessions.js';
+import { logger } from '../logger.js';
 
 interface UpdateCheckCache {
   data: {
@@ -131,7 +132,7 @@ export function registerSystemRoutes(
       await stateStore.saveStateAtomicAsync();
       res.json({ success: true, revision: newRev, timestamp: stateStore.getAppState().updatedAt });
     } catch (err: any) {
-      console.error('[Server] Error saving app_state:', err);
+      logger.error('[Server] Error saving app_state:', err);
       res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -152,7 +153,7 @@ export function registerSystemRoutes(
         events,
       });
     } catch (err: any) {
-      console.error('[Server] Błąd pobierania zdarzeń bezpieczeństwa:', err);
+      logger.error('[Server] Błąd pobierania zdarzeń bezpieczeństwa:', err);
       res.status(500).json({ error: 'Nie udało się pobrać dziennika bezpieczeństwa' });
     }
   });
@@ -206,7 +207,7 @@ export function registerSystemRoutes(
             }
           }
         } catch (readErr) {
-          console.warn(`[Server] Błąd odczytu katalogu kopii:`, readErr);
+          logger.warn(`[Server] Błąd odczytu katalogu kopii:`, readErr);
         }
       }
 
@@ -246,7 +247,7 @@ export function registerSystemRoutes(
       backupStatusCache = { data: result, cachedAt: now };
       res.json(result);
     } catch (err: any) {
-      console.error('[Server] Błąd pobierania statusu kopii zapasowej:', err);
+      logger.error('[Server] Błąd pobierania statusu kopii zapasowej:', err);
       res.status(500).json({ active: false, error: err.message });
     }
   });

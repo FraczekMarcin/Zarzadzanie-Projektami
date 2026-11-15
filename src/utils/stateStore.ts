@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { encryptSecret, decryptUserSecrets } from './secretBox.js';
+import { logger } from '../server/logger.js';
 
 export interface AppState {
   initialized?: boolean;
@@ -109,29 +110,26 @@ export class JsonFileStateStore implements StateStore {
     state.users = decryptResult.users;
 
     if (decryptResult.failed.length > 0) {
-      const affectedEmails = Array.from(
-        new Set(decryptResult.failed.map((f) => f.email || f.userId))
+      const affectedUserIds = Array.from(
+        new Set(decryptResult.failed.map((f) => f.userId || 'nieznany'))
       );
       if (this.reset2faOnStart) {
-        console.warn(
-          `[Server WARN] Uruchomiono z RESET_2FA_ON_START=true: zresetowano 2FA u ${affectedEmails.length} użytkowników, których sekretów nie można było odszyfrować:`
+        logger.warn(
+          `[Server WARN] Uruchomiono z RESET_2FA_ON_START=true: zresetowano 2FA u ${affectedUserIds.length} użytkowników, których sekretów nie można było odszyfrować (userId: ${affectedUserIds.join(', ')}).`
         );
-        for (const email of affectedEmails) {
-          console.warn(` - ${email}`);
-        }
         await this.save(state);
       } else if (this.isProduction) {
-        console.error(
+        logger.error(
           'APP_SECRET nie pasuje do danych w app_state.json; przywróć poprawny APP_SECRET z .env sprzed zmiany albo, ostatecznie, uruchom z RESET_2FA_ON_START=true.'
         );
         throw new Error('APP_SECRET nie pasuje do danych w app_state.json');
       } else {
-        console.warn(
-          `[Server WARN] APP_SECRET nie pasuje do danych 2FA użytkowników: ${affectedEmails.join(', ')} (tryb development - kontynuacja).`
+        logger.warn(
+          `[Server WARN] APP_SECRET nie pasuje do danych 2FA użytkowników (userId: ${affectedUserIds.join(', ')}) (tryb development - kontynuacja).`
         );
       }
     } else if (decryptResult.migrated) {
-      console.log(
+      logger.info(
         '[Server] Wykryto niezaszyfrowane sekrety 2FA w app_state.json - zostaną zaszyfrowane przy zapisie.'
       );
       await this.save(state);

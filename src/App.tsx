@@ -685,6 +685,8 @@ export default function App() {
         }
         if (data.project) {
           setProjects((prev) => prev.map((p) => (p.id === project.id ? { ...p, ...data.project } : p)));
+          setSelectedProjectId((prev) => (prev === project.id ? data.project.id : prev));
+          setTasks((prev) => prev.map((t) => (t.projectId === project.id ? { ...t, projectId: data.project.id } : t)));
         }
       }
     } catch (err) {

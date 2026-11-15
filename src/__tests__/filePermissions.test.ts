@@ -6,6 +6,7 @@ import http from 'http';
 import { createApp } from '../../server.js';
 import { JsonFileStateStore } from '../utils/stateStore.js';
 import { SecurityLog } from '../utils/securityLog.js';
+import { logger } from '../server/logger.js';
 
 const TEST_APP_SECRET = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
@@ -151,7 +152,7 @@ describe('Uprawnienia plików danych serwera (0o600 i umask 0o077)', () => {
 
     // Symulacja błędu chmod przy starcie (ponownie szersze uprawnienia) -> tylko ostrzeżenie, bez wyjątku
     await fs.promises.chmod(path.join(tmpDir, 'security_log.jsonl'), 0o644);
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
     vi.spyOn(fs.promises, 'chmod').mockRejectedValueOnce(new Error('EPERM symulowane'));
 
     const instance2 = await createApp({

@@ -3,6 +3,28 @@
 Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.0.0/), wersjonowanie zgodne z [Semantic Versioning](https://semver.org/lang/pl/).
 
+## [0.9.3] - 2026-11-15
+
+### Dodano
+- **Ustrukturyzowany logger serwera (`src/server/logger.ts`)**: dodano bez-zależnościowy logger z poziomami `debug`/`info`/`warn`/`error`, konfiguracją `LOG_LEVEL` (domyślnie `info`), prefiksem czasu ISO i poziomu oraz opcjonalnym formatem `LOG_FORMAT=json` (jedna linia JSON na wpis) przez `process.stdout.write` / `process.stderr.write`.
+- **Testy loggera, prywatności logów i dokumentacji konfiguracji (`src/__tests__/logger.test.ts`, `src/__tests__/envDocs.test.ts`)**: dodano testy filtrowania poziomów i formatu JSON, weryfikację braku adresów e-mail oraz imion/nazwisk w logach startowych oraz automatyczny test skanujący zmienne `process.env.*` w kodzie serwera pod kątem obecności w `README.md` i `.env.example` oraz braku bezpośrednich wywołań `console.*` w kodzie serwera.
+
+### Zmieniono
+- **Zastąpienie `console.*` i usunięcie PII z logów serwera (`server.ts`, `src/server/*`, `src/utils/stateStore.ts`)**: zastąpiono wszystkie wywołania `console.log`/`warn`/`error` w kodzie serwera wywołaniami `logger` o tym samym znaczeniu oraz usunięto adresy e-mail i imiona/nazwiska użytkowników z logów startowych i uwierzytelniania (pozostawiając `userId`).
+- **Dokumentacja zmiennych środowiskowych i `COMPOSE_FILE` (`README.md`, `.env.example`)**: uzupełniono pełną tabelę zmiennych środowiskowych serwera w `README.md`, skomentowane zmienne opcjonalne w `.env.example` oraz przykłady łączenia plików `COMPOSE_FILE` (HTTP, HTTPS, HTTPS + Kalendarz Google) wraz z ostrzeżeniem, że pominięcie `docker-compose.https.yml` wyłącza Caddy i HTTPS.
+
+### Usunięto
+- **Nieużywany kod (`src/utils/authSecurity.ts`)**: usunięto nieużywaną funkcję `generate2FASecret`.
+
+## [0.9.2] - 2026-11-15
+
+### Dodano
+- **Testy end-to-end w przeglądarce (`playwright.config.ts`, `e2e/app.spec.ts`, `e2e/global-teardown.ts`, `.github/workflows/ci.yml`)**: dodano pakiet `@playwright/test`, konfigurację Chromium z izolowanym katalogiem tymczasowym, sześć scenariuszy E2E (kreator administratora i logowanie, projekt/zadanie/Kanban/przeładowanie, zakładki Ustawień i blokada przycisku 1-Click dla `localhost`, czyszczenie `localStorage` przy wylogowaniu, włączenie 2FA i logowanie TOTP oraz synchronizacja dwóch kontekstów przez SSE w 3 s) oraz zadanie CI `e2e` z zapisem raportu i trace przy błędach.
+- **Wykluczenie testów E2E z Vitest (`vitest.config.ts`)**: dodano konfigurację Vitest wykluczającą katalog `e2e/**`.
+
+### Naprawiono
+- **Synchronizacja wybranego projektu i obsługa kodów zapasowych 2FA (`src/App.tsx`, `src/components/LoginGate.tsx`, `src/components/TaskModal.tsx`, `src/components/SettingsModal.tsx`, `src/components/TwoFactorManager.tsx`, `src/server/routes/auth.ts`)**: zaktualizowano `selectedProjectId` i `projectId` zadań po zapisie projektu na serwerze, zwiększono `maxLength` pola kodu 2FA przy logowaniu z 10 do 16 (pełne kody `XXXXX-XXXXX`), usunięto duplikat atrybutu `id` tytułu w oknie zadania, podpięto otwieranie modalu subskrypcji iCal w Ustawieniach, dodano etykietę dostępności klucza 2FA oraz wyciszono zbędne żądania `401`/`404` przed zalogowaniem.
+
 ## [0.9.1] - 2026-11-14
 
 ### Dodano

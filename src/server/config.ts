@@ -2,6 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { validateAppSecret } from '../utils/secretBox.js';
+import { logger } from './logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -97,8 +98,8 @@ export function resolveServerConfig(options: CreateAppOptions = {}): ServerConfi
   if (isProduction) {
     const secretValidation = validateAppSecret(rawAppSecret);
     if (!secretValidation.ok) {
-      console.error(`[Server FATAL] Niepoprawna wartość APP_SECRET: ${secretValidation.reason}`);
-      console.error('[Server FATAL] Wygeneruj bezpieczny klucz poleceniem: openssl rand -hex 32');
+      logger.error(`[Server FATAL] Niepoprawna wartość APP_SECRET: ${secretValidation.reason}`);
+      logger.error('[Server FATAL] Wygeneruj bezpieczny klucz poleceniem: openssl rand -hex 32');
       throw new Error(`Niepoprawna wartość APP_SECRET: ${secretValidation.reason}`);
     }
   }

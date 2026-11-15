@@ -2,6 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { APP_ROOT, ServerConfig } from './config.js';
+import { logger } from './logger.js';
 
 export async function setupStaticAndSpa(
   app: express.Express,
@@ -18,9 +19,9 @@ export async function setupStaticAndSpa(
           appType: 'spa',
         });
         app.use(viteServer.middlewares);
-        console.log('[Server] Mounted Vite development middlewares on port ' + config.port);
+        logger.info('[Server] Mounted Vite development middlewares on port ' + config.port);
       } catch (viteErr) {
-        console.warn('[Server] Could not initialize Vite dev middleware:', viteErr);
+        logger.warn('[Server] Could not initialize Vite dev middleware:', viteErr);
       }
     }
   } else {
@@ -37,12 +38,12 @@ export async function setupStaticAndSpa(
 
     if (!fs.existsSync(indexPath)) {
       if (config.isDirectRun) {
-        console.error(`[Server FATAL] Brak pliku "${indexPath}". Zbuduj frontend (npm run build) przed uruchomieniem serwera produkcyjnego.`);
+        logger.error(`[Server FATAL] Brak pliku "${indexPath}". Zbuduj frontend (npm run build) przed uruchomieniem serwera produkcyjnego.`);
         throw new Error(`Brak pliku "${indexPath}"`);
       }
-      console.warn(`[Server] Brak katalogu statycznego "${staticDir}" (pominięto serwowanie SPA dla instancji testowej).`);
+      logger.warn(`[Server] Brak katalogu statycznego "${staticDir}" (pominięto serwowanie SPA dla instancji testowej).`);
     } else {
-      console.log(`[Server] Serving static assets from: ${staticDir}`);
+      logger.info(`[Server] Serving static assets from: ${staticDir}`);
 
       app.use(express.static(staticDir, {
         index: false,

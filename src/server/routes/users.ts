@@ -17,6 +17,7 @@ import {
 } from '../security.js';
 import { SessionStore } from '../sessions.js';
 import { validatePassword } from '../../utils/passwordPolicy.js';
+import { logger } from '../logger.js';
 
 export interface UserRoutesDeps {
   config: ServerConfig;
@@ -141,7 +142,7 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
 
       res.json({ success: true, message: 'Hasło zostało pomyślnie zaktualizowane.' });
     } catch (err: any) {
-      console.error('[Server Auth] Błąd zmiany hasła:', err);
+      logger.error('[Server Auth] Błąd zmiany hasła:', err);
       res.status(500).json({ error: 'Błąd podczas zmiany hasła' });
     }
   });
@@ -217,7 +218,7 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
         backupCodes: codes,
       });
     } catch (err: any) {
-      console.error('[Server Auth] Błąd 2fa/setup:', err);
+      logger.error('[Server Auth] Błąd 2fa/setup:', err);
       res.status(500).json({ error: 'Błąd generowania konfiguracji 2FA' });
     }
   });
@@ -276,7 +277,7 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
         backupCodesCount: targetUser.twoFactorBackupCodes.length,
       });
     } catch (err: any) {
-      console.error('[Server Auth] Błąd 2fa/confirm:', err);
+      logger.error('[Server Auth] Błąd 2fa/confirm:', err);
       res.status(500).json({ error: 'Błąd potwierdzenia 2FA' });
     }
   });
@@ -336,7 +337,7 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
 
         resetFailedLogin(rateLimitKey, clientIp);
       } else {
-        console.log(`[Server Auth] Administrator ${caller.name} (${caller.id}) zresetował 2FA dla ${targetUser.name} (${targetUser.id}).`);
+        logger.info(`[Server Auth] Administrator (${caller.id}) zresetował 2FA dla użytkownika (${targetUser.id}).`);
       }
 
       targetUser.twoFactorEnabled = false;
@@ -366,7 +367,7 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
 
       res.json({ success: true, twoFactorEnabled: false });
     } catch (err: any) {
-      console.error('[Server Auth] Błąd 2fa/disable:', err);
+      logger.error('[Server Auth] Błąd 2fa/disable:', err);
       res.status(500).json({ error: 'Błąd wyłączania 2FA' });
     }
   });

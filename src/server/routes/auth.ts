@@ -26,6 +26,7 @@ import {
 } from '../security.js';
 import { SessionStore } from '../sessions.js';
 import { validatePassword } from '../../utils/passwordPolicy.js';
+import { logger } from '../logger.js';
 
 export interface AuthRoutesDeps {
   config: ServerConfig;
@@ -163,7 +164,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
             <p style="font-size: 12px; color: #64748b; margin-top: 18px; line-height: 1.4;">Kod jest ważny przez <strong>10 minut</strong> (maksymalnie 5 prób weryfikacji). Jeśli to nie Ty prosiłeś o zmianę hasła, zignoruj tę wiadomość.</p>
           </div>`,
           });
-          console.log(`[Server Auth] Wysłano kod resetu hasła na adres e-mail: ${cleanEmail}`);
+          logger.info(`[Server Auth] Wysłano kod resetu hasła dla użytkownika ${targetUser.id}.`);
           securityLogger.record('password_reset_requested', {
             userId: targetUser.id,
             ip: clientIp,
@@ -171,13 +172,13 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
             details: { emailDomain: cleanEmail.split('@')[1] || '' },
           }).catch(() => {});
         } catch (mailErr: any) {
-          console.error(`[Server Auth] Błąd wysyłania e-maila SMTP na adres ${cleanEmail}:`, mailErr.message);
+          logger.error(`[Server Auth] Błąd wysyłania e-maila SMTP dla użytkownika ${targetUser.id}:`, mailErr?.message || mailErr);
         }
       }
 
       res.json({ success: true, message: standardMessage });
     } catch (err: any) {
-      console.error('[Server Auth] Błąd resetu hasła request:', err);
+      logger.error('[Server Auth] Błąd resetu hasła request:', err);
       res.json({
         success: true,
         message: 'Jeśli podany adres e-mail istnieje w bazie pracowni, wysłano na niego 6-cyfrowy kod weryfikacyjny. Kod jest ważny przez 10 minut.',
@@ -304,7 +305,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
 
       res.json({ success: true, message: 'Hasło zostało pomyślnie zmienione. Możesz się teraz zalogować nowym hasłem.' });
     } catch (err: any) {
-      console.error('[Server Auth] Błąd confirm password reset:', err);
+      logger.error('[Server Auth] Błąd confirm password reset:', err);
       res.status(500).json({ error: 'Błąd zapisu nowego hasła' });
     }
   });
@@ -432,7 +433,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
           } else if (verifyAndConsumeBackupCode(user, String(totpCode), effectiveAppSecret)) {
             authSuccess = true;
             await stateStore.saveStateAtomicAsync();
-            console.log(`[Server Auth] Użytkownik ${user.name} (${user.id}) zalogował się za pomocą jednorazowego kodu zapasowego.`);
+            logger.info(`[Server Auth] Użytkownik (${user.id}) zalogował się za pomocą jednorazowego kodu zapasowego.`);
             securityLogger.record('twofa_backup_code_used', {
               userId: user.id,
               ip: clientIp,
@@ -450,7 +451,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
             delete user.pending2FA;
             authSuccess = true;
             await stateStore.saveStateAtomicAsync();
-            console.log(`[Server Auth] Użytkownik ${user.name} (${user.id}) potwierdził 2FA przy pierwszym logowaniu.`);
+            logger.info(`[Server Auth] Użytkownik (${user.id}) potwierdził 2FA przy pierwszym logowaniu.`);
             securityLogger.record('twofa_enabled', {
               userId: user.id,
               ip: clientIp,
@@ -509,7 +510,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
       setSessionCookie(req, res, rawToken, sessionMaxHours * 3600);
       res.json({ success: true, user: sanitizeUser(user) });
     } catch (err: any) {
-      console.error('[Server Auth] Błąd logowania:', err);
+      logger.error('[Server Auth] Błąd logowania:', err);
       res.status(500).json({ error: 'Wystąpił błąd serwera podczas logowania' });
     }
   });
@@ -716,7 +717,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
 
       res.json({ success: true, user: sanitizeUser(adminUser) });
     } catch (err: any) {
-      console.error('[Server Auth] Błąd setup-admin:', err);
+      logger.error('[Server Auth] Błąd setup-admin:', err);
       res.status(500).json({ error: 'Błąd tworzenia konta administratora' });
     }
   });
@@ -825,7 +826,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
         twoFactor: twoFactorData,
       });
     } catch (err: any) {
-      console.error('[Server Auth] Błąd rejestracji:', err);
+      logger.error('[Server Auth] Błąd rejestracji:', err);
       res.status(500).json({ error: 'Błąd rejestracji użytkownika' });
     }
   });

@@ -11,6 +11,7 @@ import { ServerConfig } from './config.js';
 import { getClientIp } from './security.js';
 import { SessionStore } from './sessions.js';
 import { StateStore } from './state.js';
+import { logger } from './logger.js';
 
 export interface GoogleCalendarSyncClientLike {
   listEvents(): Promise<GoogleCalendarExistingEvent[]>;
@@ -172,7 +173,7 @@ export function createGoogleSyncService(deps: {
     } catch (err: any) {
       const safeMsg = sanitizeSyncError(err);
       lastError = safeMsg;
-      console.error(`[GoogleSync] Błąd synchronizacji (${trigger}): ${safeMsg}`);
+      logger.error(`[GoogleSync] Błąd synchronizacji (${trigger}): ${safeMsg}`);
 
       stateStore.securityLogger
         .record('google_sync_failed', {

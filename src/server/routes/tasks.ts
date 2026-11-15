@@ -8,6 +8,7 @@ import {
 } from '../../utils/access.js';
 import { StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
+import { logger } from '../logger.js';
 
 export function registerTaskRoutes(
   app: express.Express,
@@ -82,7 +83,7 @@ export function registerTaskRoutes(
 
       res.status(201).json({ success: true, task: newTask, revision: newRev });
     } catch (err: any) {
-      console.error('[Server API] Błąd tworzenia zadania:', err);
+      logger.error('[Server API] Błąd tworzenia zadania:', err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -166,7 +167,7 @@ export function registerTaskRoutes(
 
       res.json({ success: true, task, revision: newRev });
     } catch (err: any) {
-      console.error('[Server API] Błąd aktualizacji zadania:', err);
+      logger.error('[Server API] Błąd aktualizacji zadania:', err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -203,7 +204,7 @@ export function registerTaskRoutes(
 
       res.json({ success: true, revision: newRev });
     } catch (err: any) {
-      console.error('[Server API] Błąd usuwania zadania:', err);
+      logger.error('[Server API] Błąd usuwania zadania:', err);
       res.status(500).json({ error: err.message });
     }
   });

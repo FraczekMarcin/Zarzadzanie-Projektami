@@ -245,7 +245,8 @@ test.describe.serial('Testy end-to-end aplikacji Zarządzanie Projektami', () =>
     expect(hasAuthFlagBefore).toBe('true');
 
     await page.getByRole('button', { name: 'Wyloguj się z systemu' }).click();
-    await expect(page.getByRole('heading', { name: 'Logowanie do Systemu' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Pracownia Projektowa' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Logowanie', selected: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Zaloguj do pracowni' })).toBeVisible();
 
     const storageDump = await page.evaluate(() => {

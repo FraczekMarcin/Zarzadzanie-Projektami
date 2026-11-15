@@ -6,6 +6,7 @@ import { createRateLimiter, RateLimiter } from '../utils/rateLimit.js';
 import { SecurityLog } from '../utils/securityLog.js';
 import { ServerConfig } from './config.js';
 import { StateStore } from './state.js';
+import { logger } from './logger.js';
 
 export interface FailedLoginRec {
   attempts: number;
@@ -155,9 +156,9 @@ export async function verifyAndMigratePassword(
       user.passwordHash = newHash;
       delete user.password;
       stateStore.saveStateAtomicAsync();
-      console.log(`[Server Auth] Zmigrowano hasło użytkownika ${user.name} (${user.id}) z SHA-256 do scrypt.`);
+      logger.info(`[Server Auth] Zmigrowano hasło użytkownika (${user.id}) z SHA-256 do scrypt.`);
     } catch (migErr) {
-      console.error('[Server Auth] Błąd migracji hasła do scrypt:', migErr);
+      logger.error('[Server Auth] Błąd migracji hasła do scrypt:', migErr);
     }
     return true;
   }
@@ -189,7 +190,7 @@ export function applyCoreMiddleware(
       const durationMs = Date.now() - startTime;
       const status = res.statusCode;
       if (status >= 400 || durationMs > 500) {
-        console.log(`[API] ${req.method} ${reqPath} ${status} ${durationMs}ms`);
+        logger.info(`[API] ${req.method} ${reqPath} ${status} ${durationMs}ms`);
       }
     });
 
