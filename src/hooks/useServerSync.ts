@@ -324,7 +324,9 @@ export function useServerSync({
     }
   };
 
-  const deleteProjectOnServer = async (projectId: string) => {
+  const deleteProjectOnServer = async (
+    projectId: string
+  ): Promise<{ ok: boolean; trashId?: string }> => {
     try {
       const res = await fetch(`/api/projects/${projectId}`, {
         method: 'DELETE',
@@ -332,7 +334,7 @@ export function useServerSync({
       });
       if (res.status === 401) {
         setIsAuthenticated(false);
-        return;
+        return { ok: false };
       }
       if (!res.ok) {
         const errData = await res.json();
@@ -341,14 +343,17 @@ export function useServerSync({
           type: 'error',
         });
         await fetchFreshState(false);
-        return;
+        return { ok: false };
       }
       const data = await res.json();
       if (typeof data.revision === 'number') {
         applyRevision(data.revision);
       }
+      await fetchFreshState(false);
+      return { ok: true, trashId: typeof data.trashId === 'string' ? data.trashId : undefined };
     } catch (err) {
       console.warn('Błąd usuwania projektu na serwerze:', err);
+      return { ok: false };
     }
   };
 

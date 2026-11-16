@@ -8,13 +8,15 @@ import {
 } from '../../utils/access.js';
 import { StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
+import { SettingsService } from '../settings.js';
+import { moveProjectToTrash } from '../trash.js';
 import { logger } from '../logger.js';
 
 export function registerProjectRoutes(
   app: express.Express,
-  deps: { stateStore: StateStore; sessionStore: SessionStore }
+  deps: { stateStore: StateStore; sessionStore: SessionStore; settingsService: SettingsService }
 ): void {
-  const { stateStore, sessionStore } = deps;
+  const { stateStore, sessionStore, settingsService } = deps;
   const { requireAuth } = sessionStore;
 
   // POST /api/projects
@@ -199,13 +201,14 @@ export function registerProjectRoutes(
         return res.status(404).json({ error: `Projekt o ID "${id}" nie istnieje.` });
       }
 
-      appState.projects.splice(projectIndex, 1);
-      appState.tasks = (appState.tasks || []).filter((t: any) => t.projectId !== id);
+      const project = appState.projects[projectIndex];
+      const retentionDays = settingsService.getEffectiveTrashRetentionDays();
+      const { trashEntry } = moveProjectToTrash(appState, project, caller, retentionDays, Date.now());
 
       const newRev = stateStore.bumpStateRevision();
       await stateStore.saveStateAtomicAsync();
 
-      res.json({ success: true, revision: newRev });
+      res.json({ success: true, revision: newRev, trashId: trashEntry.id });
     } catch (err: any) {
       logger.error('[Server API] Błąd usuwania projektu:', err);
       res.status(500).json({ error: err.message });

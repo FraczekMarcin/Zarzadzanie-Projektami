@@ -26,7 +26,10 @@ export type SecurityEventType =
   | 'backup_recovered'
   | 'settings_changed'
   | 'smtp_test_sent'
-  | 'smtp_test_failed';
+  | 'smtp_test_failed'
+  | 'trash_restored'
+  | 'trash_purged'
+  | 'trash_emptied';
 
 export type LoginFailureReason =
   | 'bad_password'
@@ -162,6 +165,9 @@ export const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   settings_changed: 'Zmiana ustawień administratora',
   smtp_test_sent: 'Wysłano wiadomość testową SMTP',
   smtp_test_failed: 'Błąd wysyłki testowej SMTP',
+  trash_restored: 'Przywrócenie elementu z kosza',
+  trash_purged: 'Trwałe usunięcie elementu z kosza',
+  trash_emptied: 'Opróżnienie kosza',
 };
 
 /**

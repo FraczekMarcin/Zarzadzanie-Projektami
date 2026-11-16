@@ -85,6 +85,7 @@ interface ProjectsOverviewProps {
   onUpdateProject?: (updatedProject: Project) => void;
   onDeleteProject?: (projectId: string) => void;
   onDeleteAllDemoData?: () => void;
+  trashRetentionDays?: number;
 }
 
 export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
@@ -97,6 +98,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   onUpdateProject,
   onDeleteProject,
   onDeleteAllDemoData,
+  trashRetentionDays = 30,
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
@@ -1085,7 +1087,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
               <div className="flex items-center gap-2.5 text-rose-700 dark:text-rose-400">
                 <Trash2 className="w-5 h-5 shrink-0" aria-hidden="true" />
                 <h4 id="delete-project-modal-title" className="text-sm font-bold text-slate-900 dark:text-white">
-                  {projectToDelete.isArchived ? 'Całkowite usunięcie projektu z archiwum' : 'Usuń projekt'}
+                  {projectToDelete.isArchived ? 'Usunięcie projektu z archiwum' : 'Usuń projekt'}
                 </h4>
               </div>
 
@@ -1097,14 +1099,14 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                       <span aria-hidden="true">⚠️ </span>Uwaga: Projekt posiada {incompleteCount} nieukończonych zadań!
                     </span>
                     <p>
-                      Część zadań nie została oznaczona jako ukończona. Usunięcie projektu bezpowrotnie skasuje wszystkie powiązane zadania, pozycje kosztorysu i wyceny.
+                      Część zadań nie została oznaczona jako ukończona. Wszystkie powiązane zadania oraz komentarze zostaną przeniesione do kosza razem z projektem.
                     </p>
                   </div>
                 </div>
               )}
 
               <p className="text-xs text-slate-600 dark:text-slate-400">
-                Czy na pewno chcesz bezpowrotnie usunąć temat <strong>{projectToDelete.key}: {projectToDelete.name}</strong> oraz wszystkie powiązane z nim zadania i pozycje kosztorysu?
+                Czy na pewno chcesz usunąć temat <strong>{projectToDelete.key}: {projectToDelete.name}</strong>? Element trafi do kosza i będzie można go przywrócić przez {trashRetentionDays} dni.
               </p>
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
@@ -1122,7 +1124,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                   }}
                   className="px-3.5 py-1.5 bg-rose-700 hover:bg-rose-600 text-white rounded text-xs font-semibold shadow-xs"
                 >
-                  {projectToDelete.isArchived ? 'Tak, całkowicie usuń z bazy' : 'Tak, usuń projekt'}
+                  Tak, przenieś do kosza
                 </button>
               </div>
             </div>

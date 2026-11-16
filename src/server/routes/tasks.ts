@@ -8,13 +8,15 @@ import {
 } from '../../utils/access.js';
 import { StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
+import { SettingsService } from '../settings.js';
+import { moveTaskToTrash } from '../trash.js';
 import { logger } from '../logger.js';
 
 export function registerTaskRoutes(
   app: express.Express,
-  deps: { stateStore: StateStore; sessionStore: SessionStore }
+  deps: { stateStore: StateStore; sessionStore: SessionStore; settingsService: SettingsService }
 ): void {
-  const { stateStore, sessionStore } = deps;
+  const { stateStore, sessionStore, settingsService } = deps;
   const { requireAuth } = sessionStore;
 
   // POST /api/tasks
@@ -198,11 +200,12 @@ export function registerTaskRoutes(
         }
       }
 
-      appState.tasks = appState.tasks.filter((t: any) => t.id !== id);
+      const retentionDays = settingsService.getEffectiveTrashRetentionDays();
+      const { trashEntry } = moveTaskToTrash(appState, task, caller, retentionDays, Date.now());
       const newRev = stateStore.bumpStateRevision();
       await stateStore.saveStateAtomicAsync();
 
-      res.json({ success: true, revision: newRev });
+      res.json({ success: true, revision: newRev, trashId: trashEntry.id });
     } catch (err: any) {
       logger.error('[Server API] Błąd usuwania zadania:', err);
       res.status(500).json({ error: err.message });

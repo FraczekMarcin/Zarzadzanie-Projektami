@@ -189,3 +189,58 @@ export interface ProjectTemplate {
   isCustom?: boolean;
   createdAt?: string;
 }
+
+export type TrashItemType = 'task' | 'project';
+
+export interface TrashTaskLinks {
+  parentId?: string;
+  blockingTaskIds: string[];
+  dependencies: string[];
+  childTaskIds: string[];
+  dependentTaskIds: string[];
+}
+
+export interface TrashTaskPayload {
+  task: Task;
+  comments: Comment[];
+  links: TrashTaskLinks;
+}
+
+export interface TrashProjectPayload {
+  project: Project;
+  tasks: Task[];
+  comments: Comment[];
+}
+
+export interface TrashEntry {
+  id: string;
+  type: TrashItemType;
+  deletedAt: string;
+  deletedBy: string;
+  deletedByName: string;
+  expiresAt: string;
+  projectId: string;
+  title: string;
+  code: string;
+  payload: TrashTaskPayload | TrashProjectPayload;
+}
+
+export interface TrashEntrySummary {
+  id: string;
+  type: TrashItemType;
+  deletedAt: string;
+  deletedBy: string;
+  deletedByName: string;
+  expiresAt: string;
+  daysRemaining: number;
+  projectId: string;
+  projectName: string;
+  projectKey: string;
+  title: string;
+  code: string;
+  taskCount: number;
+  commentCount: number;
+  canRestore: boolean;
+  canPurge: boolean;
+}
+

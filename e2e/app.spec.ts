@@ -78,6 +78,7 @@ test.describe.serial('Testy end-to-end aplikacji Zarządzanie Projektami', () =>
   let totpSecret = '';
   let lastUsedTotpStep = -1;
   let backupCodeForSecondContext = '';
+  let backupCodeForTrashTest = '';
 
   function computeNextTotp(secret: string): string {
     const nowStep = Math.floor(Date.now() / 1000 / 30);
@@ -303,6 +304,8 @@ test.describe.serial('Testy end-to-end aplikacji Zarządzanie Projektami', () =>
     const firstBackupCodeEl = accountDialog.getByText(/^[A-Z2-7]{5}-[A-Z2-7]{5}$/).first();
     await expect(firstBackupCodeEl).toBeVisible();
     backupCodeForSecondContext = (await firstBackupCodeEl.innerText()).trim();
+    const secondBackupCodeEl = accountDialog.getByText(/^[A-Z2-7]{5}-[A-Z2-7]{5}$/).nth(1);
+    backupCodeForTrashTest = (await secondBackupCodeEl.innerText()).trim();
 
     await accountDialog.getByRole('button', { name: 'Zakończ i zamknij' }).click();
     await accountDialog.getByRole('button', { name: 'Zamknij okno uwierzytelniania' }).click();
@@ -365,5 +368,52 @@ test.describe.serial('Testy end-to-end aplikacji Zarządzanie Projektami', () =>
       await contextA.close();
       await contextB.close();
     }
+  });
+
+  test('g) usunięcie zadania przenosi je do kosza, toast „Cofnij” przywraca je natychmiast i otwarcie widoku Kosz przebiega czysto', async ({ page }) => {
+    const monitor = await attachErrorMonitor(page);
+    await loginThroughUi(page, backupCodeForTrashTest);
+
+    await page.getByRole('button', { name: 'Zadania', exact: true }).click();
+    const taskLink = page.getByRole('button', { name: 'Projekt wykonawczy E2E' });
+    await expect(taskLink).toBeVisible();
+
+    const taskRow = page.locator('tr', { has: taskLink });
+    await taskRow.getByRole('button', { name: /^Usuń zadanie /i }).click();
+
+    const deleteDialog = page.getByRole('dialog', { name: /Usuń zadanie/i });
+    await expect(deleteDialog).toBeVisible();
+    await expect(deleteDialog).toContainText(/Element trafi do kosza/i);
+
+    const deletePromise = page.waitForResponse(
+      (res) => res.url().includes('/api/tasks/') && res.request().method() === 'DELETE' && res.status() === 200
+    );
+    await deleteDialog.getByRole('button', { name: 'Tak, przenieś do kosza' }).click();
+    await deletePromise;
+
+    await expect(taskLink).toHaveCount(0);
+
+    const undoToast = page.getByRole('status').filter({ hasText: 'Przeniesiono do kosza' });
+    await expect(undoToast).toBeVisible();
+    const restorePromise = page.waitForResponse(
+      (res) => res.url().includes('/api/trash/') && res.url().includes('/restore') && res.request().method() === 'POST' && res.status() === 200
+    );
+    await undoToast.getByRole('button', { name: 'Cofnij' }).click();
+    await restorePromise;
+
+    await expect(page.getByRole('button', { name: 'Projekt wykonawczy E2E' })).toBeVisible();
+
+    // Weryfikacja trwałości przywrócenia po przeładowaniu
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Wyloguj się z systemu' })).toBeVisible();
+    await page.getByRole('button', { name: 'Zadania', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Projekt wykonawczy E2E' })).toBeVisible();
+
+    // Otwarcie widoku Kosz z nawigacji
+    await page.getByRole('navigation', { name: 'Główna nawigacja' }).getByRole('button', { name: 'Kosz', exact: true }).click();
+    await expect(page.getByRole('heading', { name: /Kosz usuniętych zadań i projektów/i })).toBeVisible();
+    await expect(page.getByText('Kosz jest pusty')).toBeVisible();
+
+    await monitor.assertClean();
   });
 });

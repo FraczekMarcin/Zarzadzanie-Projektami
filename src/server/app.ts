@@ -20,6 +20,8 @@ import { createBackupWatchService } from './backupWatch.js';
 import { createSettingsService } from './settings.js';
 import { createMailer } from './mailer.js';
 import { registerAdminSettingsRoutes } from './routes/adminSettings.js';
+import { createTrashCleanupService } from './trash.js';
+import { registerTrashRoutes } from './routes/trash.js';
 import { setupStaticAndSpa } from './static.js';
 import { logger } from './logger.js';
 
@@ -56,6 +58,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
     checkStatusOverride: options.backupStatusCheckOverride,
     mailerOverride: options.backupAlertMailer,
   });
+  const trashCleanup = createTrashCleanupService({
+    stateStore,
+    disableTimers: options.trashCleanupDisableTimers,
+  });
 
   let closeStatic: (() => Promise<void>) | null = null;
   let eventsHandle: EventRoutesHandle | null = null;
@@ -65,6 +71,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
     if (closed) return;
     closed = true;
 
+    trashCleanup.stop();
     backupWatch.stop();
     googleSync.stop();
     eventsHandle?.closeAll();
@@ -91,10 +98,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
     const app = express();
     applyCoreMiddleware(app, config, stateStore.securityLogger);
 
+    await trashCleanup.start();
+
     registerSystemRoutes(app, { config, stateStore, sessionStore });
     registerAuthRoutes(app, { config, stateStore, sessionStore, security, settingsService, mailer });
-    registerTaskRoutes(app, { stateStore, sessionStore });
-    registerProjectRoutes(app, { stateStore, sessionStore });
+    registerTaskRoutes(app, { stateStore, sessionStore, settingsService });
+    registerProjectRoutes(app, { stateStore, sessionStore, settingsService });
+    registerTrashRoutes(app, { stateStore, sessionStore, settingsService });
     registerCommentRoutes(app, { stateStore, sessionStore });
     registerUserRoutes(app, { config, stateStore, sessionStore, security });
     registerCalendarRoutes(app, { config, stateStore, sessionStore });

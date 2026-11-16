@@ -11,6 +11,7 @@ export interface AppState {
   users: any[];
   comments: any[];
   activityLogs: any[];
+  trash?: any[];
   updatedAt?: string;
   [key: string]: any;
 }
@@ -31,6 +32,7 @@ export function normalizeStateStructure(raw?: any): AppState {
         users: [],
         comments: [],
         activityLogs: [],
+        trash: [],
         updatedAt: new Date().toISOString(),
       };
 
@@ -42,6 +44,7 @@ export function normalizeStateStructure(raw?: any): AppState {
   if (!Array.isArray(state.users)) state.users = [];
   if (!Array.isArray(state.comments)) state.comments = [];
   if (!Array.isArray(state.activityLogs)) state.activityLogs = [];
+  if (!Array.isArray(state.trash)) state.trash = [];
 
   for (const t of state.tasks) {
     if (t && typeof t.revision !== 'number') t.revision = 1;

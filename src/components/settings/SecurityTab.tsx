@@ -29,6 +29,9 @@ const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   settings_changed: 'Zmiana ustawień administratora',
   smtp_test_sent: 'Wysłano wiadomość testową SMTP',
   smtp_test_failed: 'Błąd wysyłki testowej SMTP',
+  trash_restored: 'Przywrócenie elementu z kosza',
+  trash_purged: 'Trwałe usunięcie elementu z kosza',
+  trash_emptied: 'Opróżnienie kosza',
 };
 
 export interface SecurityTabProps {

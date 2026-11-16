@@ -427,6 +427,7 @@ Wszystkie poniższe zmienne można skonfigurować w pliku `.env` (wzór wdrożen
 | `RESET_2FA_ON_START` | `false` | Opcjonalna | Awaryjny reset niemożliwych do odszyfrowania sekretów 2FA podczas startu serwera (`true`/`1`). |
 | `SESSION_IDLE_MINUTES` | `120` | Opcjonalna | Limit bezczynności sesji użytkownika w minutach (5–1440). Nadpisuje ustawienie w UI. |
 | `SESSION_MAX_HOURS` | `12` | Opcjonalna | Maksymalny bezwzględny czas ważności sesji użytkownika w godzinach (1–168). Nadpisuje ustawienie w UI. |
+| `TRASH_RETENTION_DAYS` | `30` | Opcjonalna | Liczba dni przechowywania usuniętych zadań i projektów w koszu (1–365). Nadpisuje ustawienie w UI. |
 | `SMTP_HOST` | `""` | Opcjonalna | Adres serwera SMTP; jego ustawienie włącza resetowanie hasła przez e-mail i alerty kopii. Nadpisuje ustawienie w UI. |
 | `SMTP_PORT` | `587` | Opcjonalna | Port serwera SMTP (`465` domyślnie używa TLS/SMTPS). Nadpisuje ustawienie w UI. |
 | `SMTP_ENCRYPTION` | `starttls` (`tls` dla portu `465`) | Opcjonalna | Tryb szyfrowania SMTP (`none`, `starttls`, `tls`). Nadpisuje ustawienie w UI. |
@@ -451,6 +452,7 @@ Administrator może zarządzać wybranymi parametrami serwera bezpośrednio z po
 | Poczta SMTP (`host`, `port`, szyfrowanie, login, hasło, nadawca, `allowSelfSigned`) | Tak (`Poczta (SMTP)`) | Tak (`SMTP_*`, ma pierwszeństwo) | Wygodna konfiguracja i testowanie wysyłki w panelu bez edycji plików na serwerze; hasło szyfrowane `APP_SECRET`. |
 | Samodzielna rejestracja użytkowników | Tak (`Dostęp i sesje`) | Tak (`ALLOW_SELF_REGISTRATION`, ma pierwszeństwo) | Możliwość szybkiego otwierania lub zamykania rejestracji w trakcie działania systemu bez restartu. |
 | Limity sesji (`idleMinutes`, `maxHours`) | Tak (`Dostęp i sesje`) | Tak (`SESSION_IDLE_MINUTES`, `SESSION_MAX_HOURS`, mają pierwszeństwo) | Natychmiastowa zmiana polityki wygasania sesji bez przerywania aktywnej pracy zespołu. |
+| Przechowywanie w koszu (`trash.retentionDays`) | Tak (`Dostęp i sesje`) | Tak (`TRASH_RETENTION_DAYS`, ma pierwszeństwo) | Określa liczbę dni (1–365), przez które usunięte zadania i projekty można przywrócić z kosza. |
 | Katalog danych (`DATA_DIR`) | Tylko odczyt | Tak (wyłącznie `.env`) | Serwer musi znać lokalizację plików bazy danych przed uruchomieniem i wczytaniem `app_state.json`. |
 | Klucz szyfrowania (`APP_SECRET`) | Tylko status (bez wartości) | Tak (wyłącznie `.env` w prod) | Kryptograficzne oddzielenie klucza od bazy danych: wykradzenie samego pliku `app_state.json` nie pozwala odszyfrować sekretów 2FA ani hasła SMTP. |
 | Zaufane proxy (`TRUST_PROXY`) | Tylko odczyt (+ ostrzeżenie przy proxy/HTTPS) | Tak (wyłącznie `.env`) | Ustawienie warstwy sieciowej Express i zaufania nagłówkom proxy musi być ustalone przy starcie procesu. |

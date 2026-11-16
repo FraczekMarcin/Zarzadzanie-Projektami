@@ -116,12 +116,13 @@ export function registerSystemRoutes(
         });
       }
 
-      const { serverSettings: _ignoredServerSettings, ...safeIncoming } = incoming;
+      const { serverSettings: _ignoredServerSettings, trash: _ignoredTrash, ...safeIncoming } = incoming;
 
       const nextState = {
         ...appState,
         ...safeIncoming,
         serverSettings: appState.serverSettings,
+        trash: Array.isArray(appState.trash) ? appState.trash : [],
         users: nextUsers,
         initialized: true,
         updatedAt: new Date().toISOString(),

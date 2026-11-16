@@ -40,6 +40,7 @@ export interface CreateAppOptions {
   backupMaxAgeHours?: number;
   backupAlertEmails?: string[];
   backupWatchDisableTimers?: boolean;
+  trashCleanupDisableTimers?: boolean;
   backupStatusCheckOverride?: () => Promise<BackupStatusResult>;
   backupAlertMailer?: (mail: { to: string[]; subject: string; text: string; html?: string }) => Promise<void>;
 }

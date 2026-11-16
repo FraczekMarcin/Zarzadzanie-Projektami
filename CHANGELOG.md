@@ -3,6 +3,18 @@
 Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.0.0/), wersjonowanie zgodne z [Semantic Versioning](https://semver.org/lang/pl/).
 
+## [0.9.9] - 2026-11-16
+
+### Dodano
+- **Kosz i miękkie usuwanie po stronie serwera (`src/server/trash.ts`, `src/server/routes/trash.ts`, `src/types/index.ts`, `src/utils/stateStore.ts`)**: dodano osobne pole `appState.trash` (wykluczone z `GET /api/state` i odpowiedzi `409`, zachowywane przy imporcie `POST /api/state`), obsługę przenoszenia usuwanych zadań (wraz z osieroconymi dotychczas komentarzami i dwukierunkowymi powiązaniami `parentId`, `blockingTaskIds`, `dependencies`) i projektów do kosza na okres retencji (domyślnie `30` dni), limit `2000` najświeższych wpisów oraz automatyczne czyszczenie przeterminowanych wpisów przy starcie serwera i co 6 godzin.
+- **Endpointy kosza i zdarzenia dziennika bezpieczeństwa (`src/server/routes/trash.ts`, `src/utils/securityLog.ts`, `src/components/settings/SecurityTab.tsx`)**: dodano `GET /api/trash`, `POST /api/trash/:id/restore` (z przywracaniem zachowanych zależności istniejących zadań, weryfikacją `Najpierw przywróć projekt.` i konfliktów ID/klucza `409`), `DELETE /api/trash/:id` (`admin`/`project_manager`) oraz `DELETE /api/trash` (wyłącznie `admin` z `{ confirm: true }`), a także zdarzenia `trash_restored`, `trash_purged` i `trash_emptied` zapisujące wyłącznie liczbę wpisów (`{ count }`).
+- **Widok Kosz i cofnięcie usunięcia w UI (`src/components/TrashView.tsx`, `src/hooks/useTaskActions.ts`, `src/hooks/useServerSync.ts`, `src/hooks/useAuthSession.ts`, `src/App.tsx`, `src/components/ProjectsOverview.tsx`)**: dodano leniwie ładowaną zakładkę nawigacyjną `Kosz` z listą usuniętych zadań i projektów, przywracaniem, trwałym usuwaniem i opróżnianiem kosza w dostępnych modalach, zastąpiono natywny dialog usuwania zadania dostępnym modalem z informacją o koszu oraz dodano 8-sekundowy toast `Przeniesiono do kosza` z przyciskiem `Cofnij`.
+- **Konfiguracja retencji kosza (`src/server/settings.ts`, `src/utils/settingsSchema.ts`, `src/components/settings/AccessSessionsTab.tsx`, `docker.env.example`, `README.md`)**: dodano parametr `TRASH_RETENTION_DAYS` i ustawienie UI `trash.retentionDays` (`1–365` dni, domyślnie `30`) z zachowaniem pierwszeństwa zmiennej środowiskowej.
+- **Testy jednostkowe, integracyjne i E2E (`src/__tests__/trash.test.ts`, `e2e/app.spec.ts`)**: dodano testy usuwania osieroconych komentarzy, przywracania relacji i projektów, reguł RBAC kosza, zachowania `trash` przy imporcie `POST /api/state`, limitu `2000` wpisów, automatycznego czyszczenia, blokady `TRASH_RETENTION_DAYS`, aktualizacji feedu iCal `.ics` oraz scenariusz Playwright usuwania zadania i przywracania przyciskiem `Cofnij`.
+
+### Zmieniono
+- **Przełączenie usuwania zadań i projektów na miękkie usuwanie (`src/server/routes/tasks.ts`, `src/server/routes/projects.ts`, `src/server/app.ts`, `src/server/config.ts`, `src/utils/access.ts`)**: zmieniono `DELETE /api/tasks/:id` i `DELETE /api/projects/:id`, aby przenosiły elementy do kosza (`trashId` w odpowiedzi) i rejestrowały wpis w `activityLogs`, wykluczono pole `trash` z odpowiedzi stanu w `filterStateForUser` oraz podpięto usługę okresowego czyszczenia kosza do cyklu życia `createApp`.
+
 ## [0.9.8] - 2026-11-15
 
 ### Dodano

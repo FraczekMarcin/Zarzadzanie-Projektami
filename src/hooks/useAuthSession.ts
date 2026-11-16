@@ -6,6 +6,11 @@ import { isDemoUser } from '../utils/demoData';
 export interface NotificationToast {
   message: string;
   type: 'success' | 'info' | 'error';
+  durationMs?: number;
+  action?: {
+    label: string;
+    onClick: () => void | Promise<void>;
+  };
 }
 
 interface UseAuthSessionParams {

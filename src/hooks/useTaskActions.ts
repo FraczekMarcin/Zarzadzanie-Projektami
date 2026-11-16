@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { Task, Project, User, TaskStatus, Comment } from '../types';
 import { getTodayIso, addDaysIso } from '../utils/today';
 import { cascadeScheduleDates } from '../utils/scheduleCascade';
@@ -39,6 +39,41 @@ export function useTaskActions({
 }: UseTaskActionsParams) {
   // Kolejka debouncingu 500 ms dla aktualizacji wielu pól jednego zadania
   const taskPatchDebounceTimers = useRef<Map<string, { timer: any; patch: Partial<Task>; baseRevision: number }>>(new Map());
+  const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
+
+  const restoreFromTrashById = async (trashId: string) => {
+    try {
+      const res = await fetch(`/api/trash/${encodeURIComponent(trashId)}/restore`, {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+      if (res.status === 401) {
+        setIsAuthenticated(false);
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setNotificationToast({
+          message: data.error || 'Nie udało się przywrócić elementu z kosza.',
+          type: 'error',
+        });
+        return;
+      }
+      if (typeof data.revision === 'number') {
+        applyRevision(data.revision);
+      }
+      await fetchFreshState(false);
+      setNotificationToast({
+        message: 'Przywrócono element z kosza.',
+        type: 'success',
+      });
+    } catch {
+      setNotificationToast({
+        message: 'Błąd połączenia z serwerem podczas przywracania z kosza.',
+        type: 'error',
+      });
+    }
+  };
 
   const saveTaskPatchToServer = async (taskId: string, patch: Partial<Task>, baseRevision?: number, retryCount = 0): Promise<void> => {
     try {
@@ -160,6 +195,19 @@ export function useTaskActions({
       if (typeof data.revision === 'number') {
         applyRevision(data.revision);
       }
+      await fetchFreshState(false);
+      setNotificationToast({
+        message: 'Przeniesiono do kosza',
+        type: 'info',
+        durationMs: 8000,
+        action:
+          typeof data.trashId === 'string'
+            ? {
+                label: 'Cofnij',
+                onClick: () => restoreFromTrashById(data.trashId),
+              }
+            : undefined,
+      });
     } catch (err) {
       console.warn('Błąd usuwania zadania z serwera:', err);
     }
@@ -377,18 +425,23 @@ export function useTaskActions({
   };
 
   const handleDeleteTask = (taskId: string) => {
-    const taskToDelete = tasks.find((t) => t.id === taskId);
+    const target = tasks.find((t) => t.id === taskId);
+    if (!target) return;
+    setTaskToDelete(target);
+  };
+
+  const confirmDeleteTask = () => {
     if (!taskToDelete) return;
-    if (confirm(`Czy na pewno usunąć zadanie [${taskToDelete.code}] "${taskToDelete.title}"?`)) {
-      const filtered = tasks.filter((t) => t.id !== taskId);
-      const { updatedTasks } = processDependencyRules(filtered);
-      setTasks(updatedTasks);
-      if (selectedTaskDetail?.id === taskId) {
-        setSelectedTaskDetail(null);
-      }
-      deleteTaskOnServer(taskId);
-      logActivity(`${currentUser.name} usunął zadanie [${taskToDelete.code}]`, taskId);
+    const taskId = taskToDelete.id;
+    setTaskToDelete(null);
+
+    const filtered = tasks.filter((t) => t.id !== taskId);
+    const { updatedTasks } = processDependencyRules(filtered);
+    setTasks(updatedTasks);
+    if (selectedTaskDetail?.id === taskId) {
+      setSelectedTaskDetail(null);
     }
+    void deleteTaskOnServer(taskId);
   };
 
   const handleUpdateStatus = (taskId: string, newStatus: TaskStatus) => {
@@ -478,10 +531,14 @@ export function useTaskActions({
 
   return {
     createTaskOnServer,
+    restoreFromTrashById,
     processDependencyRules,
     handleSelectTask,
     handleSaveTask,
     handleDeleteTask,
+    taskToDelete,
+    setTaskToDelete,
+    confirmDeleteTask,
     handleUpdateStatus,
     handleUpdateProgress,
     handleAddComment,

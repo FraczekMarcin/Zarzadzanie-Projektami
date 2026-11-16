@@ -23,6 +23,9 @@ export interface StoredServerSettings {
     idleMinutes?: number;
     maxHours?: number;
   };
+  trash?: {
+    retentionDays?: number;
+  };
 }
 
 export interface SettingFieldState<T> {
@@ -67,6 +70,9 @@ export interface AdminSettingsResponse {
     idleMinutes: SettingFieldState<number>;
     maxHours: SettingFieldState<number>;
   };
+  trash: {
+    retentionDays: SettingFieldState<number>;
+  };
   readOnly: AdminReadOnlySettings;
 }
 
@@ -92,6 +98,10 @@ export interface AdminSettingsUpdateInput {
     idleMinutes?: unknown;
     maxHours?: unknown;
   };
+  trash?: {
+    retentionDays?: unknown;
+  };
+  trashRetentionDays?: unknown;
 }
 
 export interface NormalizedSettingsPatch {
@@ -112,6 +122,9 @@ export interface NormalizedSettingsPatch {
   sessions?: {
     idleMinutes?: number;
     maxHours?: number;
+  };
+  trash?: {
+    retentionDays?: number;
   };
 }
 
@@ -139,12 +152,17 @@ export const SERVER_SETTINGS_DEFAULTS = {
     idleMinutes: 120,
     maxHours: 12,
   },
+  trash: {
+    retentionDays: 30,
+  },
 } as const;
 
 export const SESSION_IDLE_MIN = 5;
 export const SESSION_IDLE_MAX = 1440;
 export const SESSION_MAX_HOURS_MIN = 1;
 export const SESSION_MAX_HOURS_MAX = 168;
+export const TRASH_RETENTION_MIN = 1;
+export const TRASH_RETENTION_MAX = 365;
 
 const VALID_ENCRYPTION_VALUES = new Set<SmtpEncryption>(['none', 'starttls', 'tls']);
 const SIMPLE_EMAIL_REGEX = /^[^\s@<>()[\]\\,;:\"]+@[^\s@<>()[\]\\,;:\"]+\.[^\s@<>()[\]\\,;:\"]+$/;
@@ -406,6 +424,35 @@ export function validateAdminSettingsUpdate(
     errors.push(
       'Czas bezczynności sesji (w minutach) nie może przekraczać maksymalnego czasu trwania sesji.'
     );
+  }
+
+  // 4. Sekcja Trash (kosz) — obsługuje zarówno body.trash.retentionDays jak i body.trashRetentionDays
+  let rawRetention: unknown;
+  if (body.trash !== undefined) {
+    if (!body.trash || typeof body.trash !== 'object' || Array.isArray(body.trash) || hasForbiddenKeys(body.trash)) {
+      errors.push('Nieprawidłowy format sekcji kosza.');
+    } else if (body.trash.retentionDays !== undefined) {
+      rawRetention = body.trash.retentionDays;
+    }
+  }
+  if (rawRetention === undefined && body.trashRetentionDays !== undefined) {
+    rawRetention = body.trashRetentionDays;
+  }
+
+  if (rawRetention !== undefined) {
+    const val =
+      typeof rawRetention === 'number'
+        ? rawRetention
+        : typeof rawRetention === 'string' && rawRetention.trim() !== ''
+        ? Number(rawRetention.trim())
+        : NaN;
+    if (!Number.isInteger(val) || val < TRASH_RETENTION_MIN || val > TRASH_RETENTION_MAX) {
+      errors.push(
+        `Okres przechowywania elementów w koszu musi być liczbą całkowitą z zakresu od ${TRASH_RETENTION_MIN} do ${TRASH_RETENTION_MAX} dni.`
+      );
+    } else {
+      patch.trash = { retentionDays: val };
+    }
   }
 
   return {

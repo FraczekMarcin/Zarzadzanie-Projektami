@@ -8,6 +8,8 @@ import {
   SettingFieldState,
   SmtpEncryption,
   StoredServerSettings,
+  TRASH_RETENTION_MAX,
+  TRASH_RETENTION_MIN,
   formatSmtpFrom,
   parseSmtpFrom,
   validateAdminSettingsUpdate,
@@ -35,6 +37,9 @@ export interface EffectiveSettings {
   sessions: {
     idleMinutes: SettingFieldState<number>;
     maxHours: SettingFieldState<number>;
+  };
+  trash: {
+    retentionDays: SettingFieldState<number>;
   };
 }
 
@@ -66,6 +71,7 @@ export interface LockedFieldConflict {
 export interface SettingsService {
   getEffectiveSettings: () => EffectiveSettings;
   getEffectiveSessionPolicy: () => EffectiveSessionPolicy;
+  getEffectiveTrashRetentionDays: () => number;
   getRuntimeSmtpConfig: () => RuntimeSmtpConfig;
   getAdminSettingsPayload: (req: express.Request) => AdminSettingsResponse;
   findLockedFieldConflict: (input: AdminSettingsUpdateInput) => LockedFieldConflict | null;
@@ -104,6 +110,7 @@ export function createSettingsService(deps: {
     const storedSmtp = stored.smtp || {};
     const storedAccess = stored.access || {};
     const storedSessions = stored.sessions || {};
+    const storedTrash = stored.trash || {};
 
     // --- SMTP HOST ---
     const envHost = readEnvString('SMTP_HOST');
@@ -230,6 +237,27 @@ export function createSettingsService(deps: {
       ? { value: storedSessions.maxHours, source: 'ui', locked: false }
       : { value: SERVER_SETTINGS_DEFAULTS.sessions.maxHours, source: 'default', locked: false };
 
+    // --- TRASH RETENTION ---
+    const envTrashRaw = readEnvString('TRASH_RETENTION_DAYS');
+    const envTrashParsed = envTrashRaw !== undefined ? parseInt(envTrashRaw, 10) : NaN;
+    const hasValidEnvTrash =
+      Number.isInteger(envTrashParsed) &&
+      envTrashParsed >= TRASH_RETENTION_MIN &&
+      envTrashParsed <= TRASH_RETENTION_MAX;
+    const retentionDays: SettingFieldState<number> = hasValidEnvTrash
+      ? {
+          value: envTrashParsed,
+          source: 'env',
+          locked: true,
+          envVar: 'TRASH_RETENTION_DAYS',
+        }
+      : typeof storedTrash.retentionDays === 'number' &&
+        Number.isInteger(storedTrash.retentionDays) &&
+        storedTrash.retentionDays >= TRASH_RETENTION_MIN &&
+        storedTrash.retentionDays <= TRASH_RETENTION_MAX
+      ? { value: storedTrash.retentionDays, source: 'ui', locked: false }
+      : { value: SERVER_SETTINGS_DEFAULTS.trash.retentionDays, source: 'default', locked: false };
+
     return {
       smtp: {
         configured: host.value.trim().length > 0,
@@ -249,7 +277,14 @@ export function createSettingsService(deps: {
         idleMinutes,
         maxHours,
       },
+      trash: {
+        retentionDays,
+      },
     };
+  }
+
+  function getEffectiveTrashRetentionDays(): number {
+    return getEffectiveSettings().trash.retentionDays.value;
   }
 
   function getEffectiveSessionPolicy(): EffectiveSessionPolicy {
@@ -326,6 +361,7 @@ export function createSettingsService(deps: {
       smtp: eff.smtp,
       access: eff.access,
       sessions: eff.sessions,
+      trash: eff.trash,
       readOnly: {
         dataDir: config.dataDir,
         trustProxy: {
@@ -397,6 +433,15 @@ export function createSettingsService(deps: {
       }
     }
 
+    if (
+      (input.trash && typeof input.trash === 'object' && input.trash.retentionDays !== undefined) ||
+      input.trashRetentionDays !== undefined
+    ) {
+      if (eff.trash.retentionDays.locked) {
+        return { field: 'trash.retentionDays', envVar: eff.trash.retentionDays.envVar! };
+      }
+    }
+
     return null;
   }
 
@@ -420,6 +465,7 @@ export function createSettingsService(deps: {
             sessions: appState.serverSettings.sessions
               ? { ...appState.serverSettings.sessions }
               : undefined,
+            trash: appState.serverSettings.trash ? { ...appState.serverSettings.trash } : undefined,
           }
         : {};
 
@@ -512,6 +558,18 @@ export function createSettingsService(deps: {
       currentStored.sessions = nextSessions;
     }
 
+    if (patch.trash) {
+      const nextTrash = { ...(currentStored.trash || {}) };
+      if (
+        patch.trash.retentionDays !== undefined &&
+        patch.trash.retentionDays !== nextTrash.retentionDays
+      ) {
+        nextTrash.retentionDays = patch.trash.retentionDays;
+        changedFields.push('trash.retentionDays');
+      }
+      currentStored.trash = nextTrash;
+    }
+
     if (changedFields.length > 0) {
       appState.serverSettings = currentStored;
       appState.updatedAt = new Date().toISOString();
@@ -525,6 +583,7 @@ export function createSettingsService(deps: {
   return {
     getEffectiveSettings,
     getEffectiveSessionPolicy,
+    getEffectiveTrashRetentionDays,
     getRuntimeSmtpConfig,
     getAdminSettingsPayload,
     findLockedFieldConflict,

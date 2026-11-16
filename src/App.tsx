@@ -33,6 +33,10 @@ const GitHubUpdateModal = lazy(() =>
 const GoogleCalendarSyncModal = lazy(() =>
   import('./components/GoogleCalendarSyncModal').then((m) => ({ default: m.GoogleCalendarSyncModal }))
 );
+const TrashView = lazy(() =>
+  import('./components/TrashView').then((m) => ({ default: m.TrashView }))
+);
+import { useFocusTrap } from './utils/useFocusTrap';
 import { instantiateTasksFromTemplate } from './utils/projectTemplates';
 import { getNextProjectCode } from './utils/projectCode';
 import { downloadIcsFile } from './utils/calendar';
@@ -74,10 +78,12 @@ import {
   LogOut,
   RefreshCw,
   RotateCcw,
-  Info
+  Info,
+  Trash2,
+  AlertTriangle
 } from 'lucide-react';
 
-type ActiveView = 'gantt' | 'calendar' | 'tasks' | 'tree' | 'kanban' | 'projects';
+type ActiveView = 'gantt' | 'calendar' | 'tasks' | 'tree' | 'kanban' | 'projects' | 'trash';
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
@@ -127,9 +133,11 @@ export default function App() {
     message?: string;
   } | null>(null);
   const [isBackupActive, setIsBackupActive] = useState<boolean>(false);
+  const [trashRetentionDays, setTrashRetentionDays] = useState<number>(30);
 
   const closeEventSourceRef = useRef<() => void>(() => {});
   const logActivityRef = useRef<(action: string, taskId?: string, details?: string) => void>(() => {});
+  const taskDeleteModalRef = useRef<HTMLDivElement>(null);
 
   // Initialize theme listener on mount
   useEffect(() => {
@@ -283,10 +291,28 @@ export default function App() {
     };
   }, [projects, tasks, users, comments, activityLogs]);
 
-  // Toast auto-dismiss
+  // Pobierz konfigurację retencji kosza po zalogowaniu i po zamknięciu ustawień
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let mounted = true;
+    fetch('/api/trash', { credentials: 'same-origin' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (mounted && data && typeof data.retentionDays === 'number' && data.retentionDays > 0) {
+          setTrashRetentionDays(data.retentionDays);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, [isAuthenticated, isSettingsModalOpen]);
+
+  // Toast auto-dismiss (domyślnie 5s, np. 8s dla „Cofnij”)
   useEffect(() => {
     if (notificationToast) {
-      const timer = setTimeout(() => setNotificationToast(null), 5000);
+      const duration = notificationToast.durationMs ?? 5000;
+      const timer = setTimeout(() => setNotificationToast(null), duration);
       return () => clearTimeout(timer);
     }
   }, [notificationToast]);
@@ -315,10 +341,14 @@ export default function App() {
 
   const {
     createTaskOnServer,
+    restoreFromTrashById,
     processDependencyRules,
     handleSelectTask,
     handleSaveTask,
     handleDeleteTask,
+    taskToDelete,
+    setTaskToDelete,
+    confirmDeleteTask,
     handleUpdateStatus,
     handleUpdateProgress,
     handleAddComment,
@@ -337,6 +367,12 @@ export default function App() {
     applyRevision,
     fetchFreshState,
     logActivity,
+  });
+
+  useFocusTrap({
+    isOpen: Boolean(taskToDelete),
+    containerRef: taskDeleteModalRef,
+    onClose: () => setTaskToDelete(null),
   });
 
   const handleAddProject = (newProjData: Omit<Project, 'id'>, selectedTemplate?: ProjectTemplate) => {
@@ -382,19 +418,26 @@ export default function App() {
     logActivity(`${currentUser.name} zaktualizował projekt [${updatedProject.key}]: ${updatedProject.name}`);
   };
 
-  const handleDeleteProject = (projectId: string) => {
-    const project = projects.find((p) => p.id === projectId);
+  const handleDeleteProject = async (projectId: string) => {
     setProjects((prev) => prev.filter((p) => p.id !== projectId));
     setTasks((prev) => prev.filter((t) => t.projectId !== projectId));
     if (selectedProjectId === projectId) {
       setSelectedProjectId(null);
     }
-    deleteProjectOnServer(projectId);
-    logActivity(`Usunięto projekt "${project?.name || projectId}" wraz ze wszystkimi zadaniami`);
-    setNotificationToast({
-      message: `Projekt [${project?.key || ''}] został bezpowrotnie usunięty.`,
-      type: 'info',
-    });
+    const result = await deleteProjectOnServer(projectId);
+    if (result.ok) {
+      setNotificationToast({
+        message: 'Przeniesiono do kosza',
+        type: 'info',
+        durationMs: 8000,
+        action: result.trashId
+          ? {
+              label: 'Cofnij',
+              onClick: () => restoreFromTrashById(result.trashId!),
+            }
+          : undefined,
+      });
+    }
   };
 
   const handleNavigateToTaskAndProject = (projectId: string, task: Task) => {
@@ -502,6 +545,22 @@ export default function App() {
                 : 'Automatyczna aktualizacja zależności'}
             </span>
             <p className="mt-0.5 leading-relaxed text-slate-200">{notificationToast.message}</p>
+            {notificationToast.action && (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const fn = notificationToast.action?.onClick;
+                    setNotificationToast(null);
+                    fn?.();
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs transition-colors"
+                >
+                  <RotateCcw className="w-3 h-3" aria-hidden="true" />
+                  <span>{notificationToast.action.label}</span>
+                </button>
+              </div>
+            )}
           </div>
           <button
             type="button"
@@ -615,6 +674,20 @@ export default function App() {
           >
             <Briefcase className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Projekty</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveView('trash')}
+            aria-current={activeView === 'trash' ? 'page' : undefined}
+            className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
+              activeView === 'trash'
+                ? 'text-sky-700 dark:text-sky-400 border-b-2 border-sky-700 dark:border-sky-400 font-bold'
+                : 'hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+            <span>Kosz</span>
           </button>
         </nav>
 
@@ -911,6 +984,16 @@ export default function App() {
             >
               Kanban
             </button>
+            <button
+              type="button"
+              aria-pressed={activeView === 'trash'}
+              onClick={() => setActiveView('trash')}
+              className={`px-2 py-1 text-[11px] font-medium rounded ${
+                activeView === 'trash' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
+              }`}
+            >
+              Kosz
+            </button>
           </div>
 
           <button
@@ -1000,7 +1083,27 @@ export default function App() {
             onUpdateProject={handleUpdateProject}
             onDeleteProject={handleDeleteProject}
             onDeleteAllDemoData={handleDeleteAllDemoData}
+            trashRetentionDays={trashRetentionDays}
           />
+        )}
+
+        {activeView === 'trash' && (
+          <Suspense
+            fallback={
+              <div className="p-8 text-center text-xs text-slate-600 dark:text-slate-400">
+                Ładowanie kosza...
+              </div>
+            }
+          >
+            <TrashView
+              currentUser={currentUser}
+              onRestored={() => fetchFreshState(false)}
+              onRetentionDaysLoaded={(days) => setTrashRetentionDays(days)}
+              onNotify={(msg, type = 'info') =>
+                setNotificationToast({ message: msg, type })
+              }
+            />
+          </Suspense>
         )}
       </main>
 
@@ -1182,6 +1285,47 @@ export default function App() {
             }}
           />
         </Suspense>
+      )}
+
+      {/* Accessible Task Delete Confirmation Modal */}
+      {taskToDelete && (
+        <div
+          className="fixed inset-0 z-60 bg-black/60 backdrop-blur-2xs flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-task-modal-title"
+        >
+          <div
+            ref={taskDeleteModalRef}
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 max-w-md w-full shadow-2xl space-y-3"
+          >
+            <div className="flex items-center gap-2.5 text-rose-700 dark:text-rose-400">
+              <AlertTriangle className="w-5 h-5 shrink-0" aria-hidden="true" />
+              <h3 id="delete-task-modal-title" className="text-sm font-bold text-slate-900 dark:text-white">
+                Usuń zadanie
+              </h3>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              Czy na pewno chcesz usunąć zadanie <strong>[{taskToDelete.code}] {taskToDelete.title}</strong>? Element trafi do kosza i będzie można go przywrócić przez {trashRetentionDays} dni.
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setTaskToDelete(null)}
+                className="px-3 py-1.5 rounded text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                Anuluj
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteTask}
+                className="px-3.5 py-1.5 rounded bg-rose-700 hover:bg-rose-600 text-white text-xs font-semibold shadow-xs"
+              >
+                Tak, przenieś do kosza
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
