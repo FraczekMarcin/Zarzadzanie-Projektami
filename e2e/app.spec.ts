@@ -210,7 +210,9 @@ test.describe.serial('Testy end-to-end aplikacji Zarządzanie Projektami', () =>
       'Zmienne & Terminy',
       'Użytkownicy & Zgody',
       'Dziennik bezpieczeństwa',
+      'Poczta (SMTP)',
       'Powiadomienia',
+      'Dostęp i sesje',
       'Aktualizacje',
       'Wdrożenie Docker',
       'Kopie Zapasowe',
@@ -218,7 +220,8 @@ test.describe.serial('Testy end-to-end aplikacji Zarządzanie Projektami', () =>
     ];
 
     for (const tabName of tabNames) {
-      const tab = settingsDialog.getByRole('tab', { name: new RegExp(tabName, 'i') });
+      const escapedName = tabName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const tab = settingsDialog.getByRole('tab', { name: new RegExp(escapedName, 'i') });
       await tab.click();
       await expect(tab).toHaveAttribute('aria-selected', 'true');
     }

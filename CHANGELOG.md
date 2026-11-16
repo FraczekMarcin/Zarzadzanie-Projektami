@@ -3,6 +3,18 @@
 Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.0.0/), wersjonowanie zgodne z [Semantic Versioning](https://semver.org/lang/pl/).
 
+## [0.10.0] - 2026-11-16
+
+### Dodano
+- **Ustawienia administratora w interfejsie (`src/server/settings.ts`, `src/utils/settingsSchema.ts`, `src/server/routes/adminSettings.ts`, `src/server/mailer.ts`, `src/components/settings/SmtpTab.tsx`, `src/components/settings/AccessSessionsTab.tsx`)**: dodano panel konfiguracji poczty SMTP (wraz z szyfrowaniem hasła przez `APP_SECRET` i testem wysyłki z limitem 3/min), samodzielnej rejestracji oraz limitów sesji (`idleMinutes`, `maxHours`) z potwierdzaniem hasłem administratora, sekcją parametrów tylko do odczytu (`DATA_DIR`, `TRUST_PROXY`, status `APP_SECRET`, tryb pracy i wersja) oraz hierarchią pierwszeństwa `zmienna środowiskowa > UI > wartość domyślna`.
+- **Kosz usuniętych zadań i projektów (`src/server/trash.ts`, `src/server/routes/trash.ts`, `src/components/TrashView.tsx`)**: dodano miękkie usuwanie zadań (wraz z komentarzami i relacjami `parentId`, `blockingTaskIds`, `dependencies`) oraz projektów do wydzielonego pola `appState.trash` (domyślnie `30` dni retencji przez `TRASH_RETENTION_DAYS` lub UI, maks. `2000` wpisów, automatyczne czyszczenie co 6 godz.), widok **Kosz** w nawigacji, 8-sekundowy toast **Cofnij** po usunięciu zadania oraz endpointy przywracania, trwałego usuwania i opróżniania kosza.
+- **Dzienne przypomnienia e-mail o terminach (`src/utils/reminders.ts`, `src/server/reminders.ts`, `src/server/routes/reminders.ts`, `src/components/settings/NotificationsTab.tsx`, `src/components/UserAuthModal.tsx`)**: dodano harmonogram wysyłki jednej wiadomości zbiorczej dziennie na osobę (z konfigurowalną godziną, strefą czasową IANA, dniami wyprzedzenia `[0, 1, 2, 3, 7]`, opcjonalnymi zaległymi do 3 dni i adresem bazowym linków), zakładkę **Powiadomienia** w Ustawieniach administratora (ze statusem, wysyłką podglądu z limitem 3/godz. i ręcznym `run-now`), indywidualne wyłączanie powiadomień przez `PATCH /api/auth/preferences`, zmienne `REMINDERS_ENABLED`, `REMINDER_TIMEZONE`, `REMINDER_SEND_HOUR` oraz zdarzenia `reminders_sent` / `reminders_failed`.
+- **Dokumentacja i pokrycie E2E (`README.md`, `e2e/app.spec.ts`)**: dodano w `README.md` sekcje **Kosz**, **Przypomnienia e-mail** oraz zaktualizowaną sekcję **Ustawienia administratora** wraz z tabelą nowych zmiennych środowiskowych, a także rozszerzono audyt zakładek w `e2e/app.spec.ts` o wszystkie nowe zakładki Ustawień (`Poczta (SMTP)`, `Powiadomienia`, `Dostęp i sesje`) oraz widok **Kosz**.
+
+### Zmieniono
+- **Szablony `.env` i domyślne wartości trybu deweloperskiego (`docker.env.example`, `.env.example`, `src/server/config.ts`, `src/server/state.ts`)**: przeniesiono pełny szablon zmiennych środowiskowych dla Dockera z `.env.example` do `docker.env.example`, pozostawiając minimalny `.env.example` i bezkonfiguracyjny start w trybie deweloperskim (domyślne `DATA_DIR=./data`, `TRUST_PROXY=false` oraz automatycznie generowany plik `<DATA_DIR>/.dev_app_secret`), bez wycieku `serverSettings`, `trash` i `reminderState` do `/api/state`.
+- **Wersjonowanie wydania (`VERSION`, `package.json`, `package-lock.json`)**: podniesiono wersję aplikacji do `2026-11-16 v0.10.0` (`0.10.0`) zgodnie z mechanizmem pojedynczego źródła prawdy.
+
 ## [0.9.9] - 2026-11-16
 
 ### Dodano

@@ -448,7 +448,9 @@ Wszystkie poniższe zmienne można skonfigurować w pliku `.env` (wzór wdrożen
 
 ## 🛠️ Ustawienia administratora
 
-Administrator może zarządzać wybranymi parametrami serwera bezpośrednio z poziomu interfejsu aplikacji (**Ustawienia → Poczta (SMTP)**, **Ustawienia → Powiadomienia** oraz **Ustawienia → Dostęp i sesje**), bez konieczności restartowania kontenera. Zmiany są zapisywane w `app_state.json` (hasło SMTP jest szyfrowane kluczem `APP_SECRET`), a obowiązuje zasada pierwszeństwa: **zmienna środowiskowa (`.env`) > wartość zapisana w interfejsie > wartość domyślna**. Pola zablokowane zmienną środowiskową są w interfejsie oznaczone jako zablokowane.
+Administrator może zarządzać wybranymi parametrami serwera bezpośrednio z poziomu interfejsu aplikacji (**Ustawienia → Poczta (SMTP)**, **Ustawienia → Powiadomienia** oraz **Ustawienia → Dostęp i sesje**), bez konieczności restartowania kontenera. Zapis zmian wymaga podania aktualnego hasła administratora, dane są utrwalane w `app_state.json` (hasło SMTP jest szyfrowane kluczem `APP_SECRET` przy użyciu AES-256-GCM), a obowiązuje zasada pierwszeństwa: **zmienna środowiskowa (`.env`) > wartość zapisana w interfejsie > wartość domyślna**. Pola sterowane zmienną środowiskową są w interfejsie oznaczone jako zablokowane i nie można ich nadpisać przez UI (`409`).
+
+W trybie deweloperskim (`NODE_ENV !== 'production'`) aplikacja uruchamia się bez pliku `.env`, stosując bezpieczne wartości domyślne (`DATA_DIR=./data`, `TRUST_PROXY=false` oraz automatycznie wygenerowany klucz `<DATA_DIR>/.dev_app_secret`). Szablon zmiennych dla wdrożeń produkcyjnych znajduje się w pliku `docker.env.example` (zamiast rozbudowanego `.env.example`).
 
 | Kategoria / parametr | Konfiguracja w UI | Konfiguracja w `.env` | Dlaczego w UI / dlaczego wyłącznie w `.env` |
 | :--- | :--- | :--- | :--- |
@@ -461,6 +463,27 @@ Administrator może zarządzać wybranymi parametrami serwera bezpośrednio z po
 | Klucz szyfrowania (`APP_SECRET`) | Tylko status (bez wartości) | Tak (wyłącznie `.env` w prod) | Kryptograficzne oddzielenie klucza od bazy danych: wykradzenie samego pliku `app_state.json` nie pozwala odszyfrować sekretów 2FA ani hasła SMTP. |
 | Zaufane proxy (`TRUST_PROXY`) | Tylko odczyt (+ ostrzeżenie przy proxy/HTTPS) | Tak (wyłącznie `.env`) | Ustawienie warstwy sieciowej Express i zaufania nagłówkom proxy musi być ustalone przy starcie procesu. |
 | Port i tryb (`PORT`, `NODE_ENV`) | Tylko odczyt | Tak (wyłącznie `.env`) | Parametry uruchomienia procesu Node.js oraz mapowania portów kontenera. |
+
+---
+
+## 🗑️ Kosz
+
+Usunięcie zadania (`DELETE /api/tasks/:id`) lub projektu (`DELETE /api/projects/:id`) przenosi element do kosza (`appState.trash`) zamiast natychmiastowego trwałego usunięcia:
+
+- **Kompletność migawki i zależności:** wraz z zadaniem w koszu zapisywane są powiązane komentarze oraz relacje zależności (`parentId`, `blockingTaskIds`, `dependencies`) obowiązujące w momencie usunięcia; projekt trafia do kosza razem ze wszystkimi swoimi zadaniami i komentarzami.
+- **Okres przechowywania i limity:** domyślnie elementy pozostają w koszu przez **30 dni** (zakres `1–365` dni, ustawiany zmienną `TRASH_RETENTION_DAYS` lub w *Ustawienia → Dostęp i sesje*), przy limicie maksymalnie **2000** najnowszych wpisów. Wygasłe wpisy są automatycznie usuwane przy starcie serwera i cyklicznie co 6 godzin.
+- **Przywracanie i cofanie:** zaraz po usunięciu zadania wyświetlany jest 8-sekundowy toast **Przeniesiono do kosza** z przyciskiem **Cofnij**. Widok **Kosz** w głównej nawigacji umożliwia przeglądanie usuniętych pozycji, przywracanie (`POST /api/trash/:id/restore`), trwałe usuwanie pojedynczych pozycji (`admin`, `project_manager`) oraz opróżnianie całego kosza z potwierdzeniem (`admin`). Zadanie należące do projektu umieszczonego w koszu można przywrócić dopiero po przywróceniu tego projektu.
+- **Izolacja stanu:** zawartość `trash` nie jest zwracana w `GET /api/state` ani w odpowiedziach konfliktu `409`, lecz jest zachowywana podczas importu stanu (`POST /api/state`).
+
+---
+
+## 📬 Przypomnienia e-mail
+
+System udostępnia harmonogram dziennych przypomnień e-mail o zbliżających się i zaległych terminach zadań (wymaga skonfigurowanego serwera SMTP w **Ustawienia → Poczta (SMTP)**):
+
+- **Jedna wiadomość zbiorcza dziennie na osobę:** cykliczne zadanie sprawdzane przy starcie serwera i co 10 minut generuje raz dziennie o wybranej godzinie jedną wiadomość HTML dla każdego aktywnego, zatwierdzonego użytkownika z poprawnym adresem e-mail, obejmującą wyłącznie zadania przypisane do niego z projektów niezarchiwizowanych (bez zadań ukończonych/anulowanych).
+- **Zakres terminów i bezpieczeństwo treści:** administrator konfiguruje w **Ustawienia → Powiadomienia** włączenie funkcji (`REMINDERS_ENABLED`, domyślnie `false`), godzinę wysyłki (`REMINDER_SEND_HOUR`, `0–23`, domyślnie `8`), strefę czasową IANA (`REMINDER_TIMEZONE`, domyślnie `Europe/Warsaw`), progi wyprzedzenia (`daysBefore` ze zbioru `[0, 1, 2, 3, 7]`, domyślnie `[1, 0]`), zaległe zadania (raz dziennie do **3 dni** po terminie, `notifyOverdue`) oraz bazowy URL w linkach (`appBaseUrl`, domyślnie z `PUBLIC_BASE_URL` lub `https://<APP_HOST>` w trybie HTTPS). Wiadomości nigdy nie zawierają opisów zadań ani danych finansowych, a wszystkie pola są zabezpieczone przed wstrzyknięciem HTML.
+- **Podgląd, ręczne uruchomienie i rezygnacja użytkownika:** w panelu **Powiadomienia** dostępny jest status harmonogramu, wysyłka testowego podglądu do samego administratora (limit **3/godz.**) oraz ręczne uruchomienie wysyłki (`run-now`, z opcją wymuszenia ponownej wysyłki tego samego dnia). Każdy zalogowany użytkownik może w oknie swojego konta wyłączyć osobiste dzienne przypomnienia (`PATCH /api/auth/preferences`).
 
 ---
 
