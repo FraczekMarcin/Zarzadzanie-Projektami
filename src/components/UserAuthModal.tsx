@@ -14,7 +14,8 @@ import {
   LogOut,
   AlertCircle,
   Eye,
-  EyeOff
+  EyeOff,
+  Bell,
 } from 'lucide-react';
 
 
@@ -77,6 +78,9 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
 
   // Delete confirmation
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [isUpdatingEmailPref, setIsUpdatingEmailPref] = useState(false);
+  const [emailPrefStatus, setEmailPrefStatus] = useState<string | null>(null);
+  const [emailPrefError, setEmailPrefError] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const deleteModalRef = useRef<HTMLDivElement>(null);
   const baseId = useId();
@@ -179,6 +183,39 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
     setNewPassword('');
     setConfirmPassword('');
     setTimeout(() => setPasswordChangeSuccess(false), 3000);
+  };
+
+  const handleToggleEmailReminders = async (nextVal: boolean) => {
+    if (!currentUser || !currentUser.id || isUpdatingEmailPref) return;
+    setIsUpdatingEmailPref(true);
+    setEmailPrefError(null);
+    setEmailPrefStatus(null);
+    try {
+      const res = await fetch('/api/auth/preferences', {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailReminders: nextVal }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setEmailPrefError(json.error || 'Nie udało się zapisać preferencji powiadomień.');
+        return;
+      }
+      onUserUpdated?.({
+        emailReminders:
+          typeof json.user?.emailReminders === 'boolean' ? json.user.emailReminders : nextVal,
+      });
+      setEmailPrefStatus(
+        nextVal
+          ? 'Włączono dzienne przypomnienia e-mail o terminach.'
+          : 'Wyłączono dzienne przypomnienia e-mail o terminach.'
+      );
+    } catch {
+      setEmailPrefError('Błąd połączenia z serwerem podczas zapisu preferencji.');
+    } finally {
+      setIsUpdatingEmailPref(false);
+    }
   };
 
   const getRoleBadge = (role: UserRole) => {
@@ -358,6 +395,42 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
         {/* Tab 1: User Switching with Password Requirement */}
         {activeTab === 'switch' && (
           <div className="p-6 overflow-y-auto space-y-4 flex-1">
+            {currentUser && currentUser.id && (
+              <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/50 space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <label className="flex items-start gap-2.5 cursor-pointer select-none flex-1">
+                    <input
+                      id={`${baseId}-email-reminders`}
+                      type="checkbox"
+                      checked={currentUser.emailReminders !== false}
+                      disabled={isUpdatingEmailPref}
+                      onChange={(e) => handleToggleEmailReminders(e.target.checked)}
+                      className="mt-0.5 rounded border-slate-300 dark:border-slate-600 text-sky-700 focus:ring-sky-600"
+                    />
+                    <span>
+                      <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-900 dark:text-white">
+                        <Bell className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400" aria-hidden="true" />
+                        <span>Dzienne przypomnienia e-mail o terminach zadań</span>
+                      </span>
+                      <span className="block text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                        Otrzymuj zbiorcze zestawienie zadań z nadchodzącym lub przekroczonym terminem na adres {currentUser.email}.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+                {emailPrefError && (
+                  <p role="alert" className="text-[11px] text-rose-700 dark:text-rose-400 font-medium">
+                    {emailPrefError}
+                  </p>
+                )}
+                {emailPrefStatus && (
+                  <p role="status" className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
+                    {emailPrefStatus}
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Banner for demo users */}
             {demoUsersCount > 0 && onDeleteDemoUsers && (
               <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-lg flex items-center justify-between text-xs text-amber-900 dark:text-amber-200">

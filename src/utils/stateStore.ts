@@ -12,6 +12,7 @@ export interface AppState {
   comments: any[];
   activityLogs: any[];
   trash?: any[];
+  reminderState?: any;
   updatedAt?: string;
   [key: string]: any;
 }

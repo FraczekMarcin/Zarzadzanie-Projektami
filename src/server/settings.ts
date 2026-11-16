@@ -14,6 +14,7 @@ import {
   parseSmtpFrom,
   validateAdminSettingsUpdate,
 } from '../utils/settingsSchema.js';
+import { isValidIanaTimezone, normalizeDaysBefore, ReminderSettings } from '../utils/reminders.js';
 import { ServerConfig, getLocalInstalledVersion } from './config.js';
 import { isRequestHttps } from './security.js';
 import { StateStore } from './state.js';
@@ -40,6 +41,14 @@ export interface EffectiveSettings {
   };
   trash: {
     retentionDays: SettingFieldState<number>;
+  };
+  reminders: {
+    enabled: SettingFieldState<boolean>;
+    sendHour: SettingFieldState<number>;
+    timezone: SettingFieldState<string>;
+    daysBefore: SettingFieldState<number[]>;
+    notifyOverdue: SettingFieldState<boolean>;
+    appBaseUrl: SettingFieldState<string>;
   };
 }
 
@@ -72,6 +81,7 @@ export interface SettingsService {
   getEffectiveSettings: () => EffectiveSettings;
   getEffectiveSessionPolicy: () => EffectiveSessionPolicy;
   getEffectiveTrashRetentionDays: () => number;
+  getEffectiveReminderSettings: () => ReminderSettings;
   getRuntimeSmtpConfig: () => RuntimeSmtpConfig;
   getAdminSettingsPayload: (req: express.Request) => AdminSettingsResponse;
   findLockedFieldConflict: (input: AdminSettingsUpdateInput) => LockedFieldConflict | null;
@@ -111,6 +121,7 @@ export function createSettingsService(deps: {
     const storedAccess = stored.access || {};
     const storedSessions = stored.sessions || {};
     const storedTrash = stored.trash || {};
+    const storedReminders = stored.reminders || {};
 
     // --- SMTP HOST ---
     const envHost = readEnvString('SMTP_HOST');
@@ -258,6 +269,77 @@ export function createSettingsService(deps: {
       ? { value: storedTrash.retentionDays, source: 'ui', locked: false }
       : { value: SERVER_SETTINGS_DEFAULTS.trash.retentionDays, source: 'default', locked: false };
 
+    // --- REMINDERS ---
+    const envRemEnabledRaw = readEnvString('REMINDERS_ENABLED');
+    const remindersEnabled: SettingFieldState<boolean> =
+      envRemEnabledRaw !== undefined
+        ? {
+            value: parseEnvBoolean(envRemEnabledRaw),
+            source: 'env',
+            locked: true,
+            envVar: 'REMINDERS_ENABLED',
+          }
+        : typeof storedReminders.enabled === 'boolean'
+        ? { value: storedReminders.enabled, source: 'ui', locked: false }
+        : { value: SERVER_SETTINGS_DEFAULTS.reminders.enabled, source: 'default', locked: false };
+
+    const envRemHourRaw = readEnvString('REMINDER_SEND_HOUR');
+    const envRemHourParsed = envRemHourRaw !== undefined ? parseInt(envRemHourRaw, 10) : NaN;
+    const hasValidEnvRemHour =
+      Number.isInteger(envRemHourParsed) && envRemHourParsed >= 0 && envRemHourParsed <= 23;
+    const remindersSendHour: SettingFieldState<number> = hasValidEnvRemHour
+      ? {
+          value: envRemHourParsed,
+          source: 'env',
+          locked: true,
+          envVar: 'REMINDER_SEND_HOUR',
+        }
+      : typeof storedReminders.sendHour === 'number' &&
+        Number.isInteger(storedReminders.sendHour) &&
+        storedReminders.sendHour >= 0 &&
+        storedReminders.sendHour <= 23
+      ? { value: storedReminders.sendHour, source: 'ui', locked: false }
+      : { value: SERVER_SETTINGS_DEFAULTS.reminders.sendHour, source: 'default', locked: false };
+
+    const envRemTzRaw = readEnvString('REMINDER_TIMEZONE');
+    const hasValidEnvRemTz = envRemTzRaw !== undefined && isValidIanaTimezone(envRemTzRaw);
+    const remindersTimezone: SettingFieldState<string> = hasValidEnvRemTz
+      ? {
+          value: envRemTzRaw!.trim(),
+          source: 'env',
+          locked: true,
+          envVar: 'REMINDER_TIMEZONE',
+        }
+      : typeof storedReminders.timezone === 'string' && isValidIanaTimezone(storedReminders.timezone)
+      ? { value: storedReminders.timezone.trim(), source: 'ui', locked: false }
+      : { value: SERVER_SETTINGS_DEFAULTS.reminders.timezone, source: 'default', locked: false };
+
+    const remindersDaysBefore: SettingFieldState<number[]> = Array.isArray(storedReminders.daysBefore)
+      ? {
+          value: normalizeDaysBefore(storedReminders.daysBefore),
+          source: 'ui',
+          locked: false,
+        }
+      : {
+          value: [...SERVER_SETTINGS_DEFAULTS.reminders.daysBefore],
+          source: 'default',
+          locked: false,
+        };
+
+    const remindersNotifyOverdue: SettingFieldState<boolean> =
+      typeof storedReminders.notifyOverdue === 'boolean'
+        ? { value: storedReminders.notifyOverdue, source: 'ui', locked: false }
+        : {
+            value: SERVER_SETTINGS_DEFAULTS.reminders.notifyOverdue,
+            source: 'default',
+            locked: false,
+          };
+
+    const remindersAppBaseUrl: SettingFieldState<string> =
+      storedReminders.appBaseUrl !== undefined
+        ? { value: storedReminders.appBaseUrl, source: 'ui', locked: false }
+        : { value: config.defaultReminderAppBaseUrl, source: 'default', locked: false };
+
     return {
       smtp: {
         configured: host.value.trim().length > 0,
@@ -280,11 +362,31 @@ export function createSettingsService(deps: {
       trash: {
         retentionDays,
       },
+      reminders: {
+        enabled: remindersEnabled,
+        sendHour: remindersSendHour,
+        timezone: remindersTimezone,
+        daysBefore: remindersDaysBefore,
+        notifyOverdue: remindersNotifyOverdue,
+        appBaseUrl: remindersAppBaseUrl,
+      },
     };
   }
 
   function getEffectiveTrashRetentionDays(): number {
     return getEffectiveSettings().trash.retentionDays.value;
+  }
+
+  function getEffectiveReminderSettings(): ReminderSettings {
+    const r = getEffectiveSettings().reminders;
+    return {
+      enabled: r.enabled.value,
+      sendHour: r.sendHour.value,
+      timezone: r.timezone.value,
+      daysBefore: r.daysBefore.value,
+      notifyOverdue: r.notifyOverdue.value,
+      appBaseUrl: r.appBaseUrl.value,
+    };
   }
 
   function getEffectiveSessionPolicy(): EffectiveSessionPolicy {
@@ -362,6 +464,7 @@ export function createSettingsService(deps: {
       access: eff.access,
       sessions: eff.sessions,
       trash: eff.trash,
+      reminders: eff.reminders,
       readOnly: {
         dataDir: config.dataDir,
         trustProxy: {
@@ -442,6 +545,19 @@ export function createSettingsService(deps: {
       }
     }
 
+    if (input.reminders && typeof input.reminders === 'object') {
+      const r = input.reminders;
+      if (r.enabled !== undefined && eff.reminders.enabled.locked) {
+        return { field: 'reminders.enabled', envVar: eff.reminders.enabled.envVar! };
+      }
+      if (r.timezone !== undefined && eff.reminders.timezone.locked) {
+        return { field: 'reminders.timezone', envVar: eff.reminders.timezone.envVar! };
+      }
+      if (r.sendHour !== undefined && eff.reminders.sendHour.locked) {
+        return { field: 'reminders.sendHour', envVar: eff.reminders.sendHour.envVar! };
+      }
+    }
+
     return null;
   }
 
@@ -466,6 +582,7 @@ export function createSettingsService(deps: {
               ? { ...appState.serverSettings.sessions }
               : undefined,
             trash: appState.serverSettings.trash ? { ...appState.serverSettings.trash } : undefined,
+            reminders: appState.serverSettings.reminders ? { ...appState.serverSettings.reminders } : undefined,
           }
         : {};
 
@@ -570,6 +687,45 @@ export function createSettingsService(deps: {
       currentStored.trash = nextTrash;
     }
 
+    if (patch.reminders) {
+      const nextRem = { ...(currentStored.reminders || {}) };
+      if (patch.reminders.enabled !== undefined && patch.reminders.enabled !== nextRem.enabled) {
+        nextRem.enabled = patch.reminders.enabled;
+        changedFields.push('reminders.enabled');
+      }
+      if (patch.reminders.sendHour !== undefined && patch.reminders.sendHour !== nextRem.sendHour) {
+        nextRem.sendHour = patch.reminders.sendHour;
+        changedFields.push('reminders.sendHour');
+      }
+      if (patch.reminders.timezone !== undefined && patch.reminders.timezone !== nextRem.timezone) {
+        nextRem.timezone = patch.reminders.timezone;
+        changedFields.push('reminders.timezone');
+      }
+      if (patch.reminders.daysBefore !== undefined) {
+        const prevDays = JSON.stringify(nextRem.daysBefore ?? null);
+        const nextDays = JSON.stringify(patch.reminders.daysBefore);
+        if (prevDays !== nextDays) {
+          nextRem.daysBefore = [...patch.reminders.daysBefore];
+          changedFields.push('reminders.daysBefore');
+        }
+      }
+      if (
+        patch.reminders.notifyOverdue !== undefined &&
+        patch.reminders.notifyOverdue !== nextRem.notifyOverdue
+      ) {
+        nextRem.notifyOverdue = patch.reminders.notifyOverdue;
+        changedFields.push('reminders.notifyOverdue');
+      }
+      if (
+        patch.reminders.appBaseUrl !== undefined &&
+        patch.reminders.appBaseUrl !== nextRem.appBaseUrl
+      ) {
+        nextRem.appBaseUrl = patch.reminders.appBaseUrl;
+        changedFields.push('reminders.appBaseUrl');
+      }
+      currentStored.reminders = nextRem;
+    }
+
     if (changedFields.length > 0) {
       appState.serverSettings = currentStored;
       appState.updatedAt = new Date().toISOString();
@@ -584,6 +740,7 @@ export function createSettingsService(deps: {
     getEffectiveSettings,
     getEffectiveSessionPolicy,
     getEffectiveTrashRetentionDays,
+    getEffectiveReminderSettings,
     getRuntimeSmtpConfig,
     getAdminSettingsPayload,
     findLockedFieldConflict,

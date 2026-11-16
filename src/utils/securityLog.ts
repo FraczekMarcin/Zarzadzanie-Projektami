@@ -29,7 +29,9 @@ export type SecurityEventType =
   | 'smtp_test_failed'
   | 'trash_restored'
   | 'trash_purged'
-  | 'trash_emptied';
+  | 'trash_emptied'
+  | 'reminders_sent'
+  | 'reminders_failed';
 
 export type LoginFailureReason =
   | 'bad_password'
@@ -168,6 +170,8 @@ export const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   trash_restored: 'Przywrócenie elementu z kosza',
   trash_purged: 'Trwałe usunięcie elementu z kosza',
   trash_emptied: 'Opróżnienie kosza',
+  reminders_sent: 'Wysłano dzienne przypomnienia o terminach',
+  reminders_failed: 'Błąd wysyłki dziennych przypomnień o terminach',
 };
 
 /**

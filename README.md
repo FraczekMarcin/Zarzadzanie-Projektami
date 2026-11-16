@@ -435,6 +435,9 @@ Wszystkie poniższe zmienne można skonfigurować w pliku `.env` (wzór wdrożen
 | `SMTP_PASS` | `""` | Opcjonalna | Hasło do konta SMTP. Nadpisuje ustawienie w UI. |
 | `SMTP_FROM` | `"Zarządzanie Projektami" <noreply@pracownia.pl>` | Opcjonalna | Adres nadawcy w wysyłanych wiadomościach (nazwa + e-mail). Nadpisuje ustawienia w UI. |
 | `SMTP_ALLOW_SELF_SIGNED` | `false` | Opcjonalna | Zezwolenie na samopodpisane certyfikaty TLS serwera SMTP (`true`/`false`). Nadpisuje ustawienie w UI. |
+| `REMINDERS_ENABLED` | `false` | Opcjonalna | Włącza dzienne przypomnienia e-mail o terminach zadań (`true`/`false`). Nadpisuje ustawienie w UI. |
+| `REMINDER_TIMEZONE` | `Europe/Warsaw` | Opcjonalna | Strefa czasowa IANA używana przez harmonogram dziennych przypomnień. Nadpisuje ustawienie w UI. |
+| `REMINDER_SEND_HOUR` | `8` | Opcjonalna | Godzina wysyłki przypomnień (0–23) w wybranej strefie czasowej. Nadpisuje ustawienie w UI. |
 | `GOOGLE_SERVICE_ACCOUNT_FILE` | `""` | Opcjonalna | Ścieżka do pliku klucza JSON konta usługi Google wewnątrz kontenera (np. `/run/secrets/google_sa.json`). |
 | `GOOGLE_CALENDAR_ID` | `""` | Opcjonalna | Identyfikator wspólnego Kalendarza Google do jednokierunkowej synchronizacji zadań. |
 | `COMPOSE_FILE` | `docker-compose.yml` (gdy nieustawiona) | Opcjonalna (Docker) | Lista plików Docker Compose rozdzielona znakiem `:`. Pominięcie `docker-compose.https.yml` wyłącza Caddy i HTTPS. |
@@ -445,11 +448,12 @@ Wszystkie poniższe zmienne można skonfigurować w pliku `.env` (wzór wdrożen
 
 ## 🛠️ Ustawienia administratora
 
-Administrator może zarządzać wybranymi parametrami serwera bezpośrednio z poziomu interfejsu aplikacji (**Ustawienia → Poczta (SMTP)** oraz **Ustawienia → Dostęp i sesje**), bez konieczności restartowania kontenera. Zmiany są zapisywane w `app_state.json` (hasło SMTP jest szyfrowane kluczem `APP_SECRET`), a obowiązuje zasada pierwszeństwa: **zmienna środowiskowa (`.env`) > wartość zapisana w interfejsie > wartość domyślna**. Pola zablokowane zmienną środowiskową są w interfejsie oznaczone jako zablokowane.
+Administrator może zarządzać wybranymi parametrami serwera bezpośrednio z poziomu interfejsu aplikacji (**Ustawienia → Poczta (SMTP)**, **Ustawienia → Powiadomienia** oraz **Ustawienia → Dostęp i sesje**), bez konieczności restartowania kontenera. Zmiany są zapisywane w `app_state.json` (hasło SMTP jest szyfrowane kluczem `APP_SECRET`), a obowiązuje zasada pierwszeństwa: **zmienna środowiskowa (`.env`) > wartość zapisana w interfejsie > wartość domyślna**. Pola zablokowane zmienną środowiskową są w interfejsie oznaczone jako zablokowane.
 
 | Kategoria / parametr | Konfiguracja w UI | Konfiguracja w `.env` | Dlaczego w UI / dlaczego wyłącznie w `.env` |
 | :--- | :--- | :--- | :--- |
 | Poczta SMTP (`host`, `port`, szyfrowanie, login, hasło, nadawca, `allowSelfSigned`) | Tak (`Poczta (SMTP)`) | Tak (`SMTP_*`, ma pierwszeństwo) | Wygodna konfiguracja i testowanie wysyłki w panelu bez edycji plików na serwerze; hasło szyfrowane `APP_SECRET`. |
+| Przypomnienia e-mail (`enabled`, `sendHour`, `timezone`, `daysBefore`, `notifyOverdue`, `appBaseUrl`) | Tak (`Powiadomienia`) | Częściowo (`REMINDERS_ENABLED`, `REMINDER_TIMEZONE`, `REMINDER_SEND_HOUR`, mają pierwszeństwo) | Dzienne zbiorcze przypomnienia o zbliżających się i zaległych terminach (1 wiadomość/osobę dziennie); wyłączalne przez użytkownika w jego koncie. |
 | Samodzielna rejestracja użytkowników | Tak (`Dostęp i sesje`) | Tak (`ALLOW_SELF_REGISTRATION`, ma pierwszeństwo) | Możliwość szybkiego otwierania lub zamykania rejestracji w trakcie działania systemu bez restartu. |
 | Limity sesji (`idleMinutes`, `maxHours`) | Tak (`Dostęp i sesje`) | Tak (`SESSION_IDLE_MINUTES`, `SESSION_MAX_HOURS`, mają pierwszeństwo) | Natychmiastowa zmiana polityki wygasania sesji bez przerywania aktywnej pracy zespołu. |
 | Przechowywanie w koszu (`trash.retentionDays`) | Tak (`Dostęp i sesje`) | Tak (`TRASH_RETENTION_DAYS`, ma pierwszeństwo) | Określa liczbę dni (1–365), przez które usunięte zadania i projekty można przywrócić z kosza. |

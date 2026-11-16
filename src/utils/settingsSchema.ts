@@ -1,4 +1,17 @@
 import { hasForbiddenKeys } from './access.js';
+import {
+  ALLOWED_REMINDER_DAYS,
+  isValidIanaTimezone,
+} from './reminders.js';
+
+export interface StoredReminderSettings {
+  enabled?: boolean;
+  sendHour?: number;
+  timezone?: string;
+  daysBefore?: number[];
+  notifyOverdue?: boolean;
+  appBaseUrl?: string;
+}
 
 export type SmtpEncryption = 'none' | 'starttls' | 'tls';
 export type SettingSource = 'env' | 'ui' | 'default';
@@ -26,6 +39,7 @@ export interface StoredServerSettings {
   trash?: {
     retentionDays?: number;
   };
+  reminders?: StoredReminderSettings;
 }
 
 export interface SettingFieldState<T> {
@@ -73,6 +87,14 @@ export interface AdminSettingsResponse {
   trash: {
     retentionDays: SettingFieldState<number>;
   };
+  reminders: {
+    enabled: SettingFieldState<boolean>;
+    sendHour: SettingFieldState<number>;
+    timezone: SettingFieldState<string>;
+    daysBefore: SettingFieldState<number[]>;
+    notifyOverdue: SettingFieldState<boolean>;
+    appBaseUrl: SettingFieldState<string>;
+  };
   readOnly: AdminReadOnlySettings;
 }
 
@@ -102,6 +124,14 @@ export interface AdminSettingsUpdateInput {
     retentionDays?: unknown;
   };
   trashRetentionDays?: unknown;
+  reminders?: {
+    enabled?: unknown;
+    sendHour?: unknown;
+    timezone?: unknown;
+    daysBefore?: unknown;
+    notifyOverdue?: unknown;
+    appBaseUrl?: unknown;
+  };
 }
 
 export interface NormalizedSettingsPatch {
@@ -125,6 +155,14 @@ export interface NormalizedSettingsPatch {
   };
   trash?: {
     retentionDays?: number;
+  };
+  reminders?: {
+    enabled?: boolean;
+    sendHour?: number;
+    timezone?: string;
+    daysBefore?: number[];
+    notifyOverdue?: boolean;
+    appBaseUrl?: string;
   };
 }
 
@@ -154,6 +192,14 @@ export const SERVER_SETTINGS_DEFAULTS = {
   },
   trash: {
     retentionDays: 30,
+  },
+  reminders: {
+    enabled: false,
+    sendHour: 8,
+    timezone: 'Europe/Warsaw',
+    daysBefore: [1, 0],
+    notifyOverdue: true,
+    appBaseUrl: '',
   },
 } as const;
 
@@ -452,6 +498,109 @@ export function validateAdminSettingsUpdate(
       );
     } else {
       patch.trash = { retentionDays: val };
+    }
+  }
+
+  // 5. Sekcja Reminders (powiadomienia e-mail o terminach)
+  if (body.reminders !== undefined) {
+    if (
+      !body.reminders ||
+      typeof body.reminders !== 'object' ||
+      Array.isArray(body.reminders) ||
+      hasForbiddenKeys(body.reminders)
+    ) {
+      errors.push('Nieprawidłowy format sekcji przypomnień.');
+    } else {
+      const remIn = body.reminders;
+      const remPatch: NonNullable<NormalizedSettingsPatch['reminders']> = {};
+
+      if (remIn.enabled !== undefined) {
+        if (typeof remIn.enabled !== 'boolean') {
+          errors.push('Opcja włączenia przypomnień musi być wartością logiczną.');
+        } else {
+          remPatch.enabled = remIn.enabled;
+        }
+      }
+
+      if (remIn.sendHour !== undefined) {
+        const val =
+          typeof remIn.sendHour === 'number'
+            ? remIn.sendHour
+            : typeof remIn.sendHour === 'string' && remIn.sendHour.trim() !== ''
+            ? Number(remIn.sendHour.trim())
+            : NaN;
+        if (!Number.isInteger(val) || val < 0 || val > 23) {
+          errors.push('Godzina wysyłki przypomnień musi być liczbą całkowitą od 0 do 23.');
+        } else {
+          remPatch.sendHour = val;
+        }
+      }
+
+      if (remIn.timezone !== undefined) {
+        if (typeof remIn.timezone !== 'string' || !isValidIanaTimezone(remIn.timezone)) {
+          errors.push('Podaj prawidłową strefę czasową IANA (np. Europe/Warsaw).');
+        } else {
+          remPatch.timezone = remIn.timezone.trim();
+        }
+      }
+
+      if (remIn.daysBefore !== undefined) {
+        if (!Array.isArray(remIn.daysBefore)) {
+          errors.push('Lista dni przed terminem musi być tablicą liczb (podzbiór [0, 1, 2, 3, 7]).');
+        } else {
+          const seen = new Set<number>();
+          let invalidDay = false;
+          for (const d of remIn.daysBefore) {
+            const num = typeof d === 'number' ? d : typeof d === 'string' && d.trim() !== '' ? Number(d.trim()) : NaN;
+            if (!Number.isInteger(num) || !ALLOWED_REMINDER_DAYS.includes(num)) {
+              invalidDay = true;
+              break;
+            }
+            seen.add(num);
+          }
+          if (invalidDay) {
+            errors.push('Dozwolone wartości dni przed terminem to wyłącznie 0, 1, 2, 3 oraz 7.');
+          } else {
+            remPatch.daysBefore = Array.from(seen).sort((a, b) => b - a);
+          }
+        }
+      }
+
+      if (remIn.notifyOverdue !== undefined) {
+        if (typeof remIn.notifyOverdue !== 'boolean') {
+          errors.push('Opcja powiadamiania o zadaniach po terminie musi być wartością logiczną.');
+        } else {
+          remPatch.notifyOverdue = remIn.notifyOverdue;
+        }
+      }
+
+      if (remIn.appBaseUrl !== undefined) {
+        if (typeof remIn.appBaseUrl !== 'string') {
+          errors.push('Bazowy adres URL aplikacji musi być ciągiem znaków.');
+        } else {
+          const trimmed = remIn.appBaseUrl.trim().replace(/\/+$/, '');
+          if (trimmed.length > 500 || HAS_CONTROL_OR_NEWLINE_REGEX.test(trimmed)) {
+            errors.push('Bazowy adres URL aplikacji jest nieprawidłowy lub przekracza 500 znaków.');
+          } else if (trimmed !== '') {
+            try {
+              const parsed = new URL(trimmed);
+              if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                errors.push('Bazowy adres URL aplikacji musi zaczynać się od http:// lub https://.');
+              } else {
+                remPatch.appBaseUrl = trimmed;
+              }
+            } catch {
+              errors.push('Podaj prawidłowy bazowy adres URL aplikacji (np. https://projekty.firma.pl).');
+            }
+          } else {
+            remPatch.appBaseUrl = '';
+          }
+        }
+      }
+
+      if (Object.keys(remPatch).length > 0) {
+        patch.reminders = remPatch;
+      }
     }
   }
 

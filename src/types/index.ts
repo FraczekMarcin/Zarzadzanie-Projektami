@@ -27,6 +27,7 @@ export interface User {
   isApproved?: boolean; // Nowy użytkownik musi być zatwierdzony przez administratora
   hasCalendarToken?: boolean; // Czy użytkownik wygenerował prywatny token kalendarza
   calendarTokenCreatedAt?: string;
+  emailReminders?: boolean; // Domyślnie true (undefined traktowane jako true)
   registeredAt?: string;
 }
 

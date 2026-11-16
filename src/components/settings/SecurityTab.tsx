@@ -32,6 +32,8 @@ const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   trash_restored: 'Przywrócenie elementu z kosza',
   trash_purged: 'Trwałe usunięcie elementu z kosza',
   trash_emptied: 'Opróżnienie kosza',
+  reminders_sent: 'Wysłano dzienne przypomnienia o terminach',
+  reminders_failed: 'Błąd wysyłki dziennych przypomnień o terminach',
 };
 
 export interface SecurityTabProps {

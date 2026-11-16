@@ -41,6 +41,7 @@ export interface CreateAppOptions {
   backupAlertEmails?: string[];
   backupWatchDisableTimers?: boolean;
   trashCleanupDisableTimers?: boolean;
+  remindersDisableTimers?: boolean;
   backupStatusCheckOverride?: () => Promise<BackupStatusResult>;
   backupAlertMailer?: (mail: { to: string[]; subject: string; text: string; html?: string }) => Promise<void>;
 }
@@ -69,6 +70,7 @@ export interface ServerConfig {
   isDirectRun: boolean;
   storage: string;
   publicBaseUrl: string;
+  defaultReminderAppBaseUrl: string;
   googleServiceAccountFile: string;
   googleCalendarId: string;
   backupMaxAgeHours: number;
@@ -179,6 +181,17 @@ export function resolveServerConfig(options: CreateAppOptions = {}): ServerConfi
     options.publicBaseUrl !== undefined ? options.publicBaseUrl : (process.env.PUBLIC_BASE_URL || '');
   const publicBaseUrl = rawPublicBaseUrl.trim().replace(/\/+$/, '');
 
+  const rawAppHost = (process.env.APP_HOST || '').trim();
+  const cleanAppHost = rawAppHost.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  const isHttpsMode =
+    isReverseProxyHandlingCompression ||
+    String(process.env.COMPOSE_FILE || '').toLowerCase().includes('https');
+  const defaultReminderAppBaseUrl = publicBaseUrl
+    ? publicBaseUrl
+    : isHttpsMode && cleanAppHost
+    ? `https://${cleanAppHost}`
+    : '';
+
   const googleServiceAccountFile = (
     options.googleServiceAccountFile !== undefined
       ? options.googleServiceAccountFile
@@ -258,6 +271,7 @@ export function resolveServerConfig(options: CreateAppOptions = {}): ServerConfi
     isDirectRun: Boolean(options.isDirectRun),
     storage,
     publicBaseUrl,
+    defaultReminderAppBaseUrl,
     googleServiceAccountFile,
     googleCalendarId,
     backupMaxAgeHours,

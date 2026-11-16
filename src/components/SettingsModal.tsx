@@ -12,6 +12,7 @@ import {
   Shield,
   Mail,
   KeyRound,
+  Bell,
 } from 'lucide-react';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { ThemeMode, getThemePreference, setThemePreference } from '../utils/theme';
@@ -51,6 +52,9 @@ const SmtpTab = lazy(() =>
 const AccessSessionsTab = lazy(() =>
   import('./settings/AccessSessionsTab').then((m) => ({ default: m.AccessSessionsTab }))
 );
+const NotificationsTab = lazy(() =>
+  import('./settings/NotificationsTab').then((m) => ({ default: m.NotificationsTab }))
+);
 
 export type SettingsTab =
   | 'theme'
@@ -58,6 +62,7 @@ export type SettingsTab =
   | 'users'
   | 'security'
   | 'smtp'
+  | 'notifications'
   | 'access'
   | 'calendar'
   | 'update'
@@ -341,6 +346,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               )}
 
+              {/* Notifications Tab (Admin only) */}
+              {currentUser?.role === 'admin' && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === 'notifications'}
+                  onClick={() => setActiveTab('notifications')}
+                  className={`w-full px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-colors ${
+                    activeTab === 'notifications'
+                      ? 'bg-sky-700 text-white shadow-xs'
+                      : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Bell className={`w-4 h-4 shrink-0 ${activeTab === 'notifications' ? 'text-white' : 'text-sky-700 dark:text-sky-400'}`} aria-hidden="true" />
+                    <span>Powiadomienia</span>
+                  </div>
+                </button>
+              )}
+
               {/* Access & Sessions Tab (Admin only) */}
               {currentUser?.role === 'admin' && (
                 <button
@@ -506,6 +531,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <SmtpTab
                   isOpen={isOpen}
                   currentUser={currentUser}
+                />
+              )}
+
+              {activeTab === 'notifications' && currentUser?.role === 'admin' && (
+                <NotificationsTab
+                  isOpen={isOpen}
+                  currentUser={currentUser}
+                  onOpenSmtpTab={() => setActiveTab('smtp')}
                 />
               )}
 

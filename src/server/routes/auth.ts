@@ -26,6 +26,7 @@ import {
 import { SessionStore } from '../sessions.js';
 import { SettingsService } from '../settings.js';
 import { MailerService } from '../mailer.js';
+import { hasForbiddenKeys } from '../../utils/access.js';
 import { validatePassword } from '../../utils/passwordPolicy.js';
 import { logger } from '../logger.js';
 
@@ -523,6 +524,45 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
   app.get('/api/auth/me', requireAuth, (req, res) => {
     const user = (req as any).user;
     res.json({ authenticated: true, user: sanitizeUser(user) });
+  });
+
+  // PATCH /api/auth/preferences — aktualizacja osobistych preferencji zalogowanego użytkownika
+  app.patch('/api/auth/preferences', requireAuth, async (req, res) => {
+    try {
+      const caller = (req as any).user;
+      const body = req.body;
+      if (!body || typeof body !== 'object' || Array.isArray(body) || hasForbiddenKeys(body)) {
+        return res.status(400).json({ error: 'Nieprawidłowy format danych preferencji.' });
+      }
+
+      if (typeof body.emailReminders !== 'boolean') {
+        return res.status(400).json({
+          error: 'Pole emailReminders musi być wartością logiczną (true lub false).',
+        });
+      }
+
+      const users = stateStore.getUsers() || [];
+      const targetUser = users.find((u) => u && u.id === caller.id);
+      if (!targetUser) {
+        return res.status(404).json({ error: 'Konto użytkownika nie istnieje.' });
+      }
+
+      targetUser.emailReminders = body.emailReminders;
+      const appState = stateStore.ensureStateStructure();
+      appState.users = users;
+      appState.updatedAt = new Date().toISOString();
+      stateStore.setAppState(appState);
+      stateStore.setUsers(users);
+      await stateStore.saveStateAtomicAsync();
+
+      return res.json({
+        success: true,
+        user: sanitizeUser(targetUser),
+      });
+    } catch (err: any) {
+      logger.error('[Server Auth] Błąd zapisu preferencji użytkownika:', err?.message || err);
+      return res.status(500).json({ error: 'Nie udało się zapisać preferencji użytkownika.' });
+    }
   });
 
   // GET /api/auth/sessions

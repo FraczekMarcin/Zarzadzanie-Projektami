@@ -210,6 +210,7 @@ test.describe.serial('Testy end-to-end aplikacji Zarządzanie Projektami', () =>
       'Zmienne & Terminy',
       'Użytkownicy & Zgody',
       'Dziennik bezpieczeństwa',
+      'Powiadomienia',
       'Aktualizacje',
       'Wdrożenie Docker',
       'Kopie Zapasowe',
