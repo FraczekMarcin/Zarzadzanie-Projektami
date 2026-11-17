@@ -16,7 +16,8 @@
     "test": "vitest run",
     "test:integration": "vitest run src/__tests__/api.integration.test.ts",
     "test:e2e": "playwright test",
-    "e2e:install": "playwright install --with-deps chromium"
+    "e2e:install": "playwright install --with-deps chromium",
+    "icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
     "@types/compression": "^1.8.1",

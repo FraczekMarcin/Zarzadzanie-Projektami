@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Zarządzanie Projektami">
+  <style>
+    .bg {
+      fill: #0369a1;
+    }
+    .border-ring {
+      fill: none;
+      stroke: #0284c7;
+      stroke-width: 1.5;
+      stroke-opacity: 0.35;
+    }
+    .bar {
+      fill: #ffffff;
+    }
+    @media (prefers-color-scheme: dark) {
+      .bg {
+        fill: #0284c7;
+      }
+      .border-ring {
+        stroke: #38bdf8;
+        stroke-opacity: 0.55;
+      }
+    }
+  </style>
+  <rect class="bg" x="2" y="2" width="60" height="60" rx="14" />
+  <rect class="border-ring" x="2.75" y="2.75" width="58.5" height="58.5" rx="13.25" />
+  <rect class="bar" x="12" y="16" width="20" height="7" rx="3.5" />
+  <rect class="bar" x="19" y="28.5" width="28" height="7" rx="3.5" />
+  <rect class="bar" x="28" y="41" width="24" height="7" rx="3.5" />
+</svg>
