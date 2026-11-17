@@ -1,42 +1,48 @@
 import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
 import { Task, Project, ActivityLog, Comment, ProjectTemplate } from './types';
 import { INITIAL_PROJECTS, INITIAL_TASKS, INITIAL_ACTIVITY } from './data/initialData';
-import { GanttChart } from './components/GanttChart';
-import { CalendarView } from './components/CalendarView';
-import { TaskListView } from './components/TaskListView';
-import { KanbanView } from './components/KanbanView';
-import { ProjectsOverview } from './components/ProjectsOverview';
-import { TaskTreeView } from './components/TaskTreeView';
-import { TaskModal } from './components/TaskModal';
-import { TaskDetailDrawer } from './components/TaskDetailDrawer';
-import { UserAuthModal } from './components/UserAuthModal';
-import { TaskFilterModal } from './components/TaskFilterModal';
-import { LoginGate } from './components/LoginGate';
+import type { SettingsTab } from './components/SettingsModal';
 import { useAuthSession, NotificationToast } from './hooks/useAuthSession';
 import { useServerSync } from './hooks/useServerSync';
 import { useTaskActions } from './hooks/useTaskActions';
 import { useDeepLink } from './hooks/useDeepLink';
 
-// Lazy loading dla rzadziej otwieranych dużych modali (optymalizacja wielkości chunku)
-const SettingsModal = lazy(() =>
-  import('./components/SettingsModal').then((m) => ({ default: m.SettingsModal }))
-);
-import type { SettingsTab } from './components/SettingsModal';
-const ArchiveBackupModal = lazy(() =>
-  import('./components/ArchiveBackupModal').then((m) => ({ default: m.ArchiveBackupModal }))
-);
-const DockerDeploymentModal = lazy(() =>
-  import('./components/DockerDeploymentModal').then((m) => ({ default: m.DockerDeploymentModal }))
-);
-const GitHubUpdateModal = lazy(() =>
-  import('./components/GitHubUpdateModal').then((m) => ({ default: m.GitHubUpdateModal }))
-);
-const GoogleCalendarSyncModal = lazy(() =>
-  import('./components/GoogleCalendarSyncModal').then((m) => ({ default: m.GoogleCalendarSyncModal }))
-);
-const TrashView = lazy(() =>
-  import('./components/TrashView').then((m) => ({ default: m.TrashView }))
-);
+// Leniwe ładowanie widoków oraz ciężkich modali/szuflad (optymalizacja początkowego rozmiaru paczki)
+const loadLoginGate = () => import('./components/LoginGate').then((m) => ({ default: m.LoginGate }));
+const loadGanttChart = () => import('./components/GanttChart').then((m) => ({ default: m.GanttChart }));
+const loadCalendarView = () => import('./components/CalendarView').then((m) => ({ default: m.CalendarView }));
+const loadTaskListView = () => import('./components/TaskListView').then((m) => ({ default: m.TaskListView }));
+const loadTaskTreeView = () => import('./components/TaskTreeView').then((m) => ({ default: m.TaskTreeView }));
+const loadKanbanView = () => import('./components/KanbanView').then((m) => ({ default: m.KanbanView }));
+const loadProjectsOverview = () => import('./components/ProjectsOverview').then((m) => ({ default: m.ProjectsOverview }));
+const loadTrashView = () => import('./components/TrashView').then((m) => ({ default: m.TrashView }));
+const loadTaskModal = () => import('./components/TaskModal').then((m) => ({ default: m.TaskModal }));
+const loadTaskDetailDrawer = () => import('./components/TaskDetailDrawer').then((m) => ({ default: m.TaskDetailDrawer }));
+const loadUserAuthModal = () => import('./components/UserAuthModal').then((m) => ({ default: m.UserAuthModal }));
+const loadTaskFilterModal = () => import('./components/TaskFilterModal').then((m) => ({ default: m.TaskFilterModal }));
+const loadSettingsModal = () => import('./components/SettingsModal').then((m) => ({ default: m.SettingsModal }));
+const loadArchiveBackupModal = () => import('./components/ArchiveBackupModal').then((m) => ({ default: m.ArchiveBackupModal }));
+const loadDockerDeploymentModal = () => import('./components/DockerDeploymentModal').then((m) => ({ default: m.DockerDeploymentModal }));
+const loadGitHubUpdateModal = () => import('./components/GitHubUpdateModal').then((m) => ({ default: m.GitHubUpdateModal }));
+const loadGoogleCalendarSyncModal = () => import('./components/GoogleCalendarSyncModal').then((m) => ({ default: m.GoogleCalendarSyncModal }));
+
+const LoginGate = lazy(loadLoginGate);
+const GanttChart = lazy(loadGanttChart);
+const CalendarView = lazy(loadCalendarView);
+const TaskListView = lazy(loadTaskListView);
+const TaskTreeView = lazy(loadTaskTreeView);
+const KanbanView = lazy(loadKanbanView);
+const ProjectsOverview = lazy(loadProjectsOverview);
+const TrashView = lazy(loadTrashView);
+const TaskModal = lazy(loadTaskModal);
+const TaskDetailDrawer = lazy(loadTaskDetailDrawer);
+const UserAuthModal = lazy(loadUserAuthModal);
+const TaskFilterModal = lazy(loadTaskFilterModal);
+const SettingsModal = lazy(loadSettingsModal);
+const ArchiveBackupModal = lazy(loadArchiveBackupModal);
+const DockerDeploymentModal = lazy(loadDockerDeploymentModal);
+const GitHubUpdateModal = lazy(loadGitHubUpdateModal);
+const GoogleCalendarSyncModal = lazy(loadGoogleCalendarSyncModal);
 import { useFocusTrap } from './utils/useFocusTrap';
 import { instantiateTasksFromTemplate } from './utils/projectTemplates';
 import { getNextProjectCode } from './utils/projectCode';
@@ -85,6 +91,46 @@ import {
 } from 'lucide-react';
 
 type ActiveView = 'gantt' | 'calendar' | 'tasks' | 'tree' | 'kanban' | 'projects' | 'trash';
+
+const VIEW_PRELOADERS: Record<ActiveView, () => Promise<unknown>> = {
+  gantt: loadGanttChart,
+  calendar: loadCalendarView,
+  tasks: loadTaskListView,
+  tree: loadTaskTreeView,
+  kanban: loadKanbanView,
+  projects: loadProjectsOverview,
+  trash: loadTrashView,
+};
+
+const preloadView = (view: ActiveView) => {
+  VIEW_PRELOADERS[view]().catch(() => {});
+};
+
+const ViewLoadingFallback: React.FC = () => (
+  <div
+    role="status"
+    aria-live="polite"
+    className="min-h-[60vh] w-full flex items-center justify-center rounded-xl border border-slate-200/70 dark:border-slate-800/70 bg-white/60 dark:bg-slate-900/60"
+  >
+    <div className="flex items-center gap-2.5 text-xs font-medium text-slate-600 dark:text-slate-300">
+      <RefreshCw className="w-4 h-4 animate-spin text-sky-700 dark:text-sky-400" aria-hidden="true" />
+      <span>Ładowanie widoku...</span>
+    </div>
+  </div>
+);
+
+const LoginLoadingFallback: React.FC = () => (
+  <main
+    id="main-content"
+    tabIndex={-1}
+    className="min-h-screen bg-slate-900 flex items-center justify-center p-4 focus:outline-none"
+  >
+    <div role="status" aria-live="polite" className="flex items-center gap-2.5 text-xs font-medium text-slate-300">
+      <RefreshCw className="w-4 h-4 animate-spin text-sky-400" aria-hidden="true" />
+      <span>Ładowanie panelu logowania...</span>
+    </div>
+  </main>
+);
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
@@ -190,6 +236,41 @@ export default function App() {
     closeEventSourceRef,
     logActivityRef,
   });
+
+  // Natychmiastowe ładowanie domyślnego widoku po zalogowaniu oraz doładowanie pozostałych w bezczynności
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    preloadView('gantt');
+
+    const preloadRemainingViews = () => {
+      preloadView('tasks');
+      preloadView('kanban');
+      preloadView('projects');
+      preloadView('calendar');
+      preloadView('tree');
+      preloadView('trash');
+      loadTaskDetailDrawer().catch(() => {});
+      loadTaskModal().catch(() => {});
+    };
+
+    const win = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+
+    if (typeof win.requestIdleCallback === 'function') {
+      const idleId = win.requestIdleCallback(preloadRemainingViews, { timeout: 2000 });
+      return () => {
+        if (typeof win.cancelIdleCallback === 'function') {
+          win.cancelIdleCallback(idleId);
+        }
+      };
+    }
+
+    const timerId = window.setTimeout(preloadRemainingViews, 1500);
+    return () => window.clearTimeout(timerId);
+  }, [isAuthenticated]);
 
   // Automatyczna weryfikacja aktualizacji przez serwerowy endpoint /api/system/check-update (wyłącznie po zalogowaniu)
   useEffect(() => {
@@ -546,14 +627,16 @@ export default function App() {
   // Gate: If user is not authenticated, show full-screen LoginGate
   if (!isAuthenticated) {
     return (
-      <LoginGate
-        users={users}
-        setupRequired={setupRequired !== null ? setupRequired : undefined}
-        onLogin={handleLoginSuccess}
-        onRegister={handleRegisterUser}
-        onUpdateUserPassword={handleUpdateUserPassword}
-        onRefreshUsers={refreshUsersList}
-      />
+      <Suspense fallback={<LoginLoadingFallback />}>
+        <LoginGate
+          users={users}
+          setupRequired={setupRequired !== null ? setupRequired : undefined}
+          onLogin={handleLoginSuccess}
+          onRegister={handleRegisterUser}
+          onUpdateUserPassword={handleUpdateUserPassword}
+          onRefreshUsers={refreshUsersList}
+        />
+      </Suspense>
     );
   }
 
@@ -646,6 +729,8 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveView('gantt')}
+            onMouseEnter={() => preloadView('gantt')}
+            onFocus={() => preloadView('gantt')}
             aria-current={activeView === 'gantt' ? 'page' : undefined}
             className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
               activeView === 'gantt'
@@ -660,6 +745,8 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveView('calendar')}
+            onMouseEnter={() => preloadView('calendar')}
+            onFocus={() => preloadView('calendar')}
             aria-current={activeView === 'calendar' ? 'page' : undefined}
             className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
               activeView === 'calendar'
@@ -674,6 +761,8 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveView('tasks')}
+            onMouseEnter={() => preloadView('tasks')}
+            onFocus={() => preloadView('tasks')}
             aria-current={activeView === 'tasks' ? 'page' : undefined}
             className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
               activeView === 'tasks'
@@ -688,6 +777,8 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveView('tree')}
+            onMouseEnter={() => preloadView('tree')}
+            onFocus={() => preloadView('tree')}
             aria-current={activeView === 'tree' ? 'page' : undefined}
             className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
               activeView === 'tree'
@@ -702,6 +793,8 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveView('kanban')}
+            onMouseEnter={() => preloadView('kanban')}
+            onFocus={() => preloadView('kanban')}
             aria-current={activeView === 'kanban' ? 'page' : undefined}
             className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
               activeView === 'kanban'
@@ -716,6 +809,8 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveView('projects')}
+            onMouseEnter={() => preloadView('projects')}
+            onFocus={() => preloadView('projects')}
             aria-current={activeView === 'projects' ? 'page' : undefined}
             className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
               activeView === 'projects'
@@ -730,6 +825,8 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveView('trash')}
+            onMouseEnter={() => preloadView('trash')}
+            onFocus={() => preloadView('trash')}
             aria-current={activeView === 'trash' ? 'page' : undefined}
             className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
               activeView === 'trash'
@@ -839,6 +936,12 @@ export default function App() {
               setSettingsTab('theme');
               setIsSettingsModalOpen(true);
             }}
+            onMouseEnter={() => {
+              loadSettingsModal().catch(() => {});
+            }}
+            onFocus={() => {
+              loadSettingsModal().catch(() => {});
+            }}
             aria-label="Ustawienia systemu"
             className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors whitespace-nowrap border border-slate-200 dark:border-slate-700"
             title="Ustawienia systemu: Motyw ciemny/jasny, Aktualizacje, Wdrożenie Docker, Użytkownicy i Kopie"
@@ -870,6 +973,12 @@ export default function App() {
           <button
             type="button"
             onClick={() => setIsUserModalOpen(true)}
+            onMouseEnter={() => {
+              loadUserAuthModal().catch(() => {});
+            }}
+            onFocus={() => {
+              loadUserAuthModal().catch(() => {});
+            }}
             aria-label={`Konto użytkownika: ${currentUser?.name || 'Zaloguj się'}, kliknij aby otworzyć panel konta`}
             className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 px-2.5 py-1 rounded-md transition-colors text-left"
             title="Kliknij, aby przełączyć użytkownika (wymaga hasła) lub wylogować"
@@ -989,6 +1098,8 @@ export default function App() {
               type="button"
               aria-pressed={activeView === 'gantt'}
               onClick={() => setActiveView('gantt')}
+              onMouseEnter={() => preloadView('gantt')}
+              onFocus={() => preloadView('gantt')}
               className={`px-2 py-1 text-[11px] font-medium rounded ${
                 activeView === 'gantt' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
               }`}
@@ -999,6 +1110,8 @@ export default function App() {
               type="button"
               aria-pressed={activeView === 'calendar'}
               onClick={() => setActiveView('calendar')}
+              onMouseEnter={() => preloadView('calendar')}
+              onFocus={() => preloadView('calendar')}
               className={`px-2 py-1 text-[11px] font-medium rounded ${
                 activeView === 'calendar' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
               }`}
@@ -1009,6 +1122,8 @@ export default function App() {
               type="button"
               aria-pressed={activeView === 'tasks'}
               onClick={() => setActiveView('tasks')}
+              onMouseEnter={() => preloadView('tasks')}
+              onFocus={() => preloadView('tasks')}
               className={`px-2 py-1 text-[11px] font-medium rounded ${
                 activeView === 'tasks' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
               }`}
@@ -1019,6 +1134,8 @@ export default function App() {
               type="button"
               aria-pressed={activeView === 'tree'}
               onClick={() => setActiveView('tree')}
+              onMouseEnter={() => preloadView('tree')}
+              onFocus={() => preloadView('tree')}
               className={`px-2 py-1 text-[11px] font-medium rounded ${
                 activeView === 'tree' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
               }`}
@@ -1029,6 +1146,8 @@ export default function App() {
               type="button"
               aria-pressed={activeView === 'kanban'}
               onClick={() => setActiveView('kanban')}
+              onMouseEnter={() => preloadView('kanban')}
+              onFocus={() => preloadView('kanban')}
               className={`px-2 py-1 text-[11px] font-medium rounded ${
                 activeView === 'kanban' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
               }`}
@@ -1039,6 +1158,8 @@ export default function App() {
               type="button"
               aria-pressed={activeView === 'trash'}
               onClick={() => setActiveView('trash')}
+              onMouseEnter={() => preloadView('trash')}
+              onFocus={() => preloadView('trash')}
               className={`px-2 py-1 text-[11px] font-medium rounded ${
                 activeView === 'trash' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
               }`}
@@ -1050,6 +1171,12 @@ export default function App() {
           <button
             type="button"
             onClick={() => handleOpenNewTask()}
+            onMouseEnter={() => {
+              loadTaskModal().catch(() => {});
+            }}
+            onFocus={() => {
+              loadTaskModal().catch(() => {});
+            }}
             className="flex items-center gap-1 bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 text-white text-xs font-medium px-3.5 py-1.5 rounded transition-colors shadow-xs"
           >
             <Plus className="w-3.5 h-3.5" aria-hidden="true" />
@@ -1101,94 +1228,88 @@ export default function App() {
           </div>
         )}
 
-        {activeView === 'gantt' && (
-          <GanttChart
-            tasks={sortedTasks}
-            projects={projects}
-            users={users}
-            selectedProjectId={selectedProjectId}
-            onSelectTask={handleSelectTask}
-            onOpenNewTask={() => handleOpenNewTask()}
-          />
-        )}
+        <Suspense fallback={<ViewLoadingFallback />}>
+          {activeView === 'gantt' && (
+            <GanttChart
+              tasks={sortedTasks}
+              projects={projects}
+              users={users}
+              selectedProjectId={selectedProjectId}
+              onSelectTask={handleSelectTask}
+              onOpenNewTask={() => handleOpenNewTask()}
+            />
+          )}
 
-        {activeView === 'calendar' && (
-          <CalendarView
-            tasks={sortedTasks}
-            projects={projects}
-            users={users}
-            selectedProjectId={selectedProjectId}
-            onSelectTask={handleSelectTask}
-            onOpenNewTaskWithDate={(dateStr) => handleOpenNewTask(dateStr)}
-          />
-        )}
+          {activeView === 'calendar' && (
+            <CalendarView
+              tasks={sortedTasks}
+              projects={projects}
+              users={users}
+              selectedProjectId={selectedProjectId}
+              onSelectTask={handleSelectTask}
+              onOpenNewTaskWithDate={(dateStr) => handleOpenNewTask(dateStr)}
+            />
+          )}
 
-        {activeView === 'tasks' && (
-          <TaskListView
-            tasks={sortedTasks}
-            projects={projects}
-            users={users}
-            selectedProjectId={selectedProjectId}
-            onSelectTask={handleSelectTask}
-            onOpenNewTask={() => handleOpenNewTask()}
-            onDeleteTask={handleDeleteTask}
-            onUpdateStatus={handleUpdateStatus}
-          />
-        )}
+          {activeView === 'tasks' && (
+            <TaskListView
+              tasks={sortedTasks}
+              projects={projects}
+              users={users}
+              selectedProjectId={selectedProjectId}
+              onSelectTask={handleSelectTask}
+              onOpenNewTask={() => handleOpenNewTask()}
+              onDeleteTask={handleDeleteTask}
+              onUpdateStatus={handleUpdateStatus}
+            />
+          )}
 
-        {activeView === 'tree' && (
-          <TaskTreeView
-            tasks={sortedTasks}
-            projects={projects}
-            users={users}
-            selectedProjectId={selectedProjectId}
-            onSelectProject={(projId) => setSelectedProjectId(projId)}
-            onSelectTask={handleSelectTask}
-            onAddTask={(projId, parentTaskId) => handleOpenNewTask(undefined, parentTaskId, projId)}
-            onUpdateTaskStatus={handleUpdateStatus}
-          />
-        )}
+          {activeView === 'tree' && (
+            <TaskTreeView
+              tasks={sortedTasks}
+              projects={projects}
+              users={users}
+              selectedProjectId={selectedProjectId}
+              onSelectProject={(projId) => setSelectedProjectId(projId)}
+              onSelectTask={handleSelectTask}
+              onAddTask={(projId, parentTaskId) => handleOpenNewTask(undefined, parentTaskId, projId)}
+              onUpdateTaskStatus={handleUpdateStatus}
+            />
+          )}
 
-        {activeView === 'kanban' && (
-          <KanbanView
-            tasks={sortedTasks}
-            projects={projects}
-            users={users}
-            selectedProjectId={selectedProjectId}
-            onSelectTask={handleSelectTask}
-            onOpenNewTask={() => handleOpenNewTask()}
-            onUpdateStatus={handleUpdateStatus}
-          />
-        )}
+          {activeView === 'kanban' && (
+            <KanbanView
+              tasks={sortedTasks}
+              projects={projects}
+              users={users}
+              selectedProjectId={selectedProjectId}
+              onSelectTask={handleSelectTask}
+              onOpenNewTask={() => handleOpenNewTask()}
+              onUpdateStatus={handleUpdateStatus}
+            />
+          )}
 
-        {activeView === 'projects' && (
-          <ProjectsOverview
-            projects={projects}
-            tasks={sortedTasks}
-            users={users}
-            currentUser={currentUser}
-            onSelectProject={(projId) => {
-              setSelectedProjectId(projId);
-              setActiveView('gantt');
-            }}
-            onAddProject={handleAddProject}
-            onUpdateProject={handleUpdateProject}
-            onDeleteProject={handleDeleteProject}
-            onDeleteAllDemoData={handleDeleteAllDemoData}
-            trashRetentionDays={trashRetentionDays}
-            pendingDetailProjectId={pendingDetailProjectId}
-            onConsumePendingDetailProject={() => setPendingDetailProjectId(null)}
-          />
-        )}
+          {activeView === 'projects' && (
+            <ProjectsOverview
+              projects={projects}
+              tasks={sortedTasks}
+              users={users}
+              currentUser={currentUser}
+              onSelectProject={(projId) => {
+                setSelectedProjectId(projId);
+                setActiveView('gantt');
+              }}
+              onAddProject={handleAddProject}
+              onUpdateProject={handleUpdateProject}
+              onDeleteProject={handleDeleteProject}
+              onDeleteAllDemoData={handleDeleteAllDemoData}
+              trashRetentionDays={trashRetentionDays}
+              pendingDetailProjectId={pendingDetailProjectId}
+              onConsumePendingDetailProject={() => setPendingDetailProjectId(null)}
+            />
+          )}
 
-        {activeView === 'trash' && (
-          <Suspense
-            fallback={
-              <div className="p-8 text-center text-xs text-slate-600 dark:text-slate-400">
-                Ładowanie kosza...
-              </div>
-            }
-          >
+          {activeView === 'trash' && (
             <TrashView
               currentUser={currentUser}
               onRestored={() => fetchFreshState(false)}
@@ -1197,44 +1318,52 @@ export default function App() {
                 setNotificationToast({ message: msg, type })
               }
             />
-          </Suspense>
-        )}
+          )}
+        </Suspense>
       </main>
 
       {/* 4. MODALS & DRAWERS */}
-      <TaskModal
-        isOpen={isTaskModalOpen}
-        onClose={() => {
-          setIsTaskModalOpen(false);
-          setEditingTask(null);
-        }}
-        onSave={handleSaveTask}
-        projects={projects}
-        users={users}
-        allTasks={sortedTasks}
-        defaultProjectId={selectedProjectId}
-        defaultDate={defaultTaskDate}
-        defaultParentId={defaultParentId}
-        initialTask={editingTask}
-      />
+      {isTaskModalOpen && (
+        <Suspense fallback={null}>
+          <TaskModal
+            isOpen={isTaskModalOpen}
+            onClose={() => {
+              setIsTaskModalOpen(false);
+              setEditingTask(null);
+            }}
+            onSave={handleSaveTask}
+            projects={projects}
+            users={users}
+            allTasks={sortedTasks}
+            defaultProjectId={selectedProjectId}
+            defaultDate={defaultTaskDate}
+            defaultParentId={defaultParentId}
+            initialTask={editingTask}
+          />
+        </Suspense>
+      )}
 
-      <TaskDetailDrawer
-        task={selectedTaskDetail}
-        projects={projects}
-        users={users}
-        allTasks={sortedTasks}
-        currentUser={currentUser}
-        onClose={() => setSelectedTaskDetail(null)}
-        onEdit={(task) => {
-          setSelectedTaskDetail(null);
-          handleOpenEditTask(task);
-        }}
-        onUpdateStatus={handleUpdateStatus}
-        onUpdateProgress={handleUpdateProgress}
-        onAddComment={handleAddComment}
-        comments={comments}
-        onNavigateToTask={handleSelectTask}
-      />
+      {selectedTaskDetail && (
+        <Suspense fallback={null}>
+          <TaskDetailDrawer
+            task={selectedTaskDetail}
+            projects={projects}
+            users={users}
+            allTasks={sortedTasks}
+            currentUser={currentUser}
+            onClose={() => setSelectedTaskDetail(null)}
+            onEdit={(task) => {
+              setSelectedTaskDetail(null);
+              handleOpenEditTask(task);
+            }}
+            onUpdateStatus={handleUpdateStatus}
+            onUpdateProgress={handleUpdateProgress}
+            onAddComment={handleAddComment}
+            comments={comments}
+            onNavigateToTask={handleSelectTask}
+          />
+        </Suspense>
+      )}
 
       {isCalendarSyncModalOpen && (
         <Suspense fallback={null}>
@@ -1262,36 +1391,40 @@ export default function App() {
         </Suspense>
       )}
 
-      <UserAuthModal
-        isOpen={isUserModalOpen}
-        onClose={() => setIsUserModalOpen(false)}
-        currentUser={currentUser}
-        users={users}
-        onSwitchUser={(user) => {
-          setCurrentUser(user);
-          logActivity(`${user.name} zalogował się do systemu`);
-        }}
-        onAddUser={handleAddUser}
-        onDeleteUser={handleDeleteUser}
-        onDeleteDemoUsers={handleDeleteDemoUsers}
-        onUpdateUserPassword={handleUpdateUserPassword}
-        onUserUpdated={(updated) => {
-          if (currentUser) {
-            const next = { ...currentUser, ...updated };
-            setCurrentUser(next);
-            setUsers((prev) => prev.map((u) => (u.id === next.id ? { ...u, ...updated } : u)));
-          }
-        }}
-        onLogout={handleLogout}
-        activityLogs={activityLogs}
-        onOpenTemplateManager={() => {
-          setActiveView('projects');
-          setNotificationToast({
-            message: 'Otwarto widok projektów. Kliknij "Szablony projektów (Admin)", aby zarządzać szablonami pracowni.',
-            type: 'info',
-          });
-        }}
-      />
+      {isUserModalOpen && (
+        <Suspense fallback={null}>
+          <UserAuthModal
+            isOpen={isUserModalOpen}
+            onClose={() => setIsUserModalOpen(false)}
+            currentUser={currentUser}
+            users={users}
+            onSwitchUser={(user) => {
+              setCurrentUser(user);
+              logActivity(`${user.name} zalogował się do systemu`);
+            }}
+            onAddUser={handleAddUser}
+            onDeleteUser={handleDeleteUser}
+            onDeleteDemoUsers={handleDeleteDemoUsers}
+            onUpdateUserPassword={handleUpdateUserPassword}
+            onUserUpdated={(updated) => {
+              if (currentUser) {
+                const next = { ...currentUser, ...updated };
+                setCurrentUser(next);
+                setUsers((prev) => prev.map((u) => (u.id === next.id ? { ...u, ...updated } : u)));
+              }
+            }}
+            onLogout={handleLogout}
+            activityLogs={activityLogs}
+            onOpenTemplateManager={() => {
+              setActiveView('projects');
+              setNotificationToast({
+                message: 'Otwarto widok projektów. Kliknij "Szablony projektów (Admin)", aby zarządzać szablonami pracowni.',
+                type: 'info',
+              });
+            }}
+          />
+        </Suspense>
+      )}
 
       {/* Settings Modal (Symbol zębatki ⚙️: Motyw, Zmienne VAT & Inwestorzy, Aktualizacje, Docker, Użytkownicy, Archiwizacja) */}
       {isSettingsModalOpen && (
@@ -1329,16 +1462,20 @@ export default function App() {
       )}
 
       {/* Task Filter Modal for Clickable Blocked & Critical Badges */}
-      <TaskFilterModal
-        isOpen={isTaskFilterModalOpen}
-        onClose={() => setIsTaskFilterModalOpen(false)}
-        activeFilter={taskFilterModalType}
-        onChangeFilter={(f) => setTaskFilterModalType(f)}
-        tasks={sortedTasks}
-        projects={projects}
-        users={users}
-        onNavigateToTaskAndProject={handleNavigateToTaskAndProject}
-      />
+      {isTaskFilterModalOpen && (
+        <Suspense fallback={null}>
+          <TaskFilterModal
+            isOpen={isTaskFilterModalOpen}
+            onClose={() => setIsTaskFilterModalOpen(false)}
+            activeFilter={taskFilterModalType}
+            onChangeFilter={(f) => setTaskFilterModalType(f)}
+            tasks={sortedTasks}
+            projects={projects}
+            users={users}
+            onNavigateToTaskAndProject={handleNavigateToTaskAndProject}
+          />
+        </Suspense>
+      )}
 
       {/* Archiving & Backup Modal (Google Drive, FTP/SFTP, Zrzuty SQL) */}
       {isArchiveModalOpen && (

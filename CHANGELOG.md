@@ -3,6 +3,12 @@
 Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.0.0/), wersjonowanie zgodne z [Semantic Versioning](https://semver.org/lang/pl/).
 
+## [0.10.3] - 2026-11-17
+
+### Zmieniono
+- **Leniwe ładowanie widoków i zmniejszenie paczki początkowej (`src/App.tsx`)**: przełączono ładowanie widoków (`GanttChart`, `CalendarView`, `TaskListView`, `TaskTreeView`, `KanbanView`, `ProjectsOverview`), ekranu `LoginGate`, szuflady `TaskDetailDrawer` oraz ciężkich modali (`TaskModal`, `UserAuthModal`, `TaskFilterModal`) na `React.lazy` i `Suspense` ze stabilnym wysokościowo wskaźnikiem ładowania bez migotania układu i z zachowaniem fokusu; domyślny widok po zalogowaniu ładowany jest natychmiast, a pozostałe doładowywane w bezczynności (`requestIdleCallback` z rezerwą `setTimeout`) oraz po najechaniu lub fokusie na pozycjach nawigacji, redukując główny chunk `index-*.js` z `397.92 kB` (`522.15 kB` bez `NODE_ENV=production`) poniżej progu `250 kB`.
+- **Wersjonowanie poprawkowe (`VERSION`, `package.json`, `package-lock.json`)**: podniesiono wersję aplikacji do `2026-11-17 v0.10.3` (`0.10.3`).
+
 ## [0.10.2] - 2026-11-17
 
 ### Dodano
