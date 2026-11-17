@@ -25,6 +25,8 @@ import { createTrashCleanupService } from './trash.js';
 import { registerTrashRoutes } from './routes/trash.js';
 import { createReminderService } from './reminders.js';
 import { registerReminderRoutes } from './routes/reminders.js';
+import { createWeeklySummaryService } from './weeklySummary.js';
+import { registerWeeklySummaryRoutes } from './routes/weeklySummary.js';
 import { setupStaticAndSpa } from './static.js';
 import { logger } from './logger.js';
 
@@ -73,11 +75,22 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
     stateStore,
     disableTimers: options.trashCleanupDisableTimers,
   });
+  const weeklySummaryService = createWeeklySummaryService({
+    stateStore,
+    settingsService,
+    mailer,
+    disableTimers: true, // Wspólny timer 10-minutowy z harmonogramem przypomnień
+  });
   const reminderService = createReminderService({
     stateStore,
     settingsService,
     mailer,
     disableTimers: options.remindersDisableTimers,
+    onTick: options.weeklySummaryDisableTimers
+      ? undefined
+      : async () => {
+          await weeklySummaryService.tick();
+        },
   });
 
   let closeStatic: (() => Promise<void>) | null = null;
@@ -88,6 +101,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
     if (closed) return;
     closed = true;
 
+    weeklySummaryService.stop();
     reminderService.stop();
     trashCleanup.stop();
     diskWatch.stop();
@@ -136,6 +150,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
     registerGoogleSyncRoutes(app, { googleSync, sessionStore });
     registerAdminSettingsRoutes(app, { stateStore, sessionStore, security, settingsService, mailer });
     registerReminderRoutes(app, { sessionStore, security, settingsService, mailer, reminderService });
+    registerWeeklySummaryRoutes(app, {
+      sessionStore,
+      security,
+      settingsService,
+      mailer,
+      weeklySummaryService,
+    });
     eventsHandle = registerEventRoutes(app, { stateStore, sessionStore });
 
     // 404 handler dla nieznanych tras /api (dla każdej metody HTTP)

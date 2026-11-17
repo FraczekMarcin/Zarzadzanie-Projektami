@@ -122,7 +122,13 @@ export function registerSystemRoutes(
         });
       }
 
-      const { serverSettings: _ignoredServerSettings, trash: _ignoredTrash, reminderState: _ignoredReminderState, ...safeIncoming } = incoming;
+      const {
+        serverSettings: _ignoredServerSettings,
+        trash: _ignoredTrash,
+        reminderState: _ignoredReminderState,
+        weeklySummaryState: _ignoredWeeklySummaryState,
+        ...safeIncoming
+      } = incoming;
 
       const nextState = {
         ...appState,
@@ -130,6 +136,7 @@ export function registerSystemRoutes(
         serverSettings: appState.serverSettings,
         trash: Array.isArray(appState.trash) ? appState.trash : [],
         reminderState: appState.reminderState,
+        weeklySummaryState: appState.weeklySummaryState,
         users: nextUsers,
         initialized: true,
         updatedAt: new Date().toISOString(),

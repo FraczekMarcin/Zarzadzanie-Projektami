@@ -4,6 +4,12 @@ import {
   isValidIanaTimezone,
 } from './reminders.js';
 
+import {
+  parseTimeHHMM,
+  WEEKLY_MAX_ITEMS_PER_PROJECT,
+  WEEKLY_MIN_ITEMS_PER_PROJECT,
+} from './weeklySummary.js';
+
 export interface StoredReminderSettings {
   enabled?: boolean;
   sendHour?: number;
@@ -11,6 +17,15 @@ export interface StoredReminderSettings {
   daysBefore?: number[];
   notifyOverdue?: boolean;
   appBaseUrl?: string;
+}
+
+export interface StoredWeeklySummarySettings {
+  enabled?: boolean;
+  dayOfWeek?: number;
+  time?: string;
+  windowDays?: 7 | 14;
+  includeAdmins?: boolean;
+  maxItemsPerProject?: number;
 }
 
 export type SmtpEncryption = 'none' | 'starttls' | 'tls';
@@ -40,6 +55,7 @@ export interface StoredServerSettings {
     retentionDays?: number;
   };
   reminders?: StoredReminderSettings;
+  weeklySummary?: StoredWeeklySummarySettings;
 }
 
 export interface SettingFieldState<T> {
@@ -95,6 +111,14 @@ export interface AdminSettingsResponse {
     notifyOverdue: SettingFieldState<boolean>;
     appBaseUrl: SettingFieldState<string>;
   };
+  weeklySummary: {
+    enabled: SettingFieldState<boolean>;
+    dayOfWeek: SettingFieldState<number>;
+    time: SettingFieldState<string>;
+    windowDays: SettingFieldState<7 | 14>;
+    includeAdmins: SettingFieldState<boolean>;
+    maxItemsPerProject: SettingFieldState<number>;
+  };
   readOnly: AdminReadOnlySettings;
 }
 
@@ -132,6 +156,14 @@ export interface AdminSettingsUpdateInput {
     notifyOverdue?: unknown;
     appBaseUrl?: unknown;
   };
+  weeklySummary?: {
+    enabled?: unknown;
+    dayOfWeek?: unknown;
+    time?: unknown;
+    windowDays?: unknown;
+    includeAdmins?: unknown;
+    maxItemsPerProject?: unknown;
+  };
 }
 
 export interface NormalizedSettingsPatch {
@@ -163,6 +195,14 @@ export interface NormalizedSettingsPatch {
     daysBefore?: number[];
     notifyOverdue?: boolean;
     appBaseUrl?: string;
+  };
+  weeklySummary?: {
+    enabled?: boolean;
+    dayOfWeek?: number;
+    time?: string;
+    windowDays?: 7 | 14;
+    includeAdmins?: boolean;
+    maxItemsPerProject?: number;
   };
 }
 
@@ -200,6 +240,14 @@ export const SERVER_SETTINGS_DEFAULTS = {
     daysBefore: [1, 0],
     notifyOverdue: true,
     appBaseUrl: '',
+  },
+  weeklySummary: {
+    enabled: false,
+    dayOfWeek: 1,
+    time: '08:00',
+    windowDays: 7 as 7 | 14,
+    includeAdmins: true,
+    maxItemsPerProject: 15,
   },
 } as const;
 
@@ -600,6 +648,98 @@ export function validateAdminSettingsUpdate(
 
       if (Object.keys(remPatch).length > 0) {
         patch.reminders = remPatch;
+      }
+    }
+  }
+
+  // 6. Sekcja Weekly Summary (podsumowanie tygodniowe dla kierowników projektów)
+  if (body.weeklySummary !== undefined) {
+    if (
+      !body.weeklySummary ||
+      typeof body.weeklySummary !== 'object' ||
+      Array.isArray(body.weeklySummary) ||
+      hasForbiddenKeys(body.weeklySummary)
+    ) {
+      errors.push('Nieprawidłowy format sekcji podsumowania tygodniowego.');
+    } else {
+      const wsIn = body.weeklySummary;
+      const wsPatch: NonNullable<NormalizedSettingsPatch['weeklySummary']> = {};
+
+      if (wsIn.enabled !== undefined) {
+        if (typeof wsIn.enabled !== 'boolean') {
+          errors.push('Opcja włączenia podsumowania tygodniowego musi być wartością logiczną.');
+        } else {
+          wsPatch.enabled = wsIn.enabled;
+        }
+      }
+
+      if (wsIn.dayOfWeek !== undefined) {
+        const val =
+          typeof wsIn.dayOfWeek === 'number'
+            ? wsIn.dayOfWeek
+            : typeof wsIn.dayOfWeek === 'string' && wsIn.dayOfWeek.trim() !== ''
+            ? Number(wsIn.dayOfWeek.trim())
+            : NaN;
+        if (!Number.isInteger(val) || val < 1 || val > 7) {
+          errors.push('Dzień tygodnia podsumowania musi być liczbą całkowitą od 1 (poniedziałek) do 7 (niedziela).');
+        } else {
+          wsPatch.dayOfWeek = val;
+        }
+      }
+
+      if (wsIn.time !== undefined) {
+        const parsedTime = parseTimeHHMM(wsIn.time);
+        if (!parsedTime) {
+          errors.push('Godzina wysyłki podsumowania tygodniowego musi być w formacie HH:MM (00:00–23:59).');
+        } else {
+          wsPatch.time = parsedTime.formatted;
+        }
+      }
+
+      if (wsIn.windowDays !== undefined) {
+        const val =
+          typeof wsIn.windowDays === 'number'
+            ? wsIn.windowDays
+            : typeof wsIn.windowDays === 'string' && wsIn.windowDays.trim() !== ''
+            ? Number(wsIn.windowDays.trim())
+            : NaN;
+        if (val !== 7 && val !== 14) {
+          errors.push('Okno dla kończących się zadań musi wynosić 7 lub 14 dni.');
+        } else {
+          wsPatch.windowDays = val;
+        }
+      }
+
+      if (wsIn.includeAdmins !== undefined) {
+        if (typeof wsIn.includeAdmins !== 'boolean') {
+          errors.push('Opcja uwzględniania administratorów musi być wartością logiczną.');
+        } else {
+          wsPatch.includeAdmins = wsIn.includeAdmins;
+        }
+      }
+
+      if (wsIn.maxItemsPerProject !== undefined) {
+        const val =
+          typeof wsIn.maxItemsPerProject === 'number'
+            ? wsIn.maxItemsPerProject
+            : typeof wsIn.maxItemsPerProject === 'string' && wsIn.maxItemsPerProject.trim() !== ''
+            ? Number(wsIn.maxItemsPerProject.trim())
+            : NaN;
+        if (
+          !Number.isInteger(val) ||
+          val < WEEKLY_MIN_ITEMS_PER_PROJECT ||
+          val > WEEKLY_MAX_ITEMS_PER_PROJECT
+        ) {
+          errors.push(
+            `Maksymalna liczba pozycji na projekt musi być liczbą całkowitą od ${WEEKLY_MIN_ITEMS_PER_PROJECT} do ${WEEKLY_MAX_ITEMS_PER_PROJECT}.`
+          );
+        } else {
+          wsPatch.maxItemsPerProject = val;
+        }
+      }
+
+      if (Object.keys(wsPatch).length > 0) {
+        patch.weeklySummary = wsPatch;
       }
     }
   }

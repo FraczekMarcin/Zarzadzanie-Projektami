@@ -544,17 +544,26 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
         return res.status(400).json({ error: 'Nieprawidłowy format danych preferencji.' });
       }
 
-      const ALLOWED_PREFERENCE_KEYS = new Set(['emailReminders']);
-      const unknownKeys = Object.keys(body).filter((key) => !ALLOWED_PREFERENCE_KEYS.has(key));
-      if (unknownKeys.length > 0) {
+      const ALLOWED_PREFERENCE_KEYS = new Set(['emailReminders', 'weeklySummary']);
+      const keys = Object.keys(body);
+      const unknownKeys = keys.filter((key) => !ALLOWED_PREFERENCE_KEYS.has(key));
+      if (keys.length === 0 || unknownKeys.length > 0) {
         return res.status(400).json({
-          error: `Niedozwolone pola w żądaniu preferencji: ${unknownKeys.join(', ')}.`,
+          error:
+            unknownKeys.length > 0
+              ? `Niedozwolone pola w żądaniu preferencji: ${unknownKeys.join(', ')}.`
+              : 'Podaj co najmniej jedną preferencję do aktualizacji.',
         });
       }
 
-      if (typeof body.emailReminders !== 'boolean') {
+      if (body.emailReminders !== undefined && typeof body.emailReminders !== 'boolean') {
         return res.status(400).json({
           error: 'Pole emailReminders musi być wartością logiczną (true lub false).',
+        });
+      }
+      if (body.weeklySummary !== undefined && typeof body.weeklySummary !== 'boolean') {
+        return res.status(400).json({
+          error: 'Pole weeklySummary musi być wartością logiczną (true lub false).',
         });
       }
 
@@ -564,7 +573,12 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
         return res.status(404).json({ error: 'Konto użytkownika nie istnieje.' });
       }
 
-      targetUser.emailReminders = body.emailReminders;
+      if (typeof body.emailReminders === 'boolean') {
+        targetUser.emailReminders = body.emailReminders;
+      }
+      if (typeof body.weeklySummary === 'boolean') {
+        targetUser.weeklySummary = body.weeklySummary;
+      }
       const appState = stateStore.ensureStateStructure();
       appState.users = users;
       appState.updatedAt = new Date().toISOString();

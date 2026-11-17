@@ -34,6 +34,8 @@ const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   trash_emptied: 'Opróżnienie kosza',
   reminders_sent: 'Wysłano dzienne przypomnienia o terminach',
   reminders_failed: 'Błąd wysyłki dziennych przypomnień o terminach',
+  weekly_summary_sent: 'Wysłano podsumowanie tygodniowe dla kierowników projektów',
+  weekly_summary_failed: 'Błąd wysyłki podsumowania tygodniowego',
   disk_low: 'Mało miejsca na dysku serwera',
   disk_recovered: 'Miejsce na dysku znów wystarczające',
   disk_write_failed: 'Błąd zapisu stanu (brak miejsca na dysku)',

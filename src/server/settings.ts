@@ -15,6 +15,13 @@ import {
   validateAdminSettingsUpdate,
 } from '../utils/settingsSchema.js';
 import { isValidIanaTimezone, normalizeDaysBefore, ReminderSettings } from '../utils/reminders.js';
+import {
+  normalizeEnvTimeHHMM,
+  parseTimeHHMM,
+  WEEKLY_MAX_ITEMS_PER_PROJECT,
+  WEEKLY_MIN_ITEMS_PER_PROJECT,
+  WeeklySummarySettings,
+} from '../utils/weeklySummary.js';
 import { ServerConfig, getLocalInstalledVersion } from './config.js';
 import { isRequestHttps } from './security.js';
 import { StateStore } from './state.js';
@@ -50,6 +57,14 @@ export interface EffectiveSettings {
     notifyOverdue: SettingFieldState<boolean>;
     appBaseUrl: SettingFieldState<string>;
   };
+  weeklySummary: {
+    enabled: SettingFieldState<boolean>;
+    dayOfWeek: SettingFieldState<number>;
+    time: SettingFieldState<string>;
+    windowDays: SettingFieldState<7 | 14>;
+    includeAdmins: SettingFieldState<boolean>;
+    maxItemsPerProject: SettingFieldState<number>;
+  };
 }
 
 export interface RuntimeSmtpConfig {
@@ -82,6 +97,7 @@ export interface SettingsService {
   getEffectiveSessionPolicy: () => EffectiveSessionPolicy;
   getEffectiveTrashRetentionDays: () => number;
   getEffectiveReminderSettings: () => ReminderSettings;
+  getEffectiveWeeklySummarySettings: () => WeeklySummarySettings;
   getRuntimeSmtpConfig: () => RuntimeSmtpConfig;
   getAdminSettingsPayload: (req: express.Request) => AdminSettingsResponse;
   findLockedFieldConflict: (input: AdminSettingsUpdateInput) => LockedFieldConflict | null;
@@ -122,6 +138,7 @@ export function createSettingsService(deps: {
     const storedSessions = stored.sessions || {};
     const storedTrash = stored.trash || {};
     const storedReminders = stored.reminders || {};
+    const storedWeekly = stored.weeklySummary || {};
 
     // --- SMTP HOST ---
     const envHost = readEnvString('SMTP_HOST');
@@ -340,6 +357,74 @@ export function createSettingsService(deps: {
         ? { value: storedReminders.appBaseUrl, source: 'ui', locked: false }
         : { value: config.defaultReminderAppBaseUrl, source: 'default', locked: false };
 
+    // --- WEEKLY SUMMARY ---
+    const envWsEnabledRaw = readEnvString('WEEKLY_SUMMARY_ENABLED');
+    const wsEnabled: SettingFieldState<boolean> =
+      envWsEnabledRaw !== undefined
+        ? {
+            value: parseEnvBoolean(envWsEnabledRaw),
+            source: 'env',
+            locked: true,
+            envVar: 'WEEKLY_SUMMARY_ENABLED',
+          }
+        : typeof storedWeekly.enabled === 'boolean'
+        ? { value: storedWeekly.enabled, source: 'ui', locked: false }
+        : { value: SERVER_SETTINGS_DEFAULTS.weeklySummary.enabled, source: 'default', locked: false };
+
+    const envWsDayRaw = readEnvString('WEEKLY_SUMMARY_DAY');
+    const envWsDayParsed = envWsDayRaw !== undefined ? parseInt(envWsDayRaw, 10) : NaN;
+    const hasValidEnvWsDay =
+      Number.isInteger(envWsDayParsed) && envWsDayParsed >= 1 && envWsDayParsed <= 7;
+    const wsDayOfWeek: SettingFieldState<number> = hasValidEnvWsDay
+      ? {
+          value: envWsDayParsed,
+          source: 'env',
+          locked: true,
+          envVar: 'WEEKLY_SUMMARY_DAY',
+        }
+      : typeof storedWeekly.dayOfWeek === 'number' &&
+        Number.isInteger(storedWeekly.dayOfWeek) &&
+        storedWeekly.dayOfWeek >= 1 &&
+        storedWeekly.dayOfWeek <= 7
+      ? { value: storedWeekly.dayOfWeek, source: 'ui', locked: false }
+      : { value: SERVER_SETTINGS_DEFAULTS.weeklySummary.dayOfWeek, source: 'default', locked: false };
+
+    const envWsTimeRaw = readEnvString('WEEKLY_SUMMARY_TIME');
+    const normalizedEnvWsTime = envWsTimeRaw !== undefined ? normalizeEnvTimeHHMM(envWsTimeRaw) : null;
+    const parsedStoredWsTime = parseTimeHHMM(storedWeekly.time);
+    const wsTime: SettingFieldState<string> = normalizedEnvWsTime
+      ? {
+          value: normalizedEnvWsTime,
+          source: 'env',
+          locked: true,
+          envVar: 'WEEKLY_SUMMARY_TIME',
+        }
+      : parsedStoredWsTime
+      ? { value: parsedStoredWsTime.formatted, source: 'ui', locked: false }
+      : { value: SERVER_SETTINGS_DEFAULTS.weeklySummary.time, source: 'default', locked: false };
+
+    const wsWindowDays: SettingFieldState<7 | 14> =
+      storedWeekly.windowDays === 7 || storedWeekly.windowDays === 14
+        ? { value: storedWeekly.windowDays, source: 'ui', locked: false }
+        : { value: SERVER_SETTINGS_DEFAULTS.weeklySummary.windowDays, source: 'default', locked: false };
+
+    const wsIncludeAdmins: SettingFieldState<boolean> =
+      typeof storedWeekly.includeAdmins === 'boolean'
+        ? { value: storedWeekly.includeAdmins, source: 'ui', locked: false }
+        : { value: SERVER_SETTINGS_DEFAULTS.weeklySummary.includeAdmins, source: 'default', locked: false };
+
+    const wsMaxItemsPerProject: SettingFieldState<number> =
+      typeof storedWeekly.maxItemsPerProject === 'number' &&
+      Number.isInteger(storedWeekly.maxItemsPerProject) &&
+      storedWeekly.maxItemsPerProject >= WEEKLY_MIN_ITEMS_PER_PROJECT &&
+      storedWeekly.maxItemsPerProject <= WEEKLY_MAX_ITEMS_PER_PROJECT
+        ? { value: storedWeekly.maxItemsPerProject, source: 'ui', locked: false }
+        : {
+            value: SERVER_SETTINGS_DEFAULTS.weeklySummary.maxItemsPerProject,
+            source: 'default',
+            locked: false,
+          };
+
     return {
       smtp: {
         configured: host.value.trim().length > 0,
@@ -370,6 +455,14 @@ export function createSettingsService(deps: {
         notifyOverdue: remindersNotifyOverdue,
         appBaseUrl: remindersAppBaseUrl,
       },
+      weeklySummary: {
+        enabled: wsEnabled,
+        dayOfWeek: wsDayOfWeek,
+        time: wsTime,
+        windowDays: wsWindowDays,
+        includeAdmins: wsIncludeAdmins,
+        maxItemsPerProject: wsMaxItemsPerProject,
+      },
     };
   }
 
@@ -385,6 +478,22 @@ export function createSettingsService(deps: {
       timezone: r.timezone.value,
       daysBefore: r.daysBefore.value,
       notifyOverdue: r.notifyOverdue.value,
+      appBaseUrl: r.appBaseUrl.value,
+    };
+  }
+
+  function getEffectiveWeeklySummarySettings(): WeeklySummarySettings {
+    const eff = getEffectiveSettings();
+    const w = eff.weeklySummary;
+    const r = eff.reminders;
+    return {
+      enabled: w.enabled.value,
+      dayOfWeek: w.dayOfWeek.value,
+      time: w.time.value,
+      timezone: r.timezone.value,
+      windowDays: w.windowDays.value,
+      includeAdmins: w.includeAdmins.value,
+      maxItemsPerProject: w.maxItemsPerProject.value,
       appBaseUrl: r.appBaseUrl.value,
     };
   }
@@ -465,6 +574,7 @@ export function createSettingsService(deps: {
       sessions: eff.sessions,
       trash: eff.trash,
       reminders: eff.reminders,
+      weeklySummary: eff.weeklySummary,
       readOnly: {
         dataDir: config.dataDir,
         trustProxy: {
@@ -558,6 +668,19 @@ export function createSettingsService(deps: {
       }
     }
 
+    if (input.weeklySummary && typeof input.weeklySummary === 'object') {
+      const w = input.weeklySummary;
+      if (w.enabled !== undefined && eff.weeklySummary.enabled.locked) {
+        return { field: 'weeklySummary.enabled', envVar: eff.weeklySummary.enabled.envVar! };
+      }
+      if (w.dayOfWeek !== undefined && eff.weeklySummary.dayOfWeek.locked) {
+        return { field: 'weeklySummary.dayOfWeek', envVar: eff.weeklySummary.dayOfWeek.envVar! };
+      }
+      if (w.time !== undefined && eff.weeklySummary.time.locked) {
+        return { field: 'weeklySummary.time', envVar: eff.weeklySummary.time.envVar! };
+      }
+    }
+
     return null;
   }
 
@@ -583,6 +706,9 @@ export function createSettingsService(deps: {
               : undefined,
             trash: appState.serverSettings.trash ? { ...appState.serverSettings.trash } : undefined,
             reminders: appState.serverSettings.reminders ? { ...appState.serverSettings.reminders } : undefined,
+            weeklySummary: appState.serverSettings.weeklySummary
+              ? { ...appState.serverSettings.weeklySummary }
+              : undefined,
           }
         : {};
 
@@ -726,6 +852,47 @@ export function createSettingsService(deps: {
       currentStored.reminders = nextRem;
     }
 
+    if (patch.weeklySummary) {
+      const nextWs = { ...(currentStored.weeklySummary || {}) };
+      if (patch.weeklySummary.enabled !== undefined && patch.weeklySummary.enabled !== nextWs.enabled) {
+        nextWs.enabled = patch.weeklySummary.enabled;
+        changedFields.push('weeklySummary.enabled');
+      }
+      if (
+        patch.weeklySummary.dayOfWeek !== undefined &&
+        patch.weeklySummary.dayOfWeek !== nextWs.dayOfWeek
+      ) {
+        nextWs.dayOfWeek = patch.weeklySummary.dayOfWeek;
+        changedFields.push('weeklySummary.dayOfWeek');
+      }
+      if (patch.weeklySummary.time !== undefined && patch.weeklySummary.time !== nextWs.time) {
+        nextWs.time = patch.weeklySummary.time;
+        changedFields.push('weeklySummary.time');
+      }
+      if (
+        patch.weeklySummary.windowDays !== undefined &&
+        patch.weeklySummary.windowDays !== nextWs.windowDays
+      ) {
+        nextWs.windowDays = patch.weeklySummary.windowDays;
+        changedFields.push('weeklySummary.windowDays');
+      }
+      if (
+        patch.weeklySummary.includeAdmins !== undefined &&
+        patch.weeklySummary.includeAdmins !== nextWs.includeAdmins
+      ) {
+        nextWs.includeAdmins = patch.weeklySummary.includeAdmins;
+        changedFields.push('weeklySummary.includeAdmins');
+      }
+      if (
+        patch.weeklySummary.maxItemsPerProject !== undefined &&
+        patch.weeklySummary.maxItemsPerProject !== nextWs.maxItemsPerProject
+      ) {
+        nextWs.maxItemsPerProject = patch.weeklySummary.maxItemsPerProject;
+        changedFields.push('weeklySummary.maxItemsPerProject');
+      }
+      currentStored.weeklySummary = nextWs;
+    }
+
     if (changedFields.length > 0) {
       appState.serverSettings = currentStored;
       appState.updatedAt = new Date().toISOString();
@@ -741,6 +908,7 @@ export function createSettingsService(deps: {
     getEffectiveSessionPolicy,
     getEffectiveTrashRetentionDays,
     getEffectiveReminderSettings,
+    getEffectiveWeeklySummarySettings,
     getRuntimeSmtpConfig,
     getAdminSettingsPayload,
     findLockedFieldConflict,

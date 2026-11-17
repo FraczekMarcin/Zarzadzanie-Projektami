@@ -43,6 +43,7 @@ export interface CreateAppOptions {
   backupWatchDisableTimers?: boolean;
   trashCleanupDisableTimers?: boolean;
   remindersDisableTimers?: boolean;
+  weeklySummaryDisableTimers?: boolean;
   backupStatusCheckOverride?: () => Promise<BackupStatusResult>;
   backupAlertMailer?: (mail: { to: string[]; subject: string; text: string; html?: string }) => Promise<void>;
   diskAlertPercent?: number;

@@ -28,6 +28,7 @@ export interface User {
   hasCalendarToken?: boolean; // Czy użytkownik wygenerował prywatny token kalendarza
   calendarTokenCreatedAt?: string;
   emailReminders?: boolean; // Domyślnie true (undefined traktowane jako true)
+  weeklySummary?: boolean; // Domyślnie true dla admin i project_manager
   registeredAt?: string;
 }
 

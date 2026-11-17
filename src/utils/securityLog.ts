@@ -32,6 +32,8 @@ export type SecurityEventType =
   | 'trash_emptied'
   | 'reminders_sent'
   | 'reminders_failed'
+  | 'weekly_summary_sent'
+  | 'weekly_summary_failed'
   | 'disk_low'
   | 'disk_recovered'
   | 'disk_write_failed';
@@ -175,6 +177,8 @@ export const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   trash_emptied: 'Opróżnienie kosza',
   reminders_sent: 'Wysłano dzienne przypomnienia o terminach',
   reminders_failed: 'Błąd wysyłki dziennych przypomnień o terminach',
+  weekly_summary_sent: 'Wysłano podsumowanie tygodniowe dla kierowników projektów',
+  weekly_summary_failed: 'Błąd wysyłki podsumowania tygodniowego',
   disk_low: 'Mało miejsca na dysku serwera',
   disk_recovered: 'Miejsce na dysku serwera wróciło do normy',
   disk_write_failed: 'Nieudany zapis stanu z powodu braku miejsca na dysku',

@@ -13,6 +13,7 @@ export interface AppState {
   activityLogs: any[];
   trash?: any[];
   reminderState?: any;
+  weeklySummaryState?: any;
   updatedAt?: string;
   [key: string]: any;
 }

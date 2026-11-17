@@ -447,8 +447,11 @@ Wszystkie poniższe zmienne można skonfigurować w pliku `.env` (wzór wdrożen
 | `SMTP_FROM` | `"Zarządzanie Projektami" <noreply@pracownia.pl>` | Opcjonalna | Adres nadawcy w wysyłanych wiadomościach (nazwa + e-mail). Nadpisuje ustawienia w UI. |
 | `SMTP_ALLOW_SELF_SIGNED` | `false` | Opcjonalna | Zezwolenie na samopodpisane certyfikaty TLS serwera SMTP (`true`/`false`). Nadpisuje ustawienie w UI. |
 | `REMINDERS_ENABLED` | `false` | Opcjonalna | Włącza dzienne przypomnienia e-mail o terminach zadań (`true`/`false`). Nadpisuje ustawienie w UI. |
-| `REMINDER_TIMEZONE` | `Europe/Warsaw` | Opcjonalna | Strefa czasowa IANA używana przez harmonogram dziennych przypomnień. Nadpisuje ustawienie w UI. |
+| `REMINDER_TIMEZONE` | `Europe/Warsaw` | Opcjonalna | Strefa czasowa IANA używana przez harmonogram dziennych przypomnień i podsumowania tygodniowego. Nadpisuje ustawienie w UI. |
 | `REMINDER_SEND_HOUR` | `8` | Opcjonalna | Godzina wysyłki przypomnień (0–23) w wybranej strefie czasowej. Nadpisuje ustawienie w UI. |
+| `WEEKLY_SUMMARY_ENABLED` | `false` | Opcjonalna | Włącza cotygodniowe podsumowanie e-mail dla kierowników projektów (`true`/`false`). Nadpisuje ustawienie w UI. |
+| `WEEKLY_SUMMARY_DAY` | `1` | Opcjonalna | Dzień tygodnia wysyłki podsumowania tygodniowego (`1` = poniedziałek … `7` = niedziela). Nadpisuje ustawienie w UI. |
+| `WEEKLY_SUMMARY_TIME` | `08:00` | Opcjonalna | Godzina wysyłki podsumowania tygodniowego w formacie `HH:MM` (`00:00–23:59`). Nadpisuje ustawienie w UI. |
 | `GOOGLE_SERVICE_ACCOUNT_FILE` | `""` | Opcjonalna | Ścieżka do pliku klucza JSON konta usługi Google wewnątrz kontenera (np. `/run/secrets/google_sa.json`). |
 | `GOOGLE_CALENDAR_ID` | `""` | Opcjonalna | Identyfikator wspólnego Kalendarza Google do jednokierunkowej synchronizacji zadań. |
 | `COMPOSE_FILE` | `docker-compose.yml` (gdy nieustawiona) | Opcjonalna (Docker) | Lista plików Docker Compose rozdzielona znakiem `:`. Pominięcie `docker-compose.https.yml` wyłącza Caddy i HTTPS. |
@@ -467,6 +470,7 @@ W trybie deweloperskim (`NODE_ENV !== 'production'`) aplikacja uruchamia się be
 | :--- | :--- | :--- | :--- |
 | Poczta SMTP (`host`, `port`, szyfrowanie, login, hasło, nadawca, `allowSelfSigned`) | Tak (`Poczta (SMTP)`) | Tak (`SMTP_*`, ma pierwszeństwo) | Wygodna konfiguracja i testowanie wysyłki w panelu bez edycji plików na serwerze; hasło szyfrowane `APP_SECRET`. |
 | Przypomnienia e-mail (`enabled`, `sendHour`, `timezone`, `daysBefore`, `notifyOverdue`, `appBaseUrl`) | Tak (`Powiadomienia`) | Częściowo (`REMINDERS_ENABLED`, `REMINDER_TIMEZONE`, `REMINDER_SEND_HOUR`, mają pierwszeństwo) | Dzienne zbiorcze przypomnienia o zbliżających się i zaległych terminach (1 wiadomość/osobę dziennie); wyłączalne przez użytkownika w jego koncie. |
+| Podsumowanie tygodniowe (`enabled`, `dayOfWeek`, `time`, `windowDays`, `includeAdmins`, `maxItemsPerProject`) | Tak (`Powiadomienia`) | Częściowo (`WEEKLY_SUMMARY_ENABLED`, `WEEKLY_SUMMARY_DAY`, `WEEKLY_SUMMARY_TIME`, mają pierwszeństwo) | Cotygodniowy przegląd zaległych i kończących się zadań per projekt dla kierowników projektów (i opcjonalnie administratorów), dzielący strefę `timezone` i `appBaseUrl`. |
 | Samodzielna rejestracja użytkowników | Tak (`Dostęp i sesje`) | Tak (`ALLOW_SELF_REGISTRATION`, ma pierwszeństwo) | Możliwość szybkiego otwierania lub zamykania rejestracji w trakcie działania systemu bez restartu. |
 | Limity sesji (`idleMinutes`, `maxHours`) | Tak (`Dostęp i sesje`) | Tak (`SESSION_IDLE_MINUTES`, `SESSION_MAX_HOURS`, mają pierwszeństwo) | Natychmiastowa zmiana polityki wygasania sesji bez przerywania aktywnej pracy zespołu. |
 | Przechowywanie w koszu (`trash.retentionDays`) | Tak (`Dostęp i sesje`) | Tak (`TRASH_RETENTION_DAYS`, ma pierwszeństwo) | Określa liczbę dni (1–365), przez które usunięte zadania i projekty można przywrócić z kosza. |
@@ -495,6 +499,16 @@ System udostępnia harmonogram dziennych przypomnień e-mail o zbliżających si
 - **Jedna wiadomość zbiorcza dziennie na osobę:** cykliczne zadanie sprawdzane przy starcie serwera i co 10 minut generuje raz dziennie o wybranej godzinie jedną wiadomość HTML dla każdego aktywnego, zatwierdzonego użytkownika z poprawnym adresem e-mail, obejmującą wyłącznie zadania przypisane do niego z projektów niezarchiwizowanych (bez zadań ukończonych/anulowanych).
 - **Zakres terminów i bezpieczeństwo treści:** administrator konfiguruje w **Ustawienia → Powiadomienia** włączenie funkcji (`REMINDERS_ENABLED`, domyślnie `false`), godzinę wysyłki (`REMINDER_SEND_HOUR`, `0–23`, domyślnie `8`), strefę czasową IANA (`REMINDER_TIMEZONE`, domyślnie `Europe/Warsaw`), progi wyprzedzenia (`daysBefore` ze zbioru `[0, 1, 2, 3, 7]`, domyślnie `[1, 0]`), zaległe zadania (raz dziennie do **3 dni** po terminie, `notifyOverdue`) oraz bazowy URL w linkach (`appBaseUrl`, domyślnie z `PUBLIC_BASE_URL` lub `https://<APP_HOST>` w trybie HTTPS). Wiadomości nigdy nie zawierają opisów zadań ani danych finansowych, a wszystkie pola są zabezpieczone przed wstrzyknięciem HTML.
 - **Podgląd, ręczne uruchomienie i rezygnacja użytkownika:** w panelu **Powiadomienia** dostępny jest status harmonogramu, wysyłka testowego podglądu do samego administratora (limit **3/godz.**) oraz ręczne uruchomienie wysyłki (`run-now`, z opcją wymuszenia ponownej wysyłki tego samego dnia). Każdy zalogowany użytkownik może w oknie swojego konta wyłączyć osobiste dzienne przypomnienia (`PATCH /api/auth/preferences`).
+
+---
+
+## 📊 Podsumowanie tygodniowe
+
+System udostępnia cotygodniowe podsumowanie e-mail dla kierowników projektów (oraz opcjonalnie administratorów), korzystające ze skonfigurowanego serwera SMTP oraz ustawień strefy czasowej IANA (`REMINDER_TIMEZONE`) i bazowego URL (`appBaseUrl`):
+
+- **Harmonogram i nadrabianie okna 24h:** wysyłka realizowana jest raz w tygodniu (`RRR-Www` wg ISO 8601) w wybranym dniu tygodnia (`dayOfWeek` `1–7`, domyślnie poniedziałek) o wskazanej godzinie (`time` `HH:MM`, domyślnie `08:00`) w wybranej strefie czasowej z obsługą zmian czasu DST. W przypadku restartu serwera w ciągu **24 godzin** od zaplanowanego terminu zaległe podsumowanie zostanie automatycznie nadrobione (z deduplikacją na poziomie tygodnia i pojedynczych odbiorców).
+- **Zakres projektów i bezpieczeństwo treści:** każda wiadomość obejmuje wszystkie niezarchiwizowane projekty z liczbą zadań otwartych, zaległych (posortowanych od największego opóźnienia wraz z osobą przypisaną) oraz kończących się w oknie `7` lub `14` dni (limit `maxItemsPerProject` `5–50`, domyślnie `15`), bez opisów zadań i bez danych finansowych. Projekty bez zaległych i kończących się zadań trafiają do zwięzłej linii **„Bez uwag: …”**, a raport całkowicie pusty nie jest wysyłany.
+- **Konfiguracja i sterowanie:** sekcja **Podsumowanie tygodniowe** w zakładce **Ustawienia → Powiadomienia** prezentuje datę i godzinę najbliższej wysyłki, status ostatniego przebiegu, wysyłkę podglądu wyłącznie do zalogowanego administratora (`POST /api/admin/weekly-summary/preview`, limit **3/godz.**) oraz ręczne uruchomienie (`POST /api/admin/weekly-summary/run-now`, opcjonalnie z flagą `force`). Kierownicy projektów i administratorzy mogą dodatkowo indywidualnie wyłączyć odbiór podsumowania w oknie konta (`PATCH /api/auth/preferences`).
 
 ---
 

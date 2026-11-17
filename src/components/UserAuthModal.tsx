@@ -81,6 +81,9 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
   const [isUpdatingEmailPref, setIsUpdatingEmailPref] = useState(false);
   const [emailPrefStatus, setEmailPrefStatus] = useState<string | null>(null);
   const [emailPrefError, setEmailPrefError] = useState<string | null>(null);
+  const [isUpdatingWeeklyPref, setIsUpdatingWeeklyPref] = useState(false);
+  const [weeklyPrefStatus, setWeeklyPrefStatus] = useState<string | null>(null);
+  const [weeklyPrefError, setWeeklyPrefError] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const deleteModalRef = useRef<HTMLDivElement>(null);
   const baseId = useId();
@@ -215,6 +218,39 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
       setEmailPrefError('Błąd połączenia z serwerem podczas zapisu preferencji.');
     } finally {
       setIsUpdatingEmailPref(false);
+    }
+  };
+
+  const handleToggleWeeklySummary = async (nextVal: boolean) => {
+    if (!currentUser || !currentUser.id || isUpdatingWeeklyPref) return;
+    setIsUpdatingWeeklyPref(true);
+    setWeeklyPrefError(null);
+    setWeeklyPrefStatus(null);
+    try {
+      const res = await fetch('/api/auth/preferences', {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ weeklySummary: nextVal }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setWeeklyPrefError(json.error || 'Nie udało się zapisać preferencji podsumowania tygodniowego.');
+        return;
+      }
+      onUserUpdated?.({
+        weeklySummary:
+          typeof json.user?.weeklySummary === 'boolean' ? json.user.weeklySummary : nextVal,
+      });
+      setWeeklyPrefStatus(
+        nextVal
+          ? 'Włączono cotygodniowe podsumowanie projektów e-mail.'
+          : 'Wyłączono cotygodniowe podsumowanie projektów e-mail.'
+      );
+    } catch {
+      setWeeklyPrefError('Błąd połączenia z serwerem podczas zapisu preferencji.');
+    } finally {
+      setIsUpdatingWeeklyPref(false);
     }
   };
 
@@ -427,6 +463,41 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                   <p role="status" className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
                     {emailPrefStatus}
                   </p>
+                )}
+
+                {(currentUser.role === 'admin' || currentUser.role === 'project_manager') && (
+                  <div className="pt-2 border-t border-slate-200 dark:border-slate-700 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <label className="flex items-start gap-2.5 cursor-pointer select-none flex-1">
+                        <input
+                          id={`${baseId}-weekly-summary`}
+                          type="checkbox"
+                          checked={currentUser.weeklySummary !== false}
+                          disabled={isUpdatingWeeklyPref}
+                          onChange={(e) => handleToggleWeeklySummary(e.target.checked)}
+                          className="mt-0.5 rounded border-slate-300 dark:border-slate-600 text-sky-700 focus:ring-sky-600"
+                        />
+                        <span>
+                          <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-900 dark:text-white">
+                            <span>Cotygodniowe podsumowanie projektów dla kierowników (e-mail)</span>
+                          </span>
+                          <span className="block text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                            Otrzymuj raz w tygodniu zbiorczy raport zaległych i kończących się zadań ze wszystkich aktywnych projektów.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+                    {weeklyPrefError && (
+                      <p role="alert" className="text-[11px] text-rose-700 dark:text-rose-400 font-medium">
+                        {weeklyPrefError}
+                      </p>
+                    )}
+                    {weeklyPrefStatus && (
+                      <p role="status" className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
+                        {weeklyPrefStatus}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             )}

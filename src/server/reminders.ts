@@ -89,12 +89,14 @@ export function createReminderService(deps: {
   now?: () => number;
   delayFn?: (ms: number) => Promise<void>;
   sendDelayMs?: number;
+  onTick?: () => Promise<void>;
 }): ReminderService {
   const {
     stateStore,
     settingsService,
     mailer,
     disableTimers = false,
+    onTick,
   } = deps;
   const now = deps.now ?? (() => Date.now());
   const delayFn = deps.delayFn ?? defaultDelay;
@@ -415,12 +417,25 @@ export function createReminderService(deps: {
       logger.warn('[Reminders] Błąd wstępnego sprawdzenia przypomnień:', err?.message || err);
     }
 
+    if (onTick) {
+      try {
+        await onTick();
+      } catch (err: any) {
+        logger.warn('[Reminders] Błąd wstępnego sprawdzenia dodatkowego zadania:', err?.message || err);
+      }
+    }
+
     if (!disableTimers && !intervalTimer) {
       intervalTimer = setInterval(() => {
         if (!stopped) {
           tick().catch((err) => {
             logger.warn('[Reminders] Błąd harmonogramu przypomnień:', err?.message || err);
           });
+          if (onTick) {
+            onTick().catch((err) => {
+              logger.warn('[Reminders] Błąd harmonogramu dodatkowego zadania:', err?.message || err);
+            });
+          }
         }
       }, REMINDER_CHECK_INTERVAL_MS);
       if (typeof intervalTimer.unref === 'function') {

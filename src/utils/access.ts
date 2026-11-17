@@ -110,7 +110,13 @@ export function filterStateForUser(
   user: { id: string; role?: string } | null | undefined
 ): any {
   if (!state) return state;
-  const { serverSettings: _serverSettings, trash: _trash, reminderState: _reminderState, ...safeState } = state;
+  const {
+    serverSettings: _serverSettings,
+    trash: _trash,
+    reminderState: _reminderState,
+    weeklySummaryState: _weeklySummaryState,
+    ...safeState
+  } = state;
 
   if (!user) {
     return {
