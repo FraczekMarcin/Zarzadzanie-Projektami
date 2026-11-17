@@ -127,8 +127,19 @@ jobs:
       - name: Instalacja przeglądarki Chromium dla Playwright
         run: npm run e2e:install
 
+      # Po przeglądzie raportu dostępności zmienić A11Y_STRICT na 'true'
       - name: Uruchomienie testów end-to-end (Playwright)
+        env:
+          A11Y_STRICT: 'false'
         run: npm run test:e2e
+
+      - name: Prześlij raport dostępności (Axe WCAG)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a11y-report
+          path: test-results/a11y-report.json
+          retention-days: 14
 
       - name: Prześlij raport HTML i ślady Playwright w razie błędu
         if: failure()

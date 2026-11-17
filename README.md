@@ -535,6 +535,23 @@ W przypadku niepowodzenia testów raport HTML jest zapisywany w katalogu `playwr
 
 ---
 
+## ♿ Testy dostępności
+
+Automatyczny audyt dostępności (`e2e/a11y.spec.ts`) korzysta z `@axe-core/playwright` (`wcag2a`, `wcag2aa`) i skanuje dla zalogowanego administratora wszystkie główne widoki oraz okna dialogowe (ekran logowania, listę zadań, Tablicę Kanban, Harmonogram Gantta, przegląd projektów, Kosz, szczegóły zadania, okno zadania, wszystkie 11 zakładek Ustawień i okno synchronizacji kalendarza) w trybie **jasnym** i **ciemnym**.
+
+```bash
+# Uruchomienie wyłącznie audytu dostępności (wymaga uprzedniego npm run build)
+A11Y_STRICT=false npx playwright test e2e/a11y.spec.ts
+
+# Tryb ścisły (test kończy się błędem przy naruszeniach o wpływie serious lub critical)
+A11Y_STRICT=true npx playwright test e2e/a11y.spec.ts
+```
+
+- **`A11Y_STRICT`** (domyślnie `false` w CI w bieżącym wydaniu): gdy ma wartość `'true'`, testy kończą się błędem dla każdego naruszenia o wpływie `serious` lub `critical`; przy każdej innej wartości naruszenia są jedynie wypisywane w logach i zapisywane w raporcie.
+- **Raport JSON (`test-results/a11y-report.json`):** w potoku CI pełna lista naruszeń per widok i motyw jest publikowana jako artefakt `a11y-report` (czas przechowywania: `14` dni).
+
+---
+
 ## 👥 Zespół i Wsparcie
 
 * **Autor & Opiekun:** Marcin Frączek

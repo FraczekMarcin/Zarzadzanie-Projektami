@@ -3,6 +3,15 @@
 Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.0.0/), wersjonowanie zgodne z [Semantic Versioning](https://semver.org/lang/pl/).
 
+## [0.10.2] - 2026-11-17
+
+### Dodano
+- **Automatyczne testy dostępności WCAG 2.0/2.1 (`e2e/a11y.spec.ts`, `package.json`, `package-lock.json`)**: dodano pakiet deweloperski `@axe-core/playwright` (z regeneracją `package-lock.json` przez `npm@11`) oraz zestaw skanów `AxeBuilder` (`wcag2a`, `wcag2aa`) dla zalogowanego administratora w trybie jasnym i ciemnym obejmujący ekran logowania, listę zadań, Tablicę Kanban, Harmonogram Gantta, przegląd projektów, Kosz, szczegóły zadania, okno zadania, wszystkie 11 zakładek Ustawień i okno synchronizacji kalendarza, z zapisem wyników do `test-results/a11y-report.json` oraz obsługą zmiennej `A11Y_STRICT`.
+- **Integracja raportu dostępności w CI i dokumentacja (`.github/workflows/ci.yml`, `README.md`)**: skonfigurowano zmienną `A11Y_STRICT: 'false'` w kroku E2E z komentarzem o planowanym przełączeniu na `'true'` po przeglądzie raportu, dodano przesyłanie artefaktu `a11y-report` (`actions/upload-artifact@v4`, retencja `14` dni) oraz sekcję **Testy dostępności** w `README.md`.
+
+### Zmieniono
+- **Wersjonowanie poprawkowe (`VERSION`, `package.json`, `package-lock.json`)**: podniesiono wersję aplikacji do `2026-11-17 v0.10.2` (`0.10.2`).
+
 ## [0.10.1] - 2026-11-16
 
 ### Dodano

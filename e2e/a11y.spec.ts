@@ -1,0 +1,415 @@
+import { test, expect, Page } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
+import { spawn, ChildProcess } from 'child_process';
+import crypto from 'crypto';
+import fs from 'fs';
+import net from 'net';
+import os from 'os';
+import path from 'path';
+
+const ADMIN_NAME = 'Administrator A11y';
+const ADMIN_EMAIL = 'a11y.admin@example.pl';
+const ADMIN_DEPT = 'Architektura';
+const ADMIN_PASS = 'Katedra-Projekt-2026!';
+
+const REPORT_PATH = path.resolve(process.cwd(), 'test-results', 'a11y-report.json');
+const AXE_TAGS = ['wcag2a', 'wcag2aa'];
+
+type ThemeKind = 'light' | 'dark';
+
+interface A11yViolationNodeSummary {
+  target: string[];
+  failureSummary?: string;
+}
+
+interface A11yViolationEntry {
+  id: string;
+  impact: string;
+  description: string;
+  help: string;
+  helpUrl: string;
+  tags: string[];
+  nodesCount: number;
+  nodes: A11yViolationNodeSummary[];
+}
+
+interface A11yViewScanResult {
+  view: string;
+  label: string;
+  theme: ThemeKind;
+  totalViolations: number;
+  seriousAndCriticalCount: number;
+  violations: A11yViolationEntry[];
+}
+
+const SETTINGS_TABS: Array<{ key: string; name: string }> = [
+  { key: 'settings-theme', name: 'Wygląd & Motyw' },
+  { key: 'settings-variables', name: 'Zmienne & Terminy' },
+  { key: 'settings-users', name: 'Użytkownicy & Zgody' },
+  { key: 'settings-security', name: 'Dziennik bezpieczeństwa' },
+  { key: 'settings-smtp', name: 'Poczta (SMTP)' },
+  { key: 'settings-notifications', name: 'Powiadomienia' },
+  { key: 'settings-access', name: 'Dostęp i sesje' },
+  { key: 'settings-update', name: 'Aktualizacje' },
+  { key: 'settings-docker', name: 'Wdrożenie Docker' },
+  { key: 'settings-backup', name: 'Kopie Zapasowe' },
+  { key: 'settings-calendar', name: 'Kalendarz Google' },
+];
+
+async function findFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.unref();
+    srv.on('error', reject);
+    srv.listen(0, '127.0.0.1', () => {
+      const addr = srv.address();
+      if (!addr || typeof addr === 'string') {
+        srv.close(() => reject(new Error('Nie udało się przydzielić wolnego portu TCP')));
+        return;
+      }
+      const { port } = addr;
+      srv.close((err) => (err ? reject(err) : resolve(port)));
+    });
+  });
+}
+
+async function waitForServerReady(baseUrl: string, timeoutMs = 30_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${baseUrl}/api/health`);
+      if (res.ok) {
+        return;
+      }
+    } catch {
+      // Serwer jeszcze się uruchamia
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`Izolowany serwer testowy A11y nie odpowiedział na ${baseUrl}/api/health`);
+}
+
+async function applyThemeForPage(page: Page, theme: ThemeKind): Promise<void> {
+  await page.evaluate((targetTheme) => {
+    localStorage.setItem('oph_theme_mode', targetTheme);
+    if (targetTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, theme);
+
+  if (theme === 'dark') {
+    await expect(page.locator('html')).toHaveClass(/dark/);
+  } else {
+    await expect(page.locator('html')).not.toHaveClass(/dark/);
+  }
+}
+
+async function loginThroughUi(page: Page, baseUrl: string, theme: ThemeKind): Promise<void> {
+  await page.goto(baseUrl);
+  await applyThemeForPage(page, theme);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('button', { name: 'Zaloguj do pracowni' })).toBeVisible();
+  await page.getByLabel(/Adres e-mail/i).fill(ADMIN_EMAIL);
+  await page.getByLabel(/Hasło dostępu/i).fill(ADMIN_PASS);
+  await page.getByRole('button', { name: 'Zaloguj do pracowni' }).click();
+  await expect(page.getByRole('button', { name: 'Wyloguj się z systemu' })).toBeVisible();
+  await applyThemeForPage(page, theme);
+}
+
+async function scanView(
+  page: Page,
+  results: A11yViewScanResult[],
+  view: string,
+  label: string,
+  theme: ThemeKind
+): Promise<void> {
+  const analysis = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
+  const violations: A11yViolationEntry[] = analysis.violations.map((v) => ({
+    id: v.id,
+    impact: v.impact || 'minor',
+    description: v.description,
+    help: v.help,
+    helpUrl: v.helpUrl,
+    tags: v.tags,
+    nodesCount: v.nodes.length,
+    nodes: v.nodes.slice(0, 10).map((n) => ({
+      target: n.target.map((t) => String(t)),
+      failureSummary: n.failureSummary,
+    })),
+  }));
+
+  const seriousAndCriticalCount = violations.filter(
+    (v) => v.impact === 'serious' || v.impact === 'critical'
+  ).length;
+
+  results.push({
+    view,
+    label,
+    theme,
+    totalViolations: violations.length,
+    seriousAndCriticalCount,
+    violations,
+  });
+
+  if (violations.length > 0) {
+    const summaryList = violations.map((v) => `${v.id}[${v.impact}:${v.nodesCount}]`).join(', ');
+    console.log(`[a11y][${theme}][${view}] Naruszenia (${violations.length}): ${summaryList}`);
+  } else {
+    console.log(`[a11y][${theme}][${view}] Brak naruszeń WCAG 2.x A/AA`);
+  }
+}
+
+function writeReport(results: A11yViewScanResult[]): void {
+  fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
+  const totalViolations = results.reduce((sum, r) => sum + r.totalViolations, 0);
+  const viewsWithViolations = results.filter((r) => r.totalViolations > 0).length;
+  const seriousViolations = results.reduce(
+    (sum, r) => sum + r.violations.filter((v) => v.impact === 'serious').length,
+    0
+  );
+  const criticalViolations = results.reduce(
+    (sum, r) => sum + r.violations.filter((v) => v.impact === 'critical').length,
+    0
+  );
+
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    strictMode: process.env.A11Y_STRICT === 'true',
+    tags: AXE_TAGS,
+    summary: {
+      totalScans: results.length,
+      viewsWithViolations,
+      totalViolations,
+      seriousViolations,
+      criticalViolations,
+    },
+    results,
+  };
+
+  fs.writeFileSync(REPORT_PATH, JSON.stringify(payload, null, 2) + '\n', 'utf-8');
+}
+
+test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i ciemnym', () => {
+  let serverProcess: ChildProcess | null = null;
+  let dataDir = '';
+  let baseUrl = '';
+  const scanResults: A11yViewScanResult[] = [];
+
+  test.beforeAll(async () => {
+    dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zp-a11y-data-'));
+    const port = await findFreePort();
+    baseUrl = `http://localhost:${port}`;
+    const appSecret = crypto.randomBytes(32).toString('hex');
+
+    serverProcess = spawn('node', ['dist/server.js'], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        NODE_ENV: 'production',
+        PORT: String(port),
+        DATA_DIR: dataDir,
+        APP_SECRET: appSecret,
+      },
+      stdio: 'pipe',
+    });
+
+    await waitForServerReady(baseUrl);
+  });
+
+  test.afterAll(async () => {
+    if (scanResults.length > 0) {
+      writeReport(scanResults);
+    }
+
+    if (serverProcess && !serverProcess.killed) {
+      serverProcess.kill('SIGTERM');
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          serverProcess?.kill('SIGKILL');
+          resolve();
+        }, 3_000);
+        serverProcess?.once('exit', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+    }
+
+    if (dataDir && fs.existsSync(dataDir)) {
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  test('1) konfiguracja danych testowych oraz skan ekranu logowania w trybie jasnym i ciemnym', async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.goto(baseUrl);
+    await expect(page.getByRole('heading', { name: 'Kreator Konfiguracji Administratora' })).toBeVisible();
+
+    await page.getByLabel(/Imię i Nazwisko Administratora/i).fill(ADMIN_NAME);
+    await page.getByLabel(/Adres e-mail/i).fill(ADMIN_EMAIL);
+    await page.getByLabel(/Dział \/ Rola w Pracowni/i).fill(ADMIN_DEPT);
+    await page.getByLabel(/Hasło Administratora/i).fill(ADMIN_PASS);
+    await page.getByLabel(/Powtórz hasło/i).fill(ADMIN_PASS);
+
+    const setupResPromise = page.waitForResponse(
+      (res) => res.url().includes('/api/auth/setup-admin') && res.request().method() === 'POST'
+    );
+    await page.getByRole('button', { name: 'Utwórz konto Administratora i przejdź do systemu' }).click();
+    expect((await setupResPromise).status()).toBe(200);
+    await expect(page.getByRole('button', { name: 'Wyloguj się z systemu' })).toBeVisible();
+
+    // Utworzenie projektu oraz 2 zadań (jedno aktywne, drugie przeniesione do kosza)
+    const nav = page.getByRole('navigation', { name: 'Główna nawigacja' });
+    await nav.getByRole('button', { name: 'Projekty', exact: true }).click();
+    await page.getByRole('button', { name: 'Zarejestruj nowy projekt' }).click();
+    await page.getByLabel(/Nazwa projektu/i).fill('Projekt Referencyjny A11y');
+    const projResPromise = page.waitForResponse(
+      (res) => res.url().includes('/api/projects') && res.request().method() === 'POST'
+    );
+    await page.getByRole('button', { name: 'Zarejestruj projekt' }).click();
+    expect((await projResPromise).status()).toBe(201);
+
+    await page.getByRole('button', { name: 'Nowe zadanie' }).first().click();
+    await page.getByLabel(/Tytuł zadania/i).fill('Zadanie referencyjne A11y');
+    const task1Promise = page.waitForResponse(
+      (res) => res.url().includes('/api/tasks') && res.request().method() === 'POST'
+    );
+    await page.getByRole('button', { name: 'Utwórz zadanie' }).click();
+    expect((await task1Promise).status()).toBe(201);
+
+    await page.getByRole('button', { name: 'Nowe zadanie' }).first().click();
+    await page.getByLabel(/Tytuł zadania/i).fill('Zadanie do kosza A11y');
+    const task2Promise = page.waitForResponse(
+      (res) => res.url().includes('/api/tasks') && res.request().method() === 'POST'
+    );
+    await page.getByRole('button', { name: 'Utwórz zadanie' }).click();
+    expect((await task2Promise).status()).toBe(201);
+
+    // Przeniesienie drugiego zadania do kosza, aby widok Kosz miał aktywny wpis do audytu
+    await nav.getByRole('button', { name: 'Zadania', exact: true }).click();
+    const trashTargetLink = page.getByRole('button', { name: 'Zadanie do kosza A11y' });
+    await expect(trashTargetLink).toBeVisible();
+    const trashRow = page.locator('tr', { has: trashTargetLink });
+    await trashRow.getByRole('button', { name: /^Usuń zadanie /i }).click();
+    const deleteDialog = page.getByRole('dialog', { name: /Usuń zadanie/i });
+    const deleteResPromise = page.waitForResponse(
+      (res) => res.url().includes('/api/tasks/') && res.request().method() === 'DELETE'
+    );
+    await deleteDialog.getByRole('button', { name: 'Tak, przenieś do kosza' }).click();
+    expect((await deleteResPromise).status()).toBe(200);
+
+    // Wylogowanie i skan ekranu logowania w trybie jasnym i ciemnym
+    await page.getByRole('button', { name: 'Wyloguj się z systemu' }).click();
+    await expect(page.getByRole('button', { name: 'Zaloguj do pracowni' })).toBeVisible();
+
+    await applyThemeForPage(page, 'light');
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('button', { name: 'Zaloguj do pracowni' })).toBeVisible();
+    await scanView(page, scanResults, 'login', 'Ekran logowania', 'light');
+
+    await applyThemeForPage(page, 'dark');
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('button', { name: 'Zaloguj do pracowni' })).toBeVisible();
+    await scanView(page, scanResults, 'login', 'Ekran logowania', 'dark');
+  });
+
+  for (const theme of ['light', 'dark'] as const) {
+    const themeLabel = theme === 'light' ? 'trybie jasnym' : 'trybie ciemnym';
+
+    test(`2) skan wszystkich widoków, szuflady, modali i zakładek Ustawień w ${themeLabel}`, async ({ page }) => {
+      test.setTimeout(150_000);
+      await loginThroughUi(page, baseUrl, theme);
+      const nav = page.getByRole('navigation', { name: 'Główna nawigacja' });
+
+      // 1. Gantt
+      await nav.getByRole('button', { name: 'Harmonogram Gantta', exact: true }).click();
+      await expect(nav.getByRole('button', { name: 'Harmonogram Gantta', exact: true })).toHaveAttribute('aria-current', 'page');
+      await scanView(page, scanResults, 'gantt', 'Harmonogram Gantta', theme);
+
+      // 2. Lista zadań
+      await nav.getByRole('button', { name: 'Zadania', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Zadanie referencyjne A11y' })).toBeVisible();
+      await scanView(page, scanResults, 'tasks', 'Lista zadań', theme);
+
+      // 3. Szczegóły zadania (TaskDetailDrawer)
+      await page.getByRole('button', { name: 'Zadanie referencyjne A11y' }).click();
+      const drawer = page.getByRole('dialog', { name: 'Zadanie referencyjne A11y' });
+      await expect(drawer).toBeVisible();
+      await scanView(page, scanResults, 'task-detail', 'Szczegóły zadania', theme);
+      await drawer.getByRole('button', { name: 'Zamknij szczegóły zadania' }).click();
+      await expect(drawer).toHaveCount(0);
+
+      // 4. Okno zadania (TaskModal)
+      await page.getByRole('button', { name: 'Nowe zadanie' }).first().click();
+      const taskModal = page.getByRole('dialog', { name: 'Nowe Zadanie' });
+      await expect(taskModal).toBeVisible();
+      await scanView(page, scanResults, 'task-modal', 'Okno zadania', theme);
+      await taskModal.getByRole('button', { name: 'Zamknij okno zadania' }).click();
+      await expect(taskModal).toHaveCount(0);
+
+      // 5. Kanban
+      await nav.getByRole('button', { name: 'Tablica Kanban', exact: true }).click();
+      await expect(nav.getByRole('button', { name: 'Tablica Kanban', exact: true })).toHaveAttribute('aria-current', 'page');
+      await scanView(page, scanResults, 'kanban', 'Tablica Kanban', theme);
+
+      // 6. Przegląd projektów
+      await nav.getByRole('button', { name: 'Projekty', exact: true }).click();
+      await expect(nav.getByRole('button', { name: 'Projekty', exact: true })).toHaveAttribute('aria-current', 'page');
+      await scanView(page, scanResults, 'projects', 'Przegląd projektów', theme);
+
+      // 7. Kosz
+      await nav.getByRole('button', { name: 'Kosz', exact: true }).click();
+      await expect(page.getByRole('heading', { name: /Kosz usuniętych zadań i projektów/i })).toBeVisible();
+      await scanView(page, scanResults, 'trash', 'Kosz', theme);
+
+      // 8. Każda zakładka Ustawień + Okno synchronizacji kalendarza
+      await page.getByRole('button', { name: 'Ustawienia systemu' }).click();
+      const settingsDialog = page.getByRole('dialog', { name: /Ustawienia Pracowni/i });
+      await expect(settingsDialog).toBeVisible();
+
+      for (const tabSpec of SETTINGS_TABS) {
+        const escaped = tabSpec.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const tab = settingsDialog.getByRole('tab', { name: new RegExp(escaped, 'i') });
+        await tab.click();
+        await expect(tab).toHaveAttribute('aria-selected', 'true');
+        await expect(settingsDialog.getByText('Ładowanie sekcji...')).toHaveCount(0);
+        await scanView(page, scanResults, tabSpec.key, `Ustawienia: ${tabSpec.name}`, theme);
+      }
+
+      // 9. Okno synchronizacji kalendarza (otwierane z aktywnej zakładki Kalendarz Google automatycznie zamyka Ustawienia)
+      await settingsDialog.getByRole('button', { name: 'Konfiguracja subskrypcji iCal i tokenu' }).click();
+      await expect(settingsDialog).toHaveCount(0);
+      const calendarDialog = page.getByRole('dialog', { name: /Prywatna synchronizacja z kalendarzami/i });
+      await expect(calendarDialog).toBeVisible();
+      await scanView(page, scanResults, 'calendar-sync-modal', 'Okno synchronizacji kalendarza', theme);
+      await calendarDialog.getByRole('button', { name: 'Zamknij okno synchronizacji z Kalendarzem Google' }).click();
+      await expect(calendarDialog).toHaveCount(0);
+    });
+  }
+
+  test('3) zapis raportu JSON i weryfikacja trybu A11Y_STRICT', async () => {
+    expect(scanResults.length).toBeGreaterThanOrEqual(38);
+    writeReport(scanResults);
+    expect(fs.existsSync(REPORT_PATH)).toBe(true);
+
+    const strict = process.env.A11Y_STRICT === 'true';
+    const seriousOrCritical = scanResults.flatMap((entry) =>
+      entry.violations
+        .filter((v) => v.impact === 'serious' || v.impact === 'critical')
+        .map((v) => `[${entry.theme}][${entry.view}] ${v.id} (${v.impact}, węzłów: ${v.nodesCount}): ${v.help}`)
+    );
+
+    if (strict) {
+      expect(
+        seriousOrCritical,
+        `Tryb A11Y_STRICT=true wykrył naruszenia serious/critical:\n${seriousOrCritical.join('\n')}`
+      ).toEqual([]);
+    } else if (seriousOrCritical.length > 0) {
+      console.log(
+        `[a11y] Tryb raportowy (A11Y_STRICT=${process.env.A11Y_STRICT || 'false'}): znaleziono ${seriousOrCritical.length} naruszeń serious/critical zapisanych do ${REPORT_PATH}.`
+      );
+    }
+  });
+});
