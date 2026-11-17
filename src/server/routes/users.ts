@@ -8,7 +8,7 @@ import {
   getOtpAuthUrl,
 } from '../../utils/totp.js';
 import { ServerConfig } from '../config.js';
-import { StateStore, sanitizeUser } from '../state.js';
+import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore, sanitizeUser } from '../state.js';
 import {
   SecurityContext,
   getClientIp,
@@ -142,6 +142,9 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
 
       res.json({ success: true, message: 'Hasło zostało pomyślnie zaktualizowane.' });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server Auth] Błąd zmiany hasła:', err);
       res.status(500).json({ error: 'Błąd podczas zmiany hasła' });
     }
@@ -218,6 +221,9 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
         backupCodes: codes,
       });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server Auth] Błąd 2fa/setup:', err);
       res.status(500).json({ error: 'Błąd generowania konfiguracji 2FA' });
     }
@@ -277,6 +283,9 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
         backupCodesCount: targetUser.twoFactorBackupCodes.length,
       });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server Auth] Błąd 2fa/confirm:', err);
       res.status(500).json({ error: 'Błąd potwierdzenia 2FA' });
     }
@@ -367,6 +376,9 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
 
       res.json({ success: true, twoFactorEnabled: false });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server Auth] Błąd 2fa/disable:', err);
       res.status(500).json({ error: 'Błąd wyłączania 2FA' });
     }
@@ -374,60 +386,76 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
 
   // POST /api/users/:userId/approve
   app.post('/api/users/:userId/approve', requireAdmin, async (req, res) => {
-    const caller = (req as any).user;
-    const { userId } = req.params;
-    const users = stateStore.getUsers() || [];
-    const targetUser = users.find((u) => u.id === userId);
-    if (!targetUser) return res.status(404).json({ error: 'Użytkownik nie istnieje' });
+    try {
+      const caller = (req as any).user;
+      const { userId } = req.params;
+      const users = stateStore.getUsers() || [];
+      const targetUser = users.find((u) => u.id === userId);
+      if (!targetUser) return res.status(404).json({ error: 'Użytkownik nie istnieje' });
 
-    targetUser.isApproved = true;
-    stateStore.setAppState({
-      ...(stateStore.getAppState() || {}),
-      users,
-      updatedAt: new Date().toISOString(),
-    });
-    await stateStore.saveStateAtomicAsync();
+      targetUser.isApproved = true;
+      stateStore.setAppState({
+        ...(stateStore.getAppState() || {}),
+        users,
+        updatedAt: new Date().toISOString(),
+      });
+      await stateStore.saveStateAtomicAsync();
 
-    securityLogger.record('user_approved', {
-      userId: targetUser.id,
-      ip: getClientIp(req),
-      userAgent: (req.headers['user-agent'] || '').slice(0, 100),
-      details: { approvedByCallerId: caller?.id, targetUserName: targetUser.name, role: targetUser.role },
-    }).catch(() => {});
+      securityLogger.record('user_approved', {
+        userId: targetUser.id,
+        ip: getClientIp(req),
+        userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+        details: { approvedByCallerId: caller?.id, targetUserName: targetUser.name, role: targetUser.role },
+      }).catch(() => {});
 
-    res.json({ success: true, user: sanitizeUser(targetUser) });
+      res.json({ success: true, user: sanitizeUser(targetUser) });
+    } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
+      logger.error('[Server Auth] Błąd zatwierdzania użytkownika:', err);
+      res.status(500).json({ error: 'Błąd zatwierdzania użytkownika' });
+    }
   });
 
   // DELETE /api/users/:userId
   app.delete('/api/users/:userId', requireAdmin, async (req, res) => {
-    const caller = (req as any).user;
-    const { userId } = req.params;
+    try {
+      const caller = (req as any).user;
+      const { userId } = req.params;
 
-    if (caller.id === userId) {
-      return res.status(400).json({ error: 'Nie możesz usunąć aktualnie zalogowanego konta Administratora' });
+      if (caller.id === userId) {
+        return res.status(400).json({ error: 'Nie możesz usunąć aktualnie zalogowanego konta Administratora' });
+      }
+
+      const users = stateStore.getUsers() || [];
+      const deletedUser = users.find((u) => u.id === userId);
+      const nextUsers = users.filter((u) => u.id !== userId);
+      stateStore.setUsers(nextUsers);
+      stateStore.setAppState({
+        ...(stateStore.getAppState() || {}),
+        users: nextUsers,
+        updatedAt: new Date().toISOString(),
+      });
+      await stateStore.saveStateAtomicAsync();
+      revokeUserSessions(userId);
+      saveSessionsAsync();
+
+      securityLogger.record('user_deleted', {
+        userId,
+        ip: getClientIp(req),
+        userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+        details: { deletedByCallerId: caller?.id, deletedUserName: deletedUser?.name, deletedUserRole: deletedUser?.role },
+      }).catch(() => {});
+
+      res.json({ success: true });
+    } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
+      logger.error('[Server Auth] Błąd usuwania użytkownika:', err);
+      res.status(500).json({ error: 'Błąd usuwania użytkownika' });
     }
-
-    const users = stateStore.getUsers() || [];
-    const deletedUser = users.find((u) => u.id === userId);
-    const nextUsers = users.filter((u) => u.id !== userId);
-    stateStore.setUsers(nextUsers);
-    stateStore.setAppState({
-      ...(stateStore.getAppState() || {}),
-      users: nextUsers,
-      updatedAt: new Date().toISOString(),
-    });
-    await stateStore.saveStateAtomicAsync();
-    revokeUserSessions(userId);
-    saveSessionsAsync();
-
-    securityLogger.record('user_deleted', {
-      userId,
-      ip: getClientIp(req),
-      userAgent: (req.headers['user-agent'] || '').slice(0, 100),
-      details: { deletedByCallerId: caller?.id, deletedUserName: deletedUser?.name, deletedUserRole: deletedUser?.role },
-    }).catch(() => {});
-
-    res.json({ success: true });
   });
 
   // POST /api/users
@@ -497,6 +525,9 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
 
       res.json({ success: true, user: sanitizeUser(newUser) });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       res.status(500).json({ error: err.message });
     }
   });

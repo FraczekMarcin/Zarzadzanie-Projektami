@@ -15,7 +15,7 @@ import {
   computeSessionPublicId,
 } from '../../utils/sessions.js';
 import { DUMMY_SCRYPT_HASH, ServerConfig } from '../config.js';
-import { StateStore, sanitizeUser } from '../state.js';
+import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore, sanitizeUser } from '../state.js';
 import {
   SecurityContext,
   getClientIp,
@@ -293,6 +293,9 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
 
       res.json({ success: true, message: 'Hasło zostało pomyślnie zmienione. Możesz się teraz zalogować nowym hasłem.' });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server Auth] Błąd confirm password reset:', err);
       res.status(500).json({ error: 'Błąd zapisu nowego hasła' });
     }
@@ -502,6 +505,9 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
       setSessionCookie(req, res, rawToken, sessionPolicy.maxHours * 3600);
       res.json({ success: true, user: sanitizeUser(user) });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server Auth] Błąd logowania:', err);
       res.status(500).json({ error: 'Wystąpił błąd serwera podczas logowania' });
     }
@@ -571,6 +577,9 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
         user: sanitizeUser(targetUser),
       });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server Auth] Błąd zapisu preferencji użytkownika:', err?.message || err);
       return res.status(500).json({ error: 'Nie udało się zapisać preferencji użytkownika.' });
     }
@@ -758,6 +767,9 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
 
       res.json({ success: true, user: sanitizeUser(adminUser) });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server Auth] Błąd setup-admin:', err);
       res.status(500).json({ error: 'Błąd tworzenia konta administratora' });
     }
@@ -867,6 +879,9 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
         twoFactor: twoFactorData,
       });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server Auth] Błąd rejestracji:', err);
       res.status(500).json({ error: 'Błąd rejestracji użytkownika' });
     }

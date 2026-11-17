@@ -1,7 +1,7 @@
 import express from 'express';
 import crypto from 'crypto';
 import { canAccessProject, canWrite, hasForbiddenKeys } from '../../utils/access.js';
-import { StateStore } from '../state.js';
+import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
 import { logger } from '../logger.js';
 
@@ -63,6 +63,9 @@ export function registerCommentRoutes(
 
       res.status(201).json({ success: true, comment: newComment, revision: newRev });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server API] Błąd dodawania komentarza:', err);
       res.status(500).json({ error: err.message });
     }
@@ -97,6 +100,9 @@ export function registerCommentRoutes(
 
       res.json({ success: true, revision: newRev });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server API] Błąd usuwania komentarza:', err);
       res.status(500).json({ error: err.message });
     }
@@ -183,6 +189,9 @@ export function registerCommentRoutes(
 
       res.status(201).json({ success: true, log: newLog, revision: newRev });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server API] Błąd zapisu aktywności:', err);
       res.status(500).json({ error: err.message });
     }

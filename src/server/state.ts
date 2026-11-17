@@ -10,6 +10,27 @@ import { SecurityLog } from '../utils/securityLog.js';
 import { ServerConfig } from './config.js';
 import { logger } from './logger.js';
 
+export const DISK_FULL_ERROR_MESSAGE =
+  'Brak miejsca na dysku serwera. Zmiana nie została zapisana.';
+export const DISK_WRITE_FAILED_COOLDOWN_MS = 10 * 60 * 1000;
+
+export function isDiskFullError(err: any): boolean {
+  return Boolean(
+    err &&
+      (err.code === 'ENOSPC' ||
+        err.cause?.code === 'ENOSPC' ||
+        err.status === 507 ||
+        err.statusCode === 507)
+  );
+}
+
+export function createDiskFullError(): Error & { status: number; code: string } {
+  const err = new Error(DISK_FULL_ERROR_MESSAGE) as Error & { status: number; code: string };
+  err.status = 507;
+  err.code = 'ENOSPC';
+  return err;
+}
+
 export interface StateStore {
   getAppState: () => any;
   setAppState: (next: any) => void;
@@ -129,8 +150,30 @@ export async function createStateStore(config: ServerConfig): Promise<StateStore
   let serverUsersCache: any[] = [];
   const revisionListeners = new Set<(revision: number) => void>();
 
+  let lastDiskWriteFailedEventAtMs: number | null = null;
+
   const appStateWriter = new StateWriter(async () => {
-    await store.save(serverAppStateCache);
+    try {
+      await store.save(serverAppStateCache);
+    } catch (err: any) {
+      if (isDiskFullError(err)) {
+        logger.error('[Server] Brak miejsca na dysku podczas zapisu stanu aplikacji (ENOSPC).');
+        const nowMs = Date.now();
+        if (
+          lastDiskWriteFailedEventAtMs === null ||
+          nowMs - lastDiskWriteFailedEventAtMs >= DISK_WRITE_FAILED_COOLDOWN_MS
+        ) {
+          lastDiskWriteFailedEventAtMs = nowMs;
+          await securityLogger
+            .record('disk_write_failed', {
+              details: { reason: 'ENOSPC' },
+            })
+            .catch(() => {});
+        }
+        throw createDiskFullError();
+      }
+      throw err;
+    }
   });
 
   function saveStateAtomicAsync(): Promise<void> {

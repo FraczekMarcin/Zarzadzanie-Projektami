@@ -214,6 +214,43 @@ export const UpdateTab: React.FC<UpdateTabProps> = ({
           Polecenie pobiera najnowsze zatwierdzenia z gałęzi main i natychmiastowo przebudowuje kontener bez utraty danych w pliku bazy JSON.
         </p>
       </div>
+
+      {/* Post-update Docker cleanup */}
+      <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h5 className="text-xs font-bold text-slate-900 dark:text-white">
+              Sprzątanie po udanej aktualizacji (oszczędność miejsca na dysku)
+            </h5>
+            <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+              Po weryfikacji, że nowa wersja działa poprawnie, usuń nieużywane obrazy Docker oraz starszą pamięć podręczną budowania. Wolumen z danymi aplikacji pozostaje nienaruszony.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              onCopyCode(
+                'docker image prune -f && docker builder prune -f --filter until=72h',
+                'post-update-cleanup'
+              )
+            }
+            className="flex items-center gap-1.5 text-xs bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 px-3 py-1.5 rounded-lg text-slate-800 dark:text-slate-200 font-semibold border border-slate-300 dark:border-slate-700 transition-colors cursor-pointer"
+          >
+            {copiedKey === 'post-update-cleanup' ? (
+              <Check className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
+            ) : (
+              <Copy className="w-3.5 h-3.5" aria-hidden="true" />
+            )}
+            <span>{copiedKey === 'post-update-cleanup' ? 'Skopiowano!' : 'Kopiuj polecenie'}</span>
+          </button>
+        </div>
+
+        <pre className="font-mono text-xs bg-slate-900 text-emerald-300 p-3 rounded-lg overflow-x-auto border border-slate-800 select-all">
+{`docker image prune -f
+# Opcjonalnie (usuwa cache budowania starszy niż 72 godziny):
+docker builder prune -f --filter until=72h`}
+        </pre>
+      </div>
     </div>
   );
 };

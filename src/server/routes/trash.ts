@@ -2,7 +2,7 @@ import express from 'express';
 import { getClientIp } from '../security.js';
 import { SessionStore } from '../sessions.js';
 import { SettingsService } from '../settings.js';
-import { StateStore } from '../state.js';
+import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { listTrashForUser, purgeExpiredTrash, restoreTrashEntry } from '../trash.js';
 import { logger } from '../logger.js';
 
@@ -67,6 +67,9 @@ export function registerTrashRoutes(
         revision: newRev,
       });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Trash] Błąd przywracania elementu z kosza:', err?.message || err);
       return res.status(500).json({ error: 'Nie udało się przywrócić elementu z kosza.' });
     }
@@ -105,6 +108,9 @@ export function registerTrashRoutes(
 
       return res.json({ success: true, count: 1, revision: newRev });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Trash] Błąd trwałego usuwania wpisu z kosza:', err?.message || err);
       return res.status(500).json({ error: 'Nie udało się trwale usunąć elementu z kosza.' });
     }
@@ -143,6 +149,9 @@ export function registerTrashRoutes(
 
       return res.json({ success: true, count, revision: newRev });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Trash] Błąd opróżniania kosza:', err?.message || err);
       return res.status(500).json({ error: 'Nie udało się opróżnić kosza.' });
     }

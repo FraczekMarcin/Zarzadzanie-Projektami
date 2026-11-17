@@ -4,6 +4,7 @@ import { ReminderService } from '../reminders.js';
 import { SecurityContext, getClientIp } from '../security.js';
 import { SessionStore } from '../sessions.js';
 import { SettingsService } from '../settings.js';
+import { DISK_FULL_ERROR_MESSAGE, isDiskFullError } from '../state.js';
 import { logger } from '../logger.js';
 
 export interface ReminderRoutesDeps {
@@ -84,6 +85,9 @@ export function registerReminderRoutes(
         status: reminderService.getStatus(),
       });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Reminders] Błąd ręcznego uruchomienia wysyłki przypomnień:', err?.message || err);
       return res.status(500).json({ error: 'Nie udało się uruchomić wysyłki przypomnień.' });
     }

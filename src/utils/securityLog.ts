@@ -31,7 +31,10 @@ export type SecurityEventType =
   | 'trash_purged'
   | 'trash_emptied'
   | 'reminders_sent'
-  | 'reminders_failed';
+  | 'reminders_failed'
+  | 'disk_low'
+  | 'disk_recovered'
+  | 'disk_write_failed';
 
 export type LoginFailureReason =
   | 'bad_password'
@@ -172,6 +175,9 @@ export const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   trash_emptied: 'Opróżnienie kosza',
   reminders_sent: 'Wysłano dzienne przypomnienia o terminach',
   reminders_failed: 'Błąd wysyłki dziennych przypomnień o terminach',
+  disk_low: 'Mało miejsca na dysku serwera',
+  disk_recovered: 'Miejsce na dysku serwera wróciło do normy',
+  disk_write_failed: 'Nieudany zapis stanu z powodu braku miejsca na dysku',
 };
 
 /**

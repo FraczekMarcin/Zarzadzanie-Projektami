@@ -6,7 +6,7 @@ import {
   pickAllowedTaskFields,
   buildNewTaskRecord,
 } from '../../utils/access.js';
-import { StateStore } from '../state.js';
+import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
 import { SettingsService } from '../settings.js';
 import { moveTaskToTrash } from '../trash.js';
@@ -85,6 +85,9 @@ export function registerTaskRoutes(
 
       res.status(201).json({ success: true, task: newTask, revision: newRev });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server API] Błąd tworzenia zadania:', err);
       res.status(500).json({ error: err.message });
     }
@@ -169,6 +172,9 @@ export function registerTaskRoutes(
 
       res.json({ success: true, task, revision: newRev });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server API] Błąd aktualizacji zadania:', err);
       res.status(500).json({ error: err.message });
     }
@@ -207,6 +213,9 @@ export function registerTaskRoutes(
 
       res.json({ success: true, revision: newRev, trashId: trashEntry.id });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server API] Błąd usuwania zadania:', err);
       res.status(500).json({ error: err.message });
     }

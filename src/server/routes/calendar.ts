@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { buildIcs, IcsProject, IcsTask } from '../../utils/icsBuilder.js';
 import { canAccessProject } from '../../utils/access.js';
 import { ServerConfig } from '../config.js';
-import { StateStore } from '../state.js';
+import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
 import { logger } from '../logger.js';
 
@@ -125,6 +125,9 @@ export function registerCalendarRoutes(
         ...(config.publicBaseUrl ? { publicBaseUrl: config.publicBaseUrl } : {}),
       });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server Calendar] Błąd generowania tokenu:', err);
       res.status(500).json({ error: err.message });
     }
@@ -152,6 +155,9 @@ export function registerCalendarRoutes(
       await stateStore.saveStateAtomicAsync();
       res.json({ success: true });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server Calendar] Błąd odwoływania tokenu:', err);
       res.status(500).json({ error: err.message });
     }

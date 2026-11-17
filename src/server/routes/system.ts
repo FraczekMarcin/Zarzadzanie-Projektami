@@ -2,6 +2,7 @@ import express from 'express';
 import { filterStateForUser } from '../../utils/access.js';
 import { SecurityEventType } from '../../utils/securityLog.js';
 import { computeBackupStatus } from '../backupStatus.js';
+import { classifyDiskLevel, DiskStatus, getDiskStatus } from '../diskWatch.js';
 import {
   BACKUP_STATUS_CACHE_TTL_MS,
   UPDATE_CACHE_TTL_MS,
@@ -9,7 +10,7 @@ import {
   getLocalInstalledVersion,
   isNewerVersion,
 } from '../config.js';
-import { StateStore, sanitizeUser } from '../state.js';
+import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore, sanitizeUser } from '../state.js';
 import { SessionStore } from '../sessions.js';
 import { logger } from '../logger.js';
 
@@ -29,9 +30,14 @@ interface UpdateCheckCache {
 
 export function registerSystemRoutes(
   app: express.Express,
-  deps: { config: ServerConfig; stateStore: StateStore; sessionStore: SessionStore }
+  deps: {
+    config: ServerConfig;
+    stateStore: StateStore;
+    sessionStore: SessionStore;
+    diskStatusCheckOverride?: () => Promise<DiskStatus | null>;
+  }
 ): void {
-  const { config, stateStore, sessionStore } = deps;
+  const { config, stateStore, sessionStore, diskStatusCheckOverride } = deps;
   const { requireAuth, requireAdmin } = sessionStore;
 
   let backupStatusCache: { data: any; cachedAt: number } | null = null;
@@ -135,6 +141,9 @@ export function registerSystemRoutes(
       await stateStore.saveStateAtomicAsync();
       res.json({ success: true, revision: newRev, timestamp: stateStore.getAppState().updatedAt });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ success: false, error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server] Error saving app_state:', err);
       res.status(500).json({ success: false, error: err.message });
     }
@@ -180,6 +189,41 @@ export function registerSystemRoutes(
     } catch (err: any) {
       logger.error('[Server] Błąd pobierania statusu kopii zapasowej:', err);
       res.status(500).json({ active: false, error: err.message });
+    }
+  });
+
+  // GET /api/admin/system — informacje o systemie, dysku, czasie pracy i kopii zapasowej (tylko admin, bez ścieżek systemowych)
+  app.get('/api/admin/system', requireAdmin, async (_req, res) => {
+    try {
+      const now = Date.now();
+      const [diskRaw, backup] = await Promise.all([
+        diskStatusCheckOverride ? diskStatusCheckOverride() : getDiskStatus(config.dataDir),
+        computeBackupStatus({
+          dataDir: config.dataDir,
+          maxAgeHours: config.backupMaxAgeHours,
+          nowMs: now,
+        }),
+      ]);
+
+      const disk = diskRaw
+        ? {
+            freeBytes: diskRaw.freeBytes,
+            totalBytes: diskRaw.totalBytes,
+            freePercent: diskRaw.freePercent,
+            level: classifyDiskLevel(diskRaw),
+          }
+        : null;
+
+      return res.json({
+        version: getLocalInstalledVersion(),
+        mode: config.isProduction ? 'production' : 'development',
+        disk,
+        uptimeSeconds: Math.floor(process.uptime()),
+        backup,
+      });
+    } catch (err: any) {
+      logger.error('[Server] Błąd pobierania statusu systemu:', err?.message || err);
+      return res.status(500).json({ error: 'Nie udało się pobrać informacji o systemie.' });
     }
   });
 

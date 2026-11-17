@@ -4,7 +4,7 @@ import {
   ServerConfig,
   resolveServerConfig,
 } from './config.js';
-import { createStateStore, StateStore } from './state.js';
+import { createStateStore, DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from './state.js';
 import { applyCoreMiddleware, createSecurityContext, SecurityContext } from './security.js';
 import { createSessionStore, SessionStore } from './sessions.js';
 import { registerSystemRoutes } from './routes/system.js';
@@ -17,6 +17,7 @@ import { registerCalendarRoutes } from './routes/calendar.js';
 import { registerEventRoutes, EventRoutesHandle } from './routes/events.js';
 import { createGoogleSyncService, registerGoogleSyncRoutes } from './googleSync.js';
 import { createBackupWatchService } from './backupWatch.js';
+import { createDiskWatchService } from './diskWatch.js';
 import { createSettingsService } from './settings.js';
 import { createMailer } from './mailer.js';
 import { registerAdminSettingsRoutes } from './routes/adminSettings.js';
@@ -60,6 +61,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
     checkStatusOverride: options.backupStatusCheckOverride,
     mailerOverride: options.backupAlertMailer,
   });
+  const diskWatch = createDiskWatchService({
+    config,
+    stateStore,
+    mailer,
+    disableTimers: options.diskWatchDisableTimers,
+    checkStatusOverride: options.diskStatusCheckOverride,
+    mailerOverride: options.diskAlertMailer,
+  });
   const trashCleanup = createTrashCleanupService({
     stateStore,
     disableTimers: options.trashCleanupDisableTimers,
@@ -81,6 +90,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
 
     reminderService.stop();
     trashCleanup.stop();
+    diskWatch.stop();
     backupWatch.stop();
     googleSync.stop();
     eventsHandle?.closeAll();
@@ -110,7 +120,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
     await trashCleanup.start();
     await reminderService.start();
 
-    registerSystemRoutes(app, { config, stateStore, sessionStore });
+    registerSystemRoutes(app, {
+      config,
+      stateStore,
+      sessionStore,
+      diskStatusCheckOverride: options.diskStatusCheckOverride,
+    });
     registerAuthRoutes(app, { config, stateStore, sessionStore, security, settingsService, mailer });
     registerTaskRoutes(app, { stateStore, sessionStore, settingsService });
     registerProjectRoutes(app, { stateStore, sessionStore, settingsService });
@@ -132,6 +147,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
 
     // Globalny middleware obsługi błędów zwracający ZAWSZE JSON { error: string } (bez HTML, bez stack trace)
     app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       const status = typeof err?.status === 'number' ? err.status : (typeof err?.statusCode === 'number' ? err.statusCode : 500);
       let errorMsg = 'Wystąpił wewnętrzny błąd serwera';
 

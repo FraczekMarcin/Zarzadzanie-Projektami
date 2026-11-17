@@ -6,7 +6,7 @@ import {
   hasForbiddenKeys,
   pickAllowedProjectFields,
 } from '../../utils/access.js';
-import { StateStore } from '../state.js';
+import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
 import { SettingsService } from '../settings.js';
 import { moveProjectToTrash } from '../trash.js';
@@ -90,6 +90,9 @@ export function registerProjectRoutes(
         revision: newRev,
       });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server API] Błąd tworzenia projektu:', err);
       res.status(500).json({ error: err.message });
     }
@@ -174,6 +177,9 @@ export function registerProjectRoutes(
         revision: newRev,
       });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server API] Błąd aktualizacji projektu:', err);
       res.status(500).json({ error: err.message });
     }
@@ -210,6 +216,9 @@ export function registerProjectRoutes(
 
       res.json({ success: true, revision: newRev, trashId: trashEntry.id });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[Server API] Błąd usuwania projektu:', err);
       res.status(500).json({ error: err.message });
     }

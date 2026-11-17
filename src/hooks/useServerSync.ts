@@ -287,6 +287,12 @@ export function useServerSync({
           setSelectedProjectId((prev) => (prev === project.id ? data.project.id : prev));
           setTasks((prev) => prev.map((t) => (t.projectId === project.id ? { ...t, projectId: data.project.id } : t)));
         }
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setNotificationToast({
+          message: errData.error || 'Nie udało się zapisać nowego projektu na serwerze.',
+          type: 'error',
+        });
       }
     } catch (err) {
       console.warn('Błąd tworzenia projektu na serwerze:', err);
@@ -324,6 +330,12 @@ export function useServerSync({
         if (typeof data.revision === 'number') {
           applyRevision(data.revision);
         }
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setNotificationToast({
+          message: errData.error || 'Nie udało się zapisać zmian projektu na serwerze.',
+          type: 'error',
+        });
       }
     } catch (err) {
       console.warn('Błąd aktualizacji projektu na serwerze:', err);

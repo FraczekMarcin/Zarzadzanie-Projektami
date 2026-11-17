@@ -365,6 +365,12 @@ export function useAuthSession({
           message: `Wniosek rejestracji użytkownika ${newUserData.name} został zarejestrowany. Administrator musi zatwierdzić konto przed pierwszym logowaniem.`,
           type: 'info',
         });
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setNotificationToast({
+          message: err.error || 'Nie udało się zarejestrować konta.',
+          type: 'error',
+        });
       }
     } catch {}
   };
@@ -407,6 +413,12 @@ export function useAuthSession({
         setNotificationToast({
           message: `Wniosek rejestracyjny ${user?.name || userId} został odrzucony i usunięty.`,
           type: 'info',
+        });
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setNotificationToast({
+          message: err.error || 'Nie udało się odrzucić wniosku rejestracyjnego.',
+          type: 'error',
         });
       }
     } catch {}

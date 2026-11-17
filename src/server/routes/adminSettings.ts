@@ -8,7 +8,7 @@ import {
 } from '../security.js';
 import { SessionStore } from '../sessions.js';
 import { SettingsService } from '../settings.js';
-import { StateStore } from '../state.js';
+import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { logger } from '../logger.js';
 
 export interface AdminSettingsRoutesDeps {
@@ -111,6 +111,9 @@ export function registerAdminSettingsRoutes(
         settings: updatedPayload,
       });
     } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
       logger.error('[AdminSettings] Błąd zapisu ustawień administratora:', err?.message || err);
       return res.status(500).json({ error: 'Nie udało się zapisać ustawień administratora.' });
     }

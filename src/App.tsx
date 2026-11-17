@@ -180,6 +180,12 @@ export default function App() {
     message?: string;
   } | null>(null);
   const [isBackupActive, setIsBackupActive] = useState<boolean>(false);
+  const [systemDiskStatus, setSystemDiskStatus] = useState<{
+    freeBytes: number;
+    totalBytes: number;
+    freePercent: number;
+    level: 'ok' | 'warn' | 'critical';
+  } | null>(null);
   const [trashRetentionDays, setTrashRetentionDays] = useState<number>(30);
   const [pendingDetailProjectId, setPendingDetailProjectId] = useState<string | null>(null);
   const [smtpConfigured, setSmtpConfigured] = useState<boolean | null>(null);
@@ -421,6 +427,32 @@ export default function App() {
       .catch(() => {});
     return () => {
       mounted = false;
+    };
+  }, [isAuthenticated, currentUser?.role, isSettingsModalOpen]);
+
+  // Dla administratora monitoruj status dysku serwera przez /api/admin/system (co 5 min, pomijaj gdy document.hidden)
+  useEffect(() => {
+    if (!isAuthenticated || currentUser?.role !== 'admin') {
+      setSystemDiskStatus(null);
+      return;
+    }
+    let mounted = true;
+    const fetchSystemDisk = async () => {
+      if (document.hidden) return;
+      try {
+        const res = await fetch('/api/admin/system', { credentials: 'same-origin' });
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        if (mounted && data) {
+          setSystemDiskStatus(data.disk ?? null);
+        }
+      } catch {}
+    };
+    fetchSystemDisk();
+    const interval = setInterval(fetchSystemDisk, 300000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
     };
   }, [isAuthenticated, currentUser?.role, isSettingsModalOpen]);
 
@@ -1012,6 +1044,24 @@ export default function App() {
               <span>Oczekujące ({pendingUsersCount})</span>
             </button>
           )}
+
+          {/* Low Server Disk Warning Badge for Administrator */}
+          {currentUser?.role === 'admin' &&
+            (systemDiskStatus?.level === 'warn' || systemDiskStatus?.level === 'critical') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSettingsTab('access');
+                  setIsSettingsModalOpen(true);
+                }}
+                aria-label="Mało miejsca na dysku serwera"
+                title={`Mało miejsca na dysku serwera (wolne ${systemDiskStatus.freePercent}%). Kliknij, aby sprawdzić szczegóły.`}
+                className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-all whitespace-nowrap border bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border-rose-400 dark:border-rose-800 hover:bg-rose-100 animate-pulse"
+              >
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-700 dark:text-rose-400" aria-hidden="true" />
+                <span>Mało miejsca na dysku serwera</span>
+              </button>
+            )}
 
           {/* Dedykowany Przycisk Wylogowania - powrót do ekranu logowania */}
           <button

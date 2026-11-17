@@ -117,6 +117,12 @@ export function useTaskActions({
         if (data.task) {
           setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, ...data.task } : t)));
         }
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setNotificationToast({
+          message: errData.error || 'Nie udało się zapisać zmian zadania na serwerze.',
+          type: 'error',
+        });
       }
     } catch (err) {
       console.warn('Błąd zapisu zadania do API:', err);
@@ -166,6 +172,12 @@ export function useTaskActions({
         if (data.task) {
           setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, ...data.task } : t)));
         }
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setNotificationToast({
+          message: errData.error || 'Nie udało się zapisać nowego zadania na serwerze.',
+          type: 'error',
+        });
       }
     } catch (err) {
       console.warn('Błąd tworzenia zadania na serwerze:', err);
@@ -230,6 +242,12 @@ export function useTaskActions({
         if (typeof data.revision === 'number') {
           applyRevision(data.revision);
         }
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setNotificationToast({
+          message: errData.error || 'Nie udało się zapisać komentarza na serwerze.',
+          type: 'error',
+        });
       }
     } catch (err) {
       console.warn('Błąd dodawania komentarza na serwerze:', err);

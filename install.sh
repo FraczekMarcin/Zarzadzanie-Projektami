@@ -297,4 +297,7 @@ echo -e "    ${BLUE}(Nota: COMPOSE_FILE jest ustawione w .env – komenda automa
 fi
 echo -e "  - Ręczna kopia zapasowa:   ${YELLOW}/bin/bash ${INSTALL_DIR}/backup.sh${NC}"
 echo -e "  - Zatrzymanie:             ${YELLOW}cd ${INSTALL_DIR} && $DOCKER_CMD down${NC}"
+echo -e "  - Sprzątanie po aktualizacji (usuwa stare obrazy i cache >72h bez ruszania wolumenu danych):"
+echo -e "    ${YELLOW}docker image prune -f${NC}"
+echo -e "    ${YELLOW}docker builder prune -f --filter until=72h${NC}  ${BLUE}(opcjonalnie)${NC}"
 echo -e "${GREEN}=================================================================${NC}"

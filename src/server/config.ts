@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { validateAppSecret } from '../utils/secretBox.js';
 import type { BackupStatusResult } from './backupStatus.js';
+import type { DiskStatus } from './diskWatch.js';
 import { logger } from './logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -44,6 +45,11 @@ export interface CreateAppOptions {
   remindersDisableTimers?: boolean;
   backupStatusCheckOverride?: () => Promise<BackupStatusResult>;
   backupAlertMailer?: (mail: { to: string[]; subject: string; text: string; html?: string }) => Promise<void>;
+  diskAlertPercent?: number;
+  diskAlertMinMb?: number;
+  diskWatchDisableTimers?: boolean;
+  diskStatusCheckOverride?: () => Promise<DiskStatus | null>;
+  diskAlertMailer?: (mail: { to: string[]; subject: string; text: string; html?: string }) => Promise<void>;
 }
 
 export interface ServerConfig {
@@ -75,6 +81,8 @@ export interface ServerConfig {
   googleCalendarId: string;
   backupMaxAgeHours: number;
   backupAlertEmails: string[];
+  diskAlertPercent: number;
+  diskAlertMinMb: number;
   isSelfRegistrationAllowed: () => boolean;
   getSetupToken: () => string;
   isSetupTokenRequired: () => boolean;
@@ -241,6 +249,26 @@ export function resolveServerConfig(options: CreateAppOptions = {}): ServerConfi
     .map((e) => e.trim())
     .filter(Boolean);
 
+  const rawDiskAlertPercent = Number(process.env.DISK_ALERT_PERCENT);
+  const diskAlertPercent =
+    typeof options.diskAlertPercent === 'number' &&
+    Number.isFinite(options.diskAlertPercent) &&
+    options.diskAlertPercent > 0
+      ? options.diskAlertPercent
+      : Number.isFinite(rawDiskAlertPercent) && rawDiskAlertPercent > 0
+      ? rawDiskAlertPercent
+      : 10;
+
+  const rawDiskAlertMinMb = Number(process.env.DISK_ALERT_MIN_MB);
+  const diskAlertMinMb =
+    typeof options.diskAlertMinMb === 'number' &&
+    Number.isFinite(options.diskAlertMinMb) &&
+    options.diskAlertMinMb > 0
+      ? options.diskAlertMinMb
+      : Number.isFinite(rawDiskAlertMinMb) && rawDiskAlertMinMb > 0
+      ? rawDiskAlertMinMb
+      : 500;
+
   const isSmtpConfigured = (): boolean =>
     Boolean(process.env.SMTP_HOST && process.env.SMTP_HOST.trim().length > 0);
 
@@ -276,6 +304,8 @@ export function resolveServerConfig(options: CreateAppOptions = {}): ServerConfi
     googleCalendarId,
     backupMaxAgeHours,
     backupAlertEmails,
+    diskAlertPercent,
+    diskAlertMinMb,
     isSelfRegistrationAllowed,
     getSetupToken,
     isSetupTokenRequired,

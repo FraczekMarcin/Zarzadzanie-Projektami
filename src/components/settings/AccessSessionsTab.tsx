@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   RefreshCw,
   Info,
+  HardDrive,
 } from 'lucide-react';
 import type { User } from '../../types';
 import {
@@ -20,6 +21,46 @@ import {
   TRASH_RETENTION_MIN,
 } from '../../utils/settingsSchema';
 
+interface AdminSystemResponse {
+  version: string;
+  mode: string;
+  disk: {
+    freeBytes: number;
+    totalBytes: number;
+    freePercent: number;
+    level: 'ok' | 'warn' | 'critical';
+  } | null;
+  uptimeSeconds: number;
+  backup: {
+    active: boolean;
+    lastBackup: { filename: string; timestamp: string; ageHours: number; size: number } | null;
+    maxAgeHours: number;
+    message?: string;
+  };
+}
+
+function formatDiskSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '0 MB';
+  const gb = bytes / (1024 * 1024 * 1024);
+  if (gb >= 1) {
+    return `${gb.toFixed(1)} GB`;
+  }
+  const mb = Math.round(bytes / (1024 * 1024));
+  return `${mb} MB`;
+}
+
+function formatServerUptime(totalSeconds: number): string {
+  const sec = Math.max(0, Math.floor(totalSeconds));
+  const days = Math.floor(sec / 86400);
+  const hours = Math.floor((sec % 86400) / 3600);
+  const minutes = Math.floor((sec % 3600) / 60);
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days} d`);
+  if (hours > 0 || days > 0) parts.push(`${hours} godz.`);
+  parts.push(`${minutes} min`);
+  return parts.join(' ');
+}
+
 export interface AccessSessionsTabProps {
   isOpen: boolean;
   currentUser: User | null;
@@ -27,6 +68,7 @@ export interface AccessSessionsTabProps {
 
 export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({ isOpen, currentUser }) => {
   const [data, setData] = useState<AdminSettingsResponse | null>(null);
+  const [systemStatus, setSystemStatus] = useState<AdminSystemResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -56,13 +98,22 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({ isOpen, cu
     setIsLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch('/api/admin/settings', { credentials: 'same-origin' });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
+      const [settingsRes, systemRes] = await Promise.all([
+        fetch('/api/admin/settings', { credentials: 'same-origin' }),
+        fetch('/api/admin/system', { credentials: 'same-origin' }).catch(() => null),
+      ]);
+      const json = await settingsRes.json().catch(() => ({}));
+      if (!settingsRes.ok) {
         setLoadError(json.error || 'Nie udało się pobrać ustawień dostępu i sesji.');
-        return;
+      } else {
+        applyResponseToForm(json as AdminSettingsResponse);
       }
-      applyResponseToForm(json as AdminSettingsResponse);
+      if (systemRes && systemRes.ok) {
+        const sysJson = await systemRes.json().catch(() => null);
+        if (sysJson) {
+          setSystemStatus(sysJson as AdminSystemResponse);
+        }
+      }
     } catch (err: any) {
       setLoadError(err?.message || 'Błąd połączenia z serwerem.');
     } finally {
@@ -461,6 +512,123 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({ isOpen, cu
             </dl>
           </div>
         </>
+      )}
+
+      {systemStatus && (
+        <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <HardDrive className="w-4 h-4 text-sky-700 dark:text-sky-400 shrink-0" aria-hidden="true" />
+              <h5 className="font-bold text-slate-900 dark:text-white text-xs">
+                Stan serwera i zajętość dysku
+              </h5>
+            </div>
+            {systemStatus.disk ? (
+              <span
+                className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold border ${
+                  systemStatus.disk.level === 'critical'
+                    ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-800 dark:text-rose-200 border-rose-300 dark:border-rose-800'
+                    : systemStatus.disk.level === 'warn'
+                    ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-800'
+                    : 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-emerald-800'
+                }`}
+              >
+                {systemStatus.disk.level === 'critical'
+                  ? 'Krytyczny (brak miejsca)'
+                  : systemStatus.disk.level === 'warn'
+                  ? 'Ostrzeżenie (mało miejsca)'
+                  : 'OK'}
+              </span>
+            ) : (
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                Brak danych
+              </span>
+            )}
+          </div>
+
+          {systemStatus.disk ? (
+            <div className="space-y-1.5">
+              {(() => {
+                const usedPercent = Math.min(100, Math.max(0, Math.round((100 - systemStatus.disk.freePercent) * 10) / 10));
+                return (
+                  <>
+                    <div className="flex items-center justify-between text-xs text-slate-700 dark:text-slate-300">
+                      <span>
+                        Wolne miejsce:{' '}
+                        <strong className="font-mono text-slate-900 dark:text-white">
+                          {formatDiskSize(systemStatus.disk.freeBytes)}
+                        </strong>{' '}
+                        z{' '}
+                        <span className="font-mono">
+                          {formatDiskSize(systemStatus.disk.totalBytes)}
+                        </span>{' '}
+                        ({systemStatus.disk.freePercent}%)
+                      </span>
+                      <span className="font-mono text-[11px] text-slate-600 dark:text-slate-400">
+                        Zajęto: {usedPercent}%
+                      </span>
+                    </div>
+                    <div
+                      role="progressbar"
+                      aria-label="Zajętość dysku serwera"
+                      aria-valuenow={Math.round(usedPercent)}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      className="w-full h-2.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden"
+                    >
+                      <div
+                        className={`h-full transition-all ${
+                          systemStatus.disk.level === 'critical'
+                            ? 'bg-rose-600 dark:bg-rose-500'
+                            : systemStatus.disk.level === 'warn'
+                            ? 'bg-amber-600 dark:bg-amber-500'
+                            : 'bg-emerald-600 dark:bg-emerald-500'
+                        }`}
+                        style={{ width: `${Math.min(100, Math.max(2, usedPercent))}%` }}
+                      />
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Nie udało się odczytać statystyk wolnego miejsca na dysku serwera.
+            </p>
+          )}
+
+          <dl className="divide-y divide-slate-200 dark:divide-slate-800 text-xs pt-1">
+            <div className="py-2 flex flex-col sm:flex-row sm:justify-between gap-1">
+              <dt className="font-semibold text-slate-700 dark:text-slate-300">
+                Czas pracy serwera (uptime)
+              </dt>
+              <dd className="font-mono text-slate-900 dark:text-slate-100 sm:text-right">
+                {formatServerUptime(systemStatus.uptimeSeconds)}
+              </dd>
+            </div>
+            <div className="py-2 flex flex-col sm:flex-row sm:justify-between gap-1">
+              <dt className="font-semibold text-slate-700 dark:text-slate-300">
+                Status kopii zapasowej
+              </dt>
+              <dd className="sm:text-right text-slate-900 dark:text-slate-100">
+                <span
+                  className={`font-semibold ${
+                    systemStatus.backup.active
+                      ? 'text-emerald-700 dark:text-emerald-400'
+                      : 'text-rose-700 dark:text-rose-400'
+                  }`}
+                >
+                  {systemStatus.backup.active ? 'Aktywna' : 'Nieaktualna / brak'}
+                </span>
+                {systemStatus.backup.message && (
+                  <span className="block text-[11px] text-slate-600 dark:text-slate-400">
+                    {systemStatus.backup.message}
+                  </span>
+                )}
+              </dd>
+            </div>
+          </dl>
+        </div>
       )}
     </div>
   );

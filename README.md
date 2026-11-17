@@ -193,6 +193,15 @@ cd /opt/zarzadzanie-projektami && /bin/bash backup.sh && git pull origin main &&
 
 ⚠️ **Ważne ostrzeżenie:** Nigdy nie uruchamiaj polecenia `docker compose down -v` (flaga `-v` usuwa wolumeny). Do standardowego zatrzymania używaj zawsze samego `docker compose down`.
 
+### Sprzątanie po udanej aktualizacji:
+
+Po potwierdzeniu, że zaktualizowana aplikacja działa poprawnie, warto usunąć nieużywane starsze obrazy Dockera oraz stary cache budowania (wolumen z danymi `zarzadzanie_app_data` pozostaje nienaruszony):
+```bash
+docker image prune -f
+# Opcjonalnie — usuwa cache budowania starszy niż 72 godziny:
+docker builder prune -f --filter until=72h
+```
+
 ---
 
 ## 🔄 Przywracanie stanu z kopii zapasowej krok po kroku
@@ -415,7 +424,9 @@ Wszystkie poniższe zmienne można skonfigurować w pliku `.env` (wzór wdrożen
 | `STORAGE` | `json` | Opcjonalna | Wybór warstwy utrwalania stanu (`json`). |
 | `BACKUP_DIR` | `./backups` / `/opt/zarzadzanie-projektami/backups` | Opcjonalna | Dodatkowy katalog przeszukiwany przez `GET /api/backup/status` w celu wyznaczania statusu kopii w interfejsie. |
 | `BACKUP_MAX_AGE_HOURS` | `36` | Opcjonalna | Maksymalny dopuszczalny wiek najnowszej kopii zapasowej (w godzinach) przed oznaczeniem kopii jako nieaktualnej i wysłaniem alertu. |
-| `BACKUP_ALERT_EMAILS` | `""` | Opcjonalna | Lista adresów e-mail (rozdzielona przecinkami) do wysyłki alertów o braku świeżej kopii zapasowej; gdy pusta, używa adresów aktywnych administratorów (wymaga SMTP). |
+| `BACKUP_ALERT_EMAILS` | `""` | Opcjonalna | Lista adresów e-mail (rozdzielona przecinkami) do wysyłki alertów o braku świeżej kopii zapasowej i niskim wolnym miejscu na dysku; gdy pusta, używa adresów aktywnych administratorów (wymaga SMTP). |
+| `DISK_ALERT_PERCENT` | `10` | Opcjonalna | Próg procentowy wolnego miejsca na dysku (`DATA_DIR`), poniżej którego wysyłane jest powiadomienie e-mail do administratorów. |
+| `DISK_ALERT_MIN_MB` | `500` | Opcjonalna | Minimalna ilość wolnego miejsca na dysku w MB, poniżej której wysyłane jest powiadomienie e-mail do administratorów. |
 | `APP_SECRET` | losowy klucz w `<DATA_DIR>/.dev_app_secret` (dev); brak w prod | **Wymagana w prod** | Klucz szyfrowania sekretów 2FA i haseł SMTP (AES-256-GCM) oraz hashowania kodów zapasowych (co najmniej 64 znaki hex / 32 bajty entropii). |
 | `APP_VERSION` | zawartość pliku `VERSION` | Opcjonalna | Ręczne nadpisanie wersji zgłaszanej przez `/api/health` i `/api/system-info`. |
 | `LOG_LEVEL` | `info` | Opcjonalna | Poziom logowania serwera (`debug`, `info`, `warn`, `error`). |
@@ -494,6 +505,31 @@ Usługi kontenerowe posiadają włączoną rotację logów (`driver: json-file`,
 Podgląd logów na żywo na serwerze produkcyjnym:
 ```bash
 docker compose logs --tail 100 -f
+```
+
+---
+
+## 💽 Zajętość dysku
+
+System monitoruje wolne miejsce w katalogu danych `DATA_DIR` (2 minuty po starcie i cyklicznie co 6 godzin):
+- **Ostrzeżenia w panelu administratora:** wskaźnik stanu dysku i czasu pracy serwera jest widoczny w **Ustawienia → Dostęp i sesje** (`GET /api/admin/system`), a przy poziomie poniżej **15%** (`warn`) lub poniżej **5% / 200 MB** (`critical`) na górnym pasku pojawia się czerwona plakietka **Mało miejsca na dysku serwera**.
+- **Alerty e-mail i dziennik bezpieczeństwa:** gdy wolne miejsce spadnie poniżej `DISK_ALERT_PERCENT` (domyślnie `10%`) lub `DISK_ALERT_MIN_MB` (domyślnie `500 MB`), serwer zapisuje zdarzenie `disk_low` i (gdy skonfigurowano SMTP) wysyła powiadomienie e-mail do adresatów z `BACKUP_ALERT_EMAILS` lub aktywnych administratorów (maksymalnie raz na 24 godziny) oraz pojedyncze powiadomienie o powrocie do normy (`disk_recovered`).
+- **Ochrona przed przepełnieniem zapisu:** w przypadku błędu braku miejsca (`ENOSPC`) podczas zapisu pliku `app_state.json`, serwer zwraca kod HTTP `507` z czytelnym komunikatem dla użytkownika i rejestruje zdarzenie `disk_write_failed` (nie częściej niż raz na 10 minut), nie przerywając działania aplikacji.
+
+Polecenia diagnostyczne i bezpieczne zwalnianie miejsca na serwerze Linux:
+```bash
+# Sprawdzenie wolnego miejsca w systemie plików:
+df -h /
+
+# Podsumowanie zajętości obrazów, kontenerów, wolumenów i cache Dockera:
+docker system df
+
+# Rozmiar katalogu Dockera na hoście:
+du -sh /var/lib/docker
+
+# Bezpieczne usunięcie nieużywanych obrazów i cache budowania starszego niż 72h (nie usuwa wolumenu z danymi!):
+docker image prune -f
+docker builder prune -f --filter until=72h
 ```
 
 ---
