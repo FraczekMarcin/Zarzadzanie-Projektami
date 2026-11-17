@@ -31,6 +31,7 @@ export function useServerSync({
 }: UseServerSyncParams) {
   // Rewizja stanu na serwerze i referencje dla współbieżnej synchronizacji
   const [stateRevision, setStateRevision] = useState<number>(0);
+  const [hasLoadedState, setHasLoadedState] = useState<boolean>(false);
   const stateRevisionRef = useRef<number>(0);
   stateRevisionRef.current = stateRevision;
 
@@ -55,6 +56,7 @@ export function useServerSync({
       const res = await fetch('/api/state', { credentials: 'same-origin' });
       if (res.status === 401) {
         closeEventSource();
+        setHasLoadedState(false);
         setIsAuthenticated(false);
         localStorage.removeItem('oph_is_authenticated');
         return;
@@ -92,6 +94,7 @@ export function useServerSync({
         if (Array.isArray(s.comments)) {
           setComments(s.comments);
         }
+        setHasLoadedState(true);
         if (showNotification) {
           setNotificationToast({
             message: 'Zmiany od innych użytkowników zostały pobrane',
@@ -106,7 +109,10 @@ export function useServerSync({
 
   // Inicjalne pobranie stanu przy starcie sesji
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated) {
+      setHasLoadedState(false);
+      return;
+    }
     fetchFreshState(false);
   }, [isAuthenticated]);
 
@@ -150,7 +156,7 @@ export function useServerSync({
         if (!res.ok) return false;
         const data = await res.json();
         if (typeof data.revision === 'number' && data.revision > stateRevisionRef.current) {
-          await fetchFreshState(true);
+          await fetchFreshState(stateRevisionRef.current > 0);
         }
         return true;
       } catch (err) {
@@ -218,7 +224,7 @@ export function useServerSync({
         }
 
         if (incomingRevision !== null && incomingRevision > stateRevisionRef.current) {
-          void fetchFreshState(true);
+          void fetchFreshState(stateRevisionRef.current > 0);
         }
       });
 
@@ -375,6 +381,7 @@ export function useServerSync({
   };
 
   return {
+    hasLoadedState,
     stateRevision,
     stateRevisionRef,
     applyRevision,

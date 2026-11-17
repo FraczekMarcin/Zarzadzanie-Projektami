@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Project, Task, ActivityLog, Comment } from '../types';
 import { INITIAL_PROJECTS, INITIAL_TASKS, INITIAL_ACTIVITY } from '../data/initialData';
 import { isDemoUser } from '../utils/demoData';
+import { clearPendingDeepLink } from '../utils/deepLink';
 
 export interface NotificationToast {
   message: string;
@@ -178,6 +179,7 @@ export function useAuthSession({
         localStorage.removeItem(k);
       }
     } catch {}
+    clearPendingDeepLink();
 
     // 4. Wyczyść stan React (projects, tasks, comments, activityLogs, currentUser) do wartości początkowych
     setProjects(INITIAL_PROJECTS);

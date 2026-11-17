@@ -305,6 +305,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
     const setupRequired = users.length === 0;
     const allowSelfRegistration = isSelfRegistrationAllowed();
     const requireSetupToken = isSetupTokenRequired();
+    const passwordResetAvailable = isSmtpConfigured();
 
     if (!session) {
       return res.json({
@@ -312,12 +313,14 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
         setupRequired,
         allowSelfRegistration,
         requireSetupToken,
+        passwordResetAvailable,
       });
     }
 
     res.json({
       authenticated: true,
       setupRequired,
+      passwordResetAvailable,
       userCount: users.length,
       users: users.filter((u) => u.isApproved !== false).map(sanitizeUser),
     });
@@ -533,6 +536,14 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
       const body = req.body;
       if (!body || typeof body !== 'object' || Array.isArray(body) || hasForbiddenKeys(body)) {
         return res.status(400).json({ error: 'Nieprawidłowy format danych preferencji.' });
+      }
+
+      const ALLOWED_PREFERENCE_KEYS = new Set(['emailReminders']);
+      const unknownKeys = Object.keys(body).filter((key) => !ALLOWED_PREFERENCE_KEYS.has(key));
+      if (unknownKeys.length > 0) {
+        return res.status(400).json({
+          error: `Niedozwolone pola w żądaniu preferencji: ${unknownKeys.join(', ')}.`,
+        });
       }
 
       if (typeof body.emailReminders !== 'boolean') {

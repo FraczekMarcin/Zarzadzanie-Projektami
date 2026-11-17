@@ -78,7 +78,6 @@ export const LoginGate: React.FC<LoginGateProps> = ({
 
   // Email Password Recovery state (Strict SMTP)
   const [isSmtpConfigured, setIsSmtpConfigured] = useState<boolean | null>(null);
-  const [smtpStatusMessage, setSmtpStatusMessage] = useState<string | null>(null);
   const [recoveryStep, setRecoveryStep] = useState<'email' | 'code' | 'new_password' | 'success'>('email');
   const [recoveryEmail, setRecoveryEmail] = useState('');
   const [enteredRecoveryCode, setEnteredRecoveryCode] = useState('');
@@ -134,6 +133,12 @@ export const LoginGate: React.FC<LoginGateProps> = ({
           if (typeof data.requireSetupToken === 'boolean') {
             setRequireSetupToken(data.requireSetupToken);
           }
+          if (typeof data.passwordResetAvailable === 'boolean') {
+            setIsSmtpConfigured(data.passwordResetAvailable);
+            if (!data.passwordResetAvailable) {
+              setActiveTab((prev) => (prev === 'recovery' ? 'login' : prev));
+            }
+          }
         } else if (users.length === 0) {
           setSetupRequired(true);
         }
@@ -155,13 +160,18 @@ export const LoginGate: React.FC<LoginGateProps> = ({
       const res = await fetch('/api/auth/password-reset/status', { credentials: 'same-origin' });
       if (res.ok) {
         const data = await res.json();
-        setIsSmtpConfigured(Boolean(data.enabled));
-        setSmtpStatusMessage(data.message);
+        const enabled = Boolean(data.enabled);
+        setIsSmtpConfigured(enabled);
+        if (!enabled) {
+          setActiveTab((prev) => (prev === 'recovery' ? 'login' : prev));
+        }
       } else {
         setIsSmtpConfigured(false);
+        setActiveTab((prev) => (prev === 'recovery' ? 'login' : prev));
       }
     } catch {
       setIsSmtpConfigured(false);
+      setActiveTab((prev) => (prev === 'recovery' ? 'login' : prev));
     }
   };
 
@@ -706,68 +716,78 @@ export const LoginGate: React.FC<LoginGateProps> = ({
         </div>
 
         {/* Tab switcher: Logowanie vs Rejestracja vs Odzyskiwanie hasła */}
-        <div role="tablist" aria-label="Tryb uwierzytelniania" className={`grid ${allowSelfRegistration ? 'grid-cols-3' : 'grid-cols-2'} p-1 bg-slate-900/60 rounded-xl border border-slate-700/60 text-xs font-semibold gap-1`}>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'login'}
-            onClick={() => {
-              setActiveTab('login');
-              setRegSuccess(false);
-              setLoginError(null);
-            }}
-            className={`py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-              activeTab === 'login'
-                ? 'bg-sky-700 text-white shadow-xs'
-                : 'text-slate-300 hover:text-white'
-            }`}
-          >
-            <Lock className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Logowanie</span>
-          </button>
+        {(() => {
+          const passwordResetAvailable = isSmtpConfigured === true;
+          const visibleTabsCount = 1 + (allowSelfRegistration ? 1 : 0) + (passwordResetAvailable ? 1 : 0);
+          const tabGridClass =
+            visibleTabsCount === 3 ? 'grid-cols-3' : visibleTabsCount === 2 ? 'grid-cols-2' : 'grid-cols-1';
+          return (
+            <div role="tablist" aria-label="Tryb uwierzytelniania" className={`grid ${tabGridClass} p-1 bg-slate-900/60 rounded-xl border border-slate-700/60 text-xs font-semibold gap-1`}>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'login'}
+                onClick={() => {
+                  setActiveTab('login');
+                  setRegSuccess(false);
+                  setLoginError(null);
+                }}
+                className={`py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                  activeTab === 'login'
+                    ? 'bg-sky-700 text-white shadow-xs'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <Lock className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Logowanie</span>
+              </button>
 
-          {allowSelfRegistration && (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'register'}
-              onClick={() => {
-                setActiveTab('register');
-                setLoginError(null);
-                setRegError(null);
-              }}
-              className={`py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                activeTab === 'register'
-                  ? 'bg-sky-700 text-white shadow-xs'
-                  : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              <UserPlus className="w-3.5 h-3.5" aria-hidden="true" />
-              <span>Nowe konto</span>
-            </button>
-          )}
+              {allowSelfRegistration && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === 'register'}
+                  onClick={() => {
+                    setActiveTab('register');
+                    setLoginError(null);
+                    setRegError(null);
+                  }}
+                  className={`py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                    activeTab === 'register'
+                      ? 'bg-sky-700 text-white shadow-xs'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <UserPlus className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>Nowe konto</span>
+                </button>
+              )}
 
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'recovery'}
-            onClick={() => {
-              setActiveTab('recovery');
-              setRecoveryStep('email');
-              setRecoveryError(null);
-              setRecoveryInfoMsg(null);
-              checkSmtpStatus();
-            }}
-            className={`py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-              activeTab === 'recovery'
-                ? 'bg-sky-700 text-white shadow-xs'
-                : 'text-slate-300 hover:text-white'
-            }`}
-          >
-            <KeyRound className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Reset hasła</span>
-          </button>
-        </div>
+              {passwordResetAvailable && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === 'recovery'}
+                  onClick={() => {
+                    setActiveTab('recovery');
+                    setRecoveryStep('email');
+                    setRecoveryError(null);
+                    setRecoveryInfoMsg(null);
+                    checkSmtpStatus();
+                  }}
+                  className={`py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                    activeTab === 'recovery'
+                      ? 'bg-sky-700 text-white shadow-xs'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <KeyRound className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>Reset hasła</span>
+                </button>
+              )}
+            </div>
+          );
+        })()}
 
         {/* TAB 1: LOGOWANIE (2FA STEP - STRICT RFC 6238 OR BACKUP CODE) */}
         {activeTab === 'login' && authStep === '2fa' && (
@@ -882,22 +902,28 @@ export const LoginGate: React.FC<LoginGateProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center justify-end">
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('recovery');
-                  setRecoveryStep('email');
-                  setRecoveryError(null);
-                  setRecoveryInfoMsg(null);
-                  checkSmtpStatus();
-                }}
-                className="text-[11px] text-sky-400 hover:text-sky-300 hover:underline flex items-center gap-1"
-              >
-                <KeyRound className="w-3 h-3" aria-hidden="true" />
-                <span>Nie pamiętasz hasła? Odzyskaj przez e-mail</span>
-              </button>
-            </div>
+            {isSmtpConfigured === true ? (
+              <div className="flex items-center justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('recovery');
+                    setRecoveryStep('email');
+                    setRecoveryError(null);
+                    setRecoveryInfoMsg(null);
+                    checkSmtpStatus();
+                  }}
+                  className="text-[11px] text-sky-400 hover:text-sky-300 hover:underline flex items-center gap-1"
+                >
+                  <KeyRound className="w-3 h-3" aria-hidden="true" />
+                  <span>Nie pamiętam hasła</span>
+                </button>
+              </div>
+            ) : isSmtpConfigured === false ? (
+              <p role="status" className="text-[11px] text-slate-300 bg-slate-900/60 border border-slate-700/70 rounded-lg px-3 py-2 leading-relaxed">
+                Odzyskiwanie hasła e-mailem jest wyłączone. Poproś administratora o reset hasła.
+              </p>
+            ) : null}
 
             <button
               type="submit"

@@ -79,6 +79,8 @@ test.describe.serial('Testy end-to-end aplikacji Zarządzanie Projektami', () =>
   let lastUsedTotpStep = -1;
   let backupCodeForSecondContext = '';
   let backupCodeForTrashTest = '';
+  let backupCodeForDeepLinkTest = '';
+  let createdTaskId = '';
 
   function computeNextTotp(secret: string): string {
     const nowStep = Math.floor(Date.now() / 1000 / 30);
@@ -155,6 +157,9 @@ test.describe.serial('Testy end-to-end aplikacji Zarządzanie Projektami', () =>
     await page.getByRole('button', { name: 'Utwórz zadanie' }).click();
     const createTaskRes = await createTaskPromise;
     expect(createTaskRes.status()).toBe(201);
+    const createTaskJson = await createTaskRes.json();
+    createdTaskId = String(createTaskJson?.task?.id || '');
+    expect(createdTaskId).toBeTruthy();
 
     const createdCard = page.getByRole('button', { name: /Zadanie .*: Projekt koncepcyjny E2E/i });
     await expect(createdCard).toBeVisible();
@@ -310,6 +315,8 @@ test.describe.serial('Testy end-to-end aplikacji Zarządzanie Projektami', () =>
     backupCodeForSecondContext = (await firstBackupCodeEl.innerText()).trim();
     const secondBackupCodeEl = accountDialog.getByText(/^[A-Z2-7]{5}-[A-Z2-7]{5}$/).nth(1);
     backupCodeForTrashTest = (await secondBackupCodeEl.innerText()).trim();
+    const thirdBackupCodeEl = accountDialog.getByText(/^[A-Z2-7]{5}-[A-Z2-7]{5}$/).nth(2);
+    backupCodeForDeepLinkTest = (await thirdBackupCodeEl.innerText()).trim();
 
     await accountDialog.getByRole('button', { name: 'Zakończ i zamknij' }).click();
     await accountDialog.getByRole('button', { name: 'Zamknij okno uwierzytelniania' }).click();
@@ -417,6 +424,71 @@ test.describe.serial('Testy end-to-end aplikacji Zarządzanie Projektami', () =>
     await page.getByRole('navigation', { name: 'Główna nawigacja' }).getByRole('button', { name: 'Kosz', exact: true }).click();
     await expect(page.getByRole('heading', { name: /Kosz usuniętych zadań i projektów/i })).toBeVisible();
     await expect(page.getByText('Kosz jest pusty')).toBeVisible();
+
+    await monitor.assertClean();
+  });
+
+  test('h) linki bezpośrednie (?task=...), ekran logowania bez SMTP oraz podpowiedź konfiguracji poczty dla administratora', async ({ page }) => {
+    const monitor = await attachErrorMonitor(page);
+    expect(createdTaskId).toBeTruthy();
+    expect(backupCodeForDeepLinkTest).toBeTruthy();
+
+    // 1. Wylogowany użytkownik otwiera /?task=<id> i widzi ekran logowania bez resetu hasła e-mailem
+    await page.goto(`/?task=${encodeURIComponent(createdTaskId)}`);
+    await expect(page.getByRole('button', { name: 'Zaloguj do pracowni' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Nie pamiętam hasła/i })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: /Reset hasła/i })).toHaveCount(0);
+    await expect(
+      page.getByText('Odzyskiwanie hasła e-mailem jest wyłączone. Poproś administratora o reset hasła.')
+    ).toBeVisible();
+
+    // 2. Logowanie z oczekującym linkiem bezpośrednim automatycznie otwiera TaskDetailDrawer i czyści URL
+    await page.getByLabel(/Adres e-mail/i).fill(ADMIN_EMAIL);
+    await page.getByLabel(/Hasło dostępu/i).fill(ADMIN_PASS);
+    await page.getByRole('button', { name: 'Zaloguj do pracowni' }).click();
+    const codeInput = page.getByLabel(/Kod z aplikacji Google Authenticator/i);
+    await expect(codeInput).toBeVisible();
+    await codeInput.fill(backupCodeForDeepLinkTest);
+    await page.getByRole('button', { name: 'Zweryfikuj kod i zaloguj' }).click();
+
+    const taskDrawer = page.getByRole('dialog', { name: 'Projekt wykonawczy E2E' });
+    await expect(taskDrawer).toBeVisible();
+    expect(page.url()).not.toContain('task=');
+    await taskDrawer.getByRole('button', { name: 'Zamknij szczegóły zadania' }).click();
+    await expect(taskDrawer).toHaveCount(0);
+
+    // 3. Banner administratora informujący o braku SMTP: przejście do Poczta (SMTP) oraz zamknięcie na 7 dni
+    const smtpBanner = page.getByRole('region', { name: 'Podpowiedź konfiguracji poczty SMTP' });
+    await expect(smtpBanner).toBeVisible();
+    await expect(smtpBanner).toContainText(
+      'Poczta nie jest skonfigurowana. Przypomnienia i odzyskiwanie hasła nie działają. Skonfiguruj ją w Ustawienia > Poczta (SMTP).'
+    );
+    await smtpBanner.getByRole('button', { name: 'Skonfiguruj pocztę SMTP' }).click();
+    const settingsDialog = page.getByRole('dialog');
+    await expect(settingsDialog).toBeVisible();
+    await expect(settingsDialog.getByRole('tab', { name: /Poczta \(SMTP\)/i })).toHaveAttribute('aria-selected', 'true');
+    await settingsDialog.getByRole('button', { name: 'Zamknij ustawienia' }).click();
+
+    await smtpBanner.getByRole('button', { name: 'Zamknij podpowiedź o konfiguracji poczty na 7 dni' }).click();
+    await expect(smtpBanner).toHaveCount(0);
+
+    // 4. Zalogowany użytkownik otwiera /?task=<id> -> otwiera szufladę, usuwa parametr i nie otwiera po odświeżeniu
+    await page.goto(`/?task=${encodeURIComponent(createdTaskId)}`);
+    await expect(page.getByRole('dialog', { name: 'Projekt wykonawczy E2E' })).toBeVisible();
+    expect(page.url()).not.toContain('task=');
+    await expect(smtpBanner).toHaveCount(0);
+
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Wyloguj się z systemu' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Projekt wykonawczy E2E' })).toHaveCount(0);
+
+    // 5. Nieistniejące ID zadania w ?task= wyświetla komunikat bez ujawniania istnienia
+    await page.goto('/?task=tsk-nonexistent-999');
+    const missingAlert = page.getByRole('alert').filter({
+      hasText: 'Zadanie nie istnieje lub nie masz do niego dostępu.',
+    });
+    await expect(missingAlert).toBeVisible();
+    expect(page.url()).not.toContain('task=');
 
     await monitor.assertClean();
   });

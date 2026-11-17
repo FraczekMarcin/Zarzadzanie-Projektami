@@ -15,6 +15,7 @@ import { LoginGate } from './components/LoginGate';
 import { useAuthSession, NotificationToast } from './hooks/useAuthSession';
 import { useServerSync } from './hooks/useServerSync';
 import { useTaskActions } from './hooks/useTaskActions';
+import { useDeepLink } from './hooks/useDeepLink';
 
 // Lazy loading dla rzadziej otwieranych dużych modali (optymalizacja wielkości chunku)
 const SettingsModal = lazy(() =>
@@ -134,6 +135,20 @@ export default function App() {
   } | null>(null);
   const [isBackupActive, setIsBackupActive] = useState<boolean>(false);
   const [trashRetentionDays, setTrashRetentionDays] = useState<number>(30);
+  const [pendingDetailProjectId, setPendingDetailProjectId] = useState<string | null>(null);
+  const [smtpConfigured, setSmtpConfigured] = useState<boolean | null>(null);
+  const [isSmtpBannerDismissed, setIsSmtpBannerDismissed] = useState<boolean>(() => {
+    try {
+      const raw = localStorage.getItem('zp_smtp_banner_dismissed_until');
+      if (!raw) return false;
+      const until = Number(raw);
+      if (Number.isFinite(until) && until > Date.now()) {
+        return true;
+      }
+      localStorage.removeItem('zp_smtp_banner_dismissed_until');
+    } catch {}
+    return false;
+  });
 
   const closeEventSourceRef = useRef<() => void>(() => {});
   const logActivityRef = useRef<(action: string, taskId?: string, details?: string) => void>(() => {});
@@ -233,6 +248,7 @@ export default function App() {
   }, [isAuthenticated]);
 
   const {
+    hasLoadedState,
     applyRevision,
     fetchFreshState,
     createProjectOnServer,
@@ -308,6 +324,25 @@ export default function App() {
     };
   }, [isAuthenticated, isSettingsModalOpen]);
 
+  // Dla administratora sprawdź czy poczta SMTP jest skonfigurowana (odśwież po zamknięciu ustawień)
+  useEffect(() => {
+    if (!isAuthenticated || currentUser?.role !== 'admin') {
+      setSmtpConfigured(null);
+      return;
+    }
+    let mounted = true;
+    fetch('/api/admin/settings', { credentials: 'same-origin' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!mounted || !data?.smtp) return;
+        setSmtpConfigured(Boolean(data.smtp.configured));
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, [isAuthenticated, currentUser?.role, isSettingsModalOpen]);
+
   // Toast auto-dismiss (domyślnie 5s, np. 8s dla „Cofnij”)
   useEffect(() => {
     if (notificationToast) {
@@ -373,6 +408,22 @@ export default function App() {
     isOpen: Boolean(taskToDelete),
     containerRef: taskDeleteModalRef,
     onClose: () => setTaskToDelete(null),
+  });
+
+  useDeepLink({
+    isAuthenticated,
+    hasLoadedState,
+    tasks,
+    projects,
+    onOpenTask: handleSelectTask,
+    onOpenProject: (project) => {
+      setSelectedProjectId(project.id);
+      setActiveView('projects');
+      setPendingDetailProjectId(project.id);
+    },
+    onNotifyMissing: (message) => {
+      setNotificationToast({ message, type: 'error' });
+    },
   });
 
   const handleAddProject = (newProjData: Omit<Project, 'id'>, selectedTemplate?: ProjectTemplate) => {
@@ -1009,6 +1060,47 @@ export default function App() {
 
       {/* 3. MAIN WORKSPACE VIEWPORT (ciemny motyw obejmuje cały obszar roboczy) */}
       <main id="main-content" tabIndex={-1} className="flex-1 py-3 px-2 sm:px-3 lg:px-4 w-full max-w-none bg-slate-50/50 dark:bg-slate-950 transition-colors focus:outline-none">
+        {currentUser?.role === 'admin' && smtpConfigured === false && !isSmtpBannerDismissed && (
+          <div
+            role="region"
+            aria-label="Podpowiedź konfiguracji poczty SMTP"
+            className="mb-3 px-4 py-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-100 text-xs flex flex-wrap items-center justify-between gap-3 shadow-2xs"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <AlertCircle className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0" aria-hidden="true" />
+              <span>
+                Poczta nie jest skonfigurowana. Przypomnienia i odzyskiwanie hasła nie działają. Skonfiguruj ją w Ustawienia &gt; Poczta (SMTP).
+              </span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setSettingsTab('smtp');
+                  setIsSettingsModalOpen(true);
+                }}
+                className="px-3 py-1 rounded bg-amber-700 hover:bg-amber-600 text-white font-semibold transition-colors"
+              >
+                Skonfiguruj pocztę SMTP
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+                    localStorage.setItem('zp_smtp_banner_dismissed_until', String(Date.now() + sevenDaysMs));
+                  } catch {}
+                  setIsSmtpBannerDismissed(true);
+                }}
+                aria-label="Zamknij podpowiedź o konfiguracji poczty na 7 dni"
+                className="p-1 rounded text-amber-800 dark:text-amber-200 hover:bg-amber-200/60 dark:hover:bg-amber-900/60 transition-colors"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {activeView === 'gantt' && (
           <GanttChart
             tasks={sortedTasks}
@@ -1084,6 +1176,8 @@ export default function App() {
             onDeleteProject={handleDeleteProject}
             onDeleteAllDemoData={handleDeleteAllDemoData}
             trashRetentionDays={trashRetentionDays}
+            pendingDetailProjectId={pendingDetailProjectId}
+            onConsumePendingDetailProject={() => setPendingDetailProjectId(null)}
           />
         )}
 

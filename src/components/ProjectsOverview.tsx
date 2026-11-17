@@ -86,6 +86,8 @@ interface ProjectsOverviewProps {
   onDeleteProject?: (projectId: string) => void;
   onDeleteAllDemoData?: () => void;
   trashRetentionDays?: number;
+  pendingDetailProjectId?: string | null;
+  onConsumePendingDetailProject?: () => void;
 }
 
 export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
@@ -99,6 +101,8 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   onDeleteProject,
   onDeleteAllDemoData,
   trashRetentionDays = 30,
+  pendingDetailProjectId = null,
+  onConsumePendingDetailProject,
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
@@ -118,6 +122,16 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
   // Read-only project details viewer
   const [viewingProject, setViewingProject] = useState<Project | null>(null);
+
+  useEffect(() => {
+    if (!pendingDetailProjectId) return;
+    const matched = projects.find((p) => p.id === pendingDetailProjectId);
+    if (matched) {
+      setActiveTab(matched.isArchived ? 'archived' : 'active');
+      setViewingProject(matched);
+    }
+    onConsumePendingDetailProject?.();
+  }, [pendingDetailProjectId, projects, onConsumePendingDetailProject]);
 
   // Admin archive confirmation modal
   const [projectToArchive, setProjectToArchive] = useState<{

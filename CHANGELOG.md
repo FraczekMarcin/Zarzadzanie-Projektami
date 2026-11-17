@@ -3,6 +3,18 @@
 Wszystkie istotne zmiany w projekcie są dokumentowane w tym pliku.
 Format oparty na [Keep a Changelog](https://keepachangelog.com/pl/1.0.0/), wersjonowanie zgodne z [Semantic Versioning](https://semver.org/lang/pl/).
 
+## [0.10.1] - 2026-11-16
+
+### Dodano
+- **Obsługa linków bezpośrednich (`src/utils/deepLink.ts`, `src/hooks/useDeepLink.ts`, `src/hooks/useServerSync.ts`, `src/hooks/useAuthSession.ts`, `src/components/ProjectsOverview.tsx`, `src/App.tsx`)**: dodano parsowanie parametrów `?task=<id>` oraz `?project=<id>` przy starcie, 10-minutowe zapamiętywanie celu w `sessionStorage` dla niezalogowanych użytkowników, automatyczne otwieranie `TaskDetailDrawer` lub `ProjectDetailModal` po załadowaniu stanu, czyszczenie parametrów przez `history.replaceState` oraz komunikat `aria-live` o braku zadania lub dostępu bez ujawniania istnienia zasobu.
+- **Podpowiedź administratora o braku konfiguracji SMTP (`src/App.tsx`)**: dodano zamykalny banner widoczny wyłącznie dla administratora, gdy serwer SMTP nie jest skonfigurowany, z bezpośrednim przejściem do zakładki **Ustawienia > Poczta (SMTP)** i zapamiętaniem zamknięcia przez `7` dni w `localStorage`.
+- **Testy poprawek wydania (`src/__tests__/deepLink.test.ts`, `src/__tests__/postReleaseFixes.test.ts`, `e2e/app.spec.ts`)**: dodano testy jednostkowe `parseDeepLink` i `sessionStorage` TTL, testy integracyjne `passwordResetAvailable` oraz białej listy preferencji, a także scenariusze E2E Playwright dla linków bezpośrednich, ekranu logowania bez SMTP i podpowiedzi SMTP.
+
+### Zmieniono
+- **Widoczność odzyskiwania hasła na ekranie logowania (`src/server/routes/auth.ts`, `src/components/LoginGate.tsx`)**: dodano flagę `passwordResetAvailable` w `GET /api/auth/setup-status` zależną od konfiguracji SMTP oraz ukryto zakładkę **Reset hasła** i link **Nie pamiętam hasła**, gdy SMTP nie jest skonfigurowany, wyświetlając czytelną informację o konieczności kontaktu z administratorem.
+- **Ścisła walidacja preferencji użytkownika (`src/server/routes/auth.ts`)**: ograniczono `PATCH /api/auth/preferences` ścisłą białą listą kluczy (`emailReminders`) ze zwrotem kodu `400` dla nieznanych pól.
+- **Wersjonowanie poprawkowe (`VERSION`, `package.json`, `package-lock.json`)**: podniesiono wersję aplikacji do `2026-11-16 v0.10.1` (`0.10.1`).
+
 ## [0.10.0] - 2026-11-16
 
 ### Dodano
