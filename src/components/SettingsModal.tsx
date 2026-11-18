@@ -20,7 +20,7 @@ import { CURRENT_APP_VERSION } from '../data/dockerConfig';
 import { getAutoBackupConfig, saveAutoBackupConfig } from '../utils/autoBackup';
 import { User, Project } from '../types';
 import { copyToClipboard } from '../utils/clipboard';
-import { getDeadlineWarningDays, saveDeadlineWarningDays } from '../utils/variableSettings';
+import { useVariables } from '../hooks/useVariables';
 
 const ThemeTab = lazy(() =>
   import('./settings/ThemeTab').then((m) => ({ default: m.ThemeTab }))
@@ -125,7 +125,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [backupEnabled, setBackupEnabled] = useState(false);
   const [backupInterval, setBackupInterval] = useState(60);
-  const [warningDays, setWarningDays] = useState<number>(3);
+  const { deadlineWarningDays: warningDays } = useVariables();
 
   useEffect(() => {
     if (initialTab) {
@@ -138,7 +138,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const config = getAutoBackupConfig();
     setBackupEnabled(config.enabled);
     setBackupInterval(config.intervalMinutes || 60);
-    setWarningDays(getDeadlineWarningDays());
   }, [isOpen, hasUpdateAvailable]);
 
   if (!isOpen) return null;
@@ -175,12 +174,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       intervalMinutes,
       retentionCount: 15,
     });
-  };
-
-  const handleWarningDaysChange = (days: number) => {
-    const val = Math.max(1, days);
-    setWarningDays(val);
-    saveDeadlineWarningDays(val);
   };
 
   return (
@@ -498,8 +491,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {activeTab === 'variables' && (
                 <VariablesTab
                   isOpen={isOpen}
-                  warningDays={warningDays}
-                  onWarningDaysChange={handleWarningDaysChange}
+                  currentUser={currentUser}
                 />
               )}
 

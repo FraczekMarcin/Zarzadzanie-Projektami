@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Task, Project, User, ActivityLog, Comment } from '../types';
 import type { NotificationToast } from './useAuthSession';
 import { attemptSilentDeviceLogin } from '../utils/deviceLoginClient';
+import { setServerVariables } from '../utils/variableSettings';
 
 interface UseServerSyncParams {
   isAuthenticated: boolean;
@@ -98,6 +99,9 @@ export function useServerSync({
         }
         if (Array.isArray(s.comments)) {
           setComments(s.comments);
+        }
+        if (s.variables) {
+          setServerVariables(s.variables);
         }
         setHasLoadedState(true);
         if (showNotification) {

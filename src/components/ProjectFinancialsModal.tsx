@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Project, Task, QuotationItem, CostItem, CostCategory } from '../types';
-import { getVatRates, getClients, registerClientIfNew } from '../utils/variableSettings';
+import { registerClientIfNew } from '../utils/variableSettings';
+import { useVariables } from '../hooks/useVariables';
 import { copyToClipboard } from '../utils/clipboard';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { 
@@ -34,6 +35,7 @@ interface ProjectFinancialsModalProps {
   onClose: () => void;
   project: Project;
   tasks: Task[];
+  isAdmin?: boolean;
   onSaveProject: (updated: Project) => void;
 }
 
@@ -42,6 +44,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   onClose,
   project,
   tasks,
+  isAdmin = false,
   onSaveProject,
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
@@ -91,9 +94,8 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   const [newQuoteIsSelected, setNewQuoteIsSelected] = useState(true);
   const [newQuoteIsPaid, setNewQuoteIsPaid] = useState(false);
 
-  // Available VAT rates from system variables
-  const vatRateOptions = getVatRates();
-  const availableClients = getClients();
+  // Available VAT rates & clients from server-synced system variables
+  const { vatRates: vatRateOptions, clients: availableClients } = useVariables();
 
   // Costs items
   const [costs, setCosts] = useState<CostItem[]>(() => {
@@ -290,14 +292,17 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   const handleSaveAll = () => {
     // If client was entered, register into variable database automatically
     if (clientName.trim()) {
-      registerClientIfNew({
-        name: clientName.trim(),
-        contactPerson: clientContactPerson.trim() || undefined,
-        phone: clientPhone.trim() || undefined,
-        email: clientEmail.trim() || undefined,
-        nip: clientNip.trim() || undefined,
-        address: clientAddress.trim() || undefined,
-      });
+      registerClientIfNew(
+        {
+          name: clientName.trim(),
+          contactPerson: clientContactPerson.trim() || undefined,
+          phone: clientPhone.trim() || undefined,
+          email: clientEmail.trim() || undefined,
+          nip: clientNip.trim() || undefined,
+          address: clientAddress.trim() || undefined,
+        },
+        { syncToServer: isAdmin }
+      );
     }
 
     const updated: Project = {

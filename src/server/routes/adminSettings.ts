@@ -1,5 +1,7 @@
 import express from 'express';
+import { isSameOrigin } from '../../utils/access.js';
 import { isValidEmail } from '../../utils/settingsSchema.js';
+import { validateVariablesUpdate } from '../../utils/variablesSchema.js';
 import { formatSmtpErrorPolish, MailerService } from '../mailer.js';
 import {
   SecurityContext,
@@ -210,6 +212,102 @@ export function registerAdminSettingsRoutes(
       return res.status(502).json({
         error: friendlyError,
       });
+    }
+  });
+
+  // PUT /api/admin/variables — aktualizacja zmiennych systemowych (tylko admin, kontrola Origin)
+  app.put('/api/admin/variables', requireAdmin, async (req, res) => {
+    try {
+      const originHeader = req.headers.origin;
+      const rawOrigin = Array.isArray(originHeader) ? originHeader[0] : originHeader;
+      if (rawOrigin && typeof rawOrigin === 'string' && rawOrigin.trim()) {
+        let effectiveHost = '';
+        if (req.app.get('trust proxy')) {
+          const xfh = req.headers['x-forwarded-host'];
+          if (xfh) {
+            const rawXfh = Array.isArray(xfh) ? xfh[0] : xfh;
+            if (typeof rawXfh === 'string' && rawXfh.trim()) {
+              effectiveHost = rawXfh.split(',')[0].trim();
+            }
+          }
+        }
+        if (!effectiveHost) {
+          const h = req.headers.host;
+          const rawH = Array.isArray(h) ? h[0] : h;
+          if (typeof rawH === 'string') {
+            effectiveHost = rawH.trim();
+          }
+        }
+        if (!isSameOrigin(rawOrigin, effectiveHost)) {
+          await securityLogger
+            .record('origin_blocked', {
+              ip: getClientIp(req),
+              userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+              details: { origin: String(rawOrigin).slice(0, 150), host: effectiveHost, path: req.path },
+            })
+            .catch(() => {});
+          return res.status(403).json({ error: 'Niedozwolone źródło żądania' });
+        }
+      }
+
+      const validation = validateVariablesUpdate(req.body);
+      if (!validation.ok) {
+        return res.status(400).json({
+          error: validation.errors.join(' '),
+          errors: validation.errors,
+        });
+      }
+
+      const appState = stateStore.ensureStateStructure();
+      const prevVariables = appState.variables;
+      const nextVariables = {
+        ...prevVariables,
+        ...validation.patch,
+        initialized: true,
+      };
+
+      const changedSections: string[] = [];
+      for (const key of ['vatRates', 'clients', 'taskTypes', 'deadlineWarningDays'] as const) {
+        if (
+          validation.patch[key] !== undefined &&
+          JSON.stringify(prevVariables[key]) !== JSON.stringify(nextVariables[key])
+        ) {
+          changedSections.push(key);
+        }
+      }
+
+      appState.variables = nextVariables;
+      const newRev = stateStore.bumpStateRevision();
+      await stateStore.saveStateAtomicAsync();
+
+      const caller = (req as any).user;
+      const clientIp = getClientIp(req);
+      if (changedSections.length > 0) {
+        await securityLogger
+          .record('variables_changed', {
+            userId: caller.id,
+            ip: clientIp,
+            userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+            details: { sections: changedSections },
+          })
+          .catch(() => {});
+        logger.info(
+          `[AdminVariables] Administrator (${caller.id}) zmienił sekcje zmiennych systemowych: ${changedSections.join(', ')}.`
+        );
+      }
+
+      return res.json({
+        success: true,
+        revision: newRev,
+        variables: nextVariables,
+        changedSections,
+      });
+    } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
+      logger.error('[AdminVariables] Błąd zapisu zmiennych systemowych:', err?.message || err);
+      return res.status(500).json({ error: 'Nie udało się zapisać zmiennych systemowych.' });
     }
   });
 }

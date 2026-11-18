@@ -22,7 +22,7 @@ import {
   Flame,
   Hourglass
 } from 'lucide-react';
-import { getDeadlineWarningDays } from '../utils/variableSettings';
+import { useVariables } from '../hooks/useVariables';
 import { copyToClipboard } from '../utils/clipboard';
 
 interface TaskTreeViewProps {
@@ -52,6 +52,7 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
   onAddTask,
   onUpdateTaskStatus,
 }) => {
+  const { deadlineWarningDays: warningDays } = useVariables();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(() => {
@@ -180,7 +181,6 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
       if (matchingChildren.length === 0) return null;
     }
 
-    const warningDays = getDeadlineWarningDays();
     const today = new Date().toISOString().slice(0, 10);
     const dueTime = new Date((task.dueDate || today) + 'T00:00:00').getTime();
     const nowTime = new Date(today + 'T00:00:00').getTime();

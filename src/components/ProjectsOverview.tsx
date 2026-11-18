@@ -41,7 +41,8 @@ import {
   Filter,
   Lock
 } from 'lucide-react';
-import { getClients, registerClientIfNew, getVatRates } from '../utils/variableSettings';
+import { registerClientIfNew } from '../utils/variableSettings';
+import { useVariables } from '../hooks/useVariables';
 
 const getTodayIsoDate = (): string => {
   const now = new Date();
@@ -104,6 +105,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   pendingDetailProjectId = null,
   onConsumePendingDetailProject,
 }) => {
+  const { clients: availableClients, vatRates: availableVatRates } = useVariables();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
@@ -294,13 +296,16 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     if (!isFormValid) return;
 
     if (clientName.trim()) {
-      registerClientIfNew({
-        name: clientName.trim(),
-        contactPerson: clientContactPerson.trim() || undefined,
-        phone: clientPhone.trim() || undefined,
-        email: clientEmail.trim() || undefined,
-        nip: clientNip.trim() || undefined,
-      });
+      registerClientIfNew(
+        {
+          name: clientName.trim(),
+          contactPerson: clientContactPerson.trim() || undefined,
+          phone: clientPhone.trim() || undefined,
+          email: clientEmail.trim() || undefined,
+          nip: clientNip.trim() || undefined,
+        },
+        { syncToServer: currentUser?.role === 'admin' }
+      );
     }
 
     const valNet = Number(projectValue || 0);
@@ -996,6 +1001,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
             onClose={() => setFinancialsProject(null)}
             project={financialsProject}
             tasks={tasks}
+            isAdmin={currentUser?.role === 'admin'}
             onSaveProject={(updated) => {
               if (onUpdateProject) onUpdateProject(updated);
               setFinancialsProject(null);
@@ -1279,11 +1285,11 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label htmlFor="project-client-name" className="block text-[11px] text-slate-600 dark:text-slate-400">Nazwa firmy / Inwestora</label>
-                      {getClients().length > 0 && (
+                      {availableClients.length > 0 && (
                         <select
                           aria-label="Wybierz zamawiającego z bazy"
                           onChange={(e) => {
-                            const c = getClients().find((item) => item.id === e.target.value);
+                            const c = availableClients.find((item) => item.id === e.target.value);
                             if (c) {
                               setClientName(c.name);
                               if (c.contactPerson) setClientContactPerson(c.contactPerson);
@@ -1296,7 +1302,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                           className="text-[10px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-0.5 text-slate-600 dark:text-slate-300"
                         >
                           <option value="" disabled>Wybierz z bazy</option>
-                          {getClients().map((c) => (
+                          {availableClients.map((c) => (
                             <option key={c.id} value={c.id}>{c.name}</option>
                           ))}
                         </select>
@@ -1466,7 +1472,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                       onChange={(e) => setProjectVatRate(Number(e.target.value))}
                       className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
                     >
-                      {getVatRates().map((v) => (
+                      {availableVatRates.map((v) => (
                         <option key={v.id} value={v.value ?? v.rate}>
                           {v.label}
                         </option>

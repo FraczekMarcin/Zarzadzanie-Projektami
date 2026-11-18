@@ -611,7 +611,7 @@ export function renderWeeklySummaryEmail(
   appBaseUrl?: string
 ): { subject: string; text: string; html: string } {
   const cleanBaseUrl = normalizeSafeBaseUrl(appBaseUrl);
-  const subject = `Podsumowanie tygodnia: ${summary.totalOverdue} zaległych, ${summary.totalUpcoming} kończących się (${summary.weekKey})`;
+  const subject = `Podsumowanie tygodnia: zaległe ${summary.totalOverdue}, kończące się ${summary.totalUpcoming} (${summary.weekKey})`;
 
   const textLines: string[] = [
     `Dzień dobry, ${summary.user.name}!`,

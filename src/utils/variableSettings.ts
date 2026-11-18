@@ -1,119 +1,168 @@
-export interface ClientRecord {
-  id: string;
-  name: string; // Pełna nazwa zamawiającego / firmy
-  contactPerson?: string;
-  nip?: string;
-  phone?: string;
-  email?: string;
-  address?: string;
-  notes?: string;
-  createdAt: string;
+import {
+  ClientRecord,
+  createDefaultVariablesState,
+  DEFAULT_CLIENTS,
+  DEFAULT_DEADLINE_WARNING_DAYS,
+  DEFAULT_TASK_TYPES,
+  DEFAULT_VAT_RATES,
+  normalizeVariablesState,
+  ServerVariablesState,
+  TaskTypeColor,
+  TaskTypeDefinition,
+  VARIABLES_LIMITS,
+  VatRateOption,
+} from './variablesSchema';
+
+export type {
+  ClientRecord,
+  ServerVariablesState,
+  TaskTypeColor,
+  TaskTypeDefinition,
+  VatRateOption,
+};
+
+export {
+  DEFAULT_CLIENTS,
+  DEFAULT_DEADLINE_WARNING_DAYS,
+  DEFAULT_TASK_TYPES,
+  DEFAULT_VAT_RATES,
+  VARIABLES_LIMITS,
+};
+
+export const LEGACY_VARIABLE_STORAGE_KEYS = [
+  'oph_vat_rates',
+  'oph_clients',
+  'oph_task_types',
+  'oph_deadline_warning_days',
+] as const;
+
+let currentVariablesState: ServerVariablesState = createDefaultVariablesState();
+const variableListeners = new Set<() => void>();
+
+function notifyVariableListeners(): void {
+  for (const listener of variableListeners) {
+    try {
+      listener();
+    } catch {
+      // Ignoruj błędy pojedynczych subskrybentów
+    }
+  }
 }
 
-export interface VatRateOption {
-  id: string;
-  value: number; // np. 23, 8, 5, 0
-  rate?: number; // alias
-  label: string; // np. "23% (Stawka podstawowa)"
-  isExempt?: boolean; // Zwolniony z VAT (ZW)
-  isDefault?: boolean;
+export function subscribeVariables(listener: () => void): () => void {
+  variableListeners.add(listener);
+  return () => {
+    variableListeners.delete(listener);
+  };
 }
 
-export const DEFAULT_VAT_RATES: VatRateOption[] = [
-  { id: 'vat-23', value: 23, rate: 23, label: '23% - Podstawowa', isDefault: true },
-  { id: 'vat-8', value: 8, rate: 8, label: '8% - Obniżona (budownictwo mieszkaniowe)' },
-  { id: 'vat-5', value: 5, rate: 5, label: '5% - Obniżona' },
-  { id: 'vat-0', value: 0, rate: 0, label: '0% - Eksport / Stawka zerowa' },
-  { id: 'vat-zw', value: 0, rate: 0, label: 'ZW - Zwolniony z podatku VAT', isExempt: true },
-];
+export function getVariablesSnapshot(): ServerVariablesState {
+  return currentVariablesState;
+}
 
-const DEFAULT_CLIENTS: ClientRecord[] = [
-  {
-    id: 'cli-1',
-    name: 'Nordic Invest Sp. z o.o.',
-    contactPerson: 'Krzysztof Majewski (Dyrektor Inwestycji)',
-    nip: '5252819281',
-    phone: '+48 22 555 40 10',
-    email: 'inwestycje@nordic-invest.pl',
-    address: 'ul. Marszałkowska 140, 00-061 Warszawa',
-    createdAt: '2026-10-01T08:00:00Z',
-  },
-  {
-    id: 'cli-2',
-    name: 'Spółdzielnia Mieszkaniowa "Zielone Tarasy"',
-    contactPerson: 'Barbara Grabowska (Prezes Zarządu)',
-    nip: '9512394821',
-    phone: '+48 22 644 12 30',
-    email: 'zarzad@zielonetarasy.waw.pl',
-    address: 'al. KEN 45/12, 02-797 Warszawa',
-    createdAt: '2026-10-05T09:30:00Z',
-  },
-  {
-    id: 'cli-3',
-    name: 'Polska Grupa Logistyczna S.A.',
-    contactPerson: 'Marek Domagała',
-    nip: '7792451920',
-    phone: '+48 61 889 00 20',
-    email: 'projekty@pgl-sa.pl',
-    address: 'ul. Dąbrowskiego 210, 60-406 Poznań',
-    createdAt: '2026-10-10T11:00:00Z',
-  },
-];
+export function setServerVariables(incoming: Partial<ServerVariablesState> | null | undefined): void {
+  if (!incoming || typeof incoming !== 'object') return;
+  const normalized = normalizeVariablesState(incoming);
+  // Jeśli serwer celowo usunął listę klientów dla roli bez uprawnień, nie przywracaj domyślnych
+  const clients = Array.isArray(incoming.clients) ? normalized.clients : [];
+
+  currentVariablesState = {
+    vatRates: normalized.vatRates,
+    clients,
+    taskTypes: normalized.taskTypes,
+    deadlineWarningDays: normalized.deadlineWarningDays,
+    initialized: Boolean(incoming.initialized),
+  };
+  notifyVariableListeners();
+}
+
+export function resetServerVariables(): void {
+  currentVariablesState = createDefaultVariablesState();
+  notifyVariableListeners();
+}
 
 export function getVatRates(): VatRateOption[] {
-  try {
-    const saved = localStorage.getItem('oph_vat_rates');
-    const parsed: VatRateOption[] = saved ? JSON.parse(saved) : DEFAULT_VAT_RATES;
-    return parsed.map((item) => ({
-      ...item,
-      value: item.value !== undefined ? item.value : (item.rate || 0),
-      rate: item.rate !== undefined ? item.rate : (item.value || 0),
-    }));
-  } catch {
-    return DEFAULT_VAT_RATES;
-  }
-}
-
-export function saveVatRates(rates: VatRateOption[]): void {
-  try {
-    localStorage.setItem('oph_vat_rates', JSON.stringify(rates));
-  } catch (err) {
-    console.error('Błąd zapisu stawek VAT:', err);
-  }
+  return currentVariablesState.vatRates.map((item) => ({
+    ...item,
+    value: item.value !== undefined ? item.value : item.rate || 0,
+    rate: item.rate !== undefined ? item.rate : item.value || 0,
+  }));
 }
 
 export function getClients(): ClientRecord[] {
-  try {
-    const saved = localStorage.getItem('oph_clients');
-    return saved ? JSON.parse(saved) : DEFAULT_CLIENTS;
-  } catch {
-    return DEFAULT_CLIENTS;
-  }
+  return currentVariablesState.clients;
 }
 
-export function saveClients(clients: ClientRecord[]): void {
+export function getTaskTypes(): TaskTypeDefinition[] {
+  return currentVariablesState.taskTypes;
+}
+
+export function getDeadlineWarningDays(): number {
+  const days = currentVariablesState.deadlineWarningDays;
+  if (typeof days === 'number' && Number.isInteger(days) && days >= 0 && days <= 30) {
+    return days;
+  }
+  return DEFAULT_DEADLINE_WARNING_DAYS;
+}
+
+export async function saveVariablesToServer(
+  patch: Partial<Omit<ServerVariablesState, 'initialized'>>
+): Promise<{
+  ok: boolean;
+  error?: string;
+  revision?: number;
+  variables?: ServerVariablesState;
+}> {
   try {
-    localStorage.setItem('oph_clients', JSON.stringify(clients));
-  } catch (err) {
-    console.error('Błąd zapisu listy zamawiających:', err);
+    const res = await fetch('/api/admin/variables', {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: data?.error || 'Nie udało się zapisać zmiennych systemowych na serwerze.',
+      };
+    }
+    if (data?.variables) {
+      setServerVariables(data.variables);
+    }
+    return {
+      ok: true,
+      revision: typeof data?.revision === 'number' ? data.revision : undefined,
+      variables: data?.variables,
+    };
+  } catch (err: any) {
+    return {
+      ok: false,
+      error: err?.message || 'Błąd połączenia z serwerem podczas zapisu zmiennych.',
+    };
   }
 }
 
 /**
- * Automatycznie zapisuje zamawiającego do listy, jeśli jeszcze nie istnieje
+ * Automatycznie dopisuje zamawiającego do listy w pamięci (i na serwer, jeśli admin)
  */
-export function registerClientIfNew(client: Partial<ClientRecord> & { name: string }): ClientRecord[] {
+export function registerClientIfNew(
+  client: Partial<ClientRecord> & { name: string },
+  options?: { syncToServer?: boolean }
+): ClientRecord[] {
   if (!client.name || !client.name.trim()) return getClients();
   const trimmedName = client.name.trim();
   const currentList = getClients();
 
   const existing = currentList.find(
-    (c) => c.name.toLowerCase() === trimmedName.toLowerCase() || (client.nip && c.nip && c.nip === client.nip)
+    (c) =>
+      c.name.toLowerCase() === trimmedName.toLowerCase() ||
+      (client.nip && c.nip && c.nip === client.nip)
   );
 
+  let updatedList: ClientRecord[];
   if (existing) {
-    // Zaktualizuj dane kontaktowe jeśli podano nowe
-    const updatedList = currentList.map((c) =>
+    updatedList = currentList.map((c) =>
       c.id === existing.id
         ? {
             ...c,
@@ -125,91 +174,196 @@ export function registerClientIfNew(client: Partial<ClientRecord> & { name: stri
           }
         : c
     );
-    saveClients(updatedList);
-    return updatedList;
+  } else {
+    const newClient: ClientRecord = {
+      id: `cli-${Date.now()}`,
+      name: trimmedName,
+      contactPerson: client.contactPerson || undefined,
+      nip: client.nip || undefined,
+      phone: client.phone || undefined,
+      email: client.email || undefined,
+      address: client.address || undefined,
+      notes: client.notes || undefined,
+      createdAt: new Date().toISOString(),
+    };
+    updatedList = [newClient, ...currentList];
   }
 
-  const newClient: ClientRecord = {
-    id: `cli-${Date.now()}`,
-    name: trimmedName,
-    contactPerson: client.contactPerson || '',
-    nip: client.nip || '',
-    phone: client.phone || '',
-    email: client.email || '',
-    address: client.address || '',
-    notes: client.notes || '',
-    createdAt: new Date().toISOString(),
+  currentVariablesState = {
+    ...currentVariablesState,
+    clients: updatedList,
   };
+  notifyVariableListeners();
 
-  const updatedList = [newClient, ...currentList];
-  saveClients(updatedList);
+  if (options?.syncToServer) {
+    void saveVariablesToServer({ clients: updatedList });
+  }
+
   return updatedList;
 }
 
-export function getDeadlineWarningDays(): number {
+export function hasLegacyLocalVariables(
+  storage: Pick<Storage, 'getItem'> = localStorage
+): boolean {
   try {
-    const saved = localStorage.getItem('oph_deadline_warning_days');
-    return saved ? Math.max(1, parseInt(saved, 10)) : 3;
+    return LEGACY_VARIABLE_STORAGE_KEYS.some((key) => storage.getItem(key) !== null);
   } catch {
-    return 3;
+    return false;
   }
 }
 
-export function saveDeadlineWarningDays(days: number): void {
+export function readLegacyLocalVariables(
+  storage: Pick<Storage, 'getItem'> = localStorage
+): Partial<Omit<ServerVariablesState, 'initialized'>> {
+  const result: Partial<Omit<ServerVariablesState, 'initialized'>> = {};
+
   try {
-    const val = Math.max(1, days);
-    localStorage.setItem('oph_deadline_warning_days', String(val));
-  } catch (err) {
-    console.error('Błąd zapisu dni ostrzeżenia o terminie:', err);
-  }
-}
-
-export type TaskTypeColor = 'sky' | 'emerald' | 'purple' | 'amber' | 'rose' | 'indigo' | 'blue' | 'slate';
-
-export interface TaskTypeDefinition {
-  id: string; // np. 'rysunek', 'opis', 'uzgodnienia', 'urzad' lub własne id
-  name: string; // np. 'Rysunek', 'Opis', 'Uzgodnienia', 'Czekanie na urząd'
-  label?: string; // alias dla name
-  description?: string;
-  color?: TaskTypeColor;
-  badgeColor?: string;
-  icon?: string;
-  isDefault?: boolean;
-}
-
-export const DEFAULT_TASK_TYPES: TaskTypeDefinition[] = [
-  { id: 'rysunek', name: 'Rysunek', label: 'Rysunek', description: 'Rysunki wykonawcze, schematy, rzuty CAD/BIM', color: 'sky', isDefault: true },
-  { id: 'opis', name: 'Opis', label: 'Opis', description: 'Opisy techniczne, specyfikacje materiałowe, przedmiary', color: 'emerald', isDefault: true },
-  { id: 'uzgodnienia', name: 'Uzgodnienia', label: 'Uzgodnienia', description: 'Uzgodnienia rzeczoznawców PPOŻ, Sanepid, BHP, gestorzy sieci', color: 'purple', isDefault: true },
-  { id: 'urzad', name: 'Czekanie na urząd', label: 'Czekanie na urząd', description: 'Procedury administracyjne, KPA, pozwolenia na budowę', color: 'amber', isDefault: true },
-];
-
-export function getTaskTypes(): TaskTypeDefinition[] {
-  try {
-    const saved = localStorage.getItem('oph_task_types');
-    if (!saved) return DEFAULT_TASK_TYPES;
-    const parsed = JSON.parse(saved);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed;
+    const rawVat = storage.getItem('oph_vat_rates');
+    if (rawVat !== null) {
+      const parsed = JSON.parse(rawVat);
+      if (Array.isArray(parsed)) {
+        result.vatRates = parsed
+          .filter((item: any) => item && typeof item === 'object')
+          .slice(0, VARIABLES_LIMITS.vatRatesMax)
+          .map((item: any, idx: number) => {
+            const rawVal = item.value !== undefined ? Number(item.value) : Number(item.rate ?? 0);
+            const numeric = Number.isFinite(rawVal)
+              ? Math.min(100, Math.max(0, Number(rawVal.toFixed(2))))
+              : 0;
+            return {
+              id: typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `vat-${idx + 1}`,
+              value: numeric,
+              rate: numeric,
+              label:
+                typeof item.label === 'string' && item.label.trim()
+                  ? item.label.trim().slice(0, VARIABLES_LIMITS.vatLabelMax)
+                  : `${numeric}%`,
+              ...(item.isExempt ? { isExempt: true } : {}),
+              ...(item.isDefault ? { isDefault: true } : {}),
+            };
+          });
+      }
     }
-    return DEFAULT_TASK_TYPES;
-  } catch {
-    return DEFAULT_TASK_TYPES;
-  }
+  } catch {}
+
+  try {
+    const rawClients = storage.getItem('oph_clients');
+    if (rawClients !== null) {
+      const parsed = JSON.parse(rawClients);
+      if (Array.isArray(parsed)) {
+        result.clients = parsed
+          .filter((item: any) => item && typeof item === 'object' && typeof item.name === 'string' && item.name.trim())
+          .slice(0, VARIABLES_LIMITS.clientsMax)
+          .map((item: any, idx: number) => {
+            const rec: ClientRecord = {
+              id: typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `cli-${Date.now()}-${idx + 1}`,
+              name: item.name.trim().slice(0, VARIABLES_LIMITS.clientFieldMax),
+              createdAt:
+                typeof item.createdAt === 'string' && item.createdAt.trim()
+                  ? item.createdAt.trim()
+                  : new Date().toISOString(),
+            };
+            if (typeof item.contactPerson === 'string' && item.contactPerson.trim()) {
+              rec.contactPerson = item.contactPerson.trim().slice(0, VARIABLES_LIMITS.clientFieldMax);
+            }
+            if (typeof item.nip === 'string' && item.nip.trim()) {
+              rec.nip = item.nip.trim().slice(0, VARIABLES_LIMITS.clientNipMax);
+            }
+            if (typeof item.phone === 'string' && item.phone.trim()) {
+              rec.phone = item.phone.trim().slice(0, VARIABLES_LIMITS.clientFieldMax);
+            }
+            if (typeof item.email === 'string' && item.email.trim()) {
+              rec.email = item.email.trim().slice(0, VARIABLES_LIMITS.clientFieldMax);
+            }
+            if (typeof item.address === 'string' && item.address.trim()) {
+              rec.address = item.address.trim().slice(0, VARIABLES_LIMITS.clientFieldMax);
+            }
+            if (typeof item.notes === 'string' && item.notes.trim()) {
+              rec.notes = item.notes.trim().slice(0, VARIABLES_LIMITS.clientFieldMax);
+            }
+            return rec;
+          });
+      }
+    }
+  } catch {}
+
+  try {
+    const rawTaskTypes = storage.getItem('oph_task_types');
+    if (rawTaskTypes !== null) {
+      const parsed = JSON.parse(rawTaskTypes);
+      if (Array.isArray(parsed)) {
+        result.taskTypes = parsed
+          .filter((item: any) => item && typeof item === 'object')
+          .map((item: any, idx: number) => {
+            const rawName = typeof item.name === 'string' && item.name.trim()
+              ? item.name.trim()
+              : typeof item.label === 'string' && item.label.trim()
+              ? item.label.trim()
+              : '';
+            if (!rawName) return null;
+            const name = rawName.slice(0, VARIABLES_LIMITS.taskTypeNameMax);
+            const rec: TaskTypeDefinition = {
+              id: typeof item.id === 'string' && item.id.trim() ? item.id.trim().slice(0, VARIABLES_LIMITS.taskTypeIdMax) : `typ-${idx + 1}`,
+              name,
+              label: name,
+              color: item.color || 'sky',
+            };
+            if (typeof item.description === 'string' && item.description.trim()) {
+              rec.description = item.description.trim().slice(0, VARIABLES_LIMITS.taskTypeDescMax);
+            }
+            if (item.isDefault) rec.isDefault = true;
+            return rec;
+          })
+          .filter((t): t is TaskTypeDefinition => t !== null)
+          .slice(0, VARIABLES_LIMITS.taskTypesMax);
+      }
+    }
+  } catch {}
+
+  try {
+    const rawDays = storage.getItem('oph_deadline_warning_days');
+    if (rawDays !== null) {
+      const parsed = parseInt(rawDays, 10);
+      if (!Number.isNaN(parsed)) {
+        result.deadlineWarningDays = Math.min(30, Math.max(0, parsed));
+      }
+    }
+  } catch {}
+
+  return result;
 }
 
-export function saveTaskTypes(types: TaskTypeDefinition[]): void {
+export function clearLegacyLocalVariables(
+  storage: Pick<Storage, 'removeItem'> = localStorage
+): void {
   try {
-    localStorage.setItem('oph_task_types', JSON.stringify(types));
-  } catch (err) {
-    console.error('Błąd zapisu typów zadań:', err);
-  }
+    for (const key of LEGACY_VARIABLE_STORAGE_KEYS) {
+      storage.removeItem(key);
+    }
+  } catch {}
+}
+
+export function clearOphStorageOnLogout(
+  storage: Pick<Storage, 'length' | 'key' | 'removeItem'> = localStorage
+): void {
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < storage.length; i++) {
+      const k = storage.key(i);
+      if (k && k.startsWith('oph_') && k !== 'oph_theme_mode' && !k.startsWith('oph_pref_')) {
+        keysToRemove.push(k);
+      }
+    }
+    for (const k of keysToRemove) {
+      storage.removeItem(k);
+    }
+  } catch {}
 }
 
 export function getTaskTypeLabel(typeId: string, customTypes?: TaskTypeDefinition[]): string {
   const all = customTypes || getTaskTypes();
   const match = all.find((t) => t.id === typeId || t.name.toLowerCase() === typeId.toLowerCase());
-  if (match) return match.name;
+  if (match) return match.name || match.label || typeId;
   if (typeId === 'task') return 'Rysunek';
   if (typeId === 'milestone') return 'Uzgodnienia';
   if (typeId === 'bug') return 'Opis';

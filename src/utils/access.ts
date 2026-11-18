@@ -120,8 +120,9 @@ export function filterStateForUser(
   } = state;
 
   if (!user) {
+    const { variables: _variables, ...unauthSafeState } = safeState;
     return {
-      ...safeState,
+      ...unauthSafeState,
       projects: [],
       tasks: [],
       comments: [],
@@ -132,6 +133,13 @@ export function filterStateForUser(
   const isAdminOrManager = user.role === 'admin' || user.role === 'project_manager';
   if (isAdminOrManager) {
     return { ...safeState };
+  }
+
+  // Dla ról innych niż admin i project_manager usuń listę klientów z variables
+  let filteredVariables = safeState.variables;
+  if (safeState.variables && typeof safeState.variables === 'object') {
+    const { clients: _ignoredClients, ...restVariables } = safeState.variables;
+    filteredVariables = restVariables;
   }
 
   // 1. Dostępne projekty
@@ -174,6 +182,7 @@ export function filterStateForUser(
 
   return {
     ...safeState,
+    ...(filteredVariables !== undefined ? { variables: filteredVariables } : {}),
     projects: accessibleProjects,
     tasks: filteredTasks,
     comments: filteredComments,

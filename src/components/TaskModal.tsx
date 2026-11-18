@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useId } from 'react';
 import { Task, Project, User, Priority, TaskType, TaskStatus } from '../types';
 import { X, Calendar, UserCheck, AlertTriangle, Layers, Clock, Lock, GitMerge } from 'lucide-react';
-import { getTaskTypes, TaskTypeDefinition } from '../utils/variableSettings';
+import { TaskTypeDefinition } from '../utils/variableSettings';
+import { useVariables } from '../hooks/useVariables';
 import { FIELD_LIMITS } from '../utils/access';
 import { useFocusTrap } from '../utils/useFocusTrap';
 
@@ -39,7 +40,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   defaultParentId,
   initialTask,
 }) => {
-  const [taskTypes, setTaskTypes] = useState<TaskTypeDefinition[]>(() => getTaskTypes());
+  const { taskTypes } = useVariables();
   const [projectId, setProjectId] = useState(defaultProjectId || (projects[0]?.id ?? ''));
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -91,8 +92,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
   useEffect(() => {
     setStatusError(null);
-    const currentTypes = getTaskTypes();
-    setTaskTypes(currentTypes);
+    const currentTypes: TaskTypeDefinition[] = taskTypes;
     if (initialTask) {
       setProjectId(initialTask.projectId);
       setTitle(initialTask.title);

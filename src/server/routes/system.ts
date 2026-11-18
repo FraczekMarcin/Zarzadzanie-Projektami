@@ -128,6 +128,7 @@ export function registerSystemRoutes(
         reminderState: _ignoredReminderState,
         weeklySummaryState: _ignoredWeeklySummaryState,
         trustedDevices: _ignoredTrustedDevices,
+        variables: _ignoredVariables,
         ...safeIncoming
       } = incoming;
 
@@ -139,6 +140,7 @@ export function registerSystemRoutes(
         reminderState: appState.reminderState,
         weeklySummaryState: appState.weeklySummaryState,
         trustedDevices: Array.isArray(appState.trustedDevices) ? appState.trustedDevices : [],
+        variables: appState.variables,
         users: nextUsers,
         initialized: true,
         updatedAt: new Date().toISOString(),

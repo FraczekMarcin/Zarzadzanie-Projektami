@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { encryptSecret, decryptUserSecrets } from './secretBox.js';
 import { TrustedDeviceRecord } from './trustedDevices.js';
+import { normalizeVariablesState, ServerVariablesState } from './variablesSchema.js';
 import { logger } from '../server/logger.js';
 
 export interface AppState {
@@ -16,6 +17,7 @@ export interface AppState {
   reminderState?: any;
   weeklySummaryState?: any;
   trustedDevices?: TrustedDeviceRecord[];
+  variables?: ServerVariablesState;
   updatedAt?: string;
   [key: string]: any;
 }
@@ -50,6 +52,7 @@ export function normalizeStateStructure(raw?: any): AppState {
   if (!Array.isArray(state.activityLogs)) state.activityLogs = [];
   if (!Array.isArray(state.trash)) state.trash = [];
   if (!Array.isArray(state.trustedDevices)) state.trustedDevices = [];
+  state.variables = normalizeVariablesState(state.variables);
 
   for (const t of state.tasks) {
     if (t && typeof t.revision !== 'number') t.revision = 1;

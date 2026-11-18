@@ -480,7 +480,7 @@ describe('Podsumowanie tygodniowe — logika czysta (src/utils/weeklySummary.ts)
     )[0];
 
     const withLinks = renderWeeklySummaryEmail(summary, 'https://projekty.pracownia.pl/');
-    expect(withLinks.subject).toBe('Podsumowanie tygodnia: 1 zaległych, 1 kończących się (2026-W47)');
+    expect(withLinks.subject).toBe('Podsumowanie tygodnia: zaległe 1, kończące się 1 (2026-W47)');
     expect(withLinks.html).not.toContain('<script>');
     expect(withLinks.html).not.toContain('<img src=x>');
     expect(withLinks.html).toContain('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');

@@ -43,6 +43,7 @@ const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   device_login: 'Logowanie zaufanym urządzeniem',
   device_revoked: 'Cofnięcie zaufania urządzenia',
   device_token_reuse: 'Wykryto ponowne użycie starego tokena urządzenia',
+  variables_changed: 'Zmiana zmiennych systemowych',
 };
 
 export interface SecurityTabProps {

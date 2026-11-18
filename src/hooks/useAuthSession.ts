@@ -4,6 +4,11 @@ import { INITIAL_PROJECTS, INITIAL_TASKS, INITIAL_ACTIVITY } from '../data/initi
 import { isDemoUser } from '../utils/demoData';
 import { clearPendingDeepLink } from '../utils/deepLink';
 import {
+  clearOphStorageOnLogout,
+  resetServerVariables,
+  setServerVariables,
+} from '../utils/variableSettings';
+import {
   attemptSilentDeviceLogin,
   clearExplicitLogout,
   hasExplicitLogout,
@@ -191,6 +196,7 @@ export function useAuthSession({
           if (Array.isArray(data.state.users)) setUsers(data.state.users);
           if (Array.isArray(data.state.activityLogs)) setActivityLogs(data.state.activityLogs);
           if (Array.isArray(data.state.comments)) setComments(data.state.comments);
+          if (data.state.variables) setServerVariables(data.state.variables);
         }
       })
       .catch(() => {});
@@ -216,19 +222,9 @@ export function useAuthSession({
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
     } catch {}
 
-    // 3. Po wylogowaniu usuń z localStorage wszystkie klucze zaczynające się od 'oph_' z wyjątkiem preferencji wyglądu (motyw: oph_theme_mode)
-    try {
-      const keysToRemove: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith('oph_') && k !== 'oph_theme_mode') {
-          keysToRemove.push(k);
-        }
-      }
-      for (const k of keysToRemove) {
-        localStorage.removeItem(k);
-      }
-    } catch {}
+    // 3. Po wylogowaniu usuń z localStorage wszystkie klucze zaczynające się od 'oph_' z wyjątkiem motywu (oph_theme_mode) i preferencji użytkownika (oph_pref_*)
+    clearOphStorageOnLogout();
+    resetServerVariables();
     clearPendingDeepLink();
 
     // 4. Wyczyść stan React (projects, tasks, comments, activityLogs, currentUser) do wartości początkowych
