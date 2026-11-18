@@ -229,6 +229,29 @@ test.describe.serial('Testy end-to-end aplikacji Zarządzanie Projektami', () =>
       const tab = settingsDialog.getByRole('tab', { name: new RegExp(escapedName, 'i') });
       await tab.click();
       await expect(tab).toHaveAttribute('aria-selected', 'true');
+      await expect(settingsDialog.getByText('Ładowanie sekcji...')).toHaveCount(0);
+
+      if (tabName === 'Powiadomienia') {
+        await expect(
+          settingsDialog.getByRole('heading', { name: 'Podsumowanie tygodniowe', exact: true })
+        ).toBeVisible();
+        await expect(
+          settingsDialog.getByLabel(/Włącz cotygodniowe podsumowanie dla kierowników projektów/i)
+        ).toBeVisible();
+      }
+
+      if (tabName === 'Dostęp i sesje') {
+        await expect(
+          settingsDialog.getByRole('heading', { name: 'Stan serwera i zajętość dysku', exact: true })
+        ).toBeVisible();
+        await expect(settingsDialog.getByText('Czas pracy serwera (uptime)')).toBeVisible();
+        await expect(
+          settingsDialog.getByRole('heading', {
+            name: 'Zaufane urządzenia („Ufaj temu urządzeniu”)',
+            exact: true,
+          })
+        ).toBeVisible();
+      }
     }
 
     // Otwarcie modalu synchronizacji kalendarza i sprawdzenie zablokowanego przycisku 1-Click
@@ -242,6 +265,20 @@ test.describe.serial('Testy end-to-end aplikacji Zarządzanie Projektami', () =>
     const googleOneClickBtn = calendarDialog.getByRole('button', { name: 'Dodaj do Kalendarza Google' });
     await expect(googleOneClickBtn).toBeDisabled();
     await expect(googleOneClickBtn).toHaveAttribute('aria-disabled', 'true');
+    await calendarDialog.getByRole('button', { name: 'Zamknij okno synchronizacji z Kalendarzem Google' }).click();
+    await expect(calendarDialog).toHaveCount(0);
+
+    // Otwarcie okna konta użytkownika i weryfikacja zakładki Zaufane urządzenia
+    await page.getByRole('button', { name: new RegExp(`Konto użytkownika: ${ADMIN_NAME}`, 'i') }).click();
+    const accountDialog = page.getByRole('dialog', { name: /Uwierzytelnianie/i });
+    await expect(accountDialog).toBeVisible();
+    const devicesTab = accountDialog.getByRole('tab', { name: /Zaufane urządzenia/i });
+    await devicesTab.click();
+    await expect(devicesTab).toHaveAttribute('aria-selected', 'true');
+    await expect(accountDialog.getByRole('columnheader', { name: 'Urządzenie' })).toBeVisible();
+    await expect(accountDialog.getByText('Brak zaufanych urządzeń powiązanych z tym kontem.')).toBeVisible();
+    await accountDialog.getByRole('button', { name: 'Zamknij okno uwierzytelniania' }).click();
+    await expect(accountDialog).toHaveCount(0);
 
     await monitor.assertClean();
   });

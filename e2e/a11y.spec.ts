@@ -161,6 +161,51 @@ async function scanView(
   }
 }
 
+interface PageMonitor {
+  consoleErrors: string[];
+  pageErrors: string[];
+  assertClean: () => Promise<void>;
+}
+
+async function attachErrorMonitor(page: Page): Promise<PageMonitor> {
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+
+  await page.addInitScript(() => {
+    const win = window as unknown as { __cspViolations?: string[] };
+    win.__cspViolations = [];
+    window.addEventListener('securitypolicyviolation', (event) => {
+      win.__cspViolations?.push(
+        `${event.violatedDirective || event.effectiveDirective}: ${event.blockedURI}`
+      );
+    });
+  });
+
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') {
+      consoleErrors.push(msg.text());
+    }
+  });
+
+  page.on('pageerror', (err) => {
+    pageErrors.push(err.message || String(err));
+  });
+
+  return {
+    consoleErrors,
+    pageErrors,
+    assertClean: async () => {
+      const cspViolations = await page.evaluate(() => {
+        const win = window as unknown as { __cspViolations?: string[] };
+        return win.__cspViolations || [];
+      });
+      expect(consoleErrors, 'Błędy konsoli przeglądarki').toEqual([]);
+      expect(pageErrors, 'Nieobsłużone wyjątki pageerror').toEqual([]);
+      expect(cspViolations, 'Naruszenia Content-Security-Policy').toEqual([]);
+    },
+  };
+}
+
 function writeReport(results: A11yViewScanResult[]): void {
   fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
   const totalViolations = results.reduce((sum, r) => sum + r.totalViolations, 0);
@@ -244,6 +289,7 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
 
   test('1) konfiguracja danych testowych oraz skan ekranu logowania w trybie jasnym i ciemnym', async ({ page }) => {
     test.setTimeout(90_000);
+    const monitor = await attachErrorMonitor(page);
     await page.goto(baseUrl);
     await expect(page.getByRole('heading', { name: 'Kreator Konfiguracji Administratora' })).toBeVisible();
 
@@ -313,6 +359,8 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('button', { name: 'Zaloguj do pracowni' })).toBeVisible();
     await scanView(page, scanResults, 'login', 'Ekran logowania', 'dark');
+
+    await monitor.assertClean();
   });
 
   for (const theme of ['light', 'dark'] as const) {
@@ -320,6 +368,7 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
 
     test(`2) skan wszystkich widoków, szuflady, modali i zakładek Ustawień w ${themeLabel}`, async ({ page }) => {
       test.setTimeout(150_000);
+      const monitor = await attachErrorMonitor(page);
       await loginThroughUi(page, baseUrl, theme);
       const nav = page.getByRole('navigation', { name: 'Główna nawigacja' });
 
@@ -375,6 +424,16 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
         await tab.click();
         await expect(tab).toHaveAttribute('aria-selected', 'true');
         await expect(settingsDialog.getByText('Ładowanie sekcji...')).toHaveCount(0);
+        if (tabSpec.key === 'settings-notifications') {
+          await expect(
+            settingsDialog.getByRole('heading', { name: 'Podsumowanie tygodniowe', exact: true })
+          ).toBeVisible();
+        }
+        if (tabSpec.key === 'settings-access') {
+          await expect(
+            settingsDialog.getByRole('heading', { name: 'Stan serwera i zajętość dysku', exact: true })
+          ).toBeVisible();
+        }
         await scanView(page, scanResults, tabSpec.key, `Ustawienia: ${tabSpec.name}`, theme);
       }
 
@@ -386,11 +445,26 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
       await scanView(page, scanResults, 'calendar-sync-modal', 'Okno synchronizacji kalendarza', theme);
       await calendarDialog.getByRole('button', { name: 'Zamknij okno synchronizacji z Kalendarzem Google' }).click();
       await expect(calendarDialog).toHaveCount(0);
+
+      // 10. Okno konta użytkownika — zakładka Zaufane urządzenia
+      await page.getByRole('button', { name: new RegExp(`Konto użytkownika: ${ADMIN_NAME}`, 'i') }).click();
+      const accountDialog = page.getByRole('dialog', { name: /Uwierzytelnianie/i });
+      await expect(accountDialog).toBeVisible();
+      const devicesTab = accountDialog.getByRole('tab', { name: /Zaufane urządzenia/i });
+      await devicesTab.click();
+      await expect(devicesTab).toHaveAttribute('aria-selected', 'true');
+      await expect(accountDialog.getByText('Ładowanie zaufanych urządzeń...')).toHaveCount(0);
+      await expect(accountDialog.getByRole('columnheader', { name: 'Urządzenie' })).toBeVisible();
+      await scanView(page, scanResults, 'account-trusted-devices', 'Konto: Zaufane urządzenia', theme);
+      await accountDialog.getByRole('button', { name: 'Zamknij okno uwierzytelniania' }).click();
+      await expect(accountDialog).toHaveCount(0);
+
+      await monitor.assertClean();
     });
   }
 
   test('3) zapis raportu JSON i weryfikacja trybu A11Y_STRICT', async () => {
-    expect(scanResults.length).toBeGreaterThanOrEqual(38);
+    expect(scanResults.length).toBeGreaterThanOrEqual(40);
     writeReport(scanResults);
     expect(fs.existsSync(REPORT_PATH)).toBe(true);
 

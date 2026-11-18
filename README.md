@@ -146,24 +146,28 @@ openssl s_client -connect <APP_HOST>:443 -servername <APP_HOST>
 7. **Ciemny motyw & Personalizacja:**
    - Możliwość wyboru motywu: Jasny, Ciemny (Dark Mode) lub automatyczny zgodny z systemem operacyjnym.
 
-8. **Uwierzytelnianie & Bezpieczeństwo Zespołu:**
-   - Wymóg podania hasła przy przełączaniu profilu projektanta (ochrona przed nieautoryzowanym działaniem).
-   - Pełna możliwość usuwania niepotrzebnych lub pokazowych użytkowników i tematów demo.
+8. **Uwierzytelnianie, 2FA & Zaufane Urządzenia:**
+   - Wymóg podania hasła przy logowaniu, weryfikacja dwuskładnikowa 2FA (TOTP + kody zapasowe) oraz opcjonalne **Zaufane urządzenia („Ufaj temu urządzeniu”)** z rotowanym tokenem `HttpOnly` i wykrywaniem kradzieży tokena.
+   - Pełna możliwość zarządzania zespołem, sesjami oraz usuwania niepotrzebnych lub pokazowych użytkowników i tematów demo.
 
-9. **Centrum Ustawień (Symbol zębatki ⚙️) & Wskaźnik Archiwizacji:**
-   - Zintegrowane menu ustawień z podglądem wdrożenia Docker, zmianą hasła i sprawdzaniem aktualizacji z GitHub.
-   - **Codzienne sprawdzanie aktualizacji:** automatyczna weryfikacja 1x dziennie z repozytorium GitHub.
+9. **Centrum Ustawień (Symbol zębatki ⚙️), Monitoring Dysku & Archiwizacja:**
+   - Zintegrowane menu ustawień z podglądem wdrożenia Docker, konfiguracją SMTP, zmianą hasła, sprawdzaniem aktualizacji i zalecanym sprzątaniem po aktualizacji (`docker image prune` / `docker builder prune`).
+   - **Monitorowanie miejsca na dysku:** podgląd zajętości katalogu danych w *Ustawienia → Dostęp i sesje*, alerty e-mail administratora, banner ostrzegawczy przy niskim poziomie miejsca i obsługa błędu `ENOSPC` kodem `507`.
    - **Inteligentny symbol archiwizacji:**
      - 🟢 **Zielony** – gdy automatyczne kopie zapasowe są aktywne i prawidłowo skonfigurowane.
      - 🔴 **Czerwony mrugający** – natychmiastowe ostrzeżenie, gdy archiwizacja nie jest skonfigurowana.
 
-10. **Centrum Archiwizacji & Automatyczne Kopie Zapasowe (Auto-Backup):**
+10. **Powiadomienia E-mail, Podsumowanie Tygodniowe & Ikona Aplikacji (PWA):**
+   - Dzienne przypomnienia e-mail o zbliżających się i zaległych terminach oraz **Cotygodniowe podsumowanie dla kierowników projektów** konfigurowane w *Ustawienia → Powiadomienia*.
+   - Dedykowana ikona SVG/PNG pracowni projektowej (`favicon.svg`) z obsługą motywu jasnego i ciemnego oraz manifest aplikacji (`manifest.webmanifest`).
+
+11. **Centrum Archiwizacji & Automatyczne Kopie Zapasowe (Auto-Backup):**
    - **Harmonogram automatyczny:** wbudowany automat wykonujący cykliczne migawki stanu (co 15 min, 1 godz., 6 godz. lub codziennie).
    - **Rotacja i retencja:** bezpieczne przechowywanie określonej liczby ostatnich kopii (np. 10 ostatnich) i usuwanie najstarszych.
    - **Jedno-klikowe przywracanie:** natychmiastowe odtworzenie całego stanu projektów z wybranej migawki.
-    - **Zadanie Linux Cron na serwerze:** automatyczna kopia stanu aplikacji do `/opt/zarzadzanie-projektami/backups/app_state_*.json.gz` codziennie o 02:00.
-    - **Wskaźnik stanu kopii w aplikacji:** wskaźnik "Kopia: Aktywna" w prawym górnym rogu jest zielony, gdy serwer posiada kopię zapasową nie starszą niż 36 godzin.
-    - **Eksport do Google Drive & SFTP:** bezpieczna archiwizacja w chmurze lub na zewnętrznym serwerze backupowym.
+   - **Zadanie Linux Cron na serwerze:** automatyczna kopia stanu aplikacji do `/opt/zarzadzanie-projektami/backups/app_state_*.json.gz` codziennie o 02:00.
+   - **Wskaźnik stanu kopii w aplikacji:** wskaźnik "Kopia: Aktywna" w prawym górnym rogu jest zielony, gdy serwer posiada kopię zapasową nie starszą niż 36 godzin.
+   - **Eksport do Google Drive & SFTP:** bezpieczna archiwizacja w chmurze lub na zewnętrznym serwerze backupowym.
 
 ---
 
@@ -600,7 +604,7 @@ W przypadku niepowodzenia testów raport HTML jest zapisywany w katalogu `playwr
 
 ## ♿ Testy dostępności
 
-Automatyczny audyt dostępności (`e2e/a11y.spec.ts`) korzysta z `@axe-core/playwright` (`wcag2a`, `wcag2aa`) i skanuje dla zalogowanego administratora wszystkie główne widoki oraz okna dialogowe (ekran logowania, listę zadań, Tablicę Kanban, Harmonogram Gantta, przegląd projektów, Kosz, szczegóły zadania, okno zadania, wszystkie 11 zakładek Ustawień i okno synchronizacji kalendarza) w trybie **jasnym** i **ciemnym**.
+Automatyczny audyt dostępności (`e2e/a11y.spec.ts`) korzysta z `@axe-core/playwright` (`wcag2a`, `wcag2aa`) i skanuje dla zalogowanego administratora wszystkie główne widoki oraz okna dialogowe (ekran logowania, listę zadań, Tablicę Kanban, Harmonogram Gantta, przegląd projektów, Kosz, szczegóły zadania, okno zadania, wszystkie 11 zakładek Ustawień wraz z sekcjami dysku i podsumowania tygodniowego, zakładkę Zaufane urządzenia w oknie konta oraz okno synchronizacji kalendarza) w trybie **jasnym** i **ciemnym**.
 
 ```bash
 # Uruchomienie wyłącznie audytu dostępności (wymaga uprzedniego npm run build)
