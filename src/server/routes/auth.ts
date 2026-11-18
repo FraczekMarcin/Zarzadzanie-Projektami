@@ -26,6 +26,7 @@ import {
 import { SessionStore } from '../sessions.js';
 import { SettingsService } from '../settings.js';
 import { MailerService } from '../mailer.js';
+import { TrustedDevicesService } from '../trustedDevices.js';
 import { hasForbiddenKeys } from '../../utils/access.js';
 import { validatePassword } from '../../utils/passwordPolicy.js';
 import { logger } from '../logger.js';
@@ -37,10 +38,11 @@ export interface AuthRoutesDeps {
   security: SecurityContext;
   settingsService: SettingsService;
   mailer: MailerService;
+  trustedDevicesService: TrustedDevicesService;
 }
 
 export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): void {
-  const { config, stateStore, sessionStore, security, settingsService, mailer } = deps;
+  const { config, stateStore, sessionStore, security, settingsService, mailer, trustedDevicesService } = deps;
   const {
     effectiveAppSecret,
     getSetupToken,
@@ -68,6 +70,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
     passwordResetVerifyIpLimiter,
     registerIpLimiter,
     setupAdminIpLimiter,
+    deviceLoginIpLimiter,
     passwordResetTokens,
     passwordResetEmailAttempts,
     isRateLimited,
@@ -275,6 +278,8 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
       revokeUserSessions(targetUser.id);
       saveSessionsAsync();
 
+      const revokedDevicesCount = await trustedDevicesService.revokeAllDevicesForUser(targetUser.id);
+
       passwordResetTokens.delete(cleanEmail);
       passwordResetEmailAttempts.delete(cleanEmail);
       stateStore.setAppState({
@@ -290,6 +295,15 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
         userAgent: (req.headers['user-agent'] || '').slice(0, 100),
         details: { role: targetUser.role },
       }).catch(() => {});
+
+      if (revokedDevicesCount > 0) {
+        securityLogger.record('device_revoked', {
+          userId: targetUser.id,
+          ip: getClientIp(req),
+          userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+          details: { reason: 'password_reset', count: revokedDevicesCount },
+        }).catch(() => {});
+      }
 
       res.json({ success: true, message: 'Hasło zostało pomyślnie zmienione. Możesz się teraz zalogować nowym hasłem.' });
     } catch (err: any) {
@@ -309,6 +323,13 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
     const allowSelfRegistration = isSelfRegistrationAllowed();
     const requireSetupToken = isSetupTokenRequired();
     const passwordResetAvailable = isSmtpConfigured();
+    const tdSettings = settingsService.getEffectiveTrustedDevicesSettings();
+    const hasDeviceCookie = Boolean(trustedDevicesService.getDeviceTokenFromReq(req));
+    const trustedDevices = {
+      enabled: tdSettings.enabled,
+      days: tdSettings.days,
+      hasCookie: hasDeviceCookie,
+    };
 
     if (!session) {
       return res.json({
@@ -317,6 +338,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
         allowSelfRegistration,
         requireSetupToken,
         passwordResetAvailable,
+        trustedDevices,
       });
     }
 
@@ -324,6 +346,7 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
       authenticated: true,
       setupRequired,
       passwordResetAvailable,
+      trustedDevices,
       userCount: users.length,
       users: users.filter((u) => u.isApproved !== false).map(sanitizeUser),
     });
@@ -503,7 +526,34 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
       }).catch(() => {});
 
       setSessionCookie(req, res, rawToken, sessionPolicy.maxHours * 3600);
-      res.json({ success: true, user: sanitizeUser(user) });
+
+      let trustDeviceStatus: boolean | 'disabled' = false;
+      if (Boolean(req.body?.trustDevice)) {
+        const tdSettings = settingsService.getEffectiveTrustedDevicesSettings();
+        const allowedForUser = tdSettings.enabled && (user.role !== 'admin' || tdSettings.allowForAdmins);
+        if (allowedForUser) {
+          const { record, rawToken: rawDeviceToken } = await trustedDevicesService.issueTrustedDevice(
+            user.id,
+            {
+              ip: clientIp,
+              userAgent,
+              days: tdSettings.days,
+            }
+          );
+          trustedDevicesService.setDeviceCookie(req, res, rawDeviceToken, tdSettings.days);
+          trustDeviceStatus = true;
+          securityLogger.record('device_trusted', {
+            userId: user.id,
+            ip: clientIp,
+            userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+            details: { label: record.label, days: tdSettings.days },
+          }).catch(() => {});
+        } else {
+          trustDeviceStatus = 'disabled';
+        }
+      }
+
+      res.json({ success: true, user: sanitizeUser(user), trustDevice: trustDeviceStatus });
     } catch (err: any) {
       if (isDiskFullError(err)) {
         return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
@@ -513,26 +563,207 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
     }
   });
 
-  // POST /api/auth/logout
-  app.post('/api/auth/logout', (req, res) => {
-    const session = getSessionFromReq(req);
-    if (session) {
-      securityLogger.record('logout', {
-        userId: session.userId,
-        ip: getClientIp(req),
-        userAgent: (req.headers['user-agent'] || '').slice(0, 100),
-      }).catch(() => {});
-      revokeSession(session.tokenHash);
+  // POST /api/auth/device-login
+  app.post('/api/auth/device-login', async (req, res) => {
+    try {
+      const clientIp = getClientIp(req);
+      const ipCheck = deviceLoginIpLimiter.hit(clientIp);
+      if (!ipCheck.allowed) {
+        res.setHeader('Retry-After', ipCheck.retryAfterSeconds.toString());
+        return res.status(429).json({
+          error: 'Zbyt wiele prób logowania zaufanym urządzeniem. Spróbuj ponownie później.',
+          retryAfter: ipCheck.retryAfterSeconds,
+        });
+      }
+
+      const rawDeviceToken = trustedDevicesService.getDeviceTokenFromReq(req);
+      const userAgent = (req.headers['user-agent'] || '').slice(0, 200);
+
+      if (!rawDeviceToken) {
+        return res.status(401).json({ error: 'Brak zaufanego urządzenia' });
+      }
+
+      const result = await trustedDevicesService.authenticateWithDeviceToken(rawDeviceToken, {
+        ip: clientIp,
+        userAgent,
+      });
+
+      if (!result.ok || !result.user) {
+        trustedDevicesService.clearDeviceCookie(req, res);
+        if (result.reason === 'token_reuse') {
+          securityLogger.record('device_token_reuse', {
+            userId: result.userId,
+            ip: clientIp,
+            userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+            details: { reason: 'stale_device_token_reuse' },
+          }).catch(() => {});
+        }
+        return res.status(401).json({ error: 'Zaufanie urządzenia wygasło lub zostało cofnięte' });
+      }
+
+      const user = result.user;
+      const sessionPolicy = settingsService.getEffectiveSessionPolicy();
+      const now = Date.now();
+      const rawSessionToken = crypto.randomBytes(32).toString('hex');
+      const tokenHash = hashSessionToken(rawSessionToken);
+      const session: Session = {
+        tokenHash,
+        userId: user.id,
+        role: user.role,
+        createdAt: now,
+        expiresAt: now + sessionPolicy.maxMs,
+        lastSeenAt: now,
+        userAgent: userAgent || undefined,
+        ip: clientIp || undefined,
+      };
+      sessions.set(tokenHash, session);
       saveSessionsAsync();
+
+      setSessionCookie(req, res, rawSessionToken, sessionPolicy.maxHours * 3600);
+
+      if (result.rotatedToken) {
+        const tdSettings = settingsService.getEffectiveTrustedDevicesSettings();
+        trustedDevicesService.setDeviceCookie(req, res, result.rotatedToken, tdSettings.days);
+      }
+
+      securityLogger.record('device_login', {
+        userId: user.id,
+        ip: clientIp,
+        userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+        details: { label: result.device?.label, grace: Boolean(result.graceUsed) },
+      }).catch(() => {});
+
+      return res.json({ success: true, user: sanitizeUser(user) });
+    } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
+      logger.error('[Server Auth] Błąd logowania zaufanym urządzeniem:', err);
+      return res.status(500).json({ error: 'Wystąpił błąd serwera podczas logowania urządzeniem' });
     }
-    clearSessionCookie(req, res);
-    res.json({ success: true });
+  });
+
+  // POST /api/auth/logout
+  app.post('/api/auth/logout', async (req, res) => {
+    try {
+      const session = getSessionFromReq(req);
+      const clientIp = getClientIp(req);
+      const ua = (req.headers['user-agent'] || '').slice(0, 100);
+
+      if (session) {
+        securityLogger.record('logout', {
+          userId: session.userId,
+          ip: clientIp,
+          userAgent: ua,
+        }).catch(() => {});
+        revokeSession(session.tokenHash);
+        saveSessionsAsync();
+      }
+
+      const rawDeviceToken = trustedDevicesService.getDeviceTokenFromReq(req);
+      const revDevice = await trustedDevicesService.revokeDeviceByRawToken(rawDeviceToken);
+      if (revDevice.revoked) {
+        securityLogger.record('device_revoked', {
+          userId: revDevice.userId,
+          ip: clientIp,
+          userAgent: ua,
+          details: { reason: 'logout', label: revDevice.label },
+        }).catch(() => {});
+      }
+
+      clearSessionCookie(req, res);
+      trustedDevicesService.clearDeviceCookie(req, res);
+      res.json({ success: true });
+    } catch (err: any) {
+      clearSessionCookie(req, res);
+      trustedDevicesService.clearDeviceCookie(req, res);
+      logger.error('[Server Auth] Błąd podczas wylogowania:', err?.message || err);
+      res.json({ success: true });
+    }
   });
 
   // GET /api/auth/me
   app.get('/api/auth/me', requireAuth, (req, res) => {
     const user = (req as any).user;
     res.json({ authenticated: true, user: sanitizeUser(user) });
+  });
+
+  // GET /api/auth/devices
+  app.get('/api/auth/devices', requireAuth, (req, res) => {
+    const caller = (req as any).user;
+    const rawDeviceToken = trustedDevicesService.getDeviceTokenFromReq(req);
+    const devices = trustedDevicesService.listPublicDevicesForUser(caller.id, rawDeviceToken);
+    res.json({ success: true, devices });
+  });
+
+  // DELETE /api/auth/devices/:id
+  app.delete('/api/auth/devices/:id', requireAuth, async (req, res) => {
+    try {
+      const caller = (req as any).user;
+      const rawDeviceToken = trustedDevicesService.getDeviceTokenFromReq(req);
+      const result = await trustedDevicesService.revokeDeviceByPublicId(
+        caller.id,
+        req.params.id,
+        rawDeviceToken
+      );
+
+      if (!result.revoked) {
+        return res.status(404).json({ error: 'Zaufane urządzenie nie istnieje lub należy do innego użytkownika.' });
+      }
+
+      if (result.wasCurrent) {
+        trustedDevicesService.clearDeviceCookie(req, res);
+      }
+
+      securityLogger.record('device_revoked', {
+        userId: caller.id,
+        ip: getClientIp(req),
+        userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+        details: { deviceId: req.params.id, wasCurrent: result.wasCurrent, label: result.label },
+      }).catch(() => {});
+
+      return res.json({
+        success: true,
+        wasCurrent: result.wasCurrent,
+        message: 'Usunięto zaufanie dla wybranego urządzenia.',
+      });
+    } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
+      logger.error('[Server Auth] Błąd usuwania zaufanego urządzenia:', err);
+      return res.status(500).json({ error: 'Nie udało się usunąć zaufanego urządzenia.' });
+    }
+  });
+
+  // DELETE /api/auth/devices
+  app.delete('/api/auth/devices', requireAuth, async (req, res) => {
+    try {
+      const caller = (req as any).user;
+      const revokedCount = await trustedDevicesService.revokeAllDevicesForUser(caller.id);
+      trustedDevicesService.clearDeviceCookie(req, res);
+
+      if (revokedCount > 0) {
+        securityLogger.record('device_revoked', {
+          userId: caller.id,
+          ip: getClientIp(req),
+          userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+          details: { type: 'revoke_all', count: revokedCount },
+        }).catch(() => {});
+      }
+
+      return res.json({
+        success: true,
+        revokedCount,
+        message: `Usunięto wszystkie zaufane urządzenia (${revokedCount}).`,
+      });
+    } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
+      logger.error('[Server Auth] Błąd usuwania wszystkich zaufanych urządzeń:', err);
+      return res.status(500).json({ error: 'Nie udało się usunąć zaufanych urządzeń.' });
+    }
   });
 
   // PATCH /api/auth/preferences — aktualizacja osobistych preferencji zalogowanego użytkownika

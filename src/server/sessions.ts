@@ -163,16 +163,19 @@ export function createSessionStore(
     if (isHttps) {
       cookieParts.push('Secure');
     }
-    res.setHeader('Set-Cookie', cookieParts.join('; '));
+    res.append('Set-Cookie', cookieParts.join('; '));
   }
 
   function clearSessionCookie(req: express.Request, res: express.Response) {
     const isHttps = isRequestHttps(req);
-    const cookiesToClear = [
-      `zp_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${isHttps ? '; Secure' : ''}`,
-      '__Host-zp_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure',
-    ];
-    res.setHeader('Set-Cookie', cookiesToClear);
+    res.append(
+      'Set-Cookie',
+      `zp_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${isHttps ? '; Secure' : ''}`
+    );
+    res.append(
+      'Set-Cookie',
+      '__Host-zp_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure'
+    );
   }
 
   const revocationListeners = new Set<(tokenHashes: string[]) => void>();

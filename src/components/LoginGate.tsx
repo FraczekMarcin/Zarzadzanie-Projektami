@@ -29,6 +29,7 @@ import {
 } from '../utils/authSecurity';
 import { copyToClipboard } from '../utils/clipboard';
 import { validatePassword } from '../utils/passwordPolicy';
+import { setHasTrustedDeviceCookie } from '../utils/deviceLoginClient';
 import { PasswordRequirementsChecklist } from './PasswordRequirementsChecklist';
 
 interface LoginGateProps {
@@ -73,6 +74,11 @@ export const LoginGate: React.FC<LoginGateProps> = ({
   // Login form state
   const [loginEmail, setLoginEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [trustDevice, setTrustDevice] = useState(false);
+  const [trustedDevicesConfig, setTrustedDevicesConfig] = useState<{ enabled: boolean; days: number }>({
+    enabled: true,
+    days: 30,
+  });
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
@@ -138,6 +144,12 @@ export const LoginGate: React.FC<LoginGateProps> = ({
             if (!data.passwordResetAvailable) {
               setActiveTab((prev) => (prev === 'recovery' ? 'login' : prev));
             }
+          }
+          if (data.trustedDevices && typeof data.trustedDevices === 'object') {
+            setTrustedDevicesConfig({
+              enabled: Boolean(data.trustedDevices.enabled),
+              days: typeof data.trustedDevices.days === 'number' ? data.trustedDevices.days : 30,
+            });
           }
         } else if (users.length === 0) {
           setSetupRequired(true);
@@ -250,6 +262,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
         body: JSON.stringify({
           email: cleanEmail,
           password,
+          trustDevice: trustedDevicesConfig.enabled ? trustDevice : false,
         }),
       });
 
@@ -277,6 +290,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
       }
 
       // Login success
+      setHasTrustedDeviceCookie(data.trustDevice === true);
       onLogin(data.user);
     } catch {
       setLoginError('Błąd połączenia z serwerem logowania.');
@@ -303,6 +317,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
           email: cleanEmail,
           password,
           totpCode: totpInput.trim(),
+          trustDevice: trustedDevicesConfig.enabled ? trustDevice : false,
         }),
       });
 
@@ -320,6 +335,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
         return;
       }
 
+      setHasTrustedDeviceCookie(data.trustDevice === true);
       onLogin(data.user);
     } catch {
       setLoginError('Błąd połączenia z serwerem podczas weryfikacji 2FA.');
@@ -924,6 +940,25 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                 Odzyskiwanie hasła e-mailem jest wyłączone. Poproś administratora o reset hasła.
               </p>
             ) : null}
+
+            {trustedDevicesConfig.enabled && (
+              <label
+                htmlFor="login-trust-device"
+                className="flex items-start gap-2.5 p-2.5 rounded-lg bg-slate-900/50 border border-slate-700/70 cursor-pointer select-none hover:border-slate-600 transition-colors"
+              >
+                <input
+                  id="login-trust-device"
+                  type="checkbox"
+                  checked={trustDevice}
+                  onChange={(e) => setTrustDevice(e.target.checked)}
+                  className="mt-0.5 rounded border-slate-600 bg-slate-900 text-sky-500 focus:ring-sky-500"
+                />
+                <span className="text-[11px] text-slate-200 leading-relaxed">
+                  Ufaj temu urządzeniu przez <strong>{trustedDevicesConfig.days}</strong> dni{' '}
+                  <span className="text-slate-400">(nie używaj na wspólnych komputerach)</span>
+                </span>
+              </label>
+            )}
 
             <button
               type="submit"

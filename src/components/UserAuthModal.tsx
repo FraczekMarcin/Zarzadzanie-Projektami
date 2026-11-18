@@ -16,12 +16,14 @@ import {
   Eye,
   EyeOff,
   Bell,
+  Laptop,
 } from 'lucide-react';
 
 
 import { TwoFactorManager } from './TwoFactorManager';
 import { validatePassword } from '../utils/passwordPolicy';
 import { PasswordRequirementsChecklist } from './PasswordRequirementsChecklist';
+import { TrustedDevicesSection } from './TrustedDevicesSection';
 import { useFocusTrap } from '../utils/useFocusTrap';
 
 interface UserAuthModalProps {
@@ -55,7 +57,7 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
   activityLogs,
   onOpenTemplateManager,
 }) => {
-  const [activeTab, setActiveTab] = useState<'switch' | 'new_user' | 'password' | '2fa' | 'logs'>('switch');
+  const [activeTab, setActiveTab] = useState<'switch' | 'new_user' | 'password' | '2fa' | 'devices' | 'logs'>('switch');
 
   // Password verification for switching
   const [targetUser, setTargetUser] = useState<User | null>(null);
@@ -406,6 +408,26 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
             >
               <Shield className="w-4 h-4" aria-hidden="true" />
               <span>Weryfikacja 2FA</span>
+            </button>
+          )}
+
+          {currentUser && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'devices'}
+              onClick={() => {
+                setActiveTab('devices');
+                setTargetUser(null);
+              }}
+              className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+                activeTab === 'devices'
+                  ? 'border-sky-600 text-sky-700 dark:text-sky-400 font-semibold'
+                  : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              <Laptop className="w-4 h-4" aria-hidden="true" />
+              <span>Zaufane urządzenia</span>
             </button>
           )}
 
@@ -888,6 +910,13 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
         {activeTab === '2fa' && currentUser && (
           <div className="p-6 overflow-y-auto flex-1">
             <TwoFactorManager currentUser={currentUser} onUserUpdated={onUserUpdated} />
+          </div>
+        )}
+
+        {/* Tab: Trusted Devices */}
+        {activeTab === 'devices' && currentUser && (
+          <div className="p-6 overflow-y-auto flex-1">
+            <TrustedDevicesSection isOpen={isOpen && activeTab === 'devices'} />
           </div>
         )}
 

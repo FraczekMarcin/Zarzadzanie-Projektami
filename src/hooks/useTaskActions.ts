@@ -3,6 +3,7 @@ import { Task, Project, User, TaskStatus, Comment } from '../types';
 import { getTodayIso, addDaysIso } from '../utils/today';
 import { cascadeScheduleDates } from '../utils/scheduleCascade';
 import type { NotificationToast } from './useAuthSession';
+import { attemptSilentDeviceLogin } from '../utils/deviceLoginClient';
 
 interface UseTaskActionsParams {
   tasks: Task[];
@@ -48,7 +49,10 @@ export function useTaskActions({
         credentials: 'same-origin',
       });
       if (res.status === 401) {
-        setIsAuthenticated(false);
+        const deviceAuth = await attemptSilentDeviceLogin();
+        if (!deviceAuth.ok) {
+          setIsAuthenticated(false);
+        }
         return;
       }
       const data = await res.json().catch(() => ({}));
@@ -89,7 +93,10 @@ export function useTaskActions({
       });
 
       if (res.status === 401) {
-        setIsAuthenticated(false);
+        const deviceAuth = await attemptSilentDeviceLogin();
+        if (!deviceAuth.ok) {
+          setIsAuthenticated(false);
+        }
         return;
       }
 
@@ -161,7 +168,10 @@ export function useTaskActions({
         body: JSON.stringify(task),
       });
       if (res.status === 401) {
-        setIsAuthenticated(false);
+        const deviceAuth = await attemptSilentDeviceLogin();
+        if (!deviceAuth.ok) {
+          setIsAuthenticated(false);
+        }
         return;
       }
       if (res.ok) {
@@ -191,7 +201,10 @@ export function useTaskActions({
         credentials: 'same-origin',
       });
       if (res.status === 401) {
-        setIsAuthenticated(false);
+        const deviceAuth = await attemptSilentDeviceLogin();
+        if (!deviceAuth.ok) {
+          setIsAuthenticated(false);
+        }
         return;
       }
       if (!res.ok) {
@@ -234,7 +247,10 @@ export function useTaskActions({
         body: JSON.stringify(comment),
       });
       if (res.status === 401) {
-        setIsAuthenticated(false);
+        const deviceAuth = await attemptSilentDeviceLogin();
+        if (!deviceAuth.ok) {
+          setIsAuthenticated(false);
+        }
         return;
       }
       if (res.ok) {

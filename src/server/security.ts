@@ -38,6 +38,7 @@ export interface SecurityContext {
   smtpTestLimiter: RateLimiter;
   remindersPreviewLimiter: RateLimiter;
   weeklySummaryPreviewLimiter: RateLimiter;
+  deviceLoginIpLimiter: RateLimiter;
   passwordResetTokens: Map<string, PasswordResetToken>;
   passwordResetEmailAttempts: Map<string, EmailResetAttempts>;
   isRateLimited: (account: string, clientIp: string) => boolean;
@@ -282,7 +283,9 @@ export function applyCoreMiddleware(
 
     const cookies = parseCookies(req.headers.cookie);
     const hasSessionCookie = Boolean(cookies['__Host-zp_session'] || cookies['zp_session']);
-    if (!hasSessionCookie) {
+    const hasDeviceCookie = Boolean(cookies['__Host-zp_device'] || cookies['zp_device']);
+    const isDeviceLoginEndpoint = req.path === '/api/auth/device-login' || req.path === '/auth/device-login';
+    if (!hasSessionCookie && !hasDeviceCookie && !isDeviceLoginEndpoint) {
       return next();
     }
 
@@ -327,6 +330,7 @@ export function createSecurityContext(): SecurityContext {
   const smtpTestLimiter = createRateLimiter({ max: 3, windowMs: 60 * 1000 });
   const remindersPreviewLimiter = createRateLimiter({ max: 3, windowMs: 60 * 60 * 1000 });
   const weeklySummaryPreviewLimiter = createRateLimiter({ max: 3, windowMs: 60 * 60 * 1000 });
+  const deviceLoginIpLimiter = createRateLimiter({ max: 20, windowMs: 15 * 60 * 1000 });
 
   const failedLogins = new Map<string, FailedLoginRec>();
   const passwordResetTokens = new Map<string, PasswordResetToken>();
@@ -426,6 +430,7 @@ export function createSecurityContext(): SecurityContext {
     smtpTestLimiter.destroy();
     remindersPreviewLimiter.destroy();
     weeklySummaryPreviewLimiter.destroy();
+    deviceLoginIpLimiter.destroy();
   }
 
   return {
@@ -438,6 +443,7 @@ export function createSecurityContext(): SecurityContext {
     smtpTestLimiter,
     remindersPreviewLimiter,
     weeklySummaryPreviewLimiter,
+    deviceLoginIpLimiter,
     passwordResetTokens,
     passwordResetEmailAttempts,
     isRateLimited,

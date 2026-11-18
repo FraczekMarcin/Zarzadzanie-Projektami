@@ -10,6 +10,8 @@ import {
   StoredServerSettings,
   TRASH_RETENTION_MAX,
   TRASH_RETENTION_MIN,
+  TRUSTED_DEVICE_DAYS_MAX,
+  TRUSTED_DEVICE_DAYS_MIN,
   formatSmtpFrom,
   parseSmtpFrom,
   validateAdminSettingsUpdate,
@@ -65,6 +67,11 @@ export interface EffectiveSettings {
     includeAdmins: SettingFieldState<boolean>;
     maxItemsPerProject: SettingFieldState<number>;
   };
+  trustedDevices: {
+    enabled: SettingFieldState<boolean>;
+    days: SettingFieldState<number>;
+    allowForAdmins: SettingFieldState<boolean>;
+  };
 }
 
 export interface RuntimeSmtpConfig {
@@ -92,12 +99,19 @@ export interface LockedFieldConflict {
   envVar: string;
 }
 
+export interface EffectiveTrustedDevicesSettings {
+  enabled: boolean;
+  days: number;
+  allowForAdmins: boolean;
+}
+
 export interface SettingsService {
   getEffectiveSettings: () => EffectiveSettings;
   getEffectiveSessionPolicy: () => EffectiveSessionPolicy;
   getEffectiveTrashRetentionDays: () => number;
   getEffectiveReminderSettings: () => ReminderSettings;
   getEffectiveWeeklySummarySettings: () => WeeklySummarySettings;
+  getEffectiveTrustedDevicesSettings: () => EffectiveTrustedDevicesSettings;
   getRuntimeSmtpConfig: () => RuntimeSmtpConfig;
   getAdminSettingsPayload: (req: express.Request) => AdminSettingsResponse;
   findLockedFieldConflict: (input: AdminSettingsUpdateInput) => LockedFieldConflict | null;
@@ -139,6 +153,7 @@ export function createSettingsService(deps: {
     const storedTrash = stored.trash || {};
     const storedReminders = stored.reminders || {};
     const storedWeekly = stored.weeklySummary || {};
+    const storedTrustedDevices = stored.trustedDevices || {};
 
     // --- SMTP HOST ---
     const envHost = readEnvString('SMTP_HOST');
@@ -425,6 +440,57 @@ export function createSettingsService(deps: {
             locked: false,
           };
 
+    // --- TRUSTED DEVICES ---
+    const envTdEnabledRaw = readEnvString('TRUSTED_DEVICES_ENABLED');
+    const tdEnabled: SettingFieldState<boolean> =
+      envTdEnabledRaw !== undefined
+        ? {
+            value: parseEnvBoolean(envTdEnabledRaw),
+            source: 'env',
+            locked: true,
+            envVar: 'TRUSTED_DEVICES_ENABLED',
+          }
+        : typeof storedTrustedDevices.enabled === 'boolean'
+        ? { value: storedTrustedDevices.enabled, source: 'ui', locked: false }
+        : {
+            value: SERVER_SETTINGS_DEFAULTS.trustedDevices.enabled,
+            source: 'default',
+            locked: false,
+          };
+
+    const envTdDaysRaw = readEnvString('TRUSTED_DEVICE_DAYS');
+    const envTdDaysParsed = envTdDaysRaw !== undefined ? parseInt(envTdDaysRaw, 10) : NaN;
+    const hasValidEnvTdDays =
+      Number.isInteger(envTdDaysParsed) &&
+      envTdDaysParsed >= TRUSTED_DEVICE_DAYS_MIN &&
+      envTdDaysParsed <= TRUSTED_DEVICE_DAYS_MAX;
+    const tdDays: SettingFieldState<number> = hasValidEnvTdDays
+      ? {
+          value: envTdDaysParsed,
+          source: 'env',
+          locked: true,
+          envVar: 'TRUSTED_DEVICE_DAYS',
+        }
+      : typeof storedTrustedDevices.days === 'number' &&
+        Number.isInteger(storedTrustedDevices.days) &&
+        storedTrustedDevices.days >= TRUSTED_DEVICE_DAYS_MIN &&
+        storedTrustedDevices.days <= TRUSTED_DEVICE_DAYS_MAX
+      ? { value: storedTrustedDevices.days, source: 'ui', locked: false }
+      : {
+          value: SERVER_SETTINGS_DEFAULTS.trustedDevices.days,
+          source: 'default',
+          locked: false,
+        };
+
+    const tdAllowForAdmins: SettingFieldState<boolean> =
+      typeof storedTrustedDevices.allowForAdmins === 'boolean'
+        ? { value: storedTrustedDevices.allowForAdmins, source: 'ui', locked: false }
+        : {
+            value: SERVER_SETTINGS_DEFAULTS.trustedDevices.allowForAdmins,
+            source: 'default',
+            locked: false,
+          };
+
     return {
       smtp: {
         configured: host.value.trim().length > 0,
@@ -463,6 +529,11 @@ export function createSettingsService(deps: {
         includeAdmins: wsIncludeAdmins,
         maxItemsPerProject: wsMaxItemsPerProject,
       },
+      trustedDevices: {
+        enabled: tdEnabled,
+        days: tdDays,
+        allowForAdmins: tdAllowForAdmins,
+      },
     };
   }
 
@@ -495,6 +566,15 @@ export function createSettingsService(deps: {
       includeAdmins: w.includeAdmins.value,
       maxItemsPerProject: w.maxItemsPerProject.value,
       appBaseUrl: r.appBaseUrl.value,
+    };
+  }
+
+  function getEffectiveTrustedDevicesSettings(): EffectiveTrustedDevicesSettings {
+    const td = getEffectiveSettings().trustedDevices;
+    return {
+      enabled: td.enabled.value,
+      days: td.days.value,
+      allowForAdmins: td.allowForAdmins.value,
     };
   }
 
@@ -575,6 +655,7 @@ export function createSettingsService(deps: {
       trash: eff.trash,
       reminders: eff.reminders,
       weeklySummary: eff.weeklySummary,
+      trustedDevices: eff.trustedDevices,
       readOnly: {
         dataDir: config.dataDir,
         trustProxy: {
@@ -681,6 +762,16 @@ export function createSettingsService(deps: {
       }
     }
 
+    if (input.trustedDevices && typeof input.trustedDevices === 'object') {
+      const td = input.trustedDevices;
+      if (td.enabled !== undefined && eff.trustedDevices.enabled.locked) {
+        return { field: 'trustedDevices.enabled', envVar: eff.trustedDevices.enabled.envVar! };
+      }
+      if (td.days !== undefined && eff.trustedDevices.days.locked) {
+        return { field: 'trustedDevices.days', envVar: eff.trustedDevices.days.envVar! };
+      }
+    }
+
     return null;
   }
 
@@ -708,6 +799,9 @@ export function createSettingsService(deps: {
             reminders: appState.serverSettings.reminders ? { ...appState.serverSettings.reminders } : undefined,
             weeklySummary: appState.serverSettings.weeklySummary
               ? { ...appState.serverSettings.weeklySummary }
+              : undefined,
+            trustedDevices: appState.serverSettings.trustedDevices
+              ? { ...appState.serverSettings.trustedDevices }
               : undefined,
           }
         : {};
@@ -893,6 +987,32 @@ export function createSettingsService(deps: {
       currentStored.weeklySummary = nextWs;
     }
 
+    if (patch.trustedDevices) {
+      const nextTd = { ...(currentStored.trustedDevices || {}) };
+      if (
+        patch.trustedDevices.enabled !== undefined &&
+        patch.trustedDevices.enabled !== nextTd.enabled
+      ) {
+        nextTd.enabled = patch.trustedDevices.enabled;
+        changedFields.push('trustedDevices.enabled');
+      }
+      if (
+        patch.trustedDevices.days !== undefined &&
+        patch.trustedDevices.days !== nextTd.days
+      ) {
+        nextTd.days = patch.trustedDevices.days;
+        changedFields.push('trustedDevices.days');
+      }
+      if (
+        patch.trustedDevices.allowForAdmins !== undefined &&
+        patch.trustedDevices.allowForAdmins !== nextTd.allowForAdmins
+      ) {
+        nextTd.allowForAdmins = patch.trustedDevices.allowForAdmins;
+        changedFields.push('trustedDevices.allowForAdmins');
+      }
+      currentStored.trustedDevices = nextTd;
+    }
+
     if (changedFields.length > 0) {
       appState.serverSettings = currentStored;
       appState.updatedAt = new Date().toISOString();
@@ -909,6 +1029,7 @@ export function createSettingsService(deps: {
     getEffectiveTrashRetentionDays,
     getEffectiveReminderSettings,
     getEffectiveWeeklySummarySettings,
+    getEffectiveTrustedDevicesSettings,
     getRuntimeSmtpConfig,
     getAdminSettingsPayload,
     findLockedFieldConflict,

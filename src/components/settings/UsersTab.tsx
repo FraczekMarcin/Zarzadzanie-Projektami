@@ -13,6 +13,7 @@ import { parseUserAgent, PublicSession } from '../../utils/sessions';
 import { validatePassword } from '../../utils/passwordPolicy';
 import { TwoFactorManager } from '../TwoFactorManager';
 import { PasswordRequirementsChecklist } from '../PasswordRequirementsChecklist';
+import { TrustedDevicesSection } from '../TrustedDevicesSection';
 
 export interface UsersTabProps {
   isOpen: boolean;
@@ -53,6 +54,7 @@ export const UsersTab: React.FC<UsersTabProps> = ({
   const [sessionActionError, setSessionActionError] = useState<string | null>(null);
   const [sessionActionSuccess, setSessionActionSuccess] = useState<string | null>(null);
   const [isRevokingOthers, setIsRevokingOthers] = useState(false);
+  const [adminDevicesTarget, setAdminDevicesTarget] = useState<User | null>(null);
 
   const loadSessions = async () => {
     setIsLoadingSessions(true);
@@ -467,14 +469,26 @@ export const UsersTab: React.FC<UsersTabProps> = ({
                   </button>
                 )}
                 {currentUser?.role === 'admin' && (
-                  <button
-                    type="button"
-                    onClick={() => handleAdminRevokeAllUserSessions(u.id, u.name)}
-                    className="px-2 py-1 text-[11px] font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-950/60 rounded transition-colors"
-                    title="Wyloguj użytkownika ze wszystkich urządzeń"
-                  >
-                    Zakończ wszystkie sesje
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAdminDevicesTarget((prev) => (prev?.id === u.id ? null : u))
+                      }
+                      className="px-2 py-1 text-[11px] font-semibold text-sky-700 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/60 rounded transition-colors"
+                      title="Zarządzaj zaufanymi urządzeniami użytkownika"
+                    >
+                      Zaufane urządzenia
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleAdminRevokeAllUserSessions(u.id, u.name)}
+                      className="px-2 py-1 text-[11px] font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-950/60 rounded transition-colors"
+                      title="Wyloguj użytkownika ze wszystkich urządzeń"
+                    >
+                      Zakończ wszystkie sesje
+                    </button>
+                  </>
                 )}
                 {u.isDemo && (
                   <span className="px-2 py-0.5 rounded text-[10px] bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold">
@@ -486,6 +500,29 @@ export const UsersTab: React.FC<UsersTabProps> = ({
           ))}
         </div>
       </div>
+
+      {/* Admin panel zarządzania zaufanymi urządzeniami wybranego użytkownika */}
+      {currentUser?.role === 'admin' && adminDevicesTarget && (
+        <div className="space-y-2 p-3 rounded-lg border-2 border-sky-300 dark:border-sky-800 bg-sky-50/40 dark:bg-sky-950/20">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-900 dark:text-white">
+              Podgląd administratora: zaufane urządzenia użytkownika {adminDevicesTarget.name}
+            </span>
+            <button
+              type="button"
+              onClick={() => setAdminDevicesTarget(null)}
+              className="text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white px-2 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800"
+            >
+              Zamknij
+            </button>
+          </div>
+          <TrustedDevicesSection
+            isOpen={isOpen && Boolean(adminDevicesTarget)}
+            targetUserId={adminDevicesTarget.id}
+            targetUserName={adminDevicesTarget.name}
+          />
+        </div>
+      )}
 
       {/* Active Sessions Section */}
       <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
@@ -608,6 +645,9 @@ export const UsersTab: React.FC<UsersTabProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Trusted Devices Section for Current User */}
+      {currentUser && <TrustedDevicesSection isOpen={isOpen} />}
     </div>
   );
 };

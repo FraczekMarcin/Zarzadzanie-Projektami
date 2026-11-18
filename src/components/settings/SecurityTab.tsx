@@ -39,6 +39,10 @@ const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   disk_low: 'Mało miejsca na dysku serwera',
   disk_recovered: 'Miejsce na dysku znów wystarczające',
   disk_write_failed: 'Błąd zapisu stanu (brak miejsca na dysku)',
+  device_trusted: 'Dodanie zaufanego urządzenia',
+  device_login: 'Logowanie zaufanym urządzeniem',
+  device_revoked: 'Cofnięcie zaufania urządzenia',
+  device_token_reuse: 'Wykryto ponowne użycie starego tokena urządzenia',
 };
 
 export interface SecurityTabProps {
@@ -161,7 +165,8 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ isOpen, users, current
                     ev.type === 'google_sync_failed' ||
                     ev.type === 'smtp_test_failed' ||
                     ev.type === 'disk_low' ||
-                    ev.type === 'disk_write_failed';
+                    ev.type === 'disk_write_failed' ||
+                    ev.type === 'device_token_reuse';
                   const matchedUser = ev.userId ? users.find((u) => u.id === ev.userId) : undefined;
                   const label = SECURITY_EVENT_LABELS[ev.type] || ev.type;
                   const detailsText = ev.details && Object.keys(ev.details).length > 0
@@ -192,7 +197,9 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ isOpen, users, current
                                 ev.type === 'user_approved' ||
                                 ev.type === 'google_sync_completed' ||
                                 ev.type === 'smtp_test_sent' ||
-                                ev.type === 'disk_recovered'
+                                ev.type === 'disk_recovered' ||
+                                ev.type === 'device_trusted' ||
+                                ev.type === 'device_login'
                               ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
                               : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
                           }`}

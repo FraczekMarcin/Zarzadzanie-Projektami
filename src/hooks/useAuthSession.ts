@@ -3,6 +3,14 @@ import { User, Project, Task, ActivityLog, Comment } from '../types';
 import { INITIAL_PROJECTS, INITIAL_TASKS, INITIAL_ACTIVITY } from '../data/initialData';
 import { isDemoUser } from '../utils/demoData';
 import { clearPendingDeepLink } from '../utils/deepLink';
+import {
+  attemptSilentDeviceLogin,
+  clearExplicitLogout,
+  hasExplicitLogout,
+  markExplicitLogout,
+  resetDeviceLoginAttempt,
+  setHasTrustedDeviceCookie,
+} from '../utils/deviceLoginClient';
 
 export interface NotificationToast {
   message: string;
@@ -73,8 +81,27 @@ export function useAuthSession({
         if (Array.isArray(data.users)) {
           setUsers(data.users);
         }
+        const hasDeviceCookie = Boolean(data.trustedDevices?.hasCookie);
+        setHasTrustedDeviceCookie(hasDeviceCookie);
 
         if (data.authenticated === false) {
+          if (
+            !data.setupRequired &&
+            !hasExplicitLogout() &&
+            data.trustedDevices?.enabled !== false &&
+            hasDeviceCookie
+          ) {
+            const deviceAuth = await attemptSilentDeviceLogin();
+            if (!isMounted) return;
+            if (deviceAuth.ok && deviceAuth.user) {
+              setCurrentUser(deviceAuth.user);
+              setIsAuthenticated(true);
+              try {
+                localStorage.setItem('oph_is_authenticated', 'true');
+              } catch {}
+              return;
+            }
+          }
           setIsAuthenticated(false);
           try {
             localStorage.removeItem('oph_is_authenticated');
@@ -87,12 +114,30 @@ export function useAuthSession({
           const meData = meRes.ok ? await meRes.json() : null;
           if (!isMounted) return;
           if (meData && meData.authenticated && meData.user) {
+            resetDeviceLoginAttempt();
             setIsAuthenticated(true);
             setCurrentUser(meData.user);
             try {
               localStorage.setItem('oph_is_authenticated', 'true');
             } catch {}
           } else {
+            if (
+              meRes.status === 401 &&
+              !hasExplicitLogout() &&
+              data.trustedDevices?.enabled !== false &&
+              hasDeviceCookie
+            ) {
+              const deviceAuth = await attemptSilentDeviceLogin();
+              if (!isMounted) return;
+              if (deviceAuth.ok && deviceAuth.user) {
+                setCurrentUser(deviceAuth.user);
+                setIsAuthenticated(true);
+                try {
+                  localStorage.setItem('oph_is_authenticated', 'true');
+                } catch {}
+                return;
+              }
+            }
             setIsAuthenticated(false);
             try {
               localStorage.removeItem('oph_is_authenticated');
@@ -128,6 +173,8 @@ export function useAuthSession({
 
   // Login handler
   const handleLoginSuccess = (user: User) => {
+    clearExplicitLogout();
+    resetDeviceLoginAttempt();
     setCurrentUser(user);
     setIsAuthenticated(true);
     try {
@@ -157,6 +204,9 @@ export function useAuthSession({
 
   // Logout handler - calls logActivity first, then server logout, cleans localStorage and React state
   const handleLogout = async () => {
+    // 0. Zaznacz jawne wylogowanie w bieżącej karcie przed wywołaniem /api/auth/logout
+    markExplicitLogout();
+
     // 1. Najpierw wywołaj logActivity
     logActivityRef.current(`${currentUser?.name || 'Użytkownik'} wylogował się z systemu`);
 

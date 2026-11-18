@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Task, Project, User, ActivityLog, Comment } from '../types';
 import type { NotificationToast } from './useAuthSession';
+import { attemptSilentDeviceLogin } from '../utils/deviceLoginClient';
 
 interface UseServerSyncParams {
   isAuthenticated: boolean;
@@ -55,6 +56,10 @@ export function useServerSync({
     try {
       const res = await fetch('/api/state', { credentials: 'same-origin' });
       if (res.status === 401) {
+        const deviceAuth = await attemptSilentDeviceLogin();
+        if (deviceAuth.ok) {
+          return await fetchFreshState(showNotification);
+        }
         closeEventSource();
         setHasLoadedState(false);
         setIsAuthenticated(false);
@@ -146,6 +151,10 @@ export function useServerSync({
       try {
         const res = await fetch('/api/state/revision', { credentials: 'same-origin' });
         if (res.status === 401) {
+          const deviceAuth = await attemptSilentDeviceLogin();
+          if (deviceAuth.ok) {
+            return await pollRevisionOnce();
+          }
           closeEventSource();
           stopFallbackPolling();
           clearRetryClosedTimer();

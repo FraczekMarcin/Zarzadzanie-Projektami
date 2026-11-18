@@ -19,6 +19,7 @@ import { createGoogleSyncService, registerGoogleSyncRoutes } from './googleSync.
 import { createBackupWatchService } from './backupWatch.js';
 import { createDiskWatchService } from './diskWatch.js';
 import { createSettingsService } from './settings.js';
+import { createTrustedDevicesService } from './trustedDevices.js';
 import { createMailer } from './mailer.js';
 import { registerAdminSettingsRoutes } from './routes/adminSettings.js';
 import { createTrashCleanupService } from './trash.js';
@@ -49,6 +50,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
     stateStore,
     () => settingsService.getEffectiveSessionPolicy()
   );
+  const trustedDevicesService = createTrustedDevicesService({
+    config,
+    stateStore,
+    sessionStore,
+    settingsService,
+    disableTimers: options.trustedDevicesDisableTimers,
+  });
   const googleSync = createGoogleSyncService({
     config,
     stateStore,
@@ -103,6 +111,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
 
     weeklySummaryService.stop();
     reminderService.stop();
+    trustedDevicesService.stop();
     trashCleanup.stop();
     diskWatch.stop();
     backupWatch.stop();
@@ -132,6 +141,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
     applyCoreMiddleware(app, config, stateStore.securityLogger);
 
     await trashCleanup.start();
+    await trustedDevicesService.start();
     await reminderService.start();
 
     registerSystemRoutes(app, {
@@ -140,15 +150,30 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
       sessionStore,
       diskStatusCheckOverride: options.diskStatusCheckOverride,
     });
-    registerAuthRoutes(app, { config, stateStore, sessionStore, security, settingsService, mailer });
+    registerAuthRoutes(app, {
+      config,
+      stateStore,
+      sessionStore,
+      security,
+      settingsService,
+      mailer,
+      trustedDevicesService,
+    });
     registerTaskRoutes(app, { stateStore, sessionStore, settingsService });
     registerProjectRoutes(app, { stateStore, sessionStore, settingsService });
     registerTrashRoutes(app, { stateStore, sessionStore, settingsService });
     registerCommentRoutes(app, { stateStore, sessionStore });
-    registerUserRoutes(app, { config, stateStore, sessionStore, security });
+    registerUserRoutes(app, { config, stateStore, sessionStore, security, trustedDevicesService });
     registerCalendarRoutes(app, { config, stateStore, sessionStore });
     registerGoogleSyncRoutes(app, { googleSync, sessionStore });
-    registerAdminSettingsRoutes(app, { stateStore, sessionStore, security, settingsService, mailer });
+    registerAdminSettingsRoutes(app, {
+      stateStore,
+      sessionStore,
+      security,
+      settingsService,
+      mailer,
+      trustedDevicesService,
+    });
     registerReminderRoutes(app, { sessionStore, security, settingsService, mailer, reminderService });
     registerWeeklySummaryRoutes(app, {
       sessionStore,

@@ -19,6 +19,8 @@ import {
   SESSION_MAX_HOURS_MIN,
   TRASH_RETENTION_MAX,
   TRASH_RETENTION_MIN,
+  TRUSTED_DEVICE_DAYS_MAX,
+  TRUSTED_DEVICE_DAYS_MIN,
 } from '../../utils/settingsSchema';
 
 interface AdminSystemResponse {
@@ -77,6 +79,9 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({ isOpen, cu
   const [idleMinutes, setIdleMinutes] = useState<string>('120');
   const [maxHours, setMaxHours] = useState<string>('12');
   const [trashRetentionDays, setTrashRetentionDays] = useState<string>('30');
+  const [trustedDevicesEnabled, setTrustedDevicesEnabled] = useState(true);
+  const [trustedDeviceDays, setTrustedDeviceDays] = useState<string>('30');
+  const [trustedAllowForAdmins, setTrustedAllowForAdmins] = useState(true);
   const [currentPassword, setCurrentPassword] = useState('');
 
   const [isSaving, setIsSaving] = useState(false);
@@ -90,6 +95,11 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({ isOpen, cu
     setMaxHours(String(payload.sessions.maxHours.value));
     if (payload.trash?.retentionDays) {
       setTrashRetentionDays(String(payload.trash.retentionDays.value));
+    }
+    if (payload.trustedDevices) {
+      setTrustedDevicesEnabled(payload.trustedDevices.enabled.value);
+      setTrustedDeviceDays(String(payload.trustedDevices.days.value));
+      setTrustedAllowForAdmins(payload.trustedDevices.allowForAdmins.value);
     }
   };
 
@@ -201,6 +211,33 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({ isOpen, cu
         return;
       }
       body.trash = { retentionDays: parsedRetention };
+    }
+
+    if (data.trustedDevices) {
+      const tdPatch: Record<string, any> = {};
+      if (!data.trustedDevices.enabled.locked) {
+        tdPatch.enabled = trustedDevicesEnabled;
+      }
+      if (!data.trustedDevices.days.locked) {
+        const parsedDays = Number(trustedDeviceDays.trim());
+        if (
+          !Number.isInteger(parsedDays) ||
+          parsedDays < TRUSTED_DEVICE_DAYS_MIN ||
+          parsedDays > TRUSTED_DEVICE_DAYS_MAX
+        ) {
+          setSaveError(
+            `Okres zaufania urządzenia musi być liczbą całkowitą z zakresu od ${TRUSTED_DEVICE_DAYS_MIN} do ${TRUSTED_DEVICE_DAYS_MAX} dni.`
+          );
+          return;
+        }
+        tdPatch.days = parsedDays;
+      }
+      if (!data.trustedDevices.allowForAdmins.locked) {
+        tdPatch.allowForAdmins = trustedAllowForAdmins;
+      }
+      if (Object.keys(tdPatch).length > 0) {
+        body.trustedDevices = tdPatch;
+      }
     }
 
     setIsSaving(true);
@@ -380,6 +417,86 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({ isOpen, cu
                 </div>
               )}
             </div>
+
+            {data.trustedDevices && (
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-3">
+                <div>
+                  <h5 className="font-bold text-slate-900 dark:text-white text-xs">
+                    Zaufane urządzenia („Ufaj temu urządzeniu”)
+                  </h5>
+                  <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                    Pozwala użytkownikom zapamiętać przeglądarkę bezpiecznym ciasteczkiem HttpOnly z rotowanym tokenem.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                    <input
+                      id="trusted-devices-enabled"
+                      type="checkbox"
+                      checked={trustedDevicesEnabled}
+                      onChange={(e) => setTrustedDevicesEnabled(e.target.checked)}
+                      disabled={data.trustedDevices.enabled.locked}
+                      className="mt-0.5 rounded border-slate-300 dark:border-slate-700 text-sky-700 focus:ring-sky-600"
+                    />
+                    <span>
+                      <span className="block text-xs font-semibold text-slate-800 dark:text-slate-200">
+                        Włącz funkcję zaufanych urządzeń przy logowaniu
+                      </span>
+                      <span className="block text-[11px] text-slate-600 dark:text-slate-400">
+                        Wyłączenie tej opcji natychmiast unieważnia wszystkie istniejące zaufane urządzenia w systemie.
+                      </span>
+                    </span>
+                  </label>
+                  {data.trustedDevices.enabled.locked &&
+                    renderEnvLockNote(data.trustedDevices.enabled.envVar)}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
+                  <div>
+                    <label htmlFor="trusted-device-days" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Czas ważności zaufania (dni)
+                    </label>
+                    <input
+                      id="trusted-device-days"
+                      type="number"
+                      min={TRUSTED_DEVICE_DAYS_MIN}
+                      max={TRUSTED_DEVICE_DAYS_MAX}
+                      value={trustedDeviceDays}
+                      onChange={(e) => setTrustedDeviceDays(e.target.value)}
+                      disabled={data.trustedDevices.days.locked}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs disabled:opacity-60 disabled:bg-slate-100 dark:disabled:bg-slate-800"
+                    />
+                    <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
+                      Zakres: {TRUSTED_DEVICE_DAYS_MIN}–{TRUSTED_DEVICE_DAYS_MAX} dni (domyślnie 30).
+                    </p>
+                    {data.trustedDevices.days.locked &&
+                      renderEnvLockNote(data.trustedDevices.days.envVar)}
+                  </div>
+
+                  <div className="pt-1 sm:pt-5">
+                    <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                      <input
+                        id="trusted-devices-allow-admins"
+                        type="checkbox"
+                        checked={trustedAllowForAdmins}
+                        onChange={(e) => setTrustedAllowForAdmins(e.target.checked)}
+                        disabled={data.trustedDevices.allowForAdmins.locked}
+                        className="mt-0.5 rounded border-slate-300 dark:border-slate-700 text-sky-700 focus:ring-sky-600"
+                      />
+                      <span>
+                        <span className="block text-xs font-semibold text-slate-800 dark:text-slate-200">
+                          Zezwalaj administratorom na zaufane urządzenia
+                        </span>
+                        <span className="block text-[11px] text-slate-600 dark:text-slate-400">
+                          Po odznaczeniu administratorzy muszą każdorazowo logować się hasłem (i 2FA).
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-3">
               <div>

@@ -8,6 +8,7 @@ import {
 } from '../security.js';
 import { SessionStore } from '../sessions.js';
 import { SettingsService } from '../settings.js';
+import { TrustedDevicesService } from '../trustedDevices.js';
 import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { logger } from '../logger.js';
 
@@ -17,13 +18,14 @@ export interface AdminSettingsRoutesDeps {
   security: SecurityContext;
   settingsService: SettingsService;
   mailer: MailerService;
+  trustedDevicesService: TrustedDevicesService;
 }
 
 export function registerAdminSettingsRoutes(
   app: express.Express,
   deps: AdminSettingsRoutesDeps
 ): void {
-  const { stateStore, sessionStore, security, settingsService, mailer } = deps;
+  const { stateStore, sessionStore, security, settingsService, mailer, trustedDevicesService } = deps;
   const { requireAdmin } = sessionStore;
   const { adminSettingsLimiter, smtpTestLimiter } = security;
   const { securityLogger } = stateStore;
@@ -102,6 +104,23 @@ export function registerAdminSettingsRoutes(
           })
           .catch(() => {});
         logger.info(`[AdminSettings] Administrator (${caller.id}) zmienił pola: ${changedFields.join(', ')}.`);
+
+        if (
+          changedFields.includes('trustedDevices.enabled') &&
+          !settingsService.getEffectiveTrustedDevicesSettings().enabled
+        ) {
+          const revokedCount = await trustedDevicesService.revokeAllDevicesGlobally();
+          if (revokedCount > 0) {
+            await securityLogger
+              .record('device_revoked', {
+                userId: caller.id,
+                ip: clientIp,
+                userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+                details: { reason: 'feature_disabled_by_admin', count: revokedCount },
+              })
+              .catch(() => {});
+          }
+        }
       }
 
       const updatedPayload = settingsService.getAdminSettingsPayload(req);

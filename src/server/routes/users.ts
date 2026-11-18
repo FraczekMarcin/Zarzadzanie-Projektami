@@ -16,6 +16,7 @@ import {
   verifyAndMigratePassword,
 } from '../security.js';
 import { SessionStore } from '../sessions.js';
+import { TrustedDevicesService } from '../trustedDevices.js';
 import { validatePassword } from '../../utils/passwordPolicy.js';
 import { logger } from '../logger.js';
 
@@ -24,10 +25,11 @@ export interface UserRoutesDeps {
   stateStore: StateStore;
   sessionStore: SessionStore;
   security: SecurityContext;
+  trustedDevicesService: TrustedDevicesService;
 }
 
 export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): void {
-  const { config, stateStore, sessionStore, security } = deps;
+  const { config, stateStore, sessionStore, security, trustedDevicesService } = deps;
   const { effectiveAppSecret } = config;
   const { securityLogger } = stateStore;
   const { saveSessionsAsync, getSessionFromReq, revokeUserSessions, requireAuth, requireAdmin } = sessionStore;
@@ -44,6 +46,10 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
 
     const revokedCount = revokeUserSessions(userId);
     await saveSessionsAsync();
+    const revokedDevices = await trustedDevicesService.revokeAllDevicesForUser(userId);
+    if (caller.id === userId) {
+      trustedDevicesService.clearDeviceCookie(req, res);
+    }
 
     securityLogger.record('session_revoked', {
       userId,
@@ -52,11 +58,98 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
       details: { revokedByAdminId: caller?.id, targetUserName: targetUser.name, revokedCount },
     }).catch(() => {});
 
+    if (revokedDevices > 0) {
+      securityLogger.record('device_revoked', {
+        userId,
+        ip: getClientIp(req),
+        userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+        details: { revokedByAdminId: caller?.id, reason: 'admin_revoke_sessions', count: revokedDevices },
+      }).catch(() => {});
+    }
+
     res.json({
       success: true,
       message: `Unieważniono wszystkie sesje użytkownika ${targetUser.name} (${revokedCount})`,
       revokedCount,
+      revokedDevices,
     });
+  });
+
+  // GET /api/users/:userId/devices (Admin)
+  app.get('/api/users/:userId/devices', requireAdmin, (req, res) => {
+    const { userId } = req.params;
+    const caller = (req as any).user;
+    const targetUser = (stateStore.getUsers() || []).find((u: any) => u.id === userId);
+    if (!targetUser) {
+      return res.status(404).json({ error: `Użytkownik o ID "${userId}" nie istnieje` });
+    }
+    const rawDeviceToken = caller.id === userId ? trustedDevicesService.getDeviceTokenFromReq(req) : undefined;
+    const devices = trustedDevicesService.listPublicDevicesForUser(userId, rawDeviceToken);
+    res.json({ success: true, devices });
+  });
+
+  // DELETE /api/users/:userId/devices/:deviceId (Admin)
+  app.delete('/api/users/:userId/devices/:deviceId', requireAdmin, async (req, res) => {
+    try {
+      const caller = (req as any).user;
+      const { userId, deviceId } = req.params;
+      const targetUser = (stateStore.getUsers() || []).find((u: any) => u.id === userId);
+      if (!targetUser) {
+        return res.status(404).json({ error: `Użytkownik o ID "${userId}" nie istnieje` });
+      }
+      const rawDeviceToken = caller.id === userId ? trustedDevicesService.getDeviceTokenFromReq(req) : undefined;
+      const result = await trustedDevicesService.revokeDeviceByPublicId(userId, deviceId, rawDeviceToken);
+      if (!result.revoked) {
+        return res.status(404).json({ error: 'Zaufane urządzenie nie istnieje dla tego użytkownika.' });
+      }
+      if (caller.id === userId && result.wasCurrent) {
+        trustedDevicesService.clearDeviceCookie(req, res);
+      }
+      securityLogger.record('device_revoked', {
+        userId,
+        ip: getClientIp(req),
+        userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+        details: { revokedByAdminId: caller.id, deviceId, label: result.label },
+      }).catch(() => {});
+      return res.json({ success: true, wasCurrent: result.wasCurrent });
+    } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
+      logger.error('[Server Auth] Błąd usuwania zaufanego urządzenia przez admina:', err);
+      return res.status(500).json({ error: 'Nie udało się usunąć zaufanego urządzenia.' });
+    }
+  });
+
+  // DELETE /api/users/:userId/devices (Admin)
+  app.delete('/api/users/:userId/devices', requireAdmin, async (req, res) => {
+    try {
+      const caller = (req as any).user;
+      const { userId } = req.params;
+      const targetUser = (stateStore.getUsers() || []).find((u: any) => u.id === userId);
+      if (!targetUser) {
+        return res.status(404).json({ error: `Użytkownik o ID "${userId}" nie istnieje` });
+      }
+      const revokedCount = await trustedDevicesService.revokeAllDevicesForUser(userId);
+      if (caller.id === userId) {
+        trustedDevicesService.clearDeviceCookie(req, res);
+      }
+      if (revokedCount > 0) {
+        securityLogger.record('device_revoked', {
+          userId,
+          ip: getClientIp(req),
+          userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+          details: { revokedByAdminId: caller.id, reason: 'admin_revoke_all', count: revokedCount },
+        }).catch(() => {});
+      }
+      return res.json({ success: true, revokedCount });
+    } catch (err: any) {
+      if (isDiskFullError(err)) {
+        return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
+      }
+      logger.error('[Server Auth] Błąd usuwania zaufanych urządzeń użytkownika przez admina:', err);
+      return res.status(500).json({ error: 'Nie udało się usunąć zaufanych urządzeń.' });
+    }
   });
 
   // POST /api/users/:userId/password
@@ -133,12 +226,26 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
       revokeUserSessions(targetUser.id, isSelf ? currentSession?.tokenHash : undefined);
       saveSessionsAsync();
 
+      const revokedDevices = await trustedDevicesService.revokeAllDevicesForUser(targetUser.id);
+      if (isSelf) {
+        trustedDevicesService.clearDeviceCookie(req, res);
+      }
+
       securityLogger.record('password_changed', {
         userId: targetUser.id,
         ip: clientIp,
         userAgent: (req.headers['user-agent'] || '').slice(0, 100),
         details: { changedByCallerId: caller.id, isSelf },
       }).catch(() => {});
+
+      if (revokedDevices > 0) {
+        securityLogger.record('device_revoked', {
+          userId: targetUser.id,
+          ip: clientIp,
+          userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+          details: { reason: 'password_changed', changedByCallerId: caller.id, count: revokedDevices },
+        }).catch(() => {});
+      }
 
       res.json({ success: true, message: 'Hasło zostało pomyślnie zaktualizowane.' });
     } catch (err: any) {
@@ -270,12 +377,24 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
       revokeUserSessions(targetUser.id, currentSession?.tokenHash);
       saveSessionsAsync();
 
+      const revokedDevices = await trustedDevicesService.revokeAllDevicesForUser(targetUser.id);
+      trustedDevicesService.clearDeviceCookie(req, res);
+
       securityLogger.record('twofa_enabled', {
         userId: targetUser.id,
         ip: getClientIp(req),
         userAgent: (req.headers['user-agent'] || '').slice(0, 100),
         details: { backupCodesCount: targetUser.twoFactorBackupCodes?.length ?? 0 },
       }).catch(() => {});
+
+      if (revokedDevices > 0) {
+        securityLogger.record('device_revoked', {
+          userId: targetUser.id,
+          ip: getClientIp(req),
+          userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+          details: { reason: 'twofa_enabled', count: revokedDevices },
+        }).catch(() => {});
+      }
 
       res.json({
         success: true,
@@ -367,12 +486,26 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
         saveSessionsAsync();
       }
 
+      const revokedDevices = await trustedDevicesService.revokeAllDevicesForUser(targetUser.id);
+      if (isSelf) {
+        trustedDevicesService.clearDeviceCookie(req, res);
+      }
+
       securityLogger.record('twofa_disabled', {
         userId: targetUser.id,
         ip: clientIp,
         userAgent: (req.headers['user-agent'] || '').slice(0, 100),
         details: { disabledByCallerId: caller.id, isSelf },
       }).catch(() => {});
+
+      if (revokedDevices > 0) {
+        securityLogger.record('device_revoked', {
+          userId: targetUser.id,
+          ip: clientIp,
+          userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+          details: { reason: isSelf ? 'twofa_disabled' : 'twofa_reset_by_admin', count: revokedDevices },
+        }).catch(() => {});
+      }
 
       res.json({ success: true, twoFactorEnabled: false });
     } catch (err: any) {
@@ -438,6 +571,7 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
         updatedAt: new Date().toISOString(),
       });
       await stateStore.saveStateAtomicAsync();
+      await trustedDevicesService.revokeAllDevicesForUser(userId);
       revokeUserSessions(userId);
       saveSessionsAsync();
 

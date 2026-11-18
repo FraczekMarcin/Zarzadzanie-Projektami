@@ -36,7 +36,11 @@ export type SecurityEventType =
   | 'weekly_summary_failed'
   | 'disk_low'
   | 'disk_recovered'
-  | 'disk_write_failed';
+  | 'disk_write_failed'
+  | 'device_trusted'
+  | 'device_login'
+  | 'device_revoked'
+  | 'device_token_reuse';
 
 export type LoginFailureReason =
   | 'bad_password'
@@ -182,6 +186,10 @@ export const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   disk_low: 'Mało miejsca na dysku serwera',
   disk_recovered: 'Miejsce na dysku serwera wróciło do normy',
   disk_write_failed: 'Nieudany zapis stanu z powodu braku miejsca na dysku',
+  device_trusted: 'Dodanie zaufanego urządzenia',
+  device_login: 'Logowanie zaufanym urządzeniem',
+  device_revoked: 'Cofnięcie zaufania urządzenia',
+  device_token_reuse: 'Wykryto ponowne użycie starego tokena urządzenia',
 };
 
 /**

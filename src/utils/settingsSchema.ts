@@ -56,6 +56,11 @@ export interface StoredServerSettings {
   };
   reminders?: StoredReminderSettings;
   weeklySummary?: StoredWeeklySummarySettings;
+  trustedDevices?: {
+    enabled?: boolean;
+    days?: number;
+    allowForAdmins?: boolean;
+  };
 }
 
 export interface SettingFieldState<T> {
@@ -119,6 +124,11 @@ export interface AdminSettingsResponse {
     includeAdmins: SettingFieldState<boolean>;
     maxItemsPerProject: SettingFieldState<number>;
   };
+  trustedDevices: {
+    enabled: SettingFieldState<boolean>;
+    days: SettingFieldState<number>;
+    allowForAdmins: SettingFieldState<boolean>;
+  };
   readOnly: AdminReadOnlySettings;
 }
 
@@ -164,6 +174,11 @@ export interface AdminSettingsUpdateInput {
     includeAdmins?: unknown;
     maxItemsPerProject?: unknown;
   };
+  trustedDevices?: {
+    enabled?: unknown;
+    days?: unknown;
+    allowForAdmins?: unknown;
+  };
 }
 
 export interface NormalizedSettingsPatch {
@@ -203,6 +218,11 @@ export interface NormalizedSettingsPatch {
     windowDays?: 7 | 14;
     includeAdmins?: boolean;
     maxItemsPerProject?: number;
+  };
+  trustedDevices?: {
+    enabled?: boolean;
+    days?: number;
+    allowForAdmins?: boolean;
   };
 }
 
@@ -249,6 +269,11 @@ export const SERVER_SETTINGS_DEFAULTS = {
     includeAdmins: true,
     maxItemsPerProject: 15,
   },
+  trustedDevices: {
+    enabled: true,
+    days: 30,
+    allowForAdmins: true,
+  },
 } as const;
 
 export const SESSION_IDLE_MIN = 5;
@@ -257,6 +282,8 @@ export const SESSION_MAX_HOURS_MIN = 1;
 export const SESSION_MAX_HOURS_MAX = 168;
 export const TRASH_RETENTION_MIN = 1;
 export const TRASH_RETENTION_MAX = 365;
+export const TRUSTED_DEVICE_DAYS_MIN = 1;
+export const TRUSTED_DEVICE_DAYS_MAX = 90;
 
 const VALID_ENCRYPTION_VALUES = new Set<SmtpEncryption>(['none', 'starttls', 'tls']);
 const SIMPLE_EMAIL_REGEX = /^[^\s@<>()[\]\\,;:\"]+@[^\s@<>()[\]\\,;:\"]+\.[^\s@<>()[\]\\,;:\"]+$/;
@@ -740,6 +767,61 @@ export function validateAdminSettingsUpdate(
 
       if (Object.keys(wsPatch).length > 0) {
         patch.weeklySummary = wsPatch;
+      }
+    }
+  }
+
+  // 7. Sekcja Trusted Devices (zaufane urządzenia)
+  if (body.trustedDevices !== undefined) {
+    if (
+      !body.trustedDevices ||
+      typeof body.trustedDevices !== 'object' ||
+      Array.isArray(body.trustedDevices) ||
+      hasForbiddenKeys(body.trustedDevices)
+    ) {
+      errors.push('Nieprawidłowy format sekcji zaufanych urządzeń.');
+    } else {
+      const tdIn = body.trustedDevices;
+      const tdPatch: NonNullable<NormalizedSettingsPatch['trustedDevices']> = {};
+
+      if (tdIn.enabled !== undefined) {
+        if (typeof tdIn.enabled !== 'boolean') {
+          errors.push('Opcja włączenia zaufanych urządzeń musi być wartością logiczną.');
+        } else {
+          tdPatch.enabled = tdIn.enabled;
+        }
+      }
+
+      if (tdIn.days !== undefined) {
+        const val =
+          typeof tdIn.days === 'number'
+            ? tdIn.days
+            : typeof tdIn.days === 'string' && tdIn.days.trim() !== ''
+            ? Number(tdIn.days.trim())
+            : NaN;
+        if (
+          !Number.isInteger(val) ||
+          val < TRUSTED_DEVICE_DAYS_MIN ||
+          val > TRUSTED_DEVICE_DAYS_MAX
+        ) {
+          errors.push(
+            `Okres zaufania urządzenia musi być liczbą całkowitą z zakresu od ${TRUSTED_DEVICE_DAYS_MIN} do ${TRUSTED_DEVICE_DAYS_MAX} dni.`
+          );
+        } else {
+          tdPatch.days = val;
+        }
+      }
+
+      if (tdIn.allowForAdmins !== undefined) {
+        if (typeof tdIn.allowForAdmins !== 'boolean') {
+          errors.push('Opcja zaufanych urządzeń dla administratorów musi być wartością logiczną.');
+        } else {
+          tdPatch.allowForAdmins = tdIn.allowForAdmins;
+        }
+      }
+
+      if (Object.keys(tdPatch).length > 0) {
+        patch.trustedDevices = tdPatch;
       }
     }
   }

@@ -115,6 +115,7 @@ export function filterStateForUser(
     trash: _trash,
     reminderState: _reminderState,
     weeklySummaryState: _weeklySummaryState,
+    trustedDevices: _trustedDevices,
     ...safeState
   } = state;
 

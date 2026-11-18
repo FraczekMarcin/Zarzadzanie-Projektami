@@ -438,6 +438,8 @@ Wszystkie poniższe zmienne można skonfigurować w pliku `.env` (wzór wdrożen
 | `RESET_2FA_ON_START` | `false` | Opcjonalna | Awaryjny reset niemożliwych do odszyfrowania sekretów 2FA podczas startu serwera (`true`/`1`). |
 | `SESSION_IDLE_MINUTES` | `120` | Opcjonalna | Limit bezczynności sesji użytkownika w minutach (5–1440). Nadpisuje ustawienie w UI. |
 | `SESSION_MAX_HOURS` | `12` | Opcjonalna | Maksymalny bezwzględny czas ważności sesji użytkownika w godzinach (1–168). Nadpisuje ustawienie w UI. |
+| `TRUSTED_DEVICES_ENABLED` | `true` | Opcjonalna | Włącza opcję „Ufaj temu urządzeniu” przy logowaniu (`true`/`false`). Nadpisuje ustawienie w UI. |
+| `TRUSTED_DEVICE_DAYS` | `30` | Opcjonalna | Czas ważności zaufania urządzenia w dniach (1–90). Nadpisuje ustawienie w UI. |
 | `TRASH_RETENTION_DAYS` | `30` | Opcjonalna | Liczba dni przechowywania usuniętych zadań i projektów w koszu (1–365). Nadpisuje ustawienie w UI. |
 | `SMTP_HOST` | `""` | Opcjonalna | Adres serwera SMTP; jego ustawienie włącza resetowanie hasła przez e-mail i alerty kopii. Nadpisuje ustawienie w UI. |
 | `SMTP_PORT` | `587` | Opcjonalna | Port serwera SMTP (`465` domyślnie używa TLS/SMTPS). Nadpisuje ustawienie w UI. |
@@ -473,6 +475,7 @@ W trybie deweloperskim (`NODE_ENV !== 'production'`) aplikacja uruchamia się be
 | Podsumowanie tygodniowe (`enabled`, `dayOfWeek`, `time`, `windowDays`, `includeAdmins`, `maxItemsPerProject`) | Tak (`Powiadomienia`) | Częściowo (`WEEKLY_SUMMARY_ENABLED`, `WEEKLY_SUMMARY_DAY`, `WEEKLY_SUMMARY_TIME`, mają pierwszeństwo) | Cotygodniowy przegląd zaległych i kończących się zadań per projekt dla kierowników projektów (i opcjonalnie administratorów), dzielący strefę `timezone` i `appBaseUrl`. |
 | Samodzielna rejestracja użytkowników | Tak (`Dostęp i sesje`) | Tak (`ALLOW_SELF_REGISTRATION`, ma pierwszeństwo) | Możliwość szybkiego otwierania lub zamykania rejestracji w trakcie działania systemu bez restartu. |
 | Limity sesji (`idleMinutes`, `maxHours`) | Tak (`Dostęp i sesje`) | Tak (`SESSION_IDLE_MINUTES`, `SESSION_MAX_HOURS`, mają pierwszeństwo) | Natychmiastowa zmiana polityki wygasania sesji bez przerywania aktywnej pracy zespołu. |
+| Zaufane urządzenia (`trustedDevices`) | Tak (`Dostęp i sesje`) | Częściowo (`TRUSTED_DEVICES_ENABLED`, `TRUSTED_DEVICE_DAYS`, mają pierwszeństwo) | Umożliwia ciche odnowienie sesji na zaufanym komputerze (`allowForAdmins` konfigurowalne wyłącznie w UI). |
 | Przechowywanie w koszu (`trash.retentionDays`) | Tak (`Dostęp i sesje`) | Tak (`TRASH_RETENTION_DAYS`, ma pierwszeństwo) | Określa liczbę dni (1–365), przez które usunięte zadania i projekty można przywrócić z kosza. |
 | Katalog danych (`DATA_DIR`) | Tylko odczyt | Tak (wyłącznie `.env`) | Serwer musi znać lokalizację plików bazy danych przed uruchomieniem i wczytaniem `app_state.json`. |
 | Klucz szyfrowania (`APP_SECRET`) | Tylko status (bez wartości) | Tak (wyłącznie `.env` w prod) | Kryptograficzne oddzielenie klucza od bazy danych: wykradzenie samego pliku `app_state.json` nie pozwala odszyfrować sekretów 2FA ani hasła SMTP. |
@@ -509,6 +512,16 @@ System udostępnia cotygodniowe podsumowanie e-mail dla kierowników projektów 
 - **Harmonogram i nadrabianie okna 24h:** wysyłka realizowana jest raz w tygodniu (`RRR-Www` wg ISO 8601) w wybranym dniu tygodnia (`dayOfWeek` `1–7`, domyślnie poniedziałek) o wskazanej godzinie (`time` `HH:MM`, domyślnie `08:00`) w wybranej strefie czasowej z obsługą zmian czasu DST. W przypadku restartu serwera w ciągu **24 godzin** od zaplanowanego terminu zaległe podsumowanie zostanie automatycznie nadrobione (z deduplikacją na poziomie tygodnia i pojedynczych odbiorców).
 - **Zakres projektów i bezpieczeństwo treści:** każda wiadomość obejmuje wszystkie niezarchiwizowane projekty z liczbą zadań otwartych, zaległych (posortowanych od największego opóźnienia wraz z osobą przypisaną) oraz kończących się w oknie `7` lub `14` dni (limit `maxItemsPerProject` `5–50`, domyślnie `15`), bez opisów zadań i bez danych finansowych. Projekty bez zaległych i kończących się zadań trafiają do zwięzłej linii **„Bez uwag: …”**, a raport całkowicie pusty nie jest wysyłany.
 - **Konfiguracja i sterowanie:** sekcja **Podsumowanie tygodniowe** w zakładce **Ustawienia → Powiadomienia** prezentuje datę i godzinę najbliższej wysyłki, status ostatniego przebiegu, wysyłkę podglądu wyłącznie do zalogowanego administratora (`POST /api/admin/weekly-summary/preview`, limit **3/godz.**) oraz ręczne uruchomienie (`POST /api/admin/weekly-summary/run-now`, opcjonalnie z flagą `force`). Kierownicy projektów i administratorzy mogą dodatkowo indywidualnie wyłączyć odbiór podsumowania w oknie konta (`PATCH /api/auth/preferences`).
+
+---
+
+## 📱 Zaufane urządzenia („Ufaj temu urządzeniu”)
+
+Opcjonalna funkcja pozwalająca użytkownikowi (domyślnie odznaczona w formularzu logowania, maksymalnie **10** urządzeń na osobę) automatycznie odnowić wygasłą sesję na tym samym komputerze za pomocą `POST /api/auth/device-login`:
+
+- **Osobny token w ciasteczku `HttpOnly` i skrót SHA-256:** przy logowaniu (zawsze po ewentualnej weryfikacji 2FA) serwer generuje losowy, 32-bajtowy token urządzenia zapisywany w ciasteczku `HttpOnly`, `SameSite=Lax` (`zp_device` dla HTTP lub `__Host-zp_device` z flagą `Secure` dla HTTPS). W pliku `app_state.json` zapisywany jest wyłącznie skrót **SHA-256** tokena.
+- **Rotacja tokena, okno 60 s i detekcja kradzieży:** każde udane użycie `POST /api/auth/device-login` rotuje token na nowy i przedłuża ważność urządzenia. Poprzedni token jest honorowany jeszcze przez **60 sekund** na wypadek równoległych kart przeglądarki; ponowne użycie przeterminowanego starego tokena po tym oknie oznacza podejrzenie kradzieży i natychmiast unieważnia **wszystkie zaufane urządzenia oraz wszystkie aktywne sesje** użytkownika (`device_token_reuse`).
+- **Zakres ochrony i operacje wrażliwe:** zaufane urządzenie omija wyłącznie ponowne logowanie po wygaśnięciu sesji (po ręcznym wylogowaniu wyłączone aż do kolejnego logowania). Zmiana hasła, konfiguracja 2FA oraz zapis ustawień administratora nadal zawsze wymagają podania aktualnego hasła; dodatkowo zmiana hasła, reset 2FA czy unieważnienie wszystkich sesji przez administratora cofają wszystkie zaufane urządzenia użytkownika (a wyłączenie funkcji w **Ustawienia → Dostęp i sesje** cofa wszystkie urządzenia globalnie).
 
 ---
 
