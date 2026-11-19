@@ -13,15 +13,15 @@ const __filename = fileURLToPath(import.meta.url);
 
 if (isDirectRunEntry(__filename, import.meta.url)) {
   process.umask(0o077);
-  const PORT = process.env.PORT || 3000;
+  const PORT = Number(process.env.PORT) || 3000;
   let appClose: (() => Promise<void>) | null = null;
   let server: ReturnType<express.Express['listen']> | null = null;
 
   try {
     const instance = await createApp({ port: PORT, isDirectRun: true });
     appClose = instance.close;
-    server = instance.app.listen(PORT, () => {
-      logger.info(`Zarządzanie Projektami running on port ${PORT}`);
+    server = instance.app.listen(PORT, '0.0.0.0', () => {
+      logger.info(`Zarządzanie Projektami running on http://0.0.0.0:${PORT}`);
     });
   } catch (startupErr) {
     logger.error('[Server FATAL] Nie udało się uruchomić serwera:', startupErr);

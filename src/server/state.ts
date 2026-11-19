@@ -111,13 +111,13 @@ export async function createStateStore(config: ServerConfig): Promise<StateStore
     throw err;
   }
 
-  if (config.devAppSecretNeedsPersist && !config.isProduction) {
+  if (config.devAppSecretNeedsPersist) {
     const devSecretFile = path.join(dataDir, '.dev_app_secret');
     try {
       if (!fs.existsSync(devSecretFile)) {
         fs.writeFileSync(devSecretFile, effectiveAppSecret + '\n', { encoding: 'utf-8', mode: 0o600 });
         fs.chmodSync(devSecretFile, 0o600);
-        logger.info(`[Server] Wygenerowano lokalny klucz szyfrowania dev w ${devSecretFile} (uprawnienia 600).`);
+        logger.info(`[Server] Wygenerowano lokalny klucz szyfrowania w ${devSecretFile} (uprawnienia 600).`);
       }
     } catch (err: any) {
       logger.warn(`[Server WARN] Nie udało się zapisać pliku ${devSecretFile}: ${err?.message || err}`);

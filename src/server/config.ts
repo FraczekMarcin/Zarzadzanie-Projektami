@@ -119,9 +119,19 @@ export function resolveServerConfig(options: CreateAppOptions = {}): ServerConfi
     ? options.isProduction
     : process.env.NODE_ENV === 'production';
 
+  let defaultDataDir = './data';
+  if (isProduction) {
+    try {
+      fs.mkdirSync('/app/data', { recursive: true });
+      defaultDataDir = '/app/data';
+    } catch {
+      defaultDataDir = './data';
+    }
+  }
+
   const dataDir = options.dataDir !== undefined
     ? options.dataDir
-    : (process.env.DATA_DIR?.trim() || (isProduction ? '/app/data' : './data'));
+    : (process.env.DATA_DIR?.trim() || defaultDataDir);
   const stateFile = path.join(dataDir, 'app_state.json');
   const sessionsFile = path.join(dataDir, 'sessions.json');
 
@@ -133,7 +143,7 @@ export function resolveServerConfig(options: CreateAppOptions = {}): ServerConfi
   let appSecretSource: 'env' | 'dev_file' | 'option' = optionSecret !== undefined ? 'option' : 'env';
   let devAppSecretNeedsPersist = false;
 
-  if (isProduction) {
+  if (isProduction && (rawAppSecret || !options.isDirectRun)) {
     const secretValidation = validateAppSecret(rawAppSecret);
     if (!secretValidation.ok) {
       logger.error(`[Server FATAL] Niepoprawna wartość APP_SECRET: ${secretValidation.reason}`);
@@ -160,6 +170,9 @@ export function resolveServerConfig(options: CreateAppOptions = {}): ServerConfi
     } else {
       effectiveAppSecret = crypto.randomBytes(32).toString('hex');
       devAppSecretNeedsPersist = true;
+    }
+    if (isProduction) {
+      logger.warn('[Server WARN] Brak zmiennej APP_SECRET w środowisku produkcyjnym — użyto automatycznie wygenerowanego klucza lokalnego.');
     }
   }
 

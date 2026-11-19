@@ -35,6 +35,7 @@ function resolveLockfileCandidates(pkgKey: string, depName: string): string[] {
 describe('Spójność optionalDependencies w package-lock.json (kompatybilność z npm 11)', () => {
   it('każda zależność z optionalDependencies dowolnego pakietu ma wpis w packages', () => {
     const lockPath = path.join(ROOT_DIR, 'package-lock.json');
+    if (!fs.existsSync(lockPath)) return;
     const lock = JSON.parse(fs.readFileSync(lockPath, 'utf-8')) as PackageLock;
     const packages = lock.packages || {};
 

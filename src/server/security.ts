@@ -82,6 +82,19 @@ export function isRequestHttps(req: express.Request): boolean {
   return Boolean(req.secure);
 }
 
+export function isCrossSiteHttpsRequest(req: express.Request): boolean {
+  const xfp = req.headers['x-forwarded-proto'];
+  const proto = Array.isArray(xfp)
+    ? xfp[0]?.toLowerCase().trim()
+    : typeof xfp === 'string'
+    ? xfp.split(',')[0].toLowerCase().trim()
+    : '';
+  const isHttpsOrForwarded = Boolean(isRequestHttps(req) || proto === 'https');
+  const secFetchSite = String(req.headers['sec-fetch-site'] || '').toLowerCase().trim();
+  const secFetchDest = String(req.headers['sec-fetch-dest'] || '').toLowerCase().trim();
+  return isHttpsOrForwarded && (secFetchSite === 'cross-site' || secFetchDest === 'iframe');
+}
+
 export function getClientIp(req: express.Request): string {
   if (req.app.get('trust proxy')) {
     return req.ip || req.socket.remoteAddress || '127.0.0.1';
@@ -222,14 +235,29 @@ export function applyCoreMiddleware(
   }
 
   // Nagłówki bezpieczeństwa HTTP
+  const scriptSrc = config.isProduction
+    ? "script-src 'self'"
+    : "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
+  const connectSrc = config.isProduction
+    ? "connect-src 'self' https://api.github.com"
+    : "connect-src 'self' ws: wss: https://api.github.com";
+  const cspHeader = [
+    "default-src 'self'",
+    scriptSrc,
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self' data:",
+    "img-src 'self' data: blob:",
+    connectSrc,
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-ancestors 'self' https://aistudio.google.com https://*.google.com https://*.googleusercontent.com",
+    "form-action 'self'",
+  ].join('; ') + ';';
+
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    res.setHeader(
-      'Content-Security-Policy',
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self';"
-    );
+    res.setHeader('Content-Security-Policy', cspHeader);
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
     if (isRequestHttps(req)) {

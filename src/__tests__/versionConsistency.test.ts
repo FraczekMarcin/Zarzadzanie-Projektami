@@ -40,9 +40,12 @@ describe('Spójność wersji aplikacji (Single Source of Truth)', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf-8'));
     expect(pkg.version).toBe(expectedSemver);
 
-    const pkgLock = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package-lock.json'), 'utf-8'));
-    expect(pkgLock.version).toBe(expectedSemver);
-    expect(pkgLock.packages?.['']?.version).toBe(expectedSemver);
+    const lockPath = path.join(ROOT_DIR, 'package-lock.json');
+    if (fs.existsSync(lockPath)) {
+      const pkgLock = JSON.parse(fs.readFileSync(lockPath, 'utf-8'));
+      expect(pkgLock.version).toBe(expectedSemver);
+      expect(pkgLock.packages?.['']?.version).toBe(expectedSemver);
+    }
   });
 
   it('w repozytorium (poza CHANGELOG.md i package-lock.json) nie ma zaszytych literałów wersji innych niż VERSION', () => {

@@ -15,7 +15,7 @@ import {
   toPublicTrustedDevice,
 } from '../utils/trustedDevices.js';
 import { ServerConfig } from './config.js';
-import { isRequestHttps, parseCookies } from './security.js';
+import { isCrossSiteHttpsRequest, isRequestHttps, parseCookies } from './security.js';
 import { SessionStore } from './sessions.js';
 import { SettingsService } from './settings.js';
 import { StateStore } from './state.js';
@@ -123,7 +123,7 @@ export function createTrustedDevicesService(deps: {
   }
 
   function getDeviceCookieName(req: express.Request): string {
-    return isRequestHttps(req) ? '__Host-zp_device' : 'zp_device';
+    return (isRequestHttps(req) || isCrossSiteHttpsRequest(req)) ? '__Host-zp_device' : 'zp_device';
   }
 
   function getDeviceTokenFromReq(req: express.Request): string | undefined {
@@ -137,31 +137,38 @@ export function createTrustedDevicesService(deps: {
     rawToken: string,
     days: number
   ): void {
-    const isHttps = isRequestHttps(req);
+    const isCrossSiteHttps = isCrossSiteHttpsRequest(req);
+    const isHttps = isRequestHttps(req) || isCrossSiteHttps;
     const cookieName = isHttps ? '__Host-zp_device' : 'zp_device';
     const maxAgeSec = Math.max(1, Math.round(days * 86400));
     const parts = [
       `${cookieName}=${encodeURIComponent(rawToken)}`,
       'Path=/',
       'HttpOnly',
-      'SameSite=Lax',
+      isCrossSiteHttps ? 'SameSite=None' : 'SameSite=Lax',
       `Max-Age=${maxAgeSec}`,
     ];
     if (isHttps) {
       parts.push('Secure');
     }
+    if (isCrossSiteHttps) {
+      parts.push('Partitioned');
+    }
     res.append('Set-Cookie', parts.join('; '));
   }
 
   function clearDeviceCookie(req: express.Request, res: express.Response): void {
-    const isHttps = isRequestHttps(req);
+    const isCrossSiteHttps = isCrossSiteHttpsRequest(req);
+    const isHttps = isRequestHttps(req) || isCrossSiteHttps;
+    const sameSite = isCrossSiteHttps ? 'SameSite=None' : 'SameSite=Lax';
+    const extra = isCrossSiteHttps ? '; Partitioned' : '';
     res.append(
       'Set-Cookie',
-      `zp_device=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${isHttps ? '; Secure' : ''}`
+      `zp_device=; Path=/; HttpOnly; ${sameSite}; Max-Age=0${isHttps ? '; Secure' : ''}${extra}`
     );
     res.append(
       'Set-Cookie',
-      '__Host-zp_device=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure'
+      `__Host-zp_device=; Path=/; HttpOnly; ${sameSite}; Max-Age=0; Secure${extra}`
     );
   }
 

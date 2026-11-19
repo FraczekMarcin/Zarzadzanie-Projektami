@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { Session, isSessionExpired } from '../utils/sessions.js';
 import { ServerConfig, SESSION_DISK_FLUSH_INTERVAL_MS } from './config.js';
 import { StateStore } from './state.js';
-import { getClientIp, isRequestHttps, parseCookies } from './security.js';
+import { getClientIp, isCrossSiteHttpsRequest, isRequestHttps, parseCookies } from './security.js';
 import { logger } from './logger.js';
 
 export type { Session };
@@ -151,30 +151,37 @@ export function createSessionStore(
     rawToken: string,
     maxAgeSec = resolvePolicy().maxHours * 3600
   ) {
-    const isHttps = isRequestHttps(req);
+    const isCrossSiteHttps = isCrossSiteHttpsRequest(req);
+    const isHttps = isRequestHttps(req) || isCrossSiteHttps;
     const cookieName = isHttps ? '__Host-zp_session' : 'zp_session';
     const cookieParts = [
       `${cookieName}=${encodeURIComponent(rawToken)}`,
       'Path=/',
       'HttpOnly',
-      'SameSite=Lax',
+      isCrossSiteHttps ? 'SameSite=None' : 'SameSite=Lax',
       `Max-Age=${maxAgeSec}`,
     ];
     if (isHttps) {
       cookieParts.push('Secure');
     }
+    if (isCrossSiteHttps) {
+      cookieParts.push('Partitioned');
+    }
     res.append('Set-Cookie', cookieParts.join('; '));
   }
 
   function clearSessionCookie(req: express.Request, res: express.Response) {
-    const isHttps = isRequestHttps(req);
+    const isCrossSiteHttps = isCrossSiteHttpsRequest(req);
+    const isHttps = isRequestHttps(req) || isCrossSiteHttps;
+    const sameSite = isCrossSiteHttps ? 'SameSite=None' : 'SameSite=Lax';
+    const extra = isCrossSiteHttps ? '; Partitioned' : '';
     res.append(
       'Set-Cookie',
-      `zp_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${isHttps ? '; Secure' : ''}`
+      `zp_session=; Path=/; HttpOnly; ${sameSite}; Max-Age=0${isHttps ? '; Secure' : ''}${extra}`
     );
     res.append(
       'Set-Cookie',
-      '__Host-zp_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure'
+      `__Host-zp_session=; Path=/; HttpOnly; ${sameSite}; Max-Age=0; Secure${extra}`
     );
   }
 
@@ -248,6 +255,9 @@ export function createSessionStore(
     let rawToken = cookies['__Host-zp_session'] || cookies['zp_session'];
     if (!rawToken && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
       rawToken = req.headers.authorization.slice(7).trim();
+    }
+    if (!rawToken && req.path === '/api/events' && typeof req.query?.token === 'string') {
+      rawToken = req.query.token.trim();
     }
     if (!rawToken) return null;
 

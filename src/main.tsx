@@ -24,6 +24,56 @@ interface ErrorBoundaryState {
   error: Error | null;
 }
 
+const IFRAME_BEARER_KEY = 'oph_iframe_bearer';
+
+if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    const isSameOriginApi =
+      rawUrl.startsWith('/api/') ||
+      rawUrl === '/api' ||
+      (typeof window.location?.origin === 'string' && rawUrl.startsWith(`${window.location.origin}/api/`));
+
+    let nextInit = init;
+    if (isSameOriginApi) {
+      try {
+        const storedBearer = sessionStorage.getItem(IFRAME_BEARER_KEY);
+        if (storedBearer) {
+          const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+          if (!headers.has('Authorization')) {
+            headers.set('Authorization', `Bearer ${storedBearer}`);
+            nextInit = { ...init, headers };
+          }
+        }
+      } catch {}
+    }
+
+    const res = await nativeFetch(input, nextInit);
+
+    if (isSameOriginApi) {
+      try {
+        if (rawUrl.includes('/api/auth/logout')) {
+          sessionStorage.removeItem(IFRAME_BEARER_KEY);
+        } else if (
+          res.ok &&
+          (rawUrl.includes('/api/auth/login') ||
+            rawUrl.includes('/api/auth/setup-admin') ||
+            rawUrl.includes('/api/auth/device-login'))
+        ) {
+          const cloned = res.clone();
+          const data = await cloned.json().catch(() => null);
+          if (data && typeof data.sessionToken === 'string' && data.sessionToken) {
+            sessionStorage.setItem(IFRAME_BEARER_KEY, data.sessionToken);
+          }
+        }
+      } catch {}
+    }
+
+    return res;
+  };
+}
+
 class RootErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
     super(props);
@@ -42,6 +92,7 @@ class RootErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundar
     try {
       localStorage.removeItem('oph_is_authenticated');
       localStorage.removeItem('oph_current_user');
+      sessionStorage.removeItem(IFRAME_BEARER_KEY);
     } catch {}
     window.location.reload();
   };

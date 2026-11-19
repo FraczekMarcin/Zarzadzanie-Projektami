@@ -204,7 +204,14 @@ export function useServerSync({
         return;
       }
 
-      const es = new EventSource('/api/events');
+      let sseUrl = '/api/events';
+      try {
+        const iframeBearer = sessionStorage.getItem('oph_iframe_bearer');
+        if (iframeBearer) {
+          sseUrl = `/api/events?token=${encodeURIComponent(iframeBearer)}`;
+        }
+      } catch {}
+      const es = new EventSource(sseUrl);
       eventSourceRef.current = es;
 
       es.onopen = () => {

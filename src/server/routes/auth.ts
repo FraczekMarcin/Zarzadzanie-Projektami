@@ -19,6 +19,7 @@ import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore, sanitizeUser } fr
 import {
   SecurityContext,
   getClientIp,
+  isCrossSiteHttpsRequest,
   hashPasswordScrypt,
   verifyPasswordScrypt,
   verifyAndMigratePassword,
@@ -553,7 +554,12 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
         }
       }
 
-      res.json({ success: true, user: sanitizeUser(user), trustDevice: trustDeviceStatus });
+      res.json({
+        success: true,
+        user: sanitizeUser(user),
+        trustDevice: trustDeviceStatus,
+        ...(isCrossSiteHttpsRequest(req) ? { sessionToken: rawToken } : {}),
+      });
     } catch (err: any) {
       if (isDiskFullError(err)) {
         return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
@@ -633,7 +639,11 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
         details: { label: result.device?.label, grace: Boolean(result.graceUsed) },
       }).catch(() => {});
 
-      return res.json({ success: true, user: sanitizeUser(user) });
+      return res.json({
+        success: true,
+        user: sanitizeUser(user),
+        ...(isCrossSiteHttpsRequest(req) ? { sessionToken: rawSessionToken } : {}),
+      });
     } catch (err: any) {
       if (isDiskFullError(err)) {
         return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
@@ -1010,7 +1020,11 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
         details: { name: adminUser.name },
       }).catch(() => {});
 
-      res.json({ success: true, user: sanitizeUser(adminUser) });
+      res.json({
+        success: true,
+        user: sanitizeUser(adminUser),
+        ...(isCrossSiteHttpsRequest(req) ? { sessionToken: rawToken } : {}),
+      });
     } catch (err: any) {
       if (isDiskFullError(err)) {
         return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });
