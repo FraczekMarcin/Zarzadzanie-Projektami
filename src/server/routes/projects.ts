@@ -3,9 +3,12 @@ import crypto from 'crypto';
 import {
   filterProjectForUser,
   canWrite,
+  canEditFinance,
+  hasFinanceOrClientFields,
   hasForbiddenKeys,
   pickAllowedProjectFields,
 } from '../../utils/access.js';
+import { validateProjectFinanceFields } from '../../utils/finance.js';
 import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
 import { SettingsService } from '../settings.js';
@@ -48,7 +51,24 @@ export function registerProjectRoutes(
         return res.status(400).json({ error: 'Wymagana nazwa projektu.' });
       }
 
+      const financeValidation = validateProjectFinanceFields(allowed);
+      if (!financeValidation.ok) {
+        return res.status(400).json({
+          error: financeValidation.error,
+          itemType: financeValidation.itemType,
+          itemId: financeValidation.itemId,
+          field: financeValidation.field,
+        });
+      }
+
       const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
+      if (isAdminOrManager && typeof allowed.ownerId === 'string') {
+        const trimmedOwner = allowed.ownerId.trim();
+        allowed.ownerId = trimmedOwner || undefined;
+      } else {
+        delete allowed.ownerId;
+      }
+
       let members: string[];
       if (isAdminOrManager && Array.isArray(allowed.memberIds)) {
         members = Array.from(new Set(allowed.memberIds));
@@ -131,6 +151,12 @@ export function registerProjectRoutes(
         });
       }
 
+      if ((hasFinanceOrClientFields(patch) || patch.ownerId !== undefined) && !canEditFinance(caller, project)) {
+        return res.status(403).json({
+          error: 'Edycja finansów: administrator i właściciel projektu',
+        });
+      }
+
       const rawIfMatch = req.headers['if-match'] || (patch.expectedRevision !== undefined ? String(patch.expectedRevision) : null);
       if (rawIfMatch) {
         const cleanMatch = String(rawIfMatch).replace(/["W\/]/g, '').trim();
@@ -149,6 +175,22 @@ export function registerProjectRoutes(
         allowedUpdates = pickAllowedProjectFields(patch, caller);
       } catch (err: any) {
         return res.status(400).json({ error: err.message });
+      }
+
+      const financeValidation = validateProjectFinanceFields(allowedUpdates);
+      if (!financeValidation.ok) {
+        return res.status(400).json({
+          error: financeValidation.error,
+          itemType: financeValidation.itemType,
+          itemId: financeValidation.itemId,
+          field: financeValidation.field,
+        });
+      }
+
+      if (allowedUpdates.ownerId !== undefined) {
+        allowedUpdates.ownerId = typeof allowedUpdates.ownerId === 'string' && allowedUpdates.ownerId.trim()
+          ? allowedUpdates.ownerId.trim()
+          : undefined;
       }
 
       if (allowedUpdates.name !== undefined) {

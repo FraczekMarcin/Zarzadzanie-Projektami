@@ -2,6 +2,8 @@ import React, { useState, useRef, useId } from 'react';
 import { Project, Task, User, Priority } from '../types';
 import { copyToClipboard } from '../utils/clipboard';
 import { FIELD_LIMITS } from '../utils/access';
+import { computeProjectFinance } from '../utils/finance';
+import { formatMoney } from '../utils/money';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { 
   X, 
@@ -72,32 +74,11 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
 
   const assignedMembers = users.filter((u) => project.memberIds?.includes(u.id));
 
-  // Financial calculations
-  const baselineValue = project.projectValue || 0;
-  const baselineValueGross = project.projectValueGross || Math.round(baselineValue * 1.23);
-
-  // Selected Quotations
-  const selectedQuotes = (project.quotations || []).filter((q) => q.isSelected !== false);
-  const quotesRevenue = selectedQuotes
-    .filter((q) => q.type === 'przychod' || !q.type)
-    .reduce((sum, q) => sum + (q.totalNet || 0), 0);
-  const quotesCost = selectedQuotes
-    .filter((q) => q.type === 'koszt')
-    .reduce((sum, q) => sum + (q.totalNet || 0), 0);
-
-  // Direct costs
-  const directCostsNet = (project.costs || []).reduce((sum, c) => sum + (c.amountNet || 0), 0);
-
-  const totalRevenueNet = baselineValue + quotesRevenue;
-  const totalCostNet = quotesCost + directCostsNet;
-  const balanceNet = totalRevenueNet - totalCostNet;
-  const marginPercent = totalRevenueNet > 0 ? Math.round((balanceNet / totalRevenueNet) * 100) : 0;
-
-  // Paid status
-  const paidQuotesRevenue = selectedQuotes
-    .filter((q) => (q.type === 'przychod' || !q.type) && q.isPaid)
-    .reduce((sum, q) => sum + (q.totalNet || 0), 0);
-  const paidCosts = (project.costs || []).filter((c) => c.isPaid).reduce((sum, c) => sum + (c.amountNet || 0), 0);
+  const finance = computeProjectFinance(project);
+  const baselineValue = finance.baseProjectValueNet;
+  const baselineValueGross = finance.baseProjectValueGross;
+  const balanceNet = finance.profitNet;
+  const marginPercent = finance.marginPercent;
 
   const isAdmin = currentUser?.role === 'admin';
 
@@ -259,10 +240,10 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                 <span>Wartość umowy (netto)</span>
               </span>
               <span className="font-mono font-bold text-sm text-slate-900 dark:text-white block">
-                {baselineValue > 0 ? `${baselineValue.toLocaleString('pl-PL')} zł` : 'Nie określono'}
+                {baselineValue > 0 ? `${formatMoney(baselineValue)} zł` : 'Nie określono'}
               </span>
               <span className="text-[10px] text-slate-600 dark:text-slate-400">
-                Brutto: {baselineValueGross > 0 ? `${baselineValueGross.toLocaleString('pl-PL')} zł` : '-'}
+                Brutto: {baselineValueGross > 0 ? `${formatMoney(baselineValueGross)} zł` : '-'}
               </span>
             </div>
 
@@ -272,7 +253,7 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                 <span>Wynik bilansu</span>
               </span>
               <span className={`font-mono font-bold text-sm block ${balanceNet >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`}>
-                {balanceNet.toLocaleString('pl-PL')} zł
+                {formatMoney(balanceNet)} zł
               </span>
               <span className="text-[10px] text-slate-600 dark:text-slate-400">
                 Marża projektu: {marginPercent}%

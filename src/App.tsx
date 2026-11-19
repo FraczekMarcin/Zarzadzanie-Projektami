@@ -340,6 +340,7 @@ export default function App() {
     fetchFreshState,
     createProjectOnServer,
     patchProjectOnServer,
+    patchProjectFinanceOnServer,
     deleteProjectOnServer,
     createActivityOnServer,
   } = useServerSync({
@@ -580,6 +581,22 @@ export default function App() {
     setProjects((prev) => prev.map((p) => (p.id === updatedProject.id ? updatedProject : p)));
     patchProjectOnServer(updatedProject.id, updatedProject, updatedProject.revision || 1);
     logActivity(`${currentUser.name} zaktualizował projekt [${updatedProject.key}]: ${updatedProject.name}`);
+  };
+
+  const handleUpdateProjectFinance = async (
+    projectId: string,
+    patch: Partial<Project>,
+    expectedRevision?: number
+  ) => {
+    const result = await patchProjectFinanceOnServer(projectId, patch, expectedRevision);
+    if (result.ok && result.project) {
+      logActivity(`${currentUser.name} zaktualizował finanse projektu [${result.project.key}]: ${result.project.name}`);
+    }
+    return result;
+  };
+
+  const handleApplyFreshProject = (freshProject: Project) => {
+    setProjects((prev) => prev.map((p) => (p.id === freshProject.id ? freshProject : p)));
   };
 
   const handleDeleteProject = async (projectId: string) => {
@@ -1351,6 +1368,8 @@ export default function App() {
               }}
               onAddProject={handleAddProject}
               onUpdateProject={handleUpdateProject}
+              onUpdateProjectFinance={handleUpdateProjectFinance}
+              onApplyFreshProject={handleApplyFreshProject}
               onDeleteProject={handleDeleteProject}
               onDeleteAllDemoData={handleDeleteAllDemoData}
               trashRetentionDays={trashRetentionDays}

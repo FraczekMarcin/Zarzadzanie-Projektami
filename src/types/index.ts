@@ -47,9 +47,12 @@ export interface QuotationItem {
   totalNet: number;
   totalGross: number;
   status: 'draft' | 'sent' | 'accepted' | 'rejected' | 'invoiced';
+  dueDate?: string; // Termin płatności YYYY-MM-DD
   isPaid?: boolean; // Znacznik: Zapłacono (rozliczone w bilansie)
   paidAt?: string;
   paidAmount?: number;
+  isChosenOffer?: boolean; // Wycena kosztowa przeniesiona do kosztów jako wybrana oferta
+  linkedCostId?: string; // ID powiązanej pozycji kosztu
   notes?: string;
 }
 
@@ -69,12 +72,27 @@ export interface CostItem {
   category: CostCategory;
   amountNet: number;
   amountGross: number;
+  vatRate?: number; // Stawka VAT (%)
   contractorName?: string; // np. Geodeta, Rzeczoznawca PPOŻ
   invoiceNumber?: string;
   date: string;
+  dueDate?: string; // Termin płatności YYYY-MM-DD
   status: 'planned' | 'incurred' | 'paid';
   isPaid?: boolean; // Znacznik: Zapłacono
   paidAt?: string;
+  sourceQuotationId?: string; // ID wyceny kosztowej, z której przeniesiono pozycję
+  notes?: string;
+}
+
+export interface PaymentTranche {
+  id: string;
+  title: string;
+  amountNet: number;
+  amountGross: number;
+  dueDate?: string; // Termin płatności YYYY-MM-DD
+  isPaid: boolean;
+  paidAt?: string; // Data zapłaty YYYY-MM-DD
+  paidAmount?: number; // Rzeczywista kwota zapłacona netto (PLN)
   notes?: string;
 }
 
@@ -94,6 +112,8 @@ export interface Project {
   projectValue?: number; // Kwota netto w PLN
   projectValueGross?: number; // Kwota brutto w PLN
   projectVatRate?: number; // Stawka VAT (np. 23%)
+  isBaseContractPaid?: boolean; // Czy umowa bazowa oznaczona jako opłacona
+  ownerId?: string; // ID właściciela projektu (uprawnienia edycji finansów)
   spentHours?: number;
   memberIds: string[];
   color: string;
@@ -106,9 +126,10 @@ export interface Project {
   clientAddress?: string;
   // Lokalizacja na dysku / serwerze NAS
   diskPath?: string;
-  // Wyceny i koszty
+  // Wyceny, koszty i transze płatności
   quotations?: QuotationItem[];
   costs?: CostItem[];
+  paymentTranches?: PaymentTranche[];
   isDemo?: boolean;
   // Archiwum projektów (tylko Administrator)
   isArchived?: boolean;

@@ -6,6 +6,9 @@ import { loadAllProjectTemplates } from '../utils/projectTemplates';
 import { ProjectDetailModal } from './ProjectDetailModal';
 import { copyToClipboard } from '../utils/clipboard';
 import { FIELD_LIMITS } from '../utils/access';
+import { computeProjectFinance } from '../utils/finance';
+import { calcGrossFromNet, formatMoney } from '../utils/money';
+import type { FinancePatchSaveResult } from '../hooks/useServerSync';
 import { useFocusTrap } from '../utils/useFocusTrap';
 
 const AdminTemplateManagerModal = lazy(() =>
@@ -84,6 +87,8 @@ interface ProjectsOverviewProps {
   onSelectProject: (projectId: string) => void;
   onAddProject: (newProject: Omit<Project, 'id'>, selectedTemplate?: ProjectTemplate) => void;
   onUpdateProject?: (updatedProject: Project) => void;
+  onUpdateProjectFinance?: (projectId: string, patch: Partial<Project>, expectedRevision?: number) => Promise<FinancePatchSaveResult>;
+  onApplyFreshProject?: (freshProject: Project) => void;
   onDeleteProject?: (projectId: string) => void;
   onDeleteAllDemoData?: () => void;
   trashRetentionDays?: number;
@@ -99,6 +104,8 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   onSelectProject,
   onAddProject,
   onUpdateProject,
+  onUpdateProjectFinance,
+  onApplyFreshProject,
   onDeleteProject,
   onDeleteAllDemoData,
   trashRetentionDays = 30,
@@ -153,6 +160,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   const [budget, setBudget] = useState('100 000 PLN');
   const [projectValue, setProjectValue] = useState<number>(100000);
   const [projectVatRate, setProjectVatRate] = useState<number>(23);
+  const [ownerId, setOwnerId] = useState<string>('');
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>(['usr-1', 'usr-2']);
 
   // Client info fields
@@ -250,6 +258,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setClientEmail('');
     setClientNip('');
     setDiskPath('');
+    setOwnerId('');
     setSelectedMemberIds(['usr-1', 'usr-2']);
     setIsModalOpen(true);
   };
@@ -281,6 +290,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setBudget(project.budget || '');
     setProjectValue(project.projectValue || 100000);
     setProjectVatRate(project.projectVatRate !== undefined ? project.projectVatRate : 23);
+    setOwnerId(project.ownerId || '');
     setSelectedMemberIds(project.memberIds || []);
     setClientName(project.clientName || '');
     setClientContactPerson(project.clientContactPerson || '');
@@ -309,8 +319,8 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     }
 
     const valNet = Number(projectValue || 0);
-    const valGross = Math.round(valNet * (1 + (projectVatRate || 23) / 100) * 100) / 100;
-    const budgetStr = valNet > 0 ? `${valNet.toLocaleString('pl-PL')} PLN` : budget;
+    const valGross = calcGrossFromNet(valNet, projectVatRate || 23);
+    const budgetStr = valNet > 0 ? `${formatMoney(valNet)} PLN` : budget;
 
     if (editingProject && onUpdateProject) {
       onUpdateProject({
@@ -327,6 +337,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         projectValue: valNet,
         projectValueGross: valGross,
         projectVatRate,
+        ownerId: ownerId || undefined,
         memberIds: selectedMemberIds,
         clientName: clientName.trim() || undefined,
         clientContactPerson: clientContactPerson.trim() || undefined,
@@ -355,6 +366,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
           projectValue: valNet,
           projectValueGross: valGross,
           projectVatRate,
+          ownerId: ownerId || undefined,
           spentHours: 0,
           memberIds: selectedMemberIds,
           color: '#0284c7',
@@ -652,18 +664,13 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
             const criticalTasks = projectTasks.filter((t) => t.priority === 'critical' && t.status !== 'done').length;
             const members = users.filter((u) => project.memberIds?.includes(u.id));
 
-            // Calculate project financial metrics
+            // Calculate project financial metrics via computeProjectFinance (bez podwójnego liczenia przeniesionych wycen)
             const selectedQuotes = (project.quotations || []).filter((q) => q.isSelected !== false);
             const revenueQuotes = selectedQuotes.filter((q) => q.type !== 'koszt');
-            const costQuotes = selectedQuotes.filter((q) => q.type === 'koszt');
-
-            const baseContract = project.projectValue || 0;
-            const quoteNet = revenueQuotes.reduce((acc, q) => acc + (q.totalNet || 0), 0);
-            const totalProjectRev = baseContract + quoteNet;
-            const directCostsNet = (project.costs || []).reduce((acc, c) => acc + (c.amountNet || 0), 0);
-            const quoteCostsNet = costQuotes.reduce((acc, q) => acc + (q.totalNet || 0), 0);
-            const totalCostsNet = directCostsNet + quoteCostsNet;
-            const profitNet = totalProjectRev - totalCostsNet;
+            const finance = computeProjectFinance(project);
+            const quoteNet = finance.totalQuotationNet;
+            const totalCostsNet = finance.totalCostsNet;
+            const profitNet = finance.profitNet;
 
           return (
             <div
@@ -1001,7 +1008,13 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
             onClose={() => setFinancialsProject(null)}
             project={financialsProject}
             tasks={tasks}
+            currentUser={currentUser}
             isAdmin={currentUser?.role === 'admin'}
+            onSaveFinancePatch={onUpdateProjectFinance}
+            onRefreshProject={(fresh) => {
+              onApplyFreshProject?.(fresh);
+              setFinancialsProject(fresh);
+            }}
             onSaveProject={(updated) => {
               if (onUpdateProject) onUpdateProject(updated);
               setFinancialsProject(null);
@@ -1457,7 +1470,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                       id="project-value-net"
                       type="number"
                       min="0"
-                      step="500"
+                      step="0.01"
                       value={projectValue}
                       onChange={(e) => setProjectValue(Number(e.target.value))}
                       placeholder="np. 150000"
@@ -1485,11 +1498,33 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                       id="project-value-gross"
                       type="text"
                       disabled
-                      value={`${Math.round(projectValue * (1 + projectVatRate / 100)).toLocaleString('pl-PL')} zł`}
+                      value={`${formatMoney(calcGrossFromNet(projectValue, projectVatRate))} zł`}
                       className="w-full bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 font-mono font-bold"
                     />
                   </div>
                 </div>
+              </div>
+
+              {/* Project Owner (uprawnienia finansowe) */}
+              <div>
+                <label htmlFor="project-owner-select" className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Właściciel projektu (uprawnienia edycji finansów)
+                </label>
+                <select
+                  id="project-owner-select"
+                  value={ownerId}
+                  onChange={(e) => setOwnerId(e.target.value)}
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+                >
+                  <option value="">Brak przypisanego właściciela (wszyscy kierownicy i administrator)</option>
+                  {users
+                    .filter((u) => u.role === 'admin' || u.role === 'project_manager')
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name} ({u.role === 'admin' ? 'Administrator' : 'Kierownik projektu'})
+                      </option>
+                    ))}
+                </select>
               </div>
 
               {/* Members */}

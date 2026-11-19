@@ -28,7 +28,7 @@ const IFRAME_BEARER_KEY = 'oph_iframe_bearer';
 
 if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
   const nativeFetch = window.fetch.bind(window);
-  window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  const wrappedFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     const isSameOriginApi =
       rawUrl.startsWith('/api/') ||
@@ -72,6 +72,22 @@ if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
 
     return res;
   };
+
+  try {
+    const desc = Object.getOwnPropertyDescriptor(window, 'fetch');
+    if (!desc || desc.configurable) {
+      Object.defineProperty(window, 'fetch', {
+        value: wrappedFetch,
+        writable: true,
+        configurable: true,
+        enumerable: desc ? desc.enumerable : true,
+      });
+    } else if (desc.writable) {
+      window.fetch = wrappedFetch;
+    }
+  } catch {
+    // Środowisko iframe zablokowało nadpisanie window.fetch — aplikacja działa dalej w oparciu o ciasteczka sesyjne
+  }
 }
 
 class RootErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {

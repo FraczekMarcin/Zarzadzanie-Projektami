@@ -4,6 +4,18 @@ import type { NotificationToast } from './useAuthSession';
 import { attemptSilentDeviceLogin } from '../utils/deviceLoginClient';
 import { setServerVariables } from '../utils/variableSettings';
 
+export interface FinancePatchSaveResult {
+  ok: boolean;
+  status: number;
+  project?: Project;
+  revision?: number;
+  error?: string;
+  itemType?: 'project' | 'quotation' | 'cost' | 'tranche';
+  itemId?: string;
+  field?: string;
+  currentProject?: Project;
+}
+
 interface UseServerSyncParams {
   isAuthenticated: boolean;
   setIsAuthenticated: React.Dispatch<React.SetStateAction<boolean>>;
@@ -350,6 +362,9 @@ export function useServerSync({
         if (typeof data.revision === 'number') {
           applyRevision(data.revision);
         }
+        if (data.project) {
+          setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, ...data.project } : p)));
+        }
       } else {
         const errData = await res.json().catch(() => ({}));
         setNotificationToast({
@@ -359,6 +374,65 @@ export function useServerSync({
       }
     } catch (err) {
       console.warn('Błąd aktualizacji projektu na serwerze:', err);
+    }
+  };
+
+  const patchProjectFinanceOnServer = async (
+    projectId: string,
+    patch: Partial<Project>,
+    expectedRevision?: number
+  ): Promise<FinancePatchSaveResult> => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'If-Match': String(expectedRevision || 1),
+        },
+        body: JSON.stringify(patch),
+      });
+      if (res.status === 401) {
+        setIsAuthenticated(false);
+        return { ok: false, status: 401, error: 'Sesja wygasła.' };
+      }
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 409) {
+        return {
+          ok: false,
+          status: 409,
+          error: data.error || 'Konflikt wersji projektu (został zmodyfikowany przez innego użytkownika).',
+          currentProject: data.currentProject,
+        };
+      }
+      if (res.ok) {
+        if (typeof data.revision === 'number') {
+          applyRevision(data.revision);
+        }
+        if (data.project) {
+          setProjects((prev) => prev.map((p) => (p.id === projectId ? data.project : p)));
+        }
+        return {
+          ok: true,
+          status: res.status,
+          project: data.project,
+          revision: data.revision,
+        };
+      }
+      return {
+        ok: false,
+        status: res.status,
+        error: data.error || 'Nie udało się zapisać zmian finansowych projektu.',
+        itemType: data.itemType,
+        itemId: data.itemId,
+        field: data.field,
+      };
+    } catch (err: any) {
+      return {
+        ok: false,
+        status: 0,
+        error: err?.message || 'Błąd połączenia z serwerem.',
+      };
     }
   };
 
@@ -421,6 +495,7 @@ export function useServerSync({
     fetchFreshState,
     createProjectOnServer,
     patchProjectOnServer,
+    patchProjectFinanceOnServer,
     deleteProjectOnServer,
     createActivityOnServer,
   };

@@ -3,6 +3,8 @@ import {
   filterStateForUser,
   filterProjectForUser,
   canAccessProject,
+  canEditFinance,
+  hasFinanceOrClientFields,
   canWrite,
   hasForbiddenKeys,
   pickAllowedTaskFields,
@@ -542,6 +544,32 @@ describe('Kontrola dostępu (RBAC), filtrowanie danych i whitelista pól (access
           projectId: 'prj-1',
         });
       }).toThrow('Wymagany tytuł zadania.');
+    });
+  });
+
+  describe('11. canEditFinance i hasFinanceOrClientFields', () => {
+    it('admin zawsze może edytować finanse każdego projektu', () => {
+      expect(canEditFinance(adminUser, { ownerId: 'usr-other' })).toBe(true);
+      expect(canEditFinance(adminUser, {})).toBe(true);
+    });
+
+    it('project_manager może edytować finanse jako właściciel lub gdy projekt nie ma ownerId (legacy), ale nie cudzego projektu', () => {
+      expect(canEditFinance(pmUser, { ownerId: 'usr-pm' })).toBe(true);
+      expect(canEditFinance(pmUser, {})).toBe(true);
+      expect(canEditFinance(pmUser, { ownerId: 'usr-other-pm' })).toBe(false);
+    });
+
+    it('developer i viewer nie mogą edytować finansów', () => {
+      expect(canEditFinance(devUser, { ownerId: 'usr-dev' })).toBe(false);
+      expect(canEditFinance(viewerUser, { ownerId: 'usr-viewer' })).toBe(false);
+      expect(canEditFinance(null, {})).toBe(false);
+    });
+
+    it('hasFinanceOrClientFields wykrywa pola finansowe, transze i client*', () => {
+      expect(hasFinanceOrClientFields({ name: 'Nowa nazwa' })).toBe(false);
+      expect(hasFinanceOrClientFields({ paymentTranches: [] })).toBe(true);
+      expect(hasFinanceOrClientFields({ projectValue: 1000 })).toBe(true);
+      expect(hasFinanceOrClientFields({ clientEmail: 'a@b.pl' })).toBe(true);
     });
   });
 });

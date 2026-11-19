@@ -8,9 +8,11 @@ export const FINANCIAL_AND_CLIENT_FIELDS: readonly string[] = [
   'budget',
   'costs',
   'quotations',
+  'paymentTranches',
   'projectValue',
   'projectValueGross',
   'projectVatRate',
+  'isBaseContractPaid',
   'clientName',
   'clientContactPerson',
   'clientPhone',
@@ -18,6 +20,41 @@ export const FINANCIAL_AND_CLIENT_FIELDS: readonly string[] = [
   'clientNip',
   'clientAddress',
 ] as const;
+
+/**
+ * Sprawdza, czy użytkownik może edytować finanse i dane zamawiającego w projekcie.
+ * - admin: zawsze true
+ * - project_manager: true, jeśli jest właścicielem projektu (ownerId === user.id) lub projekt nie ma przypisanego właściciela (kompatybilność wsteczna)
+ * - pozostałe role: false
+ */
+export function canEditFinance(
+  user: { id: string; role?: string } | null | undefined,
+  project: { ownerId?: string } | null | undefined
+): boolean {
+  if (!user || !user.role) return false;
+  if (user.role === 'admin') return true;
+  if (user.role === 'project_manager') {
+    if (project?.ownerId) {
+      return project.ownerId === user.id;
+    }
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Sprawdza, czy obiekt aktualizacji zawiera jakiekolwiek pola finansowe lub dane klienta.
+ */
+export function hasFinanceOrClientFields(patch: Record<string, any> | null | undefined): boolean {
+  if (!patch || typeof patch !== 'object') return false;
+  const financeSet = new Set(FINANCIAL_AND_CLIENT_FIELDS);
+  for (const key of Object.keys(patch)) {
+    if (financeSet.has(key) || key.toLowerCase().startsWith('client')) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /**
  * Sprawdza, czy obiekt wejściowy zawiera zakazane właściwości prototypowe
@@ -88,9 +125,11 @@ export function filterProjectForUser<T extends Record<string, any>>(
       key === 'budget' ||
       key === 'costs' ||
       key === 'quotations' ||
+      key === 'paymentTranches' ||
       key === 'projectValue' ||
       key === 'projectValueGross' ||
-      key === 'projectVatRate'
+      key === 'projectVatRate' ||
+      key === 'isBaseContractPaid'
     ) {
       delete sanitized[key];
     }
@@ -376,12 +415,15 @@ export function pickAllowedProjectFields(
   const adminManagerFields = new Set([
     'key',
     'memberIds',
+    'ownerId',
     'budget',
     'projectValue',
     'projectValueGross',
     'projectVatRate',
+    'isBaseContractPaid',
     'quotations',
     'costs',
+    'paymentTranches',
     'clientName',
     'clientContactPerson',
     'clientPhone',
