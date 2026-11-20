@@ -144,6 +144,32 @@ export function filterProjectForUser<T extends Record<string, any>>(
  *   oraz zadania z tych projektów lub przypisane do nich / zgłoszone przez nich,
  *   a także powiązane komentarze i logi aktywności.
  */
+/**
+ * Filtruje pojedynczą firmę pod kątem uprawnień użytkownika:
+ * - admin i project_manager widzą wszystkie pola (w tym nip i address).
+ * - pozostali zalogowani widzą tylko pola jawne (id, name, letter, isActive).
+ */
+export function filterCompanyForUser<T extends Record<string, any>>(
+  company: T,
+  user: { id: string; role?: string } | null | undefined
+): T {
+  if (!company || typeof company !== 'object') return company;
+  const isAdminOrManager = user && (user.role === 'admin' || user.role === 'project_manager');
+  if (isAdminOrManager) {
+    return { ...company };
+  }
+  const { nip: _nip, address: _address, ...publicFields } = company;
+  return publicFields as T;
+}
+
+export function filterCompaniesForUser<T extends Record<string, any>>(
+  companies: T[] | null | undefined,
+  user: { id: string; role?: string } | null | undefined
+): T[] {
+  if (!user || !Array.isArray(companies)) return [];
+  return companies.map((c) => filterCompanyForUser(c, user));
+}
+
 export function filterStateForUser(
   state: any,
   user: { id: string; role?: string } | null | undefined
@@ -159,10 +185,16 @@ export function filterStateForUser(
   } = state;
 
   if (!user) {
-    const { variables: _variables, ...unauthSafeState } = safeState;
+    const {
+      variables: _variables,
+      companies: _companies,
+      projectNumbering: _projectNumbering,
+      ...unauthSafeState
+    } = safeState;
     return {
       ...unauthSafeState,
       projects: [],
+      companies: [],
       tasks: [],
       comments: [],
       activityLogs: [],
@@ -171,7 +203,10 @@ export function filterStateForUser(
 
   const isAdminOrManager = user.role === 'admin' || user.role === 'project_manager';
   if (isAdminOrManager) {
-    return { ...safeState };
+    return {
+      ...safeState,
+      companies: Array.isArray(safeState.companies) ? safeState.companies.map((c: any) => ({ ...c })) : [],
+    };
   }
 
   // Dla ról innych niż admin i project_manager usuń listę klientów z variables
@@ -222,6 +257,7 @@ export function filterStateForUser(
   return {
     ...safeState,
     ...(filteredVariables !== undefined ? { variables: filteredVariables } : {}),
+    companies: filterCompaniesForUser(safeState.companies, user),
     projects: accessibleProjects,
     tasks: filteredTasks,
     comments: filteredComments,
@@ -237,7 +273,7 @@ export function filterStateForUser(
  */
 export const FIELD_LIMITS = {
   title: 200,
-  key: 10,
+  key: 12,
   name: 200,
   description: 20000,
   status: 50,
@@ -414,6 +450,7 @@ export function pickAllowedProjectFields(
   // Pola zastrzeżone wyłącznie dla admin / project_manager
   const adminManagerFields = new Set([
     'key',
+    'companyId',
     'memberIds',
     'ownerId',
     'budget',

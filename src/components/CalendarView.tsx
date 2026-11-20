@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Task, Project, User } from '../types';
+import { Task, Project, User, Company } from '../types';
 import { generateGoogleCalendarUrl, downloadIcsFile } from '../utils/calendar';
 import { 
   ChevronLeft, 
@@ -20,6 +20,7 @@ import { isPolishHoliday } from '../utils/polishHolidays';
 interface CalendarViewProps {
   tasks: Task[];
   projects: Project[];
+  companies?: Company[];
   users: User[];
   selectedProjectId: string | null;
   onSelectTask: (task: Task) => void;
@@ -36,6 +37,7 @@ const DAY_NAMES_PL = ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek'
 export const CalendarView: React.FC<CalendarViewProps> = ({
   tasks,
   projects,
+  companies = [],
   users,
   selectedProjectId,
   onSelectTask,
@@ -340,6 +342,19 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                           {taskProj && (
                             <div className="text-[9px] font-mono opacity-95 truncate mt-0.5 text-sky-700 dark:text-sky-300 font-medium flex items-center gap-1">
                               <span>[{taskProj.key}]</span>
+                              {(() => {
+                                const comp = taskProj.companyId
+                                  ? companies.find((c) => c.id === taskProj.companyId)
+                                  : undefined;
+                                return comp ? (
+                                  <span
+                                    title={comp.name}
+                                    className="font-mono text-[9px] font-bold px-1 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 shrink-0"
+                                  >
+                                    {comp.letter}
+                                  </span>
+                                ) : null;
+                              })()}
                               <span className="truncate">{taskProj.name}</span>
                             </div>
                           )}

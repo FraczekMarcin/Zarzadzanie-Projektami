@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Task, Project, User, Priority, TaskStatus } from '../types';
+import { Task, Project, User, Priority, TaskStatus, Company } from '../types';
 import { generateGoogleCalendarUrl } from '../utils/calendar';
 import { 
   Search, 
@@ -27,6 +27,7 @@ import { getTodayIso } from '../utils/today';
 interface TaskListViewProps {
   tasks: Task[];
   projects: Project[];
+  companies?: Company[];
   users: User[];
   selectedProjectId: string | null;
   onSelectTask: (task: Task) => void;
@@ -38,6 +39,7 @@ interface TaskListViewProps {
 export const TaskListView: React.FC<TaskListViewProps> = ({
   tasks,
   projects,
+  companies = [],
   users,
   selectedProjectId,
   onSelectTask,
@@ -446,8 +448,23 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                         )}
                       </div>
                       {project && (
-                        <div className="text-[11px] text-slate-600 dark:text-slate-400">
-                          {project.key} · {project.name}
+                        <div className="text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+                          <span className="font-mono font-semibold">{project.key}</span>
+                          {(() => {
+                            const comp = project.companyId
+                              ? companies.find((c) => c.id === project.companyId)
+                              : undefined;
+                            return comp ? (
+                              <span
+                                title={comp.name}
+                                className="font-mono text-[10px] font-bold px-1 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                              >
+                                {comp.letter}
+                              </span>
+                            ) : null;
+                          })()}
+                          <span>·</span>
+                          <span className="truncate">{project.name}</span>
                         </div>
                       )}
                     </td>

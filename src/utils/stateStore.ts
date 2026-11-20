@@ -5,11 +5,15 @@ import { TrustedDeviceRecord } from './trustedDevices.js';
 import { normalizeVariablesState, ServerVariablesState } from './variablesSchema.js';
 import { logger } from '../server/logger.js';
 
+import type { Company, ProjectNumberingSettings } from '../types/index.js';
+
 export interface AppState {
   initialized?: boolean;
   revision: number;
   tasks: any[];
   projects: any[];
+  companies?: Company[];
+  projectNumbering?: ProjectNumberingSettings;
   users: any[];
   comments: any[];
   activityLogs: any[];
@@ -35,6 +39,8 @@ export function normalizeStateStructure(raw?: any): AppState {
         revision: 0,
         tasks: [],
         projects: [],
+        companies: [],
+        projectNumbering: { scope: 'year' },
         users: [],
         comments: [],
         activityLogs: [],
@@ -47,6 +53,17 @@ export function normalizeStateStructure(raw?: any): AppState {
   }
   if (!Array.isArray(state.tasks)) state.tasks = [];
   if (!Array.isArray(state.projects)) state.projects = [];
+  if (!Array.isArray(state.companies)) state.companies = [];
+  if (!state.projectNumbering || typeof state.projectNumbering !== 'object') {
+    state.projectNumbering = { scope: 'year' };
+  } else {
+    state.projectNumbering = {
+      scope: state.projectNumbering.scope === 'company' ? 'company' : 'year',
+      ...(typeof state.projectNumbering.defaultCompanyId === 'string' && state.projectNumbering.defaultCompanyId
+        ? { defaultCompanyId: state.projectNumbering.defaultCompanyId }
+        : {}),
+    };
+  }
   if (!Array.isArray(state.users)) state.users = [];
   if (!Array.isArray(state.comments)) state.comments = [];
   if (!Array.isArray(state.activityLogs)) state.activityLogs = [];

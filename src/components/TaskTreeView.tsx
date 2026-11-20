@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Task, Project, User, Priority, TaskStatus } from '../types';
+import { Task, Project, User, Priority, TaskStatus, Company } from '../types';
 import { 
   ChevronRight, 
   ChevronDown, 
@@ -28,6 +28,7 @@ import { copyToClipboard } from '../utils/clipboard';
 interface TaskTreeViewProps {
   tasks: Task[];
   projects: Project[];
+  companies?: Company[];
   users: User[];
   selectedProjectId: string | null;
   onSelectProject: (projectId: string | null) => void;
@@ -45,6 +46,7 @@ interface TreeNode {
 export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
   tasks,
   projects,
+  companies = [],
   users,
   selectedProjectId,
   onSelectProject,
@@ -399,12 +401,26 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
                 onChange={(e) => onSelectProject(e.target.value)}
                 className="text-xs font-bold border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-1.5 text-slate-900 dark:text-white"
               >
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    [{p.key}] {p.name}
-                  </option>
-                ))}
+                {projects.map((p) => {
+                  const comp = p.companyId ? companies.find((c) => c.id === p.companyId) : undefined;
+                  return (
+                    <option key={p.id} value={p.id}>
+                      [{p.key}]{comp ? ` (${comp.letter})` : ''} {p.name}
+                    </option>
+                  );
+                })}
               </select>
+              {currentProject?.companyId && (() => {
+                const comp = companies.find((c) => c.id === currentProject.companyId);
+                return comp ? (
+                  <span
+                    title={`Firma prowadząca: ${comp.name}`}
+                    className="font-mono text-xs font-bold px-2 py-1 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                  >
+                    {comp.letter}
+                  </span>
+                ) : null;
+              })()}
             </div>
 
             {currentProject && (

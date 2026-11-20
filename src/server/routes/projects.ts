@@ -1,6 +1,7 @@
 import express from 'express';
 import crypto from 'crypto';
 import {
+  FIELD_LIMITS,
   filterProjectForUser,
   canWrite,
   canEditFinance,
@@ -9,6 +10,11 @@ import {
   pickAllowedProjectFields,
 } from '../../utils/access.js';
 import { validateProjectFinanceFields } from '../../utils/finance.js';
+import {
+  getNextProjectCode,
+  isProjectCodeAvailable,
+  isValidProjectCodeFormat,
+} from '../../utils/projectCode.js';
 import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
 import { SettingsService } from '../settings.js';
@@ -61,6 +67,21 @@ export function registerProjectRoutes(
         });
       }
 
+      const companies = Array.isArray(appState.companies) ? appState.companies : [];
+      const activeCompanies = companies.filter((c: any) => c && c.isActive);
+      const rawCompanyId =
+        typeof body.companyId === 'string' ? body.companyId.trim() : '';
+
+      let selectedCompany: any = undefined;
+      if (rawCompanyId) {
+        selectedCompany = companies.find((c: any) => c && c.id === rawCompanyId);
+        if (!selectedCompany || !selectedCompany.isActive) {
+          return res.status(400).json({ error: 'Wybrana firma nie istnieje lub jest nieaktywna.' });
+        }
+      } else if (activeCompanies.length > 0) {
+        return res.status(400).json({ error: 'Wybór aktywnej firmy jest wymagany.' });
+      }
+
       const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
       if (isAdminOrManager && typeof allowed.ownerId === 'string') {
         const trimmedOwner = allowed.ownerId.trim();
@@ -79,14 +100,56 @@ export function registerProjectRoutes(
         members.push(caller.id);
       }
 
-      const rawKey = allowed.key || 'PRJ';
-      const key = String(rawKey).toUpperCase().trim().slice(0, 10);
+      let key: string;
+      const customKeyRaw =
+        isAdminOrManager && typeof allowed.key === 'string' ? allowed.key.trim() : '';
+
+      if (customKeyRaw) {
+        const normalizedKey = customKeyRaw.toUpperCase().slice(0, FIELD_LIMITS.key);
+        if (!isValidProjectCodeFormat(normalizedKey)) {
+          return res.status(400).json({ error: 'Nieprawidłowy format numeru projektu.' });
+        }
+        if (!isProjectCodeAvailable(normalizedKey, appState.projects || [])) {
+          return res.status(409).json({ error: `Numer projektu "${normalizedKey}" jest już zajęty.` });
+        }
+        key = normalizedKey;
+      } else if (selectedCompany) {
+        const scope =
+          appState.projectNumbering?.scope === 'company' ? 'company' : 'year';
+        try {
+          key = getNextProjectCode(
+            appState.projects || [],
+            appState.trash || [],
+            companies,
+            selectedCompany.id,
+            new Date().getFullYear(),
+            scope
+          );
+        } catch (err: any) {
+          return res.status(400).json({ error: err?.message || 'Nie udało się wygenerować numeru projektu.' });
+        }
+      } else {
+        try {
+          key = getNextProjectCode(
+            appState.projects || [],
+            appState.trash || [],
+            companies,
+            undefined,
+            new Date().getFullYear(),
+            'year'
+          );
+        } catch (err: any) {
+          return res.status(400).json({ error: err?.message || 'Nie udało się wygenerować numeru projektu.' });
+        }
+      }
+
       const now = new Date().toISOString();
 
       const newProject = {
         ...allowed,
         id: crypto.randomUUID(),
         key,
+        ...(selectedCompany ? { companyId: selectedCompany.id } : {}),
         name: sanitizedName,
         memberIds: members,
         description: allowed.description || '',
@@ -99,6 +162,9 @@ export function registerProjectRoutes(
         color: allowed.color || '#3b82f6',
         revision: 1,
       };
+      if (!selectedCompany) {
+        delete newProject.companyId;
+      }
 
       appState.projects.push(newProject);
       const newRev = stateStore.bumpStateRevision();
@@ -151,6 +217,18 @@ export function registerProjectRoutes(
         });
       }
 
+      const hasCompanyIdPatch = Object.prototype.hasOwnProperty.call(patch, 'companyId');
+      const canChangeCompany =
+        caller.role === 'admin' ||
+        canEditFinance(caller, project) ||
+        (Boolean(project.ownerId) && project.ownerId === caller.id);
+
+      if (hasCompanyIdPatch && !canChangeCompany) {
+        return res.status(403).json({
+          error: 'Zmiana firmy projektu jest dozwolona wyłącznie dla administratora lub właściciela projektu.',
+        });
+      }
+
       if ((hasFinanceOrClientFields(patch) || patch.ownerId !== undefined) && !canEditFinance(caller, project)) {
         return res.status(403).json({
           error: 'Edycja finansów: administrator i właściciel projektu',
@@ -187,6 +265,23 @@ export function registerProjectRoutes(
         });
       }
 
+      if (hasCompanyIdPatch) {
+        const rawCid = patch.companyId;
+        if (rawCid === null || rawCid === '') {
+          allowedUpdates.companyId = undefined;
+        } else if (typeof rawCid === 'string') {
+          const trimmedCid = rawCid.trim();
+          const companies = Array.isArray(appState.companies) ? appState.companies : [];
+          const foundCompany = companies.find((c: any) => c && c.id === trimmedCid);
+          if (!foundCompany) {
+            return res.status(400).json({ error: 'Wybrana firma nie istnieje.' });
+          }
+          allowedUpdates.companyId = trimmedCid;
+        } else {
+          return res.status(400).json({ error: 'Nieprawidłowy identyfikator firmy.' });
+        }
+      }
+
       if (allowedUpdates.ownerId !== undefined) {
         allowedUpdates.ownerId = typeof allowedUpdates.ownerId === 'string' && allowedUpdates.ownerId.trim()
           ? allowedUpdates.ownerId.trim()
@@ -202,11 +297,22 @@ export function registerProjectRoutes(
       }
 
       if (allowedUpdates.key !== undefined) {
-        allowedUpdates.key = String(allowedUpdates.key).toUpperCase().trim().slice(0, 10);
+        const nextKey = String(allowedUpdates.key).toUpperCase().trim().slice(0, FIELD_LIMITS.key);
+        if (!isValidProjectCodeFormat(nextKey)) {
+          return res.status(400).json({ error: 'Nieprawidłowy format numeru projektu.' });
+        }
+        if (!isProjectCodeAvailable(nextKey, appState.projects || [], project.id)) {
+          return res.status(409).json({ error: `Numer projektu "${nextKey}" jest już zajęty.` });
+        }
+        allowedUpdates.key = nextKey;
       }
 
       for (const [key, value] of Object.entries(allowedUpdates)) {
-        project[key] = value;
+        if (key === 'companyId' && value === undefined) {
+          delete project.companyId;
+        } else {
+          project[key] = value;
+        }
       }
 
       project.revision = (project.revision || 1) + 1;

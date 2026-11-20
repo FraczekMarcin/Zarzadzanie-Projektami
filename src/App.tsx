@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
-import { Task, Project, ActivityLog, Comment, ProjectTemplate } from './types';
+import { Task, Project, ActivityLog, Comment, ProjectTemplate, Company, ProjectNumberingSettings } from './types';
 import { INITIAL_PROJECTS, INITIAL_TASKS, INITIAL_ACTIVITY } from './data/initialData';
 import type { SettingsTab } from './components/SettingsModal';
 import { useAuthSession, NotificationToast } from './hooks/useAuthSession';
@@ -143,6 +143,8 @@ export default function App() {
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(INITIAL_ACTIVITY);
 
   const [comments, setComments] = useState<Comment[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [projectNumbering, setProjectNumbering] = useState<ProjectNumberingSettings>({ scope: 'year' });
 
   // UI state
   const [activeView, setActiveView] = useState<ActiveView>('gantt');
@@ -234,6 +236,8 @@ export default function App() {
     handleUpdateUserPassword,
   } = useAuthSession({
     setProjects,
+    setCompanies,
+    setProjectNumbering,
     setTasks,
     setActivityLogs,
     setComments,
@@ -350,6 +354,8 @@ export default function App() {
     closeEventSourceRef,
     setUsers,
     setProjects,
+    setCompanies,
+    setProjectNumbering,
     setTasks,
     setActivityLogs,
     setComments,
@@ -540,40 +546,66 @@ export default function App() {
     },
   });
 
-  const handleAddProject = (newProjData: Omit<Project, 'id'>, selectedTemplate?: ProjectTemplate) => {
-    const key = newProjData.key ? newProjData.key.trim().toUpperCase() : getNextProjectCode(projects);
-    const newProject: Project = {
+  const handleAddProject = async (
+    newProjData: Omit<Project, 'id' | 'key'> & { key?: string },
+    selectedTemplate?: ProjectTemplate
+  ) => {
+    const trimmedKey = newProjData.key ? newProjData.key.trim().toUpperCase() : '';
+    const tempId = `prj-${Date.now()}`;
+    const previewKey =
+      trimmedKey ||
+      getNextProjectCode(
+        projects,
+        [],
+        companies,
+        newProjData.companyId,
+        new Date().getFullYear(),
+        projectNumbering.scope
+      );
+
+    const payload: Omit<Project, 'id' | 'key'> & { id?: string; key?: string } = {
       ...newProjData,
-      id: `prj-${Date.now()}`,
-      key,
-      revision: 1,
+      id: tempId,
+      ...(trimmedKey ? { key: trimmedKey } : {}),
     };
-    setProjects((prev) => [...prev, newProject]);
-    setSelectedProjectId(newProject.id);
-    createProjectOnServer(newProject);
+
+    const createdProject = await createProjectOnServer(payload);
+    if (!createdProject) {
+      return;
+    }
+
+    const finalProject: Project = {
+      ...createdProject,
+      key: createdProject.key || previewKey,
+    };
+    setSelectedProjectId(finalProject.id);
 
     // If template was selected, instantiate blueprint tasks
     if (selectedTemplate && selectedTemplate.tasks && selectedTemplate.tasks.length > 0) {
       const templateTasks = instantiateTasksFromTemplate(
         selectedTemplate,
-        newProject.id,
-        newProject.startDate,
+        finalProject.id,
+        finalProject.startDate,
         currentUser
       );
       const { updatedTasks } = processDependencyRules([...tasks, ...templateTasks]);
       setTasks(updatedTasks);
       templateTasks.forEach((tt) => createTaskOnServer(tt));
       logActivity(
-        `${currentUser.name} zarejestrował projekt [${newProject.key}] z szablonu "${selectedTemplate.name}" (${templateTasks.length} etapów)`,
+        `${currentUser.name} zarejestrował projekt [${finalProject.key}] z szablonu "${selectedTemplate.name}" (${templateTasks.length} etapów)`,
         undefined,
         `Wygenerowano ${templateTasks.length} etapów w tym ${templateTasks.filter((t) => t.isOfficialDeadline).length} terminów urzędowych.`
       );
       setNotificationToast({
-        message: `Utworzono projekt [${newProject.key}] z ${templateTasks.length} etapami z szablonu "${selectedTemplate.name}"!`,
+        message: `Utworzono projekt [${finalProject.key}] z ${templateTasks.length} etapami z szablonu "${selectedTemplate.name}"!`,
         type: 'success',
       });
     } else {
-      logActivity(`${currentUser.name} zarejestrował nowy projekt [${newProject.key}]: ${newProject.name} (Czas: ${newProject.durationDays} dni)`);
+      logActivity(`${currentUser.name} zarejestrował nowy projekt [${finalProject.key}]: ${finalProject.name} (Czas: ${finalProject.durationDays} dni)`);
+      setNotificationToast({
+        message: `Utworzono projekt [${finalProject.key}]: ${finalProject.name}`,
+        type: 'success',
+      });
     }
   };
 
@@ -1106,15 +1138,31 @@ export default function App() {
             className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1 text-xs text-slate-900 dark:text-slate-100 font-semibold focus:outline-none focus:ring-1 focus:ring-sky-500 transition-colors"
           >
             <option value="">Wszystkie projekty ({projects.length})</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                [{p.key}] {p.name}
-              </option>
-            ))}
+            {projects.map((p) => {
+              const comp = p.companyId ? companies.find((c) => c.id === p.companyId) : undefined;
+              return (
+                <option key={p.id} value={p.id}>
+                  [{p.key}]{comp ? ` (${comp.letter})` : ''} {p.name}
+                </option>
+              );
+            })}
           </select>
 
           {activeProject && (
             <div className="hidden md:flex items-center gap-2 text-slate-600 dark:text-slate-400">
+              {(() => {
+                const activeComp = activeProject.companyId
+                  ? companies.find((c) => c.id === activeProject.companyId)
+                  : undefined;
+                return activeComp ? (
+                  <span
+                    title={activeComp.name}
+                    className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                  >
+                    {activeComp.letter}
+                  </span>
+                ) : null;
+              })()}
               <span aria-hidden="true">·</span>
               <span>Czas trwania: <strong className="text-slate-800 dark:text-slate-200 font-mono">{activeProject.durationDays || 30} dni</strong></span>
               <span aria-hidden="true">·</span>
@@ -1300,6 +1348,7 @@ export default function App() {
             <GanttChart
               tasks={sortedTasks}
               projects={projects}
+              companies={companies}
               users={users}
               selectedProjectId={selectedProjectId}
               onSelectTask={handleSelectTask}
@@ -1311,6 +1360,7 @@ export default function App() {
             <CalendarView
               tasks={sortedTasks}
               projects={projects}
+              companies={companies}
               users={users}
               selectedProjectId={selectedProjectId}
               onSelectTask={handleSelectTask}
@@ -1322,6 +1372,7 @@ export default function App() {
             <TaskListView
               tasks={sortedTasks}
               projects={projects}
+              companies={companies}
               users={users}
               selectedProjectId={selectedProjectId}
               onSelectTask={handleSelectTask}
@@ -1335,6 +1386,7 @@ export default function App() {
             <TaskTreeView
               tasks={sortedTasks}
               projects={projects}
+              companies={companies}
               users={users}
               selectedProjectId={selectedProjectId}
               onSelectProject={(projId) => setSelectedProjectId(projId)}
@@ -1348,6 +1400,7 @@ export default function App() {
             <KanbanView
               tasks={sortedTasks}
               projects={projects}
+              companies={companies}
               users={users}
               selectedProjectId={selectedProjectId}
               onSelectTask={handleSelectTask}
@@ -1359,6 +1412,8 @@ export default function App() {
           {activeView === 'projects' && (
             <ProjectsOverview
               projects={projects}
+              companies={companies}
+              projectNumbering={projectNumbering}
               tasks={sortedTasks}
               users={users}
               currentUser={currentUser}
@@ -1503,6 +1558,9 @@ export default function App() {
             onClose={() => setIsSettingsModalOpen(false)}
             users={users}
             projects={projects}
+            companies={companies}
+            projectNumbering={projectNumbering}
+            onRefreshState={() => fetchFreshState(false)}
             currentUser={currentUser}
             hasUpdateAvailable={hasUpdateAvailable}
             onToggleUpdateSimulation={(val) => {

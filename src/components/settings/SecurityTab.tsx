@@ -44,6 +44,9 @@ const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   device_revoked: 'Cofnięcie zaufania urządzenia',
   device_token_reuse: 'Wykryto ponowne użycie starego tokena urządzenia',
   variables_changed: 'Zmiana zmiennych systemowych',
+  company_created: 'Utworzenie firmy',
+  company_updated: 'Aktualizacja firmy',
+  company_deleted: 'Usunięcie firmy',
 };
 
 export interface SecurityTabProps {

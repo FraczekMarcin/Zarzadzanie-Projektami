@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Task, Project, User, Priority } from '../types';
+import { Task, Project, User, Priority, Company } from '../types';
 import { generateGoogleCalendarUrl } from '../utils/calendar';
 import { 
   Calendar, 
@@ -26,6 +26,7 @@ import { isPolishHoliday } from '../utils/polishHolidays';
 interface GanttChartProps {
   tasks: Task[];
   projects: Project[];
+  companies?: Company[];
   users: User[];
   selectedProjectId: string | null;
   onSelectTask: (task: Task) => void;
@@ -35,6 +36,7 @@ interface GanttChartProps {
 export const GanttChart: React.FC<GanttChartProps> = ({
   tasks,
   projects,
+  companies = [],
   users,
   selectedProjectId,
   onSelectTask,
@@ -336,6 +338,19 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                       {taskProject && (
                         <div className="text-[10px] text-slate-600 dark:text-slate-400 truncate pl-5 flex items-center gap-1">
                           <span className="font-mono text-sky-700 dark:text-sky-400 font-semibold">{taskProject.key}</span>
+                          {(() => {
+                            const comp = taskProject.companyId
+                              ? companies.find((c) => c.id === taskProject.companyId)
+                              : undefined;
+                            return comp ? (
+                              <span
+                                title={comp.name}
+                                className="font-mono text-[9px] font-bold px-1 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shrink-0"
+                              >
+                                {comp.letter}
+                              </span>
+                            ) : null;
+                          })()}
                           <span aria-hidden="true">·</span>
                           <span className="truncate">{taskProject.name}</span>
                         </div>

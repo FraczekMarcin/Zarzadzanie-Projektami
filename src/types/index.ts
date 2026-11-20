@@ -96,9 +96,26 @@ export interface PaymentTranche {
   notes?: string;
 }
 
+export type ProjectNumberingScope = 'year' | 'company';
+
+export interface Company {
+  id: string;
+  name: string;
+  letter: string;
+  nip?: string;
+  address?: string;
+  isActive: boolean;
+}
+
+export interface ProjectNumberingSettings {
+  scope: ProjectNumberingScope;
+  defaultCompanyId?: string;
+}
+
 export interface Project {
   id: string;
   key: string;
+  companyId?: string;
   name: string;
   description: string;
   priority: Priority;

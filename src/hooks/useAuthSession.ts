@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Project, Task, ActivityLog, Comment } from '../types';
+import { User, Project, Task, ActivityLog, Comment, Company, ProjectNumberingSettings } from '../types';
 import { INITIAL_PROJECTS, INITIAL_TASKS, INITIAL_ACTIVITY } from '../data/initialData';
 import { isDemoUser } from '../utils/demoData';
 import { clearPendingDeepLink } from '../utils/deepLink';
@@ -29,6 +29,8 @@ export interface NotificationToast {
 
 interface UseAuthSessionParams {
   setProjects: React.Dispatch<React.SetStateAction<Project[]>>;
+  setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
+  setProjectNumbering?: React.Dispatch<React.SetStateAction<ProjectNumberingSettings>>;
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
   setActivityLogs: React.Dispatch<React.SetStateAction<ActivityLog[]>>;
   setComments: React.Dispatch<React.SetStateAction<Comment[]>>;
@@ -40,6 +42,8 @@ interface UseAuthSessionParams {
 
 export function useAuthSession({
   setProjects,
+  setCompanies,
+  setProjectNumbering,
   setTasks,
   setActivityLogs,
   setComments,
@@ -192,6 +196,10 @@ export function useAuthSession({
       .then((data) => {
         if (data && data.state) {
           if (Array.isArray(data.state.projects)) setProjects(data.state.projects);
+          if (Array.isArray(data.state.companies) && setCompanies) setCompanies(data.state.companies);
+          if (data.state.projectNumbering && setProjectNumbering) {
+            setProjectNumbering(data.state.projectNumbering);
+          }
           if (Array.isArray(data.state.tasks)) setTasks(data.state.tasks);
           if (Array.isArray(data.state.users)) setUsers(data.state.users);
           if (Array.isArray(data.state.activityLogs)) setActivityLogs(data.state.activityLogs);
@@ -227,8 +235,10 @@ export function useAuthSession({
     resetServerVariables();
     clearPendingDeepLink();
 
-    // 4. Wyczyść stan React (projects, tasks, comments, activityLogs, currentUser) do wartości początkowych
+    // 4. Wyczyść stan React (projects, companies, tasks, comments, activityLogs, currentUser) do wartości początkowych
     setProjects(INITIAL_PROJECTS);
+    if (setCompanies) setCompanies([]);
+    if (setProjectNumbering) setProjectNumbering({ scope: 'year' });
     setTasks(INITIAL_TASKS);
     setComments([]);
     setActivityLogs(INITIAL_ACTIVITY);

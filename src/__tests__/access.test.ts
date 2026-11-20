@@ -454,20 +454,20 @@ describe('Kontrola dostępu (RBAC), filtrowanie danych i whitelista pól (access
       }).toThrow(/Tablica tagów może zawierać maksymalnie 30 elementów/);
     });
 
-    it('przycina pole name projektu do 200 znaków i key do 10 znaków', () => {
+    it('przycina pole name projektu do 200 znaków i key do 12 znaków', () => {
       const longName = 'N'.repeat(500);
       const longKey = 'K'.repeat(50);
 
       const res = pickAllowedProjectFields({ name: longName, key: longKey }, adminUser);
       expect(res.name).toHaveLength(200);
-      expect(res.key).toHaveLength(10);
+      expect(res.key).toHaveLength(12);
     });
 
-    it('odrzuca pole key projektu przy rejectOnOverflow: true gdy ma ponad 10 znaków', () => {
+    it('odrzuca pole key projektu przy rejectOnOverflow: true gdy ma ponad 12 znaków', () => {
       const longKey = 'K'.repeat(50);
       expect(() => {
         pickAllowedProjectFields({ key: longKey }, adminUser, { rejectOnOverflow: true });
-      }).toThrow(/przekracza maksymalny limit 10 znaków/);
+      }).toThrow(/przekracza maksymalny limit 12 znaków/);
     });
 
     it('przycina pola klienta client* w projekcie do 200 znaków', () => {
@@ -570,6 +570,75 @@ describe('Kontrola dostępu (RBAC), filtrowanie danych i whitelista pól (access
       expect(hasFinanceOrClientFields({ paymentTranches: [] })).toBe(true);
       expect(hasFinanceOrClientFields({ projectValue: 1000 })).toBe(true);
       expect(hasFinanceOrClientFields({ clientEmail: 'a@b.pl' })).toBe(true);
+    });
+  });
+
+  describe('12. Rejestr firm (companies) i Project.companyId w RBAC', () => {
+    const stateWithCompanies = {
+      ...sampleState,
+      projects: [
+        { ...sampleState.projects[0], companyId: 'comp-a' },
+        { ...sampleState.projects[1], companyId: 'comp-b' },
+      ],
+      companies: [
+        {
+          id: 'comp-a',
+          name: 'Biuro Architektoniczne Alfa',
+          letter: 'A',
+          nip: '1112223344',
+          address: 'ul. Projektowa 1',
+          isActive: true,
+        },
+        {
+          id: 'comp-b',
+          name: 'Pracownia Beta',
+          letter: 'B',
+          nip: '5556667788',
+          address: 'ul. Konstrukcyjna 2',
+          isActive: false,
+        },
+      ],
+    };
+
+    it('niezalogowany użytkownik (null) dostaje pustą tablicę companies', () => {
+      const filtered = filterStateForUser(stateWithCompanies, null);
+      expect(filtered.companies).toEqual([]);
+    });
+
+    it('admin i project_manager otrzymują pełne dane firm wraz z nip i address', () => {
+      for (const caller of [adminUser, pmUser]) {
+        const filtered = filterStateForUser(stateWithCompanies, caller);
+        expect(filtered.companies).toHaveLength(2);
+        expect(filtered.companies[0].nip).toBe('1112223344');
+        expect(filtered.companies[0].address).toBe('ul. Projektowa 1');
+      }
+    });
+
+    it('developer i viewer widzą nazwę i literę firmy, ale bez nip i address', () => {
+      for (const caller of [devUser, viewerUser]) {
+        const filtered = filterStateForUser(stateWithCompanies, caller);
+        expect(filtered.companies).toHaveLength(2);
+        expect(filtered.companies[0]).toEqual({
+          id: 'comp-a',
+          name: 'Biuro Architektoniczne Alfa',
+          letter: 'A',
+          isActive: true,
+        });
+        expect(filtered.companies[0].nip).toBeUndefined();
+        expect(filtered.companies[0].address).toBeUndefined();
+      }
+    });
+
+    it('zachowuje companyId na projekcie developera przy jednoczesnym ukryciu finansów', () => {
+      const filtered = filterStateForUser(stateWithCompanies, devUser);
+      expect(filtered.projects[0].companyId).toBe('comp-a');
+      expect(filtered.projects[0].budget).toBeUndefined();
+    });
+
+    it('pickAllowedProjectFields przepuszcza companyId dla admin/project_manager, a blokuje dla developera', () => {
+      expect(pickAllowedProjectFields({ companyId: 'comp-a' }, adminUser).companyId).toBe('comp-a');
+      expect(pickAllowedProjectFields({ companyId: 'comp-a' }, pmUser).companyId).toBe('comp-a');
+      expect(pickAllowedProjectFields({ companyId: 'comp-a' }, devUser).companyId).toBeUndefined();
     });
   });
 });

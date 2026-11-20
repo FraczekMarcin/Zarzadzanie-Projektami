@@ -1,5 +1,5 @@
 import React, { useState, useRef, useId } from 'react';
-import { Project, Task, User, Priority } from '../types';
+import { Project, Task, User, Priority, Company } from '../types';
 import { copyToClipboard } from '../utils/clipboard';
 import { FIELD_LIMITS } from '../utils/access';
 import { computeProjectFinance } from '../utils/finance';
@@ -33,6 +33,7 @@ import {
 
 interface ProjectDetailModalProps {
   project: Project | null;
+  companies?: Company[];
   tasks: Task[];
   users: User[];
   currentUser: User | null;
@@ -46,6 +47,7 @@ interface ProjectDetailModalProps {
 
 export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
   project,
+  companies = [],
   tasks,
   users,
   currentUser,
@@ -128,6 +130,19 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
               <span className="font-mono text-xs font-bold px-2.5 py-1 rounded-md bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
                 [{project.key}]
               </span>
+              {(() => {
+                const comp = project.companyId
+                  ? companies.find((c) => c.id === project.companyId)
+                  : undefined;
+                return comp ? (
+                  <span
+                    title={`Firma prowadząca: ${comp.name}`}
+                    className="font-mono text-xs font-bold px-2 py-1 rounded-md bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                  >
+                    {comp.letter} · {comp.name}
+                  </span>
+                ) : null;
+              })()}
               <span
                 className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
                   project.status === 'active'

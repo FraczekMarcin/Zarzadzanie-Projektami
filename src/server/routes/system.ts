@@ -13,6 +13,7 @@ import {
 import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore, sanitizeUser } from '../state.js';
 import { SessionStore } from '../sessions.js';
 import { logger } from '../logger.js';
+import { sanitizeImportedCompanies } from './companies.js';
 
 interface UpdateCheckCache {
   data: {
@@ -129,12 +130,32 @@ export function registerSystemRoutes(
         weeklySummaryState: _ignoredWeeklySummaryState,
         trustedDevices: _ignoredTrustedDevices,
         variables: _ignoredVariables,
+        companies: incomingCompanies,
+        projectNumbering: incomingProjectNumbering,
         ...safeIncoming
       } = incoming;
+
+      const preservedCompanies = Array.isArray(incomingCompanies)
+        ? sanitizeImportedCompanies(incomingCompanies)
+        : (Array.isArray(appState.companies) ? appState.companies : []);
+
+      const currentNumbering = appState.projectNumbering || { scope: 'year' as const };
+      const nextProjectNumbering =
+        incomingProjectNumbering && typeof incomingProjectNumbering === 'object'
+          ? {
+              scope: incomingProjectNumbering.scope === 'company' ? ('company' as const) : ('year' as const),
+              ...(typeof incomingProjectNumbering.defaultCompanyId === 'string' &&
+              preservedCompanies.some((c: any) => c.id === incomingProjectNumbering.defaultCompanyId && c.isActive)
+                ? { defaultCompanyId: incomingProjectNumbering.defaultCompanyId }
+                : {}),
+            }
+          : currentNumbering;
 
       const nextState = {
         ...appState,
         ...safeIncoming,
+        companies: preservedCompanies,
+        projectNumbering: nextProjectNumbering,
         serverSettings: appState.serverSettings,
         trash: Array.isArray(appState.trash) ? appState.trash : [],
         reminderState: appState.reminderState,

@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
-import { Project, Task, User, Priority, ProjectTemplate } from '../types';
+import { Project, Task, User, Priority, ProjectTemplate, Company, ProjectNumberingSettings } from '../types';
 import { downloadIcsFile } from '../utils/calendar';
 import { getNextProjectCode, isProjectCodeAvailable, isValidProjectCodeFormat } from '../utils/projectCode';
 import { loadAllProjectTemplates } from '../utils/projectTemplates';
 import { ProjectDetailModal } from './ProjectDetailModal';
 import { copyToClipboard } from '../utils/clipboard';
-import { FIELD_LIMITS } from '../utils/access';
+import { FIELD_LIMITS, canEditFinance } from '../utils/access';
 import { computeProjectFinance } from '../utils/finance';
 import { calcGrossFromNet, formatMoney } from '../utils/money';
 import type { FinancePatchSaveResult } from '../hooks/useServerSync';
@@ -81,11 +81,13 @@ const calculateDays = (start: string, end: string): number => {
 
 interface ProjectsOverviewProps {
   projects: Project[];
+  companies?: Company[];
+  projectNumbering?: ProjectNumberingSettings;
   tasks: Task[];
   users: User[];
   currentUser: User;
   onSelectProject: (projectId: string) => void;
-  onAddProject: (newProject: Omit<Project, 'id'>, selectedTemplate?: ProjectTemplate) => void;
+  onAddProject: (newProject: Omit<Project, 'id' | 'key'> & { key?: string }, selectedTemplate?: ProjectTemplate) => void;
   onUpdateProject?: (updatedProject: Project) => void;
   onUpdateProjectFinance?: (projectId: string, patch: Partial<Project>, expectedRevision?: number) => Promise<FinancePatchSaveResult>;
   onApplyFreshProject?: (freshProject: Project) => void;
@@ -98,6 +100,8 @@ interface ProjectsOverviewProps {
 
 export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   projects,
+  companies = [],
+  projectNumbering = { scope: 'year' },
   tasks,
   users,
   currentUser,
@@ -150,6 +154,8 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
   // Form fields
   const [projectCode, setProjectCode] = useState('');
+  const [companyId, setCompanyId] = useState<string>('');
+  const [useAutoCode, setUseAutoCode] = useState<boolean>(true);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<Priority>('normal');
@@ -198,10 +204,54 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setAvailableTemplates(loadAllProjectTemplates());
   }, [isModalOpen, isTemplateManagerOpen]);
 
+  const activeCompanies = useMemo(
+    () => companies.filter((c) => c.isActive).sort((a, b) => a.letter.localeCompare(b.letter)),
+    [companies]
+  );
+
+  const isAdminOrPm = currentUser.role === 'admin' || currentUser.role === 'project_manager';
+  const canEditSelectedProjectCompany = editingProject
+    ? currentUser.role === 'admin' ||
+      canEditFinance(currentUser, editingProject) ||
+      (Boolean(editingProject.ownerId) && editingProject.ownerId === currentUser.id)
+    : true;
+
+  const autoPreviewInfo = useMemo(() => {
+    if (editingProject || activeCompanies.length === 0) {
+      return { code: '', error: null as string | null };
+    }
+    if (!companyId) {
+      return { code: '', error: null as string | null };
+    }
+    try {
+      const preview = getNextProjectCode(
+        projects,
+        [],
+        companies,
+        companyId,
+        new Date().getFullYear(),
+        projectNumbering.scope
+      );
+      return { code: preview, error: null as string | null };
+    } catch (err: any) {
+      return { code: '', error: err?.message || 'Błąd generowania numeru' };
+    }
+  }, [editingProject, activeCompanies.length, companyId, projects, companies, projectNumbering.scope]);
+
   // Check code availability
-  const isCodeAvailable = isProjectCodeAvailable(projectCode, projects, editingProject?.id);
-  const isCodeFormatValid = isValidProjectCodeFormat(projectCode);
-  const isFormValid = name.trim().length > 0 && isCodeAvailable && isCodeFormatValid;
+  const isAutoModeActive = !editingProject && activeCompanies.length > 0 && useAutoCode;
+  const requiresCompanySelection = !editingProject && activeCompanies.length > 0;
+  const isCodeAvailable = isAutoModeActive
+    ? !autoPreviewInfo.error
+    : isProjectCodeAvailable(projectCode, projects, editingProject?.id);
+  const isCodeFormatValid = isAutoModeActive
+    ? !autoPreviewInfo.error
+    : isValidProjectCodeFormat(projectCode);
+  const isFormValid =
+    name.trim().length > 0 &&
+    (!requiresCompanySelection || Boolean(companyId)) &&
+    isCodeAvailable &&
+    isCodeFormatValid;
 
   const handleStartDateChange = (newStart: string) => {
     setStartDate(newStart);
@@ -221,8 +271,36 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
   const openCreateModal = (preselectedTemplate?: ProjectTemplate) => {
     setEditingProject(null);
-    const nextCode = getNextProjectCode(projects);
-    setProjectCode(nextCode);
+    const defaultCompany =
+      projectNumbering.defaultCompanyId &&
+      activeCompanies.some((c) => c.id === projectNumbering.defaultCompanyId)
+        ? projectNumbering.defaultCompanyId
+        : '';
+    setCompanyId(defaultCompany);
+    if (activeCompanies.length > 0) {
+      setUseAutoCode(true);
+      if (defaultCompany) {
+        try {
+          setProjectCode(
+            getNextProjectCode(
+              projects,
+              [],
+              companies,
+              defaultCompany,
+              new Date().getFullYear(),
+              projectNumbering.scope
+            )
+          );
+        } catch {
+          setProjectCode('');
+        }
+      } else {
+        setProjectCode('');
+      }
+    } else {
+      setUseAutoCode(false);
+      setProjectCode(getNextProjectCode(projects));
+    }
     const templates = loadAllProjectTemplates();
     setAvailableTemplates(templates);
 
@@ -279,6 +357,8 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
   const openEditModal = (project: Project) => {
     setEditingProject(project);
+    setCompanyId(project.companyId || '');
+    setUseAutoCode(false);
     setProjectCode(project.key);
     setName(project.name);
     setDescription(project.description);
@@ -325,7 +405,10 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     if (editingProject && onUpdateProject) {
       onUpdateProject({
         ...editingProject,
-        key: projectCode,
+        key: editingProject.key !== projectCode ? projectCode : editingProject.key,
+        ...(canEditSelectedProjectCompany
+          ? { companyId: companyId || undefined }
+          : {}),
         name,
         description,
         priority,
@@ -351,9 +434,15 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         ? availableTemplates.find((t) => t.id === selectedTemplateId)
         : undefined;
 
+      const customKeyPayload =
+        activeCompanies.length === 0 || (!useAutoCode && isAdminOrPm && projectCode.trim())
+          ? projectCode.trim().toUpperCase()
+          : undefined;
+
       onAddProject(
         {
-          key: projectCode,
+          ...(customKeyPayload ? { key: customKeyPayload } : {}),
+          ...(companyId ? { companyId } : {}),
           name,
           description,
           priority,
@@ -680,10 +769,23 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
               <div>
                 {/* Top badges */}
                 <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="font-mono text-xs font-bold text-sky-800 dark:text-sky-300 bg-sky-100 dark:bg-sky-950/60 px-2.5 py-0.5 rounded border border-sky-300 dark:border-sky-800">
                       {project.key}
                     </span>
+                    {(() => {
+                      const comp = project.companyId
+                        ? companies.find((c) => c.id === project.companyId)
+                        : undefined;
+                      return comp ? (
+                        <span
+                          title={`Firma prowadząca: ${comp.name}`}
+                          className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                        >
+                          {comp.letter}
+                        </span>
+                      ) : null;
+                    })()}
                     <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono">
                       {project.status === 'active' ? 'Aktywny' : project.status === 'planning' ? 'Planowanie' : project.status}
                     </span>
@@ -1007,6 +1109,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
             isOpen={true}
             onClose={() => setFinancialsProject(null)}
             project={financialsProject}
+            companies={companies}
             tasks={tasks}
             currentUser={currentUser}
             isAdmin={currentUser?.role === 'admin'}
@@ -1029,6 +1132,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
           isOpen={true}
           onClose={() => setViewingProject(null)}
           project={viewingProject}
+          companies={companies}
           tasks={tasks}
           users={users}
           currentUser={currentUser}
@@ -1220,44 +1324,162 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                 </div>
               )}
 
+              {/* COMPANY SELECTOR */}
+              {(activeCompanies.length > 0 || Boolean(editingProject?.companyId)) && (
+                <div className="p-3 bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/50 rounded-lg space-y-1.5">
+                  <label htmlFor="project-company-select" className="font-bold text-indigo-950 dark:text-indigo-200 block">
+                    Firma prowadząca projekt {!editingProject && activeCompanies.length > 0 ? '*' : ''}
+                  </label>
+                  <select
+                    id="project-company-select"
+                    value={companyId}
+                    required={!editingProject && activeCompanies.length > 0}
+                    disabled={Boolean(editingProject && !canEditSelectedProjectCompany)}
+                    onChange={(e) => {
+                      const nextCid = e.target.value;
+                      setCompanyId(nextCid);
+                      // Przy edycji zmiana firmy NIE zmienia wydanego numeru projektu
+                    }}
+                    className="w-full bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-800 rounded px-3 py-2 text-xs font-semibold text-slate-900 dark:text-white disabled:opacity-60"
+                  >
+                    <option value="">
+                      {editingProject
+                        ? '-- Brak przypisanej firmy --'
+                        : '-- Wybierz firmę prowadzącą --'}
+                    </option>
+                    {activeCompanies.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.letter} - {c.name}
+                      </option>
+                    ))}
+                    {editingProject?.companyId &&
+                      !activeCompanies.some((c) => c.id === editingProject.companyId) &&
+                      (() => {
+                        const inactiveComp = companies.find((c) => c.id === editingProject.companyId);
+                        return inactiveComp ? (
+                          <option value={inactiveComp.id}>
+                            {inactiveComp.letter} - {inactiveComp.name} (nieaktywna)
+                          </option>
+                        ) : null;
+                      })()}
+                  </select>
+                  {editingProject ? (
+                    <p className="text-[11px] text-indigo-800 dark:text-indigo-300">
+                      {canEditSelectedProjectCompany
+                        ? 'Zmiana firmy istniejącego projektu nie zmienia nadanego wcześniej numeru projektu.'
+                        : 'Zmiana firmy jest dostępna wyłącznie dla administratora i właściciela projektu.'}
+                    </p>
+                  ) : (
+                    !companyId && (
+                      <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                        Wybierz firmę, aby przygotować numer projektu w formacie RRRR-X_L.
+                      </p>
+                    )
+                  )}
+                </div>
+              )}
+
               {/* PROJECT CODE FIELD */}
               <div className="p-3 bg-sky-50/70 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900/50 rounded-lg space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label htmlFor="project-code-input" className="font-bold text-sky-950 dark:text-sky-200 block">
-                    KOD Projektu (schemat np. 2026-01) *
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setProjectCode(getNextProjectCode(projects))}
-                    className="text-[11px] text-sky-700 dark:text-sky-400 hover:underline font-semibold"
-                  >
-                    Generuj kolejny nr
-                  </button>
-                </div>
-
-                <div className="relative">
-                  <input
-                    id="project-code-input"
-                    type="text"
-                    required
-                    value={projectCode}
-                    onChange={(e) => setProjectCode(e.target.value.toUpperCase())}
-                    maxLength={FIELD_LIMITS.key}
-                    placeholder="np. 2026-04"
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-3 py-2 text-xs font-mono font-bold uppercase tracking-wider text-slate-900 dark:text-white"
-                  />
-                  <div className="absolute right-2.5 top-2.5">
-                    {isCodeAvailable && isCodeFormatValid ? (
-                      <span className="flex items-center gap-1 text-[11px] text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded font-bold">
-                        <Check className="w-3 h-3" aria-hidden="true" /> Wolny
+                {!editingProject && activeCompanies.length > 0 && useAutoCode ? (
+                  <>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-sky-950 dark:text-sky-200">
+                        Numer projektu:{' '}
+                        <span className="font-mono text-sky-800 dark:text-sky-300">
+                          {autoPreviewInfo.code || (companyId ? '—' : 'wybierz firmę')}
+                        </span>
                       </span>
+                      {isAdminOrPm && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUseAutoCode(false);
+                            setProjectCode(autoPreviewInfo.code || '');
+                          }}
+                          className="text-[11px] text-sky-700 dark:text-sky-400 hover:underline font-semibold"
+                        >
+                          Wpisz własny numer
+                        </button>
+                      )}
+                    </div>
+                    {autoPreviewInfo.error ? (
+                      <p className="text-[11px] text-rose-700 dark:text-rose-400 font-semibold">
+                        {autoPreviewInfo.error}
+                      </p>
                     ) : (
-                      <span className="flex items-center gap-1 text-[11px] text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded font-bold">
-                        <X className="w-3 h-3" aria-hidden="true" /> Zajęty
-                      </span>
+                      <p className="text-[11px] text-sky-800 dark:text-sky-300">
+                        Podgląd kolejnego numeru — ostateczny numer nadaje synchronicznie serwer przy zapisie.
+                      </p>
                     )}
-                  </div>
-                </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <label htmlFor="project-code-input" className="font-bold text-sky-950 dark:text-sky-200 block">
+                        KOD Projektu (schemat np. 2026-1_A lub 2026-01) *
+                      </label>
+                      <div className="flex items-center gap-2">
+                        {!editingProject && activeCompanies.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setUseAutoCode(true)}
+                            className="text-[11px] text-sky-700 dark:text-sky-400 hover:underline font-semibold"
+                          >
+                            Nadaj automatycznie
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            try {
+                              setProjectCode(
+                                getNextProjectCode(
+                                  projects,
+                                  [],
+                                  companies,
+                                  companyId || undefined,
+                                  new Date().getFullYear(),
+                                  projectNumbering.scope
+                                )
+                              );
+                            } catch {
+                              // ignore if year exhausted
+                            }
+                          }}
+                          className="text-[11px] text-sky-700 dark:text-sky-400 hover:underline font-semibold"
+                        >
+                          Generuj kolejny nr
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="relative">
+                      <input
+                        id="project-code-input"
+                        type="text"
+                        required
+                        disabled={Boolean(editingProject && !isAdminOrPm)}
+                        value={projectCode}
+                        onChange={(e) => setProjectCode(e.target.value.toUpperCase())}
+                        maxLength={FIELD_LIMITS.key}
+                        placeholder="np. 2026-1_A"
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-3 py-2 text-xs font-mono font-bold uppercase tracking-wider text-slate-900 dark:text-white disabled:opacity-60"
+                      />
+                      <div className="absolute right-2.5 top-2.5">
+                        {isCodeAvailable && isCodeFormatValid ? (
+                          <span className="flex items-center gap-1 text-[11px] text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded font-bold">
+                            <Check className="w-3 h-3" aria-hidden="true" /> Wolny
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-[11px] text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded font-bold">
+                            <X className="w-3 h-3" aria-hidden="true" /> Zajęty
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
               <div>

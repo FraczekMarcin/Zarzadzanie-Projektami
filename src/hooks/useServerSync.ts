@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Task, Project, User, ActivityLog, Comment } from '../types';
+import { Task, Project, User, ActivityLog, Comment, Company, ProjectNumberingSettings } from '../types';
 import type { NotificationToast } from './useAuthSession';
 import { attemptSilentDeviceLogin } from '../utils/deviceLoginClient';
 import { setServerVariables } from '../utils/variableSettings';
@@ -23,6 +23,8 @@ interface UseServerSyncParams {
   closeEventSourceRef: React.MutableRefObject<() => void>;
   setUsers: React.Dispatch<React.SetStateAction<User[]>>;
   setProjects: React.Dispatch<React.SetStateAction<Project[]>>;
+  setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
+  setProjectNumbering?: React.Dispatch<React.SetStateAction<ProjectNumberingSettings>>;
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
   setActivityLogs: React.Dispatch<React.SetStateAction<ActivityLog[]>>;
   setComments: React.Dispatch<React.SetStateAction<Comment[]>>;
@@ -37,6 +39,8 @@ export function useServerSync({
   closeEventSourceRef,
   setUsers,
   setProjects,
+  setCompanies,
+  setProjectNumbering,
   setTasks,
   setActivityLogs,
   setComments,
@@ -91,6 +95,17 @@ export function useServerSync({
         }
         if (Array.isArray(s.projects)) {
           setProjects(s.projects);
+        }
+        if (Array.isArray(s.companies) && setCompanies) {
+          setCompanies(s.companies);
+        }
+        if (s.projectNumbering && typeof s.projectNumbering === 'object' && setProjectNumbering) {
+          setProjectNumbering({
+            scope: s.projectNumbering.scope === 'company' ? 'company' : 'year',
+            ...(typeof s.projectNumbering.defaultCompanyId === 'string' && s.projectNumbering.defaultCompanyId
+              ? { defaultCompanyId: s.projectNumbering.defaultCompanyId }
+              : {}),
+          });
         }
         if (Array.isArray(s.tasks)) {
           const currentEditingId = editingTaskRef.current?.id;
@@ -297,7 +312,9 @@ export function useServerSync({
     };
   }, [isAuthenticated]);
 
-  const createProjectOnServer = async (project: Project) => {
+  const createProjectOnServer = async (
+    project: Omit<Project, 'id' | 'key'> & { id?: string; key?: string }
+  ): Promise<Project | null> => {
     try {
       const res = await fetch('/api/projects', {
         method: 'POST',
@@ -307,7 +324,7 @@ export function useServerSync({
       });
       if (res.status === 401) {
         setIsAuthenticated(false);
-        return;
+        return null;
       }
       if (res.ok) {
         const data = await res.json();
@@ -315,19 +332,33 @@ export function useServerSync({
           applyRevision(data.revision);
         }
         if (data.project) {
-          setProjects((prev) => prev.map((p) => (p.id === project.id ? { ...p, ...data.project } : p)));
-          setSelectedProjectId((prev) => (prev === project.id ? data.project.id : prev));
-          setTasks((prev) => prev.map((t) => (t.projectId === project.id ? { ...t, projectId: data.project.id } : t)));
+          setProjects((prev) => {
+            if (project.id && prev.some((p) => p.id === project.id)) {
+              return prev.map((p) => (p.id === project.id ? { ...p, ...data.project } : p));
+            }
+            if (prev.some((p) => p.id === data.project.id)) {
+              return prev.map((p) => (p.id === data.project.id ? data.project : p));
+            }
+            return [...prev, data.project];
+          });
+          if (project.id) {
+            setSelectedProjectId((prev) => (prev === project.id ? data.project.id : prev));
+            setTasks((prev) => prev.map((t) => (t.projectId === project.id ? { ...t, projectId: data.project.id } : t)));
+          }
+          return data.project as Project;
         }
+        return null;
       } else {
         const errData = await res.json().catch(() => ({}));
         setNotificationToast({
           message: errData.error || 'Nie udało się zapisać nowego projektu na serwerze.',
           type: 'error',
         });
+        return null;
       }
     } catch (err) {
       console.warn('Błąd tworzenia projektu na serwerze:', err);
+      return null;
     }
   };
 

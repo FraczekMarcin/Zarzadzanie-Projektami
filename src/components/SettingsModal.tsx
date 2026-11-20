@@ -13,12 +13,13 @@ import {
   Mail,
   KeyRound,
   Bell,
+  Building2,
 } from 'lucide-react';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { ThemeMode, getThemePreference, setThemePreference } from '../utils/theme';
 import { CURRENT_APP_VERSION } from '../data/dockerConfig';
 import { getAutoBackupConfig, saveAutoBackupConfig } from '../utils/autoBackup';
-import { User, Project } from '../types';
+import { User, Project, Company, ProjectNumberingSettings } from '../types';
 import { copyToClipboard } from '../utils/clipboard';
 import { useVariables } from '../hooks/useVariables';
 
@@ -55,10 +56,14 @@ const AccessSessionsTab = lazy(() =>
 const NotificationsTab = lazy(() =>
   import('./settings/NotificationsTab').then((m) => ({ default: m.NotificationsTab }))
 );
+const CompaniesTab = lazy(() =>
+  import('./settings/CompaniesTab').then((m) => ({ default: m.CompaniesTab }))
+);
 
 export type SettingsTab =
   | 'theme'
   | 'variables'
+  | 'companies'
   | 'users'
   | 'security'
   | 'smtp'
@@ -74,6 +79,9 @@ interface SettingsModalProps {
   onClose: () => void;
   users: User[];
   projects: Project[];
+  companies?: Company[];
+  projectNumbering?: ProjectNumberingSettings;
+  onRefreshState?: () => Promise<void> | void;
   currentUser: User | null;
   hasUpdateAvailable?: boolean;
   onToggleUpdateSimulation?: (val: boolean) => void;
@@ -101,7 +109,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
   users,
-  projects: _projects,
+  projects,
+  companies = [],
+  projectNumbering = { scope: 'year' },
+  onRefreshState,
   currentUser,
   hasUpdateAvailable = false,
   onToggleUpdateSimulation,
@@ -270,6 +281,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="px-3 pt-3 py-1.5 text-[10px] uppercase font-bold text-slate-600 dark:text-slate-400 tracking-wider">
                 Organizacja & Zespół
               </div>
+
+              {/* Companies Tab (Admin only) */}
+              {currentUser?.role === 'admin' && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === 'companies'}
+                  onClick={() => setActiveTab('companies')}
+                  className={`w-full px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-colors ${
+                    activeTab === 'companies'
+                      ? 'bg-sky-700 text-white shadow-xs'
+                      : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Building2 className={`w-4 h-4 shrink-0 ${activeTab === 'companies' ? 'text-white' : 'text-indigo-700 dark:text-indigo-400'}`} aria-hidden="true" />
+                    <span>Firmy</span>
+                  </div>
+                  <span className={`text-[10px] font-mono ${activeTab === 'companies' ? 'text-sky-100' : 'text-slate-600 dark:text-slate-400'}`}>
+                    {companies.length}
+                  </span>
+                </button>
+              )}
 
               {/* Users Tab */}
               <button
@@ -492,6 +526,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <VariablesTab
                   isOpen={isOpen}
                   currentUser={currentUser}
+                />
+              )}
+
+              {activeTab === 'companies' && currentUser?.role === 'admin' && (
+                <CompaniesTab
+                  isOpen={isOpen}
+                  currentUser={currentUser}
+                  companies={companies}
+                  projects={projects}
+                  projectNumbering={projectNumbering}
+                  onRefreshState={onRefreshState}
                 />
               )}
 

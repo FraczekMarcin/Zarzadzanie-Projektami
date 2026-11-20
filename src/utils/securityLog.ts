@@ -41,7 +41,10 @@ export type SecurityEventType =
   | 'device_login'
   | 'device_revoked'
   | 'device_token_reuse'
-  | 'variables_changed';
+  | 'variables_changed'
+  | 'company_created'
+  | 'company_updated'
+  | 'company_deleted';
 
 export type LoginFailureReason =
   | 'bad_password'
@@ -192,6 +195,9 @@ export const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   device_revoked: 'Cofnięcie zaufania urządzenia',
   device_token_reuse: 'Wykryto ponowne użycie starego tokena urządzenia',
   variables_changed: 'Zmiana zmiennych systemowych',
+  company_created: 'Utworzenie firmy',
+  company_updated: 'Aktualizacja firmy',
+  company_deleted: 'Usunięcie firmy',
 };
 
 /**

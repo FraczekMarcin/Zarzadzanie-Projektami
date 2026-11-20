@@ -7,6 +7,7 @@ import type {
   CostItem,
   CostCategory,
   PaymentTranche,
+  Company,
 } from '../types';
 import type { FinancePatchSaveResult } from '../hooks/useServerSync';
 import { registerClientIfNew } from '../utils/variableSettings';
@@ -61,6 +62,7 @@ interface ProjectFinancialsModalProps {
   isOpen: boolean;
   onClose: () => void;
   project: Project;
+  companies?: Company[];
   tasks: Task[];
   currentUser?: User | null;
   isAdmin?: boolean;
@@ -100,6 +102,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   isOpen,
   onClose,
   project,
+  companies = [],
   tasks,
   currentUser,
   isAdmin = false,
@@ -1427,6 +1430,19 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                 <span className="font-mono text-xs font-bold text-sky-700 dark:text-sky-400">
                   {project.key}
                 </span>
+                {(() => {
+                  const comp = project.companyId
+                    ? companies.find((c) => c.id === project.companyId)
+                    : undefined;
+                  return comp ? (
+                    <span
+                      title={`Firma prowadząca: ${comp.name}`}
+                      className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                    >
+                      {comp.letter}
+                    </span>
+                  ) : null;
+                })()}
                 <h3 id="financials-modal-title" className="text-sm font-bold text-slate-900 dark:text-white">
                   {project.name}
                 </h3>

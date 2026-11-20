@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Task, Project, User, TaskStatus, Priority } from '../types';
+import { Task, Project, User, TaskStatus, Priority, Company } from '../types';
 import { generateGoogleCalendarUrl } from '../utils/calendar';
 import { 
   Plus, 
@@ -26,6 +26,7 @@ import { getTodayIso } from '../utils/today';
 interface KanbanViewProps {
   tasks: Task[];
   projects: Project[];
+  companies?: Company[];
   users: User[];
   selectedProjectId: string | null;
   onSelectTask: (task: Task) => void;
@@ -44,6 +45,7 @@ const ALL_COLUMNS: { id: TaskStatus; label: string; headerColor: string; isCompl
 export const KanbanView: React.FC<KanbanViewProps> = ({
   tasks,
   projects,
+  companies = [],
   users,
   selectedProjectId,
   onSelectTask,
@@ -402,8 +404,22 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
 
                           {/* Project Name */}
                           {project && (
-                            <div className="text-[10px] font-mono text-sky-700 dark:text-sky-400 font-semibold truncate mb-1">
-                              [{project.key}] {project.name}
+                            <div className="text-[10px] font-mono text-sky-700 dark:text-sky-400 font-semibold truncate mb-1 flex items-center gap-1">
+                              <span>[{project.key}]</span>
+                              {(() => {
+                                const comp = project.companyId
+                                  ? companies.find((c) => c.id === project.companyId)
+                                  : undefined;
+                                return comp ? (
+                                  <span
+                                    title={comp.name}
+                                    className="font-mono text-[9px] font-bold px-1 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 shrink-0"
+                                  >
+                                    {comp.letter}
+                                  </span>
+                                ) : null;
+                              })()}
+                              <span className="truncate">{project.name}</span>
                             </div>
                           )}
 
