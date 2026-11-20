@@ -4,7 +4,7 @@
 # ==========================================
 
 # Etap 1: Budowanie aplikacji z kodu źródłowego
-FROM node:24-slim AS builder
+FROM node:26-slim AS builder
 
 WORKDIR /app
 
@@ -17,7 +17,7 @@ RUN npm run build
 # ==========================================
 # Etap 2: Super-lekkie środowisko produkcyjne (Runtime < 130MB)
 # ==========================================
-FROM node:24-alpine AS runner
+FROM node:26-alpine AS runner
 
 WORKDIR /app
 
