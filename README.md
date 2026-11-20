@@ -424,6 +424,7 @@ Wszystkie poniższe zmienne można skonfigurować w pliku `.env` (wzór wdrożen
 | :--- | :--- | :--- | :--- |
 | `NODE_ENV` | `development` (`production` w Dockerze) | Opcjonalna | Tryb pracy serwera (`development` lub `production`). W trybie produkcyjnym wymusza poprawny `APP_SECRET` i serwuje statyczny build z `dist/public`. |
 | `PORT` | `3000` | Opcjonalna | Port TCP, na którym nasłuchuje serwer Express. |
+| `HOST` | `::` (z fallbackiem na `0.0.0.0`) | Opcjonalna | Adres sieciowy nasłuchiwania serwera Express (nadpisuje domyślny dual-stack). |
 | `DATA_DIR` | `./data` (dev) / `/app/data` (prod) | Opcjonalna | Katalog trwałych plików danych (`app_state.json`, `sessions.json`, `security_log.jsonl`). |
 | `STORAGE` | `json` | Opcjonalna | Wybór warstwy utrwalania stanu (`json`). |
 | `BACKUP_DIR` | `./backups` / `/opt/zarzadzanie-projektami/backups` | Opcjonalna | Dodatkowy katalog przeszukiwany przez `GET /api/backup/status` w celu wyznaczania statusu kopii w interfejsie. |

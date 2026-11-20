@@ -158,7 +158,7 @@ for _ in $(seq 1 30); do
         exit 1
     fi
 
-    HEALTH_BODY=$(docker exec "$TMP_CONTAINER" wget -qO- http://localhost:3000/api/health 2>/dev/null || true)
+    HEALTH_BODY=$(docker exec "$TMP_CONTAINER" wget -qO- http://127.0.0.1:3000/api/health 2>/dev/null || true)
     if echo "$HEALTH_BODY" | grep -q '"status":"ok"'; then
         HEALTH_OK=1
         break

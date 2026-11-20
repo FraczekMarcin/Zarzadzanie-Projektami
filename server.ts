@@ -1,4 +1,5 @@
 import express from 'express';
+import http from 'http';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
 import { isDirectRunEntry } from './src/server/config.js';
@@ -8,6 +9,63 @@ import type { Session } from './src/server/sessions.js';
 
 export { createApp };
 export type { CreateAppOptions, CreateAppResult, Session };
+
+export interface StartedHttpServer {
+  server: http.Server;
+  host: string;
+  port: number;
+}
+
+function listenOnHost(app: express.Express, port: number, host: string): Promise<StartedHttpServer> {
+  return new Promise((resolve, reject) => {
+    const srv = http.createServer(app);
+    const onError = (err: NodeJS.ErrnoException) => {
+      srv.removeListener('listening', onListening);
+      srv.close();
+      reject(err);
+    };
+    const onListening = () => {
+      srv.removeListener('error', onError);
+      const addr = srv.address();
+      if (!addr || typeof addr === 'string') {
+        resolve({ server: srv, host, port });
+        return;
+      }
+      resolve({ server: srv, host: addr.address, port: addr.port });
+    };
+    srv.once('error', onError);
+    srv.once('listening', onListening);
+    srv.listen(port, host);
+  });
+}
+
+export async function startHttpServer(
+  app: express.Express,
+  port: number,
+  explicitHost?: string
+): Promise<StartedHttpServer> {
+  const requestedHost = explicitHost?.trim();
+  if (requestedHost) {
+    return listenOnHost(app, port, requestedHost);
+  }
+
+  try {
+    return await listenOnHost(app, port, '::');
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException | undefined)?.code;
+    if (code === 'EAFNOSUPPORT' || code === 'EADDRNOTAVAIL') {
+      logger.warn(
+        `[Server] Nasłuchiwanie dual-stack na '::' niedostępne (${code}); przełączam na '0.0.0.0'.`
+      );
+      return listenOnHost(app, port, '0.0.0.0');
+    }
+    throw err;
+  }
+}
+
+export function formatListenHost(host: string): string {
+  return host.includes(':') ? `[${host}]` : host;
+}
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -29,16 +87,18 @@ if (isDirectRunEntry(__filename, import.meta.url)) {
   process.umask(0o077);
   const cliPort = Number(readCliOption('--port'));
   const PORT = (Number.isFinite(cliPort) && cliPort > 0 ? cliPort : Number(process.env.PORT)) || 3000;
-  const HOST = readCliOption('--host')?.trim() || '0.0.0.0';
+  const explicitHost = readCliOption('--host')?.trim() || process.env.HOST?.trim() || undefined;
   let appClose: (() => Promise<void>) | null = null;
-  let server: ReturnType<express.Express['listen']> | null = null;
+  let server: http.Server | null = null;
 
   try {
     const instance = await createApp({ port: PORT, isDirectRun: true });
     appClose = instance.close;
-    server = instance.app.listen(PORT, HOST, () => {
-      logger.info(`Zarządzanie Projektami running on http://${HOST}:${PORT}`);
-    });
+    const started = await startHttpServer(instance.app, PORT, explicitHost);
+    server = started.server;
+    logger.info(
+      `Zarządzanie Projektami running on http://${formatListenHost(started.host)}:${started.port}`
+    );
   } catch (startupErr) {
     logger.error('[Server FATAL] Nie udało się uruchomić serwera:', startupErr);
     process.exit(1);
