@@ -1,5 +1,5 @@
 export interface DeepLinkTarget {
-  type: 'task' | 'project';
+  type: 'task' | 'project' | 'view';
   id: string;
 }
 
@@ -57,6 +57,15 @@ export function parseDeepLink(search: string | null | undefined): DeepLinkTarget
     return { type: 'project', id: rawProjectId };
   }
 
+  if (params.has('view')) {
+    const allViews = params.getAll('view');
+    if (allViews.length !== 1) return null;
+    const rawView = allViews[0]?.trim();
+    if (rawView === 'economy') {
+      return { type: 'view', id: 'economy' };
+    }
+  }
+
   return null;
 }
 
@@ -93,8 +102,9 @@ export function readPendingDeepLink(
     if (
       !parsed ||
       typeof parsed !== 'object' ||
-      (parsed.type !== 'task' && parsed.type !== 'project') ||
+      (parsed.type !== 'task' && parsed.type !== 'project' && parsed.type !== 'view') ||
       !isValidDeepLinkId(parsed.id) ||
+      (parsed.type === 'view' && parsed.id !== 'economy') ||
       typeof parsed.storedAt !== 'number' ||
       !Number.isFinite(parsed.storedAt)
     ) {
@@ -131,6 +141,9 @@ export function buildUrlWithoutDeepLinkParams(currentHref: string): string {
     const url = new URL(currentHref);
     url.searchParams.delete('task');
     url.searchParams.delete('project');
+    if (url.searchParams.get('view') === 'economy') {
+      url.searchParams.delete('view');
+    }
     const search = url.searchParams.toString();
     return `${url.pathname}${search ? `?${search}` : ''}${url.hash}`;
   } catch {

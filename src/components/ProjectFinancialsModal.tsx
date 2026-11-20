@@ -73,6 +73,8 @@ interface ProjectFinancialsModalProps {
     expectedRevision?: number
   ) => Promise<FinancePatchSaveResult>;
   onRefreshProject?: (freshProject: Project) => void;
+  initialTab?: 'quotations' | 'costs' | 'client' | 'summary';
+  onItemsMarkedPaid?: (linkedTaskIds: string[]) => void;
 }
 
 const COST_CATEGORIES: Array<{ value: CostCategory; label: string }> = [
@@ -109,6 +111,8 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   onSaveProject,
   onSaveFinancePatch,
   onRefreshProject,
+  initialTab = 'quotations',
+  onItemsMarkedPaid,
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
   const uidPrefix = useId();
@@ -118,7 +122,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
     currentUser ?? (isAdmin ? ({ id: 'admin', role: 'admin' } as User) : null);
   const canEdit = canEditFinance(effectiveUser, project);
 
-  const [activeTab, setActiveTab] = useState<'quotations' | 'costs' | 'client' | 'summary'>('quotations');
+  const [activeTab, setActiveTab] = useState<'quotations' | 'costs' | 'client' | 'summary'>(initialTab);
   const [highlightedCostId, setHighlightedCostId] = useState<string | null>(null);
 
   // Client form fields
@@ -1309,12 +1313,46 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
       return;
     }
 
+    const collectNewlyPaidTaskIds = (): string[] => {
+      const ids = new Set<string>();
+      const origCosts = new Map((project.costs || []).map((c) => [c.id, c]));
+      for (const c of costs) {
+        const prev = origCosts.get(c.id);
+        const wasPaid = Boolean(prev && (prev.isPaid || prev.status === 'paid'));
+        const nowPaid = Boolean(c.isPaid || c.status === 'paid');
+        if (!wasPaid && nowPaid && c.scheduledTaskId) {
+          ids.add(c.scheduledTaskId);
+        }
+      }
+      const origTranches = new Map((project.paymentTranches || []).map((t) => [t.id, t]));
+      for (const t of paymentTranches) {
+        const prev = origTranches.get(t.id);
+        const wasPaid = Boolean(prev && prev.isPaid);
+        if (!wasPaid && t.isPaid && t.scheduledTaskId) {
+          ids.add(t.scheduledTaskId);
+        }
+      }
+      const origQuotes = new Map((project.quotations || []).map((q) => [q.id, q]));
+      for (const q of quotations) {
+        const prev = origQuotes.get(q.id);
+        const wasPaid = Boolean(prev && prev.isPaid);
+        if (!wasPaid && q.isPaid && q.scheduledTaskId) {
+          ids.add(q.scheduledTaskId);
+        }
+      }
+      return Array.from(ids);
+    };
+
     if (onSaveFinancePatch) {
       setIsSaving(true);
       const res = await onSaveFinancePatch(project.id, patch, project.revision || 1);
       setIsSaving(false);
 
       if (res.ok) {
+        const newlyPaidTaskIds = collectNewlyPaidTaskIds();
+        if (newlyPaidTaskIds.length > 0) {
+          onItemsMarkedPaid?.(newlyPaidTaskIds);
+        }
         onClose();
         return;
       }
@@ -1346,6 +1384,10 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
 
     if (onSaveProject) {
       onSaveProject(draftWithBudget);
+      const newlyPaidTaskIds = collectNewlyPaidTaskIds();
+      if (newlyPaidTaskIds.length > 0) {
+        onItemsMarkedPaid?.(newlyPaidTaskIds);
+      }
     }
     onClose();
   };

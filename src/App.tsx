@@ -15,6 +15,7 @@ const loadTaskListView = () => import('./components/TaskListView').then((m) => (
 const loadTaskTreeView = () => import('./components/TaskTreeView').then((m) => ({ default: m.TaskTreeView }));
 const loadKanbanView = () => import('./components/KanbanView').then((m) => ({ default: m.KanbanView }));
 const loadProjectsOverview = () => import('./components/ProjectsOverview').then((m) => ({ default: m.ProjectsOverview }));
+const loadEconomyView = () => import('./components/EconomyView').then((m) => ({ default: m.EconomyView }));
 const loadTrashView = () => import('./components/TrashView').then((m) => ({ default: m.TrashView }));
 const loadTaskModal = () => import('./components/TaskModal').then((m) => ({ default: m.TaskModal }));
 const loadTaskDetailDrawer = () => import('./components/TaskDetailDrawer').then((m) => ({ default: m.TaskDetailDrawer }));
@@ -33,6 +34,7 @@ const TaskListView = lazy(loadTaskListView);
 const TaskTreeView = lazy(loadTaskTreeView);
 const KanbanView = lazy(loadKanbanView);
 const ProjectsOverview = lazy(loadProjectsOverview);
+const EconomyView = lazy(loadEconomyView);
 const TrashView = lazy(loadTrashView);
 const TaskModal = lazy(loadTaskModal);
 const TaskDetailDrawer = lazy(loadTaskDetailDrawer);
@@ -52,12 +54,14 @@ import { ThemeMode, getThemePreference, setThemePreference, initThemeListener } 
 import { CURRENT_APP_VERSION, GITHUB_REPO_URL } from './data/dockerConfig';
 import { isDemoProject } from './utils/demoData';
 import { sortTasksByPriorityAndDueDate } from './utils/taskSorting';
+import { canViewFinance } from './utils/access';
 import { 
   FolderKanban, 
   Calendar as CalendarIcon, 
   ListTodo, 
   LayoutGrid, 
   Briefcase, 
+  Wallet,
   Server, 
   Download, 
   Plus, 
@@ -90,7 +94,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 
-type ActiveView = 'gantt' | 'calendar' | 'tasks' | 'tree' | 'kanban' | 'projects' | 'trash';
+type ActiveView = 'gantt' | 'calendar' | 'tasks' | 'tree' | 'kanban' | 'projects' | 'economy' | 'trash';
 
 const VIEW_PRELOADERS: Record<ActiveView, () => Promise<unknown>> = {
   gantt: loadGanttChart,
@@ -99,6 +103,7 @@ const VIEW_PRELOADERS: Record<ActiveView, () => Promise<unknown>> = {
   tree: loadTaskTreeView,
   kanban: loadKanbanView,
   projects: loadProjectsOverview,
+  economy: loadEconomyView,
   trash: loadTrashView,
 };
 
@@ -247,6 +252,11 @@ export default function App() {
     logActivityRef,
   });
 
+  const canViewEconomy = useMemo(
+    () => projects.some((p) => canViewFinance(currentUser, p)),
+    [projects, currentUser]
+  );
+
   // Natychmiastowe ładowanie domyślnego widoku po zalogowaniu oraz doładowanie pozostałych w bezczynności
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -260,6 +270,9 @@ export default function App() {
       preloadView('calendar');
       preloadView('tree');
       preloadView('trash');
+      if (canViewEconomy) {
+        preloadView('economy');
+      }
       loadTaskDetailDrawer().catch(() => {});
       loadTaskModal().catch(() => {});
     };
@@ -530,6 +543,12 @@ export default function App() {
     onClose: () => setTaskToDelete(null),
   });
 
+  useEffect(() => {
+    if (hasLoadedState && activeView === 'economy' && !canViewEconomy) {
+      setActiveView('gantt');
+    }
+  }, [hasLoadedState, activeView, canViewEconomy]);
+
   useDeepLink({
     isAuthenticated,
     hasLoadedState,
@@ -540,6 +559,16 @@ export default function App() {
       setSelectedProjectId(project.id);
       setActiveView('projects');
       setPendingDetailProjectId(project.id);
+    },
+    onOpenEconomy: () => {
+      if (canViewEconomy) {
+        setActiveView('economy');
+      } else {
+        setNotificationToast({
+          message: 'Brak uprawnień do widoku Ekonomia lub brak projektów z dostępem do finansów.',
+          type: 'error',
+        });
+      }
     },
     onNotifyMissing: (message) => {
       setNotificationToast({ message, type: 'error' });
@@ -627,8 +656,26 @@ export default function App() {
     return result;
   };
 
-  const handleApplyFreshProject = (freshProject: Project) => {
+  const handleApplyFreshProject = (freshProject: Project, revision?: number) => {
+    if (typeof revision === 'number') {
+      applyRevision(revision);
+    }
     setProjects((prev) => prev.map((p) => (p.id === freshProject.id ? freshProject : p)));
+  };
+
+  const handleTaskCreatedFromEconomy = (createdTask: Task, revision?: number) => {
+    if (typeof revision === 'number') {
+      applyRevision(revision);
+    }
+    setTasks((prev) =>
+      prev.some((t) => t.id === createdTask.id)
+        ? prev.map((t) => (t.id === createdTask.id ? createdTask : t))
+        : [...prev, createdTask]
+    );
+    logActivity(
+      `${currentUser.name} dodał płatność do harmonogramu jako zadanie [${createdTask.code}]: ${createdTask.title}`,
+      createdTask.id
+    );
   };
 
   const handleDeleteProject = async (projectId: string) => {
@@ -902,6 +949,24 @@ export default function App() {
             <Briefcase className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Projekty</span>
           </button>
+
+          {canViewEconomy && (
+            <button
+              type="button"
+              onClick={() => setActiveView('economy')}
+              onMouseEnter={() => preloadView('economy')}
+              onFocus={() => preloadView('economy')}
+              aria-current={activeView === 'economy' ? 'page' : undefined}
+              className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
+                activeView === 'economy'
+                  ? 'text-sky-700 dark:text-sky-400 border-b-2 border-sky-700 dark:border-sky-400 font-bold'
+                  : 'hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              <Wallet className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Ekonomia</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -1269,6 +1334,20 @@ export default function App() {
             >
               Kanban
             </button>
+            {canViewEconomy && (
+              <button
+                type="button"
+                aria-pressed={activeView === 'economy'}
+                onClick={() => setActiveView('economy')}
+                onMouseEnter={() => preloadView('economy')}
+                onFocus={() => preloadView('economy')}
+                className={`px-2 py-1 text-[11px] font-medium rounded ${
+                  activeView === 'economy' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
+                }`}
+              >
+                Ekonomia
+              </button>
+            )}
             <button
               type="button"
               aria-pressed={activeView === 'trash'}
@@ -1430,6 +1509,27 @@ export default function App() {
               trashRetentionDays={trashRetentionDays}
               pendingDetailProjectId={pendingDetailProjectId}
               onConsumePendingDetailProject={() => setPendingDetailProjectId(null)}
+            />
+          )}
+
+          {activeView === 'economy' && canViewEconomy && (
+            <EconomyView
+              projects={projects}
+              companies={companies}
+              tasks={sortedTasks}
+              users={users}
+              currentUser={currentUser}
+              onUpdateProjectFinance={handleUpdateProjectFinance}
+              onApplyFreshProject={handleApplyFreshProject}
+              onUpdateProject={handleUpdateProject}
+              onTaskCreatedFromEconomy={handleTaskCreatedFromEconomy}
+              onUpdateTaskStatus={(taskId, newStatus) =>
+                handleUpdateStatus(taskId, newStatus, true)
+              }
+              onOpenTask={handleSelectTask}
+              onNotify={(msg, type = 'info') =>
+                setNotificationToast({ message: msg, type })
+              }
             />
           )}
 

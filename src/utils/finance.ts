@@ -28,6 +28,7 @@ export interface ProjectFinanceSummary {
   totalCostsNet: number;
   totalCostsGross: number;
   profitNet: number;
+  profitGross: number;
   marginPercent: number;
   paidRevenueNet: number;
   unpaidRevenueNet: number;
@@ -39,7 +40,9 @@ export interface ProjectFinanceSummary {
   tranchesRemainingNet: number;
   tranchesExceedProjectValue: boolean;
   expectedInflowNet: number;
+  expectedInflowGross: number;
   expectedOutflowNet: number;
+  expectedOutflowGross: number;
   nextPaymentDate: string | null;
   costsByCategory: Record<CostCategory, number>;
 }
@@ -109,6 +112,7 @@ export function computeProjectFinance(
   const totalCostsGross = addMoney(directCostsGross, quoteCostsGross);
 
   const profitNet = subtractMoney(totalRevenueNet, totalCostsNet);
+  const profitGross = subtractMoney(totalRevenueGross, totalCostsGross);
   const marginPercent = calcMarginPercent(totalRevenueNet, profitNet);
 
   // Transze płatności od zamawiającego
@@ -163,6 +167,24 @@ export function computeProjectFinance(
     ...datedUnpaidTranches.map((t) => Math.max(0, subtractMoney(t.amountNet || 0, t.paidAmount || 0))),
     ...datedUnpaidRevenueQuotes.map((q) => Math.max(0, subtractMoney(q.totalNet || 0, q.paidAmount || 0)))
   );
+  const expectedInflowGross = addMoney(
+    ...datedUnpaidTranches.map((t) => {
+      const gross =
+        t.amountGross !== undefined
+          ? t.amountGross
+          : calcGrossFromNet(t.amountNet || 0, projectVatRate);
+      const paidGross = t.paidAmount ? calcGrossFromNet(t.paidAmount, projectVatRate) : 0;
+      return Math.max(0, subtractMoney(gross, paidGross));
+    }),
+    ...datedUnpaidRevenueQuotes.map((q) => {
+      const gross =
+        q.totalGross !== undefined
+          ? q.totalGross
+          : calcGrossFromNet(q.totalNet || 0, q.vatRate ?? projectVatRate);
+      const paidGross = q.paidAmount ? calcGrossFromNet(q.paidAmount, q.vatRate ?? projectVatRate) : 0;
+      return Math.max(0, subtractMoney(gross, paidGross));
+    })
+  );
 
   // Oczekiwane wydatki: niezapłacone i planowane koszty z terminem płatności
   const datedUnpaidCosts = costs.filter(
@@ -174,6 +196,18 @@ export function computeProjectFinance(
   const expectedOutflowNet = addMoney(
     ...datedUnpaidCosts.map((c) => c.amountNet || 0),
     ...datedUnpaidCostQuotes.map((q) => q.totalNet || 0)
+  );
+  const expectedOutflowGross = addMoney(
+    ...datedUnpaidCosts.map((c) =>
+      c.amountGross !== undefined
+        ? c.amountGross
+        : calcGrossFromNet(c.amountNet || 0, c.vatRate ?? projectVatRate)
+    ),
+    ...datedUnpaidCostQuotes.map((q) =>
+      q.totalGross !== undefined
+        ? q.totalGross
+        : calcGrossFromNet(q.totalNet || 0, q.vatRate ?? projectVatRate)
+    )
   );
 
   // Najbliższy termin płatności (preferuje daty >= todayIso, w przeciwnym razie najwcześniejszy zaległy)
@@ -222,6 +256,7 @@ export function computeProjectFinance(
     totalCostsNet,
     totalCostsGross,
     profitNet,
+    profitGross,
     marginPercent,
     paidRevenueNet,
     unpaidRevenueNet,
@@ -233,7 +268,9 @@ export function computeProjectFinance(
     tranchesRemainingNet,
     tranchesExceedProjectValue,
     expectedInflowNet,
+    expectedInflowGross,
     expectedOutflowNet,
+    expectedOutflowGross,
     nextPaymentDate,
     costsByCategory,
   };

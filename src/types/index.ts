@@ -53,6 +53,7 @@ export interface QuotationItem {
   paidAmount?: number;
   isChosenOffer?: boolean; // Wycena kosztowa przeniesiona do kosztów jako wybrana oferta
   linkedCostId?: string; // ID powiązanej pozycji kosztu
+  scheduledTaskId?: string; // ID zadania w harmonogramie utworzonego z terminu płatności
   notes?: string;
 }
 
@@ -81,6 +82,7 @@ export interface CostItem {
   isPaid?: boolean; // Znacznik: Zapłacono
   paidAt?: string;
   sourceQuotationId?: string; // ID wyceny kosztowej, z której przeniesiono pozycję
+  scheduledTaskId?: string; // ID zadania w harmonogramie utworzonego z terminu płatności
   notes?: string;
 }
 
@@ -93,6 +95,7 @@ export interface PaymentTranche {
   isPaid: boolean;
   paidAt?: string; // Data zapłaty YYYY-MM-DD
   paidAmount?: number; // Rzeczywista kwota zapłacona netto (PLN)
+  scheduledTaskId?: string; // ID zadania w harmonogramie utworzonego z terminu płatności
   notes?: string;
 }
 

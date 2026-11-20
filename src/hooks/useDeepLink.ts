@@ -16,6 +16,7 @@ interface UseDeepLinkParams {
   projects: Project[];
   onOpenTask: (task: Task) => void;
   onOpenProject: (project: Project) => void;
+  onOpenEconomy?: () => void;
   onNotifyMissing: (message: string) => void;
 }
 
@@ -26,6 +27,7 @@ export function useDeepLink({
   projects,
   onOpenTask,
   onOpenProject,
+  onOpenEconomy,
   onNotifyMissing,
 }: UseDeepLinkParams): void {
   const initialUrlTargetRef = useRef<DeepLinkTarget | null>(null);
@@ -84,6 +86,11 @@ export function useDeepLink({
       } else {
         onNotifyMissing('Projekt nie istnieje lub nie masz do niego dostępu.');
       }
+      return;
     }
-  }, [isAuthenticated, hasLoadedState, tasks, projects, onOpenTask, onOpenProject, onNotifyMissing]);
+
+    if (target.type === 'view' && target.id === 'economy') {
+      onOpenEconomy?.();
+    }
+  }, [isAuthenticated, hasLoadedState, tasks, projects, onOpenTask, onOpenProject, onOpenEconomy, onNotifyMissing]);
 }

@@ -408,7 +408,18 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
       await expect(nav.getByRole('button', { name: 'Projekty', exact: true })).toHaveAttribute('aria-current', 'page');
       await scanView(page, scanResults, 'projects', 'Przegląd projektów', theme);
 
-      // 7. Kosz
+      // 7. Ekonomia (lista i szczegóły projektu)
+      await nav.getByRole('button', { name: 'Ekonomia', exact: true }).click();
+      await expect(nav.getByRole('button', { name: 'Ekonomia', exact: true })).toHaveAttribute('aria-current', 'page');
+      await expect(page.getByRole('heading', { name: 'Ekonomia i finanse firm' })).toBeVisible();
+      await scanView(page, scanResults, 'economy', 'Ekonomia', theme);
+      await page.getByRole('button', { name: 'Projekt Referencyjny A11y' }).click();
+      await expect(page.getByRole('heading', { name: /Projekt Referencyjny A11y/ })).toBeVisible();
+      await scanView(page, scanResults, 'economy-detail', 'Ekonomia: Szczegóły projektu', theme);
+      await page.getByRole('button', { name: 'Powrót do listy' }).click();
+      await expect(page.getByRole('heading', { name: 'Ekonomia i finanse firm' })).toBeVisible();
+
+      // 8. Kosz
       await nav.getByRole('button', { name: 'Kosz', exact: true }).click();
       await expect(page.getByRole('heading', { name: /Kosz usuniętych zadań i projektów/i })).toBeVisible();
       await scanView(page, scanResults, 'trash', 'Kosz', theme);
@@ -464,7 +475,7 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
   }
 
   test('3) zapis raportu JSON i weryfikacja trybu A11Y_STRICT', async () => {
-    expect(scanResults.length).toBeGreaterThanOrEqual(40);
+    expect(scanResults.length).toBeGreaterThanOrEqual(44);
     writeReport(scanResults);
     expect(fs.existsSync(REPORT_PATH)).toBe(true);
 

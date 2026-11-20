@@ -123,6 +123,9 @@ export function useTaskActions({
         }
         if (data.task) {
           setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, ...data.task } : t)));
+          setSelectedTaskDetail((prev) =>
+            prev && prev.id === taskId ? { ...prev, ...data.task } : prev
+          );
         }
       } else {
         const errData = await res.json().catch(() => ({}));
@@ -478,7 +481,7 @@ export function useTaskActions({
     void deleteTaskOnServer(taskId);
   };
 
-  const handleUpdateStatus = (taskId: string, newStatus: TaskStatus) => {
+  const handleUpdateStatus = async (taskId: string, newStatus: TaskStatus, immediate = false) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
 
@@ -507,7 +510,20 @@ export function useTaskActions({
     const { updatedTasks, triggeredEvents } = processDependencyRules(newTaskList);
     setTasks(updatedTasks);
 
-    queueTaskPatch(taskId, { status: newStatus, progress }, task.revision || 1);
+    if (immediate) {
+      const existing = taskPatchDebounceTimers.current.get(taskId);
+      if (existing) {
+        clearTimeout(existing.timer);
+        taskPatchDebounceTimers.current.delete(taskId);
+      }
+      await saveTaskPatchToServer(
+        taskId,
+        { ...(existing?.patch || {}), status: newStatus, progress },
+        task.revision || 1
+      );
+    } else {
+      queueTaskPatch(taskId, { status: newStatus, progress }, task.revision || 1);
+    }
     logActivity(`${currentUser.name} zmienił status [${task.code}] na "${newStatus}"`, taskId);
 
     if (triggeredEvents.length > 0) {

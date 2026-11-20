@@ -43,6 +43,22 @@ export function canEditFinance(
 }
 
 /**
+ * Sprawdza, czy użytkownik może przeglądać finanse projektu (menu Ekonomia i podgląd kosztorysu).
+ * - admin oraz project_manager: zawsze true
+ * - właściciel projektu (ownerId === user.id): true (w trybie tylko do odczytu, jeśli nie ma canEditFinance)
+ * - pozostałe role bez własności projektu: false
+ */
+export function canViewFinance(
+  user: { id: string; role?: string } | null | undefined,
+  project: { ownerId?: string } | null | undefined
+): boolean {
+  if (!user || !user.role || !project) return false;
+  if (user.role === 'admin' || user.role === 'project_manager') return true;
+  if (project.ownerId && project.ownerId === user.id) return true;
+  return false;
+}
+
+/**
  * Sprawdza, czy obiekt aktualizacji zawiera jakiekolwiek pola finansowe lub dane klienta.
  */
 export function hasFinanceOrClientFields(patch: Record<string, any> | null | undefined): boolean {
@@ -95,10 +111,13 @@ export function canWrite(user: { role?: string } | null | undefined): boolean {
  */
 export function canAccessProject(
   user: { id: string; role?: string } | null | undefined,
-  project: { id: string; memberIds?: string[] } | null | undefined
+  project: { id: string; memberIds?: string[]; ownerId?: string } | null | undefined
 ): boolean {
   if (!user || !project) return false;
   if (user.role === 'admin' || user.role === 'project_manager') {
+    return true;
+  }
+  if (project.ownerId && project.ownerId === user.id) {
     return true;
   }
   return Array.isArray(project.memberIds) && project.memberIds.includes(user.id);
@@ -106,15 +125,14 @@ export function canAccessProject(
 
 /**
  * Filtruje pojedynczy projekt pod kątem uprawnień użytkownika.
- * Dla ról innych niż admin i project_manager usuwa pola finansowe i dane klienta (client*).
+ * Dla użytkowników bez canViewFinance usuwa pola finansowe i dane klienta (client*).
  */
 export function filterProjectForUser<T extends Record<string, any>>(
   project: T,
   user: { id: string; role?: string } | null | undefined
 ): T {
   if (!project) return project;
-  const isAdminOrManager = user && (user.role === 'admin' || user.role === 'project_manager');
-  if (isAdminOrManager) {
+  if (canViewFinance(user, project)) {
     return { ...project };
   }
 
