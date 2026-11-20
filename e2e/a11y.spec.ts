@@ -403,10 +403,17 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
       await expect(nav.getByRole('button', { name: 'Tablica Kanban', exact: true })).toHaveAttribute('aria-current', 'page');
       await scanView(page, scanResults, 'kanban', 'Tablica Kanban', theme);
 
-      // 6. Przegląd projektów
+      // 6. Przegląd projektów (widok kafelków oraz widoki listy)
       await nav.getByRole('button', { name: 'Projekty', exact: true }).click();
       await expect(nav.getByRole('button', { name: 'Projekty', exact: true })).toHaveAttribute('aria-current', 'page');
-      await scanView(page, scanResults, 'projects', 'Przegląd projektów', theme);
+      await page.getByRole('button', { name: 'Kafelki', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Kafelki', exact: true })).toHaveAttribute('aria-pressed', 'true');
+      await scanView(page, scanResults, 'projects-tiles', 'Przegląd projektów (Kafelki)', theme);
+      await page.getByRole('button', { name: 'Lista', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Lista', exact: true })).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByRole('table')).toBeVisible();
+      await scanView(page, scanResults, 'projects-list', 'Przegląd projektów (Lista)', theme);
+      await page.getByRole('button', { name: 'Kafelki', exact: true }).click();
 
       // 7. Ekonomia (lista i szczegóły projektu)
       await nav.getByRole('button', { name: 'Ekonomia', exact: true }).click();
@@ -475,7 +482,7 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
   }
 
   test('3) zapis raportu JSON i weryfikacja trybu A11Y_STRICT', async () => {
-    expect(scanResults.length).toBeGreaterThanOrEqual(44);
+    expect(scanResults.length).toBeGreaterThanOrEqual(46);
     writeReport(scanResults);
     expect(fs.existsSync(REPORT_PATH)).toBe(true);
 

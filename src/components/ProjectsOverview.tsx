@@ -4,12 +4,21 @@ import { downloadIcsFile } from '../utils/calendar';
 import { getNextProjectCode, isProjectCodeAvailable, isValidProjectCodeFormat } from '../utils/projectCode';
 import { loadAllProjectTemplates } from '../utils/projectTemplates';
 import { ProjectDetailModal } from './ProjectDetailModal';
-import { copyToClipboard } from '../utils/clipboard';
-import { FIELD_LIMITS, canEditFinance } from '../utils/access';
-import { computeProjectFinance } from '../utils/finance';
+import { FIELD_LIMITS, canEditFinance, canViewFinance } from '../utils/access';
 import { calcGrossFromNet, formatMoney } from '../utils/money';
+import { getTodayIso } from '../utils/today';
 import type { FinancePatchSaveResult } from '../hooks/useServerSync';
 import { useFocusTrap } from '../utils/useFocusTrap';
+import { ProjectTile } from './projects/ProjectTile';
+import { ProjectRow } from './projects/ProjectRow';
+import {
+  loadProjectsViewPref,
+  saveProjectsViewPref,
+  sortProjectsList,
+  ProjectsViewMode,
+  ProjectListSortKey,
+  ProjectListSortDirection,
+} from './projects/projectsViewUtils';
 
 const AdminTemplateManagerModal = lazy(() =>
   import('./AdminTemplateManagerModal').then((m) => ({ default: m.AdminTemplateManagerModal }))
@@ -17,32 +26,23 @@ const AdminTemplateManagerModal = lazy(() =>
 const ProjectFinancialsModal = lazy(() =>
   import('./ProjectFinancialsModal').then((m) => ({ default: m.ProjectFinancialsModal }))
 );
-import { 
-  FolderPlus, 
-  Calendar, 
-  Download, 
-  Clock, 
-  CheckCircle2, 
-  AlertTriangle, 
-  Layers, 
-  Plus, 
-  Briefcase,
-  Users,
-  Edit3,
+import {
+  FolderPlus,
+  AlertTriangle,
+  Layers,
   X,
   Check,
   Building2,
   Trash2,
   DollarSign,
-  TrendingUp,
-  Receipt,
   Folder,
-  Copy,
-  Eye,
   Archive,
-  ArchiveRestore,
   Filter,
-  Lock
+  LayoutGrid,
+  List,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { registerClientIfNew } from '../utils/variableSettings';
 import { useVariables } from '../hooks/useVariables';
@@ -132,6 +132,11 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   // Tab filter: Active vs Archived projects
   const [activeTab, setActiveTab] = useState<'active' | 'archived'>('active');
   const [projectStatusFilter, setProjectStatusFilter] = useState<'all' | 'critical' | 'blocked' | 'in_progress' | 'completed'>('all');
+
+  // View mode (Kafelki vs Lista) & sorting
+  const [viewMode, setViewMode] = useState<ProjectsViewMode>(() => loadProjectsViewPref());
+  const [sortKey, setSortKey] = useState<ProjectListSortKey | null>(null);
+  const [sortDir, setSortDir] = useState<ProjectListSortDirection>('asc');
 
   // Read-only project details viewer
   const [viewingProject, setViewingProject] = useState<Project | null>(null);
@@ -566,6 +571,77 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     return list;
   }, [activeTab, activeProjects, archivedProjects, projectStatusFilter, tasks]);
 
+  const todayIso = getTodayIso();
+
+  const sortedListProjects = useMemo(
+    () =>
+      sortProjectsList(displayedProjects, {
+        sortKey,
+        sortDir,
+        companies,
+        users,
+        tasks,
+        currentUser,
+        todayIso,
+      }),
+    [displayedProjects, sortKey, sortDir, companies, users, tasks, currentUser, todayIso]
+  );
+
+  const showClientColumn = useMemo(
+    () =>
+      currentUser.role === 'admin' ||
+      currentUser.role === 'project_manager' ||
+      displayedProjects.some((p) => canViewFinance(currentUser, p)),
+    [currentUser, displayedProjects]
+  );
+
+  const companyById = useMemo(
+    () => new Map(companies.map((c) => [c.id, c])),
+    [companies]
+  );
+
+  const userById = useMemo(() => new Map(users.map((u) => [u.id, u])), [users]);
+
+  const handleViewModeChange = (mode: ProjectsViewMode) => {
+    setViewMode(mode);
+    saveProjectsViewPref(mode);
+  };
+
+  const handleSort = (key: ProjectListSortKey) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
+  const getAriaSort = (key: ProjectListSortKey): 'ascending' | 'descending' | 'none' => {
+    if (sortKey !== key) return 'none';
+    return sortDir === 'asc' ? 'ascending' : 'descending';
+  };
+
+  const renderSortIcon = (key: ProjectListSortKey) => {
+    if (sortKey !== key) {
+      return <ArrowUpDown className="w-3 h-3 opacity-60 shrink-0" aria-hidden="true" />;
+    }
+    return sortDir === 'asc' ? (
+      <ArrowUp className="w-3 h-3 text-sky-700 dark:text-sky-400 shrink-0" aria-hidden="true" />
+    ) : (
+      <ArrowDown className="w-3 h-3 text-sky-700 dark:text-sky-400 shrink-0" aria-hidden="true" />
+    );
+  };
+
+  const handleCopyDiskPath = (projectId: string) => {
+    setCopiedProjectId(projectId);
+    window.setTimeout(() => setCopiedProjectId(null), 2000);
+  };
+
+  const handleDownloadProjectIcs = (project: Project) => {
+    const projectTasks = tasks.filter((t) => t.projectId === project.id);
+    downloadIcsFile(projectTasks, `${project.key}-terminarz.ics`, project.name);
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Section */}
@@ -644,95 +720,128 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
           </button>
         </div>
 
-        {/* Quick status filters for active projects: Krytyczne, Zablokowane, W toku, Ukończone */}
-        {activeTab === 'active' && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 mr-1 flex items-center gap-1">
-              <Filter className="w-3 h-3" aria-hidden="true" />
-              <span>Filtruj stan projektów:</span>
-            </span>
-
-            <button
-              type="button"
-              aria-pressed={projectStatusFilter === 'all'}
-              onClick={() => setProjectStatusFilter('all')}
-              className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
-                projectStatusFilter === 'all'
-                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              Wszystkie ({activeProjects.length})
-            </button>
-
-            <button
-              type="button"
-              aria-pressed={projectStatusFilter === 'critical'}
-              onClick={() => setProjectStatusFilter('critical')}
-              className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
-                projectStatusFilter === 'critical'
-                  ? 'bg-rose-700 text-white shadow-xs'
-                  : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/40 hover:bg-rose-100'
-              }`}
-            >
-              <span><span aria-hidden="true">🔴 </span>Krytyczne ({criticalProjectsCount})</span>
-            </button>
-
-            <button
-              type="button"
-              aria-pressed={projectStatusFilter === 'blocked'}
-              onClick={() => setProjectStatusFilter('blocked')}
-              className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
-                projectStatusFilter === 'blocked'
-                  ? 'bg-amber-700 text-white shadow-xs'
-                  : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900/40 hover:bg-amber-100'
-              }`}
-            >
-              <span><span aria-hidden="true">🔒 </span>Zablokowane ({blockedProjectsCount})</span>
-            </button>
-
-            <button
-              type="button"
-              aria-pressed={projectStatusFilter === 'in_progress'}
-              onClick={() => setProjectStatusFilter('in_progress')}
-              className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
-                projectStatusFilter === 'in_progress'
-                  ? 'bg-sky-700 text-white shadow-xs'
-                  : 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-900/40 hover:bg-sky-100'
-              }`}
-            >
-              <span><span aria-hidden="true">⚡ </span>W toku ({inProgressProjectsCount})</span>
-            </button>
-
-            <button
-              type="button"
-              aria-pressed={projectStatusFilter === 'completed'}
-              onClick={() => setProjectStatusFilter('completed')}
-              className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
-                projectStatusFilter === 'completed'
-                  ? 'bg-emerald-700 text-white shadow-xs'
-                  : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/40 hover:bg-emerald-100'
-              }`}
-            >
-              <span><span aria-hidden="true">✅ </span>Ukończone ({completedProjectsCount})</span>
-            </button>
-          </div>
-        )}
-
-        {/* Informative message in Archive Tab */}
-        {activeTab === 'archived' && (
-          <div className="p-3 bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900/50 rounded-lg flex items-center justify-between text-xs">
-            <div className="flex items-center gap-2 text-purple-900 dark:text-purple-200">
-              <Archive className="w-4 h-4 text-purple-700 dark:text-purple-400 shrink-0" aria-hidden="true" />
-              <span>
-                <strong>Zakładka: Projekty archiwalne.</strong> Z poziomu tej zakładki możesz przywrócić projekt do aktywnych lub <strong>całkowicie i bezpowrotnie usunąć projekt z bazy</strong>.
+        {/* Filters + View switcher row */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {activeTab === 'active' ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 mr-1 flex items-center gap-1">
+                <Filter className="w-3 h-3" aria-hidden="true" />
+                <span>Filtruj stan projektów:</span>
               </span>
+
+              <button
+                type="button"
+                aria-pressed={projectStatusFilter === 'all'}
+                onClick={() => setProjectStatusFilter('all')}
+                className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+                  projectStatusFilter === 'all'
+                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                }`}
+              >
+                Wszystkie ({activeProjects.length})
+              </button>
+
+              <button
+                type="button"
+                aria-pressed={projectStatusFilter === 'critical'}
+                onClick={() => setProjectStatusFilter('critical')}
+                className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
+                  projectStatusFilter === 'critical'
+                    ? 'bg-rose-700 text-white shadow-xs'
+                    : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/40 hover:bg-rose-100'
+                }`}
+              >
+                <span><span aria-hidden="true">🔴 </span>Krytyczne ({criticalProjectsCount})</span>
+              </button>
+
+              <button
+                type="button"
+                aria-pressed={projectStatusFilter === 'blocked'}
+                onClick={() => setProjectStatusFilter('blocked')}
+                className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
+                  projectStatusFilter === 'blocked'
+                    ? 'bg-amber-700 text-white shadow-xs'
+                    : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900/40 hover:bg-amber-100'
+                }`}
+              >
+                <span><span aria-hidden="true">🔒 </span>Zablokowane ({blockedProjectsCount})</span>
+              </button>
+
+              <button
+                type="button"
+                aria-pressed={projectStatusFilter === 'in_progress'}
+                onClick={() => setProjectStatusFilter('in_progress')}
+                className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
+                  projectStatusFilter === 'in_progress'
+                    ? 'bg-sky-700 text-white shadow-xs'
+                    : 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-900/40 hover:bg-sky-100'
+                }`}
+              >
+                <span><span aria-hidden="true">⚡ </span>W toku ({inProgressProjectsCount})</span>
+              </button>
+
+              <button
+                type="button"
+                aria-pressed={projectStatusFilter === 'completed'}
+                onClick={() => setProjectStatusFilter('completed')}
+                className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
+                  projectStatusFilter === 'completed'
+                    ? 'bg-emerald-700 text-white shadow-xs'
+                    : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/40 hover:bg-emerald-100'
+                }`}
+              >
+                <span><span aria-hidden="true">✅ </span>Ukończone ({completedProjectsCount})</span>
+              </button>
             </div>
+          ) : (
+            <div className="flex-1 min-w-[260px] p-3 bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900/50 rounded-lg flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2 text-purple-900 dark:text-purple-200">
+                <Archive className="w-4 h-4 text-purple-700 dark:text-purple-400 shrink-0" aria-hidden="true" />
+                <span>
+                  <strong>Zakładka: Projekty archiwalne.</strong> Z poziomu tej zakładki możesz przywrócić projekt do aktywnych lub <strong>całkowicie i bezpowrotnie usunąć projekt z bazy</strong>.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Switcher Kafelki / Lista */}
+          <div
+            role="group"
+            aria-label="Widok listy projektów"
+            className="inline-flex items-center rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 p-0.5 shrink-0 ml-auto"
+          >
+            <button
+              type="button"
+              aria-pressed={viewMode === 'tiles'}
+              onClick={() => handleViewModeChange('tiles')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                viewMode === 'tiles'
+                  ? 'bg-sky-700 text-white shadow-2xs'
+                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Kafelki</span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={viewMode === 'list'}
+              onClick={() => handleViewModeChange('list')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                viewMode === 'list'
+                  ? 'bg-sky-700 text-white shadow-2xs'
+                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              <List className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Lista</span>
+            </button>
           </div>
-        )}
+        </div>
       </div>
 
-      {/* Projects Grid */}
+      {/* Projects Content */}
       {displayedProjects.length === 0 ? (
         <div className="p-12 bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-800 rounded-xl text-center space-y-3">
           <Archive className="w-8 h-8 text-slate-500 dark:text-slate-400 mx-auto" aria-hidden="true" />
@@ -745,361 +854,180 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
               : 'Gdy ukończysz projekt, administrator może przenieść go do tego archiwum.'}
           </p>
         </div>
-      ) : (
+      ) : viewMode === 'tiles' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {displayedProjects.map((project) => {
             const projectTasks = tasks.filter((t) => t.projectId === project.id);
-            const completedTasks = projectTasks.filter((t) => t.status === 'done').length;
-            const criticalTasks = projectTasks.filter((t) => t.priority === 'critical' && t.status !== 'done').length;
             const members = users.filter((u) => project.memberIds?.includes(u.id));
-
-            // Calculate project financial metrics via computeProjectFinance (bez podwójnego liczenia przeniesionych wycen)
-            const selectedQuotes = (project.quotations || []).filter((q) => q.isSelected !== false);
-            const revenueQuotes = selectedQuotes.filter((q) => q.type !== 'koszt');
-            const finance = computeProjectFinance(project);
-            const quoteNet = finance.totalQuotationNet;
-            const totalCostsNet = finance.totalCostsNet;
-            const profitNet = finance.profitNet;
-
-          return (
-            <div
-              key={project.id}
-              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between"
-            >
-              <div>
-                {/* Top badges */}
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="font-mono text-xs font-bold text-sky-800 dark:text-sky-300 bg-sky-100 dark:bg-sky-950/60 px-2.5 py-0.5 rounded border border-sky-300 dark:border-sky-800">
-                      {project.key}
-                    </span>
-                    {(() => {
-                      const comp = project.companyId
-                        ? companies.find((c) => c.id === project.companyId)
-                        : undefined;
-                      return comp ? (
-                        <span
-                          title={`Firma prowadząca: ${comp.name}`}
-                          className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
-                        >
-                          {comp.letter}
-                        </span>
-                      ) : null;
-                    })()}
-                    <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono">
-                      {project.status === 'active' ? 'Aktywny' : project.status === 'planning' ? 'Planowanie' : project.status}
-                    </span>
-                    {project.isDemo && (
-                      <span className="text-[10px] text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.2 rounded">
-                        Demo
-                      </span>
-                    )}
-                    {project.isArchived && (
-                      <span className="text-[10px] text-purple-700 bg-purple-100 dark:bg-purple-950/60 dark:text-purple-300 px-1.5 py-0.5 rounded font-semibold border border-purple-200 dark:border-purple-800 flex items-center gap-1">
-                        <Archive className="w-2.5 h-2.5" aria-hidden="true" /> Archiwum
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`text-xs font-semibold ${
-                        project.priority === 'critical'
-                          ? 'text-rose-700 dark:text-rose-400'
-                          : project.priority === 'high'
-                          ? 'text-amber-700 dark:text-amber-400'
-                          : project.priority === 'normal'
-                          ? 'text-blue-700 dark:text-blue-400'
-                          : 'text-slate-600 dark:text-slate-400'
-                      }`}
-                    >
-                      {project.priority === 'normal' ? 'Normalny' : project.priority.toUpperCase()}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Project Title & Description */}
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  <button
-                    type="button"
-                    onClick={() => onSelectProject(project.id)}
-                    className="text-left hover:text-sky-700 dark:hover:text-sky-400 cursor-pointer transition-colors"
-                  >
-                    {project.name}
-                  </button>
-                </h3>
-                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed">
-                  {project.description}
-                </p>
-
-                {/* Client / Investor Badge */}
-                {project.clientName && (
-                  <div className="mt-3 p-2 bg-slate-50 dark:bg-slate-800/60 rounded border border-slate-200/80 dark:border-slate-800 text-xs flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
-                      <Building2 className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400 shrink-0" aria-hidden="true" />
-                      <span className="truncate max-w-[190px] font-medium" title={project.clientName}>
-                        {project.clientName}
-                      </span>
-                    </div>
-                    {project.clientNip && (
-                      <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono">
-                        NIP: {project.clientNip}
-                      </span>
-                    )}
-                  </div>
-                )}
-
-                {/* Project Value & Breakdown Card */}
-                <div className="mt-2.5 p-2.5 bg-slate-50/80 dark:bg-slate-800/50 rounded-lg border border-slate-200/80 dark:border-slate-700/80 text-xs space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                      <DollarSign className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
-                      <span>Wartość Projektu:</span>
-                    </span>
-                    <span className="font-mono font-bold text-slate-900 dark:text-white text-xs">
-                      {quoteNet > 0 ? `${quoteNet.toLocaleString('pl-PL')} zł netto` : (project.budget || 'Do wyceny')}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-1 pt-1 border-t border-slate-200/60 dark:border-slate-700/60 text-[10px]">
-                    <div>
-                      <span className="text-slate-600 dark:text-slate-400 block">Wycena:</span>
-                      <span className="font-mono font-semibold text-emerald-700 dark:text-emerald-400">
-                        {quoteNet > 0 ? `${quoteNet.toLocaleString('pl-PL')} zł` : '0 zł'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-slate-600 dark:text-slate-400 block">Koszty:</span>
-                      <span className="font-mono font-semibold text-rose-700 dark:text-rose-400">
-                        {totalCostsNet > 0 ? `${totalCostsNet.toLocaleString('pl-PL')} zł` : '0 zł'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-slate-600 dark:text-slate-400 block">Zysk:</span>
-                      <span className={`font-mono font-bold ${profitNet >= 0 ? 'text-sky-700 dark:text-sky-400' : 'text-rose-700 dark:text-rose-400'}`}>
-                        {profitNet.toLocaleString('pl-PL')} zł
-                      </span>
-                    </div>
-                  </div>
-
-                  {revenueQuotes.length > 0 && (
-                    <div className="pt-1 text-[10px] text-slate-600 dark:text-slate-400 flex flex-wrap gap-1">
-                      <span className="font-medium text-slate-700 dark:text-slate-300">Składowe:</span>
-                      {revenueQuotes.slice(0, 3).map((rq) => (
-                        <span key={rq.id} className="bg-slate-200/60 dark:bg-slate-700/50 px-1 py-0.2 rounded font-mono truncate max-w-[130px]">
-                          {rq.title}
-                        </span>
-                      ))}
-                      {revenueQuotes.length > 3 && (
-                        <span>+{revenueQuotes.length - 3}</span>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Disk Location if specified */}
-                {project.diskPath && (
-                  <div className="mt-2.5 px-2.5 py-1.5 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-900/40 rounded flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Folder className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400 shrink-0" aria-hidden="true" />
-                      <span className="font-mono text-[11px] text-slate-700 dark:text-slate-300 truncate" title={project.diskPath}>
-                        {project.diskPath}
-                      </span>
-                    </div>
+            return (
+              <ProjectTile
+                key={project.id}
+                project={project}
+                companies={companies}
+                projectTasks={projectTasks}
+                members={members}
+                currentUser={currentUser}
+                copiedProjectId={copiedProjectId}
+                onCopyDiskPath={handleCopyDiskPath}
+                onOpen={onSelectProject}
+                onViewDetails={setViewingProject}
+                onOpenFinancials={setFinancialsProject}
+                onEdit={openEditModal}
+                onDownloadIcs={handleDownloadProjectIcs}
+                onArchive={handleRequestArchive}
+                onRestore={handleRestoreProject}
+                onDelete={onDeleteProject ? (p) => setProjectToDelete(p) : undefined}
+              />
+            );
+          })}
+        </div>
+      ) : (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs overflow-hidden">
+          <div
+            tabIndex={0}
+            role="region"
+            aria-label="Tabela projektów"
+            className="overflow-x-auto focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-600"
+          >
+            <table className="w-full text-left border-collapse text-xs">
+              <caption className="sr-only">
+                Lista projektów ({sortedListProjects.length})
+              </caption>
+              <thead className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200">
+                <tr>
+                  <th scope="col" aria-sort={getAriaSort('key')} className="px-2.5 py-2.5 whitespace-nowrap">
                     <button
                       type="button"
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        await copyToClipboard(project.diskPath || '');
-                        setCopiedProjectId(project.id);
-                        setTimeout(() => setCopiedProjectId(null), 2000);
-                      }}
-                      className="p-1 hover:bg-amber-100 dark:hover:bg-amber-900/60 rounded text-amber-700 dark:text-amber-300 shrink-0 ml-1"
-                      title="Kopiuj ścieżkę na dysku"
-                      aria-label={`Kopiuj ścieżkę projektu ${project.key}`}
+                      onClick={() => handleSort('key')}
+                      className="inline-flex items-center gap-1 font-bold hover:text-sky-700 dark:hover:text-sky-400"
                     >
-                      {copiedProjectId === project.id ? <Check className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" aria-hidden="true" /> : <Copy className="w-3.5 h-3.5" aria-hidden="true" />}
+                      <span>Numer</span>
+                      {renderSortIcon('key')}
                     </button>
-                  </div>
-                )}
-
-                {/* Dates & Schedule with Duration in days */}
-                <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
-                  <div className="flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400" aria-hidden="true" />
-                    <span className="font-bold text-slate-900 dark:text-white font-mono">
-                      {project.durationDays || 30} dni
-                    </span>
-                    <span className="text-slate-600 dark:text-slate-400 font-mono text-[11px]">({project.startDate} · {project.dueDate})</span>
-                  </div>
-                  {project.budget && <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300 font-semibold">{project.budget}</span>}
-                </div>
-
-                {/* Progress bar */}
-                <div className="mt-2.5">
-                  <div className="flex items-center justify-between text-xs mb-1">
-                    <span className="text-slate-600 dark:text-slate-400 font-medium">Postęp realizacji</span>
-                    <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300 font-bold">{project.progress}%</span>
-                  </div>
-                  <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
-                    <div
-                      style={{ width: `${project.progress}%` }}
-                      className={`h-full ${
-                        project.progress === 100
-                          ? 'bg-emerald-500'
-                          : project.priority === 'critical'
-                          ? 'bg-rose-500'
-                          : 'bg-sky-500'
-                      }`}
-                    />
-                  </div>
-                </div>
-
-                {/* Task counts stats */}
-                <div className="grid grid-cols-2 gap-2 mt-3 text-xs bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded border border-slate-100 dark:border-slate-800">
-                  <div>
-                    <span className="text-slate-600 dark:text-slate-400 block text-[10px] uppercase font-semibold">Zadania</span>
-                    <span className="font-mono tabular-nums font-semibold text-slate-800 dark:text-slate-200">
-                      {completedTasks} / {projectTasks.length} ukończonych
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-600 dark:text-slate-400 block text-[10px] uppercase font-semibold">Krytyczne</span>
-                    <span
-                      className={`font-mono tabular-nums font-semibold ${
-                        criticalTasks > 0 ? 'text-rose-700 dark:text-rose-400' : 'text-slate-700 dark:text-slate-300'
-                      }`}
+                  </th>
+                  <th scope="col" aria-sort={getAriaSort('name')} className="px-2.5 py-2.5 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => handleSort('name')}
+                      className="inline-flex items-center gap-1 font-bold hover:text-sky-700 dark:hover:text-sky-400"
                     >
-                      {criticalTasks} wymagających uwagi
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Card Footer: Team members & Actions */}
-              <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                {/* Team Avatars */}
-                <div className="flex items-center -space-x-1.5 overflow-hidden">
-                  {members.map((m) => (
-                    <div
-                      key={m.id}
-                      className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-700 border-2 border-white dark:border-slate-900 text-[10px] font-bold text-slate-700 dark:text-slate-300 flex items-center justify-center"
-                      title={`${m.name} (${m.role})`}
+                      <span>Nazwa</span>
+                      {renderSortIcon('name')}
+                    </button>
+                  </th>
+                  <th scope="col" aria-sort={getAriaSort('company')} className="px-2.5 py-2.5 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => handleSort('company')}
+                      className="inline-flex items-center gap-1 font-bold hover:text-sky-700 dark:hover:text-sky-400"
                     >
-                      {m.initials}
-                    </div>
-                  ))}
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setViewingProject(project)}
-                    className="p-1 text-slate-600 dark:text-slate-400 hover:text-sky-700 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40 rounded transition-colors"
-                    title="Podgląd danych projektu bez wchodzenia w edycję"
-                    aria-label={`Podgląd projektu ${project.key}`}
-                  >
-                    <Eye className="w-4 h-4 text-sky-700 dark:text-sky-400" aria-hidden="true" />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setFinancialsProject(project)}
-                    className="p-1 text-slate-600 dark:text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded transition-colors"
-                    title="Wyceny Inwestorskie, Koszty (Mapa, Geologia, Uzgodnienia)"
-                    aria-label={`Kosztorys i wyceny projektu ${project.key}`}
-                  >
-                    <Receipt className="w-4 h-4 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => openEditModal(project)}
-                    className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors"
-                    title="Edytuj projekt i dane Zamawiającego"
-                    aria-label={`Edytuj projekt ${project.key}`}
-                  >
-                    <Edit3 className="w-3.5 h-3.5" aria-hidden="true" />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => downloadIcsFile(projectTasks, `${project.key}-terminarz.ics`, project.name)}
-                    className="p-1 text-slate-600 dark:text-slate-400 hover:text-sky-700 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40 rounded transition-colors"
-                    title="Pobierz terminarz projektu (.ics)"
-                    aria-label={`Pobierz terminarz projektu ${project.key} (.ics)`}
-                  >
-                    <Download className="w-3.5 h-3.5" aria-hidden="true" />
-                  </button>
-
-                  {/* Actions for archived vs active projects */}
-                  {project.isArchived && currentUser.role === 'admin' ? (
-                    <div className="flex items-center gap-1">
+                      <span>Firma</span>
+                      {renderSortIcon('company')}
+                    </button>
+                  </th>
+                  {showClientColumn && (
+                    <th scope="col" aria-sort={getAriaSort('clientName')} className="px-2.5 py-2.5 whitespace-nowrap">
                       <button
                         type="button"
-                        onClick={() => handleRestoreProject(project)}
-                        className="px-2 py-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/60 rounded flex items-center gap-1 transition-colors border border-emerald-200 dark:border-emerald-800"
-                        title="Przywróć projekt z archiwum do bieżącej pracy"
+                        onClick={() => handleSort('clientName')}
+                        className="inline-flex items-center gap-1 font-bold hover:text-sky-700 dark:hover:text-sky-400"
                       >
-                        <ArchiveRestore className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
-                        <span>Przywróć</span>
+                        <span>Zamawiający</span>
+                        {renderSortIcon('clientName')}
                       </button>
-                      {onDeleteProject && (
-                        <button
-                          type="button"
-                          onClick={() => setProjectToDelete(project)}
-                          className="px-2 py-1 text-[11px] font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60 rounded flex items-center gap-1 transition-colors border border-rose-200 dark:border-rose-800"
-                          title="Całkowicie usuń projekt z bazy danych"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 text-rose-700 dark:text-rose-400" aria-hidden="true" />
-                          <span>Usuń z bazy</span>
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    <>
-                      {/* Archive button for administrator */}
-                      {currentUser.role === 'admin' && (
-                        <button
-                          type="button"
-                          onClick={() => handleRequestArchive(project)}
-                          className="p-1 text-slate-600 dark:text-slate-400 hover:text-purple-700 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/40 rounded transition-colors"
-                          title="Przenieś projekt do archiwum (Tylko Administrator)"
-                          aria-label={`Przenieś projekt ${project.key} do archiwum`}
-                        >
-                          <Archive className="w-3.5 h-3.5 text-purple-700 dark:text-purple-400" aria-hidden="true" />
-                        </button>
-                      )}
-
-                      {/* Delete project button */}
-                      {onDeleteProject && (
-                        <button
-                          type="button"
-                          onClick={() => setProjectToDelete(project)}
-                          className="p-1 text-slate-600 dark:text-slate-400 hover:text-rose-700 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded transition-colors"
-                          title="Usuń projekt"
-                          aria-label={`Usuń projekt ${project.key}`}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                        </button>
-                      )}
-                    </>
+                    </th>
                   )}
-
-                  <button
-                    type="button"
-                    onClick={() => onSelectProject(project.id)}
-                    className="text-xs font-semibold text-sky-700 hover:text-sky-800 dark:text-sky-400 hover:underline px-1 py-0.5"
-                  >
-                    Otwórz →
-                  </button>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+                  <th scope="col" aria-sort={getAriaSort('status')} className="px-2.5 py-2.5 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => handleSort('status')}
+                      className="inline-flex items-center gap-1 font-bold hover:text-sky-700 dark:hover:text-sky-400"
+                    >
+                      <span>Status</span>
+                      {renderSortIcon('status')}
+                    </button>
+                  </th>
+                  <th scope="col" aria-sort={getAriaSort('priority')} className="px-2.5 py-2.5 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => handleSort('priority')}
+                      className="inline-flex items-center gap-1 font-bold hover:text-sky-700 dark:hover:text-sky-400"
+                    >
+                      <span>Priorytet</span>
+                      {renderSortIcon('priority')}
+                    </button>
+                  </th>
+                  <th scope="col" aria-sort={getAriaSort('dueDate')} className="px-2.5 py-2.5 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => handleSort('dueDate')}
+                      className="inline-flex items-center gap-1 font-bold hover:text-sky-700 dark:hover:text-sky-400"
+                    >
+                      <span>Termin</span>
+                      {renderSortIcon('dueDate')}
+                    </button>
+                  </th>
+                  <th scope="col" aria-sort={getAriaSort('progress')} className="px-2.5 py-2.5 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => handleSort('progress')}
+                      className="inline-flex items-center gap-1 font-bold hover:text-sky-700 dark:hover:text-sky-400"
+                    >
+                      <span>Postęp</span>
+                      {renderSortIcon('progress')}
+                    </button>
+                  </th>
+                  <th scope="col" aria-sort={getAriaSort('tasks')} className="px-2.5 py-2.5 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => handleSort('tasks')}
+                      className="inline-flex items-center gap-1 font-bold hover:text-sky-700 dark:hover:text-sky-400"
+                      title="Zadania otwarte i zaległe"
+                    >
+                      <span>Zadania</span>
+                      {renderSortIcon('tasks')}
+                    </button>
+                  </th>
+                  <th scope="col" aria-sort={getAriaSort('owner')} className="px-2.5 py-2.5 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => handleSort('owner')}
+                      className="inline-flex items-center gap-1 font-bold hover:text-sky-700 dark:hover:text-sky-400"
+                    >
+                      <span>Właściciel</span>
+                      {renderSortIcon('owner')}
+                    </button>
+                  </th>
+                  <th scope="col" className="px-2.5 py-2.5 whitespace-nowrap text-right font-bold">
+                    Akcje
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                {sortedListProjects.map((project) => (
+                  <ProjectRow
+                    key={project.id}
+                    project={project}
+                    company={project.companyId ? companyById.get(project.companyId) : undefined}
+                    owner={project.ownerId ? userById.get(project.ownerId) : undefined}
+                    tasks={tasks}
+                    currentUser={currentUser}
+                    todayIso={todayIso}
+                    showClientColumn={showClientColumn}
+                    onOpen={onSelectProject}
+                    onViewDetails={setViewingProject}
+                    onOpenFinancials={setFinancialsProject}
+                    onEdit={openEditModal}
+                    onDownloadIcs={handleDownloadProjectIcs}
+                    onArchive={handleRequestArchive}
+                    onRestore={handleRestoreProject}
+                    onDelete={onDeleteProject ? (p) => setProjectToDelete(p) : undefined}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
       {/* Financials Modal */}
