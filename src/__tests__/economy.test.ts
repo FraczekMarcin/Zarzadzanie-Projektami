@@ -246,7 +246,8 @@ describe('Ekonomia — testy jednostkowe', () => {
     expect(canViewFinance(DEV_USER, notOwnedByDev)).toBe(false);
     expect(canViewFinance(VIEWER_USER, ownedByDev)).toBe(false);
 
-    expect(canEditFinance(DEV_USER, ownedByDev)).toBe(false);
+    expect(canEditFinance(DEV_USER, ownedByDev)).toBe(true);
+    expect(canEditFinance(DEV_USER, notOwnedByDev)).toBe(false);
     expect(canEditFinance(PM_USER, ownedByDev)).toBe(false);
     expect(canEditFinance(PM_USER, notOwnedByDev)).toBe(true);
     expect(canEditFinance(ADMIN_USER, ownedByDev)).toBe(true);
@@ -361,13 +362,21 @@ describe('Ekonomia — testy jednostkowe', () => {
     );
     expect(upcoming.map((u) => u.itemId)).toEqual(['cost-1', 'tr-1']);
 
-    const upcomingForDev = getUpcomingUnscheduledPayments(
+    const upcomingForDevOwner = getUpcomingUnscheduledPayments(
       SAMPLE_PROJECTS,
       new Map<string, Task>(),
       DEV_USER,
       '2026-05-01'
     );
-    expect(upcomingForDev).toEqual([]);
+    expect(upcomingForDevOwner.map((u) => u.itemId)).toEqual(['cost-1', 'tr-1']);
+
+    const upcomingForViewer = getUpcomingUnscheduledPayments(
+      SAMPLE_PROJECTS,
+      new Map<string, Task>(),
+      VIEWER_USER,
+      '2026-05-01'
+    );
+    expect(upcomingForViewer).toEqual([]);
   });
 });
 
@@ -614,12 +623,22 @@ describe('Ekonomia — testy integracyjne API i synchronizacji z harmonogramem',
     expect(ownerProj.projectValue).toBe(15000);
     expect(ownerProj.costs).toHaveLength(1);
 
-    // Developer (nawet jako właściciel) nie może modyfikować finansów przez PATCH
-    const patchRes = await fetch(`${ctx.baseUrl}/api/projects/${encodeURIComponent(createdProj.id)}`, {
+    // Obcy developer (nie-właściciel) nie może modyfikować finansów przez PATCH -> 403
+    const forbiddenOtherPatch = await fetch(`${ctx.baseUrl}/api/projects/${encodeURIComponent(createdProj.id)}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Cookie: ownerCookie },
+      headers: { 'Content-Type': 'application/json', Cookie: otherCookie },
       body: JSON.stringify({ projectValue: 99999 }),
     });
-    expect(patchRes.status).toBe(403);
+    expect(forbiddenOtherPatch.status).toBe(403);
+
+    // Właściciel z rolą developer może modyfikować finanse swojego projektu -> 200
+    const ownerPatchRes = await fetch(`${ctx.baseUrl}/api/projects/${encodeURIComponent(createdProj.id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: ownerCookie },
+      body: JSON.stringify({ projectValue: 18500 }),
+    });
+    expect(ownerPatchRes.status).toBe(200);
+    const ownerPatchJson = await ownerPatchRes.json();
+    expect(ownerPatchJson.project.projectValue).toBe(18500);
   });
 });

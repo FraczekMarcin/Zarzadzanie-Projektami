@@ -8,6 +8,7 @@ import {
   sanitizeDetails,
   SecurityLog,
   SecurityEventType,
+  SECURITY_EVENT_LABELS,
 } from '../utils/securityLog';
 
 describe('securityLog utility & pure functions', () => {
@@ -139,6 +140,35 @@ describe('securityLog utility & pure functions', () => {
     expect(rotateIfNeeded(100, 500)).toBe(false);
     expect(rotateIfNeeded(500, 500)).toBe(true);
     expect(rotateIfNeeded(1000, 500)).toBe(true);
+  });
+
+  it('supports finance_changed event label and preserves project finance diff details', () => {
+    expect(SECURITY_EVENT_LABELS.finance_changed).toBe('Zmiana danych finansowych projektu');
+    const ev = buildSecurityEvent('finance_changed', {
+      userId: 'usr-dev',
+      ip: '127.0.0.1',
+      details: {
+        projectId: 'prj-1',
+        projectKey: '2026-1_A',
+        changedFields: ['projectValue', 'costs'],
+        items: [
+          {
+            list: 'costs',
+            action: 'updated',
+            id: 'c1',
+            title: 'Geologia',
+            before: { net: 1000, gross: 1230 },
+            after: { net: 1500, gross: 1845 },
+          },
+        ],
+      },
+    });
+    expect(ev.type).toBe('finance_changed');
+    expect(ev.details?.projectKey).toBe('2026-1_A');
+    expect(ev.details?.changedFields).toEqual(['projectValue', 'costs']);
+    expect(ev.details?.items).toHaveLength(1);
+    expect(ev.details?.items[0].before).toEqual({ net: 1000, gross: 1230 });
+    expect(ev.details?.items[0].after).toEqual({ net: 1500, gross: 1845 });
   });
 });
 

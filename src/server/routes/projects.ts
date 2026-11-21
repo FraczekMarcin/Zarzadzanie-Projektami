@@ -9,17 +9,171 @@ import {
   hasForbiddenKeys,
   pickAllowedProjectFields,
 } from '../../utils/access.js';
-import { validateProjectFinanceFields } from '../../utils/finance.js';
+import { validateProjectFinanceFields } from '../../utils/financeValidation.js';
 import {
   getNextProjectCode,
   isProjectCodeAvailable,
   isValidProjectCodeFormat,
 } from '../../utils/projectCode.js';
+import { getClientIp } from '../security.js';
 import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
 import { SettingsService } from '../settings.js';
 import { moveProjectToTrash } from '../trash.js';
 import { logger } from '../logger.js';
+
+const FINANCE_AUDIT_SCALAR_FIELDS = [
+  'budget',
+  'projectValue',
+  'projectValueGross',
+  'projectVatRate',
+  'isBaseContractPaid',
+] as const;
+
+const FINANCE_AUDIT_ARRAY_FIELDS = ['quotations', 'costs', 'paymentTranches'] as const;
+
+interface FinanceAuditItemDiff {
+  list: 'quotations' | 'costs' | 'paymentTranches';
+  action: 'added' | 'removed' | 'updated';
+  id: string;
+  title: string;
+  before: { net: number | null; gross: number | null } | null;
+  after: { net: number | null; gross: number | null } | null;
+}
+
+function deepEqualJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || a === undefined || b === null || b === undefined) {
+    return a === b;
+  }
+  if (typeof a !== typeof b) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((item, idx) => deepEqualJson(item, b[idx]));
+  }
+  if (typeof a === 'object' && typeof b === 'object') {
+    const objA = a as Record<string, unknown>;
+    const objB = b as Record<string, unknown>;
+    const keys = new Set([...Object.keys(objA), ...Object.keys(objB)]);
+    for (const key of keys) {
+      if (!deepEqualJson(objA[key], objB[key])) return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+function extractItemAmounts(
+  listName: 'quotations' | 'costs' | 'paymentTranches',
+  item: any
+): { net: number | null; gross: number | null } {
+  if (!item || typeof item !== 'object') {
+    return { net: null, gross: null };
+  }
+  if (listName === 'quotations') {
+    return {
+      net: typeof item.totalNet === 'number' ? item.totalNet : null,
+      gross: typeof item.totalGross === 'number' ? item.totalGross : null,
+    };
+  }
+  return {
+    net: typeof item.amountNet === 'number' ? item.amountNet : null,
+    gross: typeof item.amountGross === 'number' ? item.amountGross : null,
+  };
+}
+
+function buildFinanceAuditDetails(
+  beforeProject: Record<string, any>,
+  afterProject: Record<string, any>
+): Record<string, any> | null {
+  const changedFields: string[] = [];
+  const scalars: Record<string, { before: unknown; after: unknown }> = {};
+  const items: FinanceAuditItemDiff[] = [];
+
+  for (const field of FINANCE_AUDIT_SCALAR_FIELDS) {
+    const beforeVal = beforeProject[field];
+    const afterVal = afterProject[field];
+    if (!deepEqualJson(beforeVal, afterVal)) {
+      changedFields.push(field);
+      scalars[field] = {
+        before: beforeVal ?? null,
+        after: afterVal ?? null,
+      };
+    }
+  }
+
+  for (const listName of FINANCE_AUDIT_ARRAY_FIELDS) {
+    const beforeArr: any[] = Array.isArray(beforeProject[listName]) ? beforeProject[listName] : [];
+    const afterArr: any[] = Array.isArray(afterProject[listName]) ? afterProject[listName] : [];
+    if (deepEqualJson(beforeArr, afterArr)) {
+      continue;
+    }
+    changedFields.push(listName);
+
+    const beforeById = new Map<string, any>();
+    for (const item of beforeArr) {
+      if (item && typeof item.id === 'string') {
+        beforeById.set(item.id, item);
+      }
+    }
+    const afterById = new Map<string, any>();
+    for (const item of afterArr) {
+      if (item && typeof item.id === 'string') {
+        afterById.set(item.id, item);
+      }
+    }
+
+    for (const afterItem of afterArr) {
+      if (!afterItem || typeof afterItem.id !== 'string') continue;
+      const prevItem = beforeById.get(afterItem.id);
+      if (!prevItem) {
+        items.push({
+          list: listName,
+          action: 'added',
+          id: afterItem.id,
+          title: typeof afterItem.title === 'string' ? afterItem.title : '',
+          before: null,
+          after: extractItemAmounts(listName, afterItem),
+        });
+      } else if (!deepEqualJson(prevItem, afterItem)) {
+        items.push({
+          list: listName,
+          action: 'updated',
+          id: afterItem.id,
+          title: typeof afterItem.title === 'string' ? afterItem.title : '',
+          before: extractItemAmounts(listName, prevItem),
+          after: extractItemAmounts(listName, afterItem),
+        });
+      }
+    }
+
+    for (const beforeItem of beforeArr) {
+      if (!beforeItem || typeof beforeItem.id !== 'string') continue;
+      if (!afterById.has(beforeItem.id)) {
+        items.push({
+          list: listName,
+          action: 'removed',
+          id: beforeItem.id,
+          title: typeof beforeItem.title === 'string' ? beforeItem.title : '',
+          before: extractItemAmounts(listName, beforeItem),
+          after: null,
+        });
+      }
+    }
+  }
+
+  if (changedFields.length === 0) {
+    return null;
+  }
+
+  return {
+    projectId: afterProject.id,
+    projectKey: afterProject.key,
+    changedFields,
+    ...(Object.keys(scalars).length > 0 ? { scalars } : {}),
+    ...(items.length > 0 ? { items } : {}),
+  };
+}
 
 export function registerProjectRoutes(
   app: express.Express,
@@ -99,6 +253,9 @@ export function registerProjectRoutes(
       if (!members.includes(caller.id)) {
         members.push(caller.id);
       }
+      if (allowed.ownerId && !members.includes(allowed.ownerId)) {
+        members.push(allowed.ownerId);
+      }
 
       let key: string;
       const customKeyRaw =
@@ -145,7 +302,7 @@ export function registerProjectRoutes(
 
       const now = new Date().toISOString();
 
-      const newProject = {
+      const newProject: Record<string, any> = {
         ...allowed,
         id: crypto.randomUUID(),
         key,
@@ -165,10 +322,34 @@ export function registerProjectRoutes(
       if (!selectedCompany) {
         delete newProject.companyId;
       }
+      if (!newProject.ownerId) {
+        delete newProject.ownerId;
+      }
 
       appState.projects.push(newProject);
       const newRev = stateStore.bumpStateRevision();
       await stateStore.saveStateAtomicAsync();
+
+      const hasInitialFinance =
+        (typeof newProject.projectValue === 'number' && newProject.projectValue > 0) ||
+        (typeof newProject.projectValueGross === 'number' && newProject.projectValueGross > 0) ||
+        Boolean(newProject.budget) ||
+        (Array.isArray(newProject.quotations) && newProject.quotations.length > 0) ||
+        (Array.isArray(newProject.costs) && newProject.costs.length > 0) ||
+        (Array.isArray(newProject.paymentTranches) && newProject.paymentTranches.length > 0);
+      if (hasInitialFinance) {
+        const auditDetails = buildFinanceAuditDetails({}, newProject);
+        if (auditDetails) {
+          await stateStore.securityLogger
+            .record('finance_changed', {
+              userId: caller.id,
+              ip: getClientIp(req),
+              userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+              details: auditDetails,
+            })
+            .catch(() => {});
+        }
+      }
 
       res.status(201).json({
         success: true,
@@ -204,7 +385,9 @@ export function registerProjectRoutes(
       }
 
       const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
-      if (!isAdminOrManager) {
+      const isProjectOwner =
+        Boolean(project.ownerId) && project.ownerId === caller.id && caller.role !== 'viewer';
+      if (!isAdminOrManager && !isProjectOwner) {
         const isMember = Array.isArray(project.memberIds) && project.memberIds.includes(caller.id);
         if (!isMember) {
           return res.status(403).json({ error: 'Brak uprawnień do edycji tego projektu.' });
@@ -218,10 +401,7 @@ export function registerProjectRoutes(
       }
 
       const hasCompanyIdPatch = Object.prototype.hasOwnProperty.call(patch, 'companyId');
-      const canChangeCompany =
-        caller.role === 'admin' ||
-        canEditFinance(caller, project) ||
-        (Boolean(project.ownerId) && project.ownerId === caller.id);
+      const canChangeCompany = caller.role === 'admin' || canEditFinance(caller, project);
 
       if (hasCompanyIdPatch && !canChangeCompany) {
         return res.status(403).json({
@@ -229,7 +409,21 @@ export function registerProjectRoutes(
         });
       }
 
-      if ((hasFinanceOrClientFields(patch) || patch.ownerId !== undefined) && !canEditFinance(caller, project)) {
+      const hasOwnerIdPatch =
+        Object.prototype.hasOwnProperty.call(patch, 'ownerId') && patch.ownerId !== undefined;
+      const canChangeOwner =
+        caller.role === 'admin' ||
+        (project.ownerId
+          ? project.ownerId === caller.id && caller.role !== 'viewer'
+          : caller.role === 'project_manager');
+
+      if (hasOwnerIdPatch && !canChangeOwner) {
+        return res.status(403).json({
+          error: 'Zmiana właściciela projektu jest dozwolona wyłącznie dla administratora lub obecnego właściciela projektu.',
+        });
+      }
+
+      if (hasFinanceOrClientFields(patch) && !canEditFinance(caller, project)) {
         return res.status(403).json({
           error: 'Edycja finansów: administrator i właściciel projektu',
         });
@@ -250,12 +444,12 @@ export function registerProjectRoutes(
 
       let allowedUpdates: Record<string, any>;
       try {
-        allowedUpdates = pickAllowedProjectFields(patch, caller);
+        allowedUpdates = pickAllowedProjectFields(patch, caller, { project });
       } catch (err: any) {
         return res.status(400).json({ error: err.message });
       }
 
-      const financeValidation = validateProjectFinanceFields(allowedUpdates);
+      const financeValidation = validateProjectFinanceFields(allowedUpdates, project);
       if (!financeValidation.ok) {
         return res.status(400).json({
           error: financeValidation.error,
@@ -282,10 +476,16 @@ export function registerProjectRoutes(
         }
       }
 
-      if (allowedUpdates.ownerId !== undefined) {
-        allowedUpdates.ownerId = typeof allowedUpdates.ownerId === 'string' && allowedUpdates.ownerId.trim()
-          ? allowedUpdates.ownerId.trim()
-          : undefined;
+      if (hasOwnerIdPatch) {
+        const rawOwner = patch.ownerId;
+        if (rawOwner === null || rawOwner === '') {
+          allowedUpdates.ownerId = undefined;
+        } else if (typeof rawOwner === 'string') {
+          const trimmedOwner = rawOwner.trim();
+          allowedUpdates.ownerId = trimmedOwner || undefined;
+        } else {
+          return res.status(400).json({ error: 'Nieprawidłowy identyfikator właściciela projektu.' });
+        }
       }
 
       if (allowedUpdates.name !== undefined) {
@@ -307,17 +507,56 @@ export function registerProjectRoutes(
         allowedUpdates.key = nextKey;
       }
 
+      const beforeFinanceSnapshot = {
+        id: project.id,
+        key: project.key,
+        budget: project.budget,
+        projectValue: project.projectValue,
+        projectValueGross: project.projectValueGross,
+        projectVatRate: project.projectVatRate,
+        isBaseContractPaid: project.isBaseContractPaid,
+        quotations: Array.isArray(project.quotations)
+          ? structuredClone(project.quotations)
+          : project.quotations,
+        costs: Array.isArray(project.costs)
+          ? structuredClone(project.costs)
+          : project.costs,
+        paymentTranches: Array.isArray(project.paymentTranches)
+          ? structuredClone(project.paymentTranches)
+          : project.paymentTranches,
+      };
+
       for (const [key, value] of Object.entries(allowedUpdates)) {
-        if (key === 'companyId' && value === undefined) {
-          delete project.companyId;
+        if ((key === 'companyId' || key === 'ownerId') && value === undefined) {
+          delete project[key];
         } else {
           project[key] = value;
+        }
+      }
+
+      if (typeof project.ownerId === 'string' && project.ownerId) {
+        if (!Array.isArray(project.memberIds)) {
+          project.memberIds = [project.ownerId];
+        } else if (!project.memberIds.includes(project.ownerId)) {
+          project.memberIds.push(project.ownerId);
         }
       }
 
       project.revision = (project.revision || 1) + 1;
       const newRev = stateStore.bumpStateRevision();
       await stateStore.saveStateAtomicAsync();
+
+      const financeAuditDetails = buildFinanceAuditDetails(beforeFinanceSnapshot, project);
+      if (financeAuditDetails) {
+        await stateStore.securityLogger
+          .record('finance_changed', {
+            userId: caller.id,
+            ip: getClientIp(req),
+            userAgent: (req.headers['user-agent'] || '').slice(0, 100),
+            details: financeAuditDetails,
+          })
+          .catch(() => {});
+      }
 
       res.json({
         success: true,

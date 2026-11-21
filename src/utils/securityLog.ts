@@ -44,7 +44,8 @@ export type SecurityEventType =
   | 'variables_changed'
   | 'company_created'
   | 'company_updated'
-  | 'company_deleted';
+  | 'company_deleted'
+  | 'finance_changed';
 
 export type LoginFailureReason =
   | 'bad_password'
@@ -198,6 +199,7 @@ export const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   company_created: 'Utworzenie firmy',
   company_updated: 'Aktualizacja firmy',
   company_deleted: 'Usunięcie firmy',
+  finance_changed: 'Zmiana danych finansowych projektu',
 };
 
 /**

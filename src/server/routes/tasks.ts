@@ -6,6 +6,7 @@ import {
   pickAllowedTaskFields,
   buildNewTaskRecord,
 } from '../../utils/access.js';
+import { canReparent } from '../../utils/taskTree.js';
 import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
 import { SettingsService } from '../settings.js';
@@ -59,6 +60,18 @@ export function registerTaskRoutes(
       const sanitizedTitle = String(allowed.title ?? '').trim();
       if (!sanitizedTitle) {
         return res.status(400).json({ error: 'Wymagany tytuł zadania.' });
+      }
+
+      if (Object.prototype.hasOwnProperty.call(allowed, 'parentId')) {
+        if (allowed.parentId === '' || allowed.parentId === null || allowed.parentId === undefined) {
+          delete allowed.parentId;
+        } else {
+          const parentCheck = canReparent(appState.tasks || [], null, allowed.parentId, targetProject.id);
+          if (!parentCheck.ok) {
+            return res.status(400).json({ error: parentCheck.error });
+          }
+          allowed.parentId = String(allowed.parentId).trim();
+        }
       }
 
       const projKey = targetProject?.key || 'ZAD';
@@ -115,7 +128,7 @@ export function registerTaskRoutes(
       const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
       if (!isAdminOrManager) {
         const targetProject = (appState.projects || []).find((p: any) => p.id === task.projectId);
-        const isMember = targetProject && Array.isArray(targetProject.memberIds) && targetProject.memberIds.includes(caller.id);
+        const isMember = targetProject && canAccessProject(caller, targetProject);
         const isAssigneeOrReporter = (task.assigneeId && task.assigneeId === caller.id) || (task.reporterId && task.reporterId === caller.id);
         if (!isMember && !isAssigneeOrReporter) {
           return res.status(403).json({ error: 'Brak uprawnień do edycji zadania w tym projekcie.' });
@@ -160,8 +173,36 @@ export function registerTaskRoutes(
         allowedUpdates.title = sanitizedTitle;
       }
 
+      const hasParentPatch = Object.prototype.hasOwnProperty.call(allowedUpdates, 'parentId');
+      const nextProjectId = allowedUpdates.projectId ?? task.projectId;
+      if (hasParentPatch) {
+        const rawParent = allowedUpdates.parentId;
+        if (rawParent === '' || rawParent === null || rawParent === undefined) {
+          allowedUpdates.parentId = undefined;
+        } else {
+          const parentCheck = canReparent(appState.tasks || [], task.id, rawParent, nextProjectId);
+          if (!parentCheck.ok) {
+            return res.status(400).json({ error: parentCheck.error });
+          }
+          allowedUpdates.parentId = String(rawParent).trim();
+        }
+      } else if (
+        allowedUpdates.projectId !== undefined &&
+        allowedUpdates.projectId !== task.projectId &&
+        task.parentId
+      ) {
+        const parentCheck = canReparent(appState.tasks || [], task.id, task.parentId, nextProjectId);
+        if (!parentCheck.ok) {
+          return res.status(400).json({ error: parentCheck.error });
+        }
+      }
+
       for (const [key, value] of Object.entries(allowedUpdates)) {
-        task[key] = value;
+        if (key === 'parentId' && value === undefined) {
+          delete task.parentId;
+        } else {
+          task[key] = value;
+        }
       }
 
       task.revision = (task.revision || 1) + 1;

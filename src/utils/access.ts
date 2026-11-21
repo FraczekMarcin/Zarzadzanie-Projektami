@@ -24,8 +24,10 @@ export const FINANCIAL_AND_CLIENT_FIELDS: readonly string[] = [
 /**
  * Sprawdza, czy użytkownik może edytować finanse i dane zamawiającego w projekcie.
  * - admin: zawsze true
- * - project_manager: true, jeśli jest właścicielem projektu (ownerId === user.id) lub projekt nie ma przypisanego właściciela (kompatybilność wsteczna)
- * - pozostałe role: false
+ * - viewer: zawsze false
+ * - właściciel projektu (project.ownerId === user.id): true niezależnie od roli (poza viewer)
+ * - projekty bez przypisanego ownerId: true dla project_manager (kompatybilność wsteczna)
+ * - kierownik niebędący właścicielem projektu z ustawionym ownerId: false
  */
 export function canEditFinance(
   user: { id: string; role?: string } | null | undefined,
@@ -33,19 +35,18 @@ export function canEditFinance(
 ): boolean {
   if (!user || !user.role) return false;
   if (user.role === 'admin') return true;
-  if (user.role === 'project_manager') {
-    if (project?.ownerId) {
-      return project.ownerId === user.id;
-    }
-    return true;
+  if (user.role === 'viewer') return false;
+  if (project?.ownerId) {
+    return project.ownerId === user.id;
   }
-  return false;
+  return user.role === 'project_manager';
 }
 
 /**
  * Sprawdza, czy użytkownik może przeglądać finanse projektu (menu Ekonomia i podgląd kosztorysu).
  * - admin oraz project_manager: zawsze true
- * - właściciel projektu (ownerId === user.id): true (w trybie tylko do odczytu, jeśli nie ma canEditFinance)
+ * - viewer: zawsze false
+ * - właściciel projektu (ownerId === user.id): true niezależnie od roli (poza viewer)
  * - pozostałe role bez własności projektu: false
  */
 export function canViewFinance(
@@ -53,6 +54,7 @@ export function canViewFinance(
   project: { ownerId?: string } | null | undefined
 ): boolean {
   if (!user || !user.role || !project) return false;
+  if (user.role === 'viewer') return false;
   if (user.role === 'admin' || user.role === 'project_manager') return true;
   if (project.ownerId && project.ownerId === user.id) return true;
   return false;
@@ -430,25 +432,40 @@ export function pickAllowedTaskFields(
   return result;
 }
 
+export interface ProjectFieldPickOptions extends FieldSanitizeOptions {
+  project?: { ownerId?: string } | null;
+}
+
 /**
  * Whitelist edytowalnych pól projektu (Project).
  * Pola `id`, `revision`, `createdAt` nigdy nie są edytowalne.
  * Zmiana `memberIds` oraz `key` projektu tylko dla admin / project_manager.
- * Pola finansowe i dane klienta (budget, costs, client*) edytowalne tylko dla admin / project_manager.
+ * Pola finansowe, `companyId` i dane klienta (budget, costs, client*) edytowalne dla uprawnionych wg `canEditFinance`.
+ * Zmiana `ownerId`: admin lub obecny właściciel projektu (dla projektów bez ownerId również project_manager).
  * Odrzuca klucze prototype (__proto__, constructor, prototype).
  * Przycina lub odrzuca (gdy options.rejectOnOverflow=true) wartości tekstowe ponad limity.
  */
 export function pickAllowedProjectFields(
   body: any,
   user: { id: string; role?: string } | null | undefined,
-  options?: FieldSanitizeOptions
+  options?: ProjectFieldPickOptions
 ): Record<string, any> {
   if (!body || typeof body !== 'object') return {};
   if (hasForbiddenKeys(body)) {
     throw new Error('Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).');
   }
 
-  const isAdminOrManager = user && (user.role === 'admin' || user.role === 'project_manager');
+  const isAdmin = Boolean(user && user.role === 'admin');
+  const isAdminOrManager = Boolean(user && (user.role === 'admin' || user.role === 'project_manager'));
+  const canManageFinance = canEditFinance(user, options?.project);
+  const canChangeOwner = Boolean(
+    user &&
+      user.role !== 'viewer' &&
+      (isAdmin ||
+        (options?.project?.ownerId
+          ? options.project.ownerId === user.id
+          : user.role === 'project_manager'))
+  );
 
   // Bazowe pola edytowalne dla każdego uprawnionego do edycji projektu
   const baseFields = new Set([
@@ -466,11 +483,18 @@ export function pickAllowedProjectFields(
   ]);
 
   // Pola zastrzeżone wyłącznie dla admin / project_manager
-  const adminManagerFields = new Set([
+  const strictAdminManagerFields = new Set([
     'key',
-    'companyId',
     'memberIds',
-    'ownerId',
+    'isArchived',
+    'archivedAt',
+    'archivedBy',
+    'isDemo',
+  ]);
+
+  // Pola finansowe, firma oraz dane klienta
+  const financeAndClientFields = new Set([
+    'companyId',
     'budget',
     'projectValue',
     'projectValueGross',
@@ -485,10 +509,6 @@ export function pickAllowedProjectFields(
     'clientEmail',
     'clientNip',
     'clientAddress',
-    'isArchived',
-    'archivedAt',
-    'archivedBy',
-    'isDemo',
   ]);
 
   const result: Record<string, any> = {};
@@ -509,7 +529,22 @@ export function pickAllowedProjectFields(
       continue;
     }
 
-    if (isAdminOrManager && (adminManagerFields.has(key) || key.toLowerCase().startsWith('client'))) {
+    if (isAdminOrManager && strictAdminManagerFields.has(key)) {
+      result[key] = sanitizeFieldValue(key, body[key], options);
+      continue;
+    }
+
+    if (key === 'ownerId') {
+      if (canChangeOwner) {
+        result[key] = sanitizeFieldValue(key, body[key], options);
+      }
+      continue;
+    }
+
+    if (
+      canManageFinance &&
+      (financeAndClientFields.has(key) || key.toLowerCase().startsWith('client'))
+    ) {
       result[key] = sanitizeFieldValue(key, body[key], options);
       continue;
     }

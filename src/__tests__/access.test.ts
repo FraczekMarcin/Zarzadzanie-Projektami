@@ -4,6 +4,7 @@ import {
   filterProjectForUser,
   canAccessProject,
   canEditFinance,
+  canViewFinance,
   hasFinanceOrClientFields,
   canWrite,
   hasForbiddenKeys,
@@ -547,22 +548,59 @@ describe('Kontrola dostępu (RBAC), filtrowanie danych i whitelista pól (access
     });
   });
 
-  describe('11. canEditFinance i hasFinanceOrClientFields', () => {
+  describe('11. canEditFinance, canViewFinance i hasFinanceOrClientFields', () => {
+    const testerUser = { id: 'usr-tester', name: 'Tester', role: 'tester' as const };
+
     it('admin zawsze może edytować finanse każdego projektu', () => {
       expect(canEditFinance(adminUser, { ownerId: 'usr-other' })).toBe(true);
       expect(canEditFinance(adminUser, {})).toBe(true);
     });
 
-    it('project_manager może edytować finanse jako właściciel lub gdy projekt nie ma ownerId (legacy), ale nie cudzego projektu', () => {
+    it('właściciel projektu (developer, tester, project_manager) może edytować finanse własnego projektu, ale nie viewer', () => {
+      expect(canEditFinance(devUser, { ownerId: 'usr-dev' })).toBe(true);
+      expect(canEditFinance(testerUser, { ownerId: 'usr-tester' })).toBe(true);
       expect(canEditFinance(pmUser, { ownerId: 'usr-pm' })).toBe(true);
-      expect(canEditFinance(pmUser, {})).toBe(true);
-      expect(canEditFinance(pmUser, { ownerId: 'usr-other-pm' })).toBe(false);
+      expect(canEditFinance(viewerUser, { ownerId: 'usr-viewer' })).toBe(false);
+      expect(canViewFinance(viewerUser, { ownerId: 'usr-viewer' })).toBe(false);
     });
 
-    it('developer i viewer nie mogą edytować finansów', () => {
-      expect(canEditFinance(devUser, { ownerId: 'usr-dev' })).toBe(false);
-      expect(canEditFinance(viewerUser, { ownerId: 'usr-viewer' })).toBe(false);
+    it('project_manager może edytować finanse projektu bez ownerId (legacy), ale nie projektu z innym właścicielem', () => {
+      expect(canEditFinance(pmUser, {})).toBe(true);
+      expect(canEditFinance(pmUser, { ownerId: 'usr-other-pm' })).toBe(false);
+      expect(canEditFinance(pmUser, { ownerId: 'usr-dev' })).toBe(false);
+    });
+
+    it('developer bez własności projektu i użytkownik null nie mogą edytować finansów', () => {
+      expect(canEditFinance(devUser, { ownerId: 'usr-other' })).toBe(false);
+      expect(canEditFinance(devUser, {})).toBe(false);
       expect(canEditFinance(null, {})).toBe(false);
+    });
+
+    it('pickAllowedProjectFields przepuszcza pola finansowe, client*, companyId i ownerId dla właściciela, blokując memberIds i key', () => {
+      const patch = {
+        projectValue: 12000,
+        clientName: 'Klient Właściciela',
+        companyId: 'comp-a',
+        ownerId: 'usr-other',
+        memberIds: ['usr-dev', 'usr-attacker'],
+        key: 'HACK-1',
+      };
+      const allowedOwner = pickAllowedProjectFields(patch, devUser, {
+        project: { ownerId: 'usr-dev' },
+      });
+      expect(allowedOwner.projectValue).toBe(12000);
+      expect(allowedOwner.clientName).toBe('Klient Właściciela');
+      expect(allowedOwner.companyId).toBe('comp-a');
+      expect(allowedOwner.ownerId).toBe('usr-other');
+      expect(allowedOwner.memberIds).toBeUndefined();
+      expect(allowedOwner.key).toBeUndefined();
+
+      const allowedForeignPm = pickAllowedProjectFields(patch, pmUser, {
+        project: { ownerId: 'usr-dev' },
+      });
+      expect(allowedForeignPm.projectValue).toBeUndefined();
+      expect(allowedForeignPm.ownerId).toBeUndefined();
+      expect(allowedForeignPm.memberIds).toEqual(['usr-dev', 'usr-attacker']);
     });
 
     it('hasFinanceOrClientFields wykrywa pola finansowe, transze i client*', () => {

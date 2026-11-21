@@ -47,6 +47,7 @@ const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   company_created: 'Utworzenie firmy',
   company_updated: 'Aktualizacja firmy',
   company_deleted: 'Usunięcie firmy',
+  finance_changed: 'Zmiana danych finansowych projektu',
 };
 
 export interface SecurityTabProps {
