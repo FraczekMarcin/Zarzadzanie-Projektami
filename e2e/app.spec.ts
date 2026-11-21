@@ -213,6 +213,7 @@ test.describe.serial('Testy end-to-end aplikacji Zarządzanie Projektami', () =>
     const tabNames = [
       'Wygląd & Motyw',
       'Zmienne & Terminy',
+      'Firmy',
       'Użytkownicy & Zgody',
       'Dziennik bezpieczeństwa',
       'Poczta (SMTP)',
@@ -279,6 +280,26 @@ test.describe.serial('Testy end-to-end aplikacji Zarządzanie Projektami', () =>
     await expect(accountDialog.getByText('Brak zaufanych urządzeń powiązanych z tym kontem.')).toBeVisible();
     await accountDialog.getByRole('button', { name: 'Zamknij okno uwierzytelniania' }).click();
     await expect(accountDialog).toHaveCount(0);
+
+    // Otwarcie widoku listy projektów, okna finansów oraz widoku Ekonomia bez błędów konsoli ani CSP
+    const nav = page.getByRole('navigation', { name: 'Główna nawigacja' });
+    await nav.getByRole('button', { name: 'Projekty', exact: true }).click();
+    await page.getByRole('button', { name: 'Lista', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Lista', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('table')).toBeVisible();
+
+    await page.getByRole('button', { name: /Kosztorys i wyceny projektu/i }).first().click();
+    const financialsDialog = page.getByRole('dialog', { name: 'Osiedle Parkowe E2E' });
+    await expect(financialsDialog).toBeVisible();
+    await financialsDialog.getByRole('button', { name: 'Zamknij finanse projektu' }).click();
+    await expect(financialsDialog).toHaveCount(0);
+    await page.getByRole('button', { name: 'Kafelki', exact: true }).click();
+
+    await nav.getByRole('button', { name: 'Ekonomia', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Ekonomia i finanse firm' })).toBeVisible();
+    await page.getByRole('button', { name: 'Osiedle Parkowe E2E' }).click();
+    await expect(page.getByRole('heading', { name: /Osiedle Parkowe E2E/ })).toBeVisible();
+    await page.getByRole('button', { name: 'Powrót do listy' }).click();
 
     await monitor.assertClean();
   });

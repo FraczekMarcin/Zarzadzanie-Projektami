@@ -121,7 +121,7 @@ openssl s_client -connect <APP_HOST>:443 -servername <APP_HOST>
 3. **Szablony Projektów Budowlanych (Katalog Administratora):**
    - Gotowe szablony: *Budynek Użyteczności Publicznej (PZT, PAB, PT, PW)*, *Osiedle Mieszkaniowe*, *Hala Przemysłowa / Magazynowa*, *Przebudowa i Termomodernizacja*.
    - Generator nowych szablonów z istniejących projektów pracowni lub od podstaw.
-   - Automatyczny schemat numeracji projektów: **ROK-NR** (np. `2026-01`, `2026-02`) z walidacją dostępności i możliwością ręcznej edycji.
+   - Automatyczny schemat numeracji projektów przypisanych do firm: **RRRR-X_L** (np. `2026-1_A`, `2026-2_B`, oraz starszy **ROK-NR**) z walidacją dostępności i możliwością ręcznej edycji.
 
 4. **Dwukierunkowa Integracja z Kalendarzem Google (RFC 5545):**
    - Kanał subskrypcji iCal (`/api/calendar/all.ics` oraz `/api/calendar/user/:id.ics`).
@@ -530,6 +530,46 @@ Opcjonalna funkcja pozwalająca użytkownikowi (domyślnie odznaczona w formular
 
 ---
 
+## 💰 Finanse projektu
+
+Okno finansów projektu (`ProjectFinancialsModal`) zapewnia spójną księgowość na poziomie **0,01 zł** (arytmetyka całkowitoliczbowa w groszach w `src/utils/money.ts` i `src/utils/finance.ts`):
+
+- **Precyzja kwot i brak narzucanych domyślnych wartości:** pola kwot akceptują separator dziesiętny `,` lub `.` z walidacją do dwóch miejsc po przecinku (ilości w wycenach do trzech miejsc po przecinku), formatowaniem po opuszczeniu pola i wyrównaniem do prawej; pola nowej wyceny, kosztu i transzy startują puste bez proponowanych kwot.
+- **Edycja pozycji i przenoszenie wycen do kosztów:** każda pozycja wyceny, kosztu i transzy obsługuje edycję w wierszu oraz usuwanie z potwierdzeniem. Zaakceptowaną wycenę kosztową można jednym kliknięciem przenieść do kosztów projektu (`linkedCostId`), co automatycznie zapobiega podwójnemu liczeniu tej samej kwoty w sumie kosztów i bilansie.
+- **Uprawnienia i właściciel projektu (`ownerId`):** podgląd i edycja danych finansowych oraz zamawiającego są egzekwowane po stronie serwera i w interfejsie (`canViewFinance` / `canEditFinance`): administrator ma pełny dostęp, kierownik projektu edytuje finanse własnych projektów (dla cudzych widzi tryb tylko do odczytu), a pozostali użytkownicy widzą finanse wyłącznie jako właściciele projektu w trybie tylko do odczytu.
+- **Transze płatności i terminy płatności:** harmonogram płatności (nazwa transzy, kwota netto/brutto, termin płatności, status opłacenia) wylicza kwotę zapłaconą, pozostałą do zapłaty, ostrzega przy przekroczeniu wartości projektu oraz wyróżnia przeterminowane płatności.
+- **Zmienne systemowe na serwerze:** stawki VAT, baza zamawiających (filtrowana serwerowo dla ról bez uprawnień finansowych), typy zadań oraz próg ostrzeżeń o terminach są zapisywane w `app_state.json` (`PUT /api/admin/variables`) i synchronizowane między stanowiskami.
+
+---
+
+## 🏢 Firmy i numeracja projektów
+
+System obsługuje podział projektów na firmy prowadzące w pracowni oraz spójną numerację **`RRRR-X_L`**:
+
+- **Rejestr firm po stronie serwera:** administrator zarządza firmami w **Ustawienia → Firmy** (`/api/companies`, maksymalnie **26** firm z unikalną wielką literą `A–Z`, nazwą, opcjonalnym NIP-em, adresem i flagą aktywności). Nazwa i litera firmy są widoczne dla wszystkich zalogowanych użytkowników, natomiast NIP i adres wyłącznie dla ról `admin` i `project_manager`. Firmy posiadającej przypisane projekty nie można usunąć (`409`) ani zmienić jej litery — zamiast tego można ją dezaktywować (`isActive = false`).
+- **Numeracja projektów `RRRR-X_L`:** podczas tworzenia projektu wybierana jest aktywna firma prowadząca, a serwer synchronicznie nadaje kolejny numer w formacie `RRRR-X_L` (np. `2026-1_A`, `2026-12_B`), uwzględniając projekty aktywne, zarchiwizowane oraz przeniesione do kosza. Administrator może wybrać w **Ustawienia → Firmy** tryb numeracji wspólnej dla roku (`year`, domyślnie) lub osobnej dla każdej litery firmy (`company`) oraz ustawić firmę domyślną; `admin` i `project_manager` mogą również wpisać własny numer z walidacją kolizji.
+
+---
+
+## 📈 Ekonomia
+
+Zakładka **Ekonomia** w głównej nawigacji (`?view=economy`, ładowana leniwie) agreguje sytuację finansową projektów z podziałem na firmy:
+
+- **Kontrola dostępu:** pozycja menu jest widoczna dla `admin`, `project_manager` oraz właścicieli projektów mających prawo `canViewFinance` do co najmniej jednego projektu; zestawienie obejmuje wyłącznie projekty dostępne finansowo dla zalogowanego użytkownika.
+- **Filtry, firmy i przełącznik netto/brutto:** zakładki firm (`Wszystkie`, aktywne firmy `L - Nazwa`, `Bez firmy`), filtry roku, statusu projektu i archiwum, wyszukiwanie po numerze i nazwie oraz przełącznik kwot **Netto / Brutto** zapamiętywany w `localStorage` pod kluczem `oph_pref_economy_amounts`.
+- **Zestawienie, szczegóły i harmonogram płatności:** sortowalna tabela z bilansem, oczekiwanymi wpływami i wydatkami oraz najbliższym terminem płatności (wraz z wierszem sum i eksportem CSV). Kliknięcie wiersza otwiera panel szczegółów finansowych projektu oraz umożliwia zaplanowanie terminu płatności jako zadania w harmonogramie Gantta.
+
+---
+
+## 📋 Widok projektów
+
+Zakładka **Projekty** obsługuje dwa tryby prezentacji wybierane przełącznikiem **Kafelki / Lista** obok filtrów:
+
+- **Zapamiętywanie preferencji:** domyślnie aktywny jest widok **Kafelki**, a wybrany tryb jest zapisywany w `localStorage` pod kluczem `oph_pref_projects_view` (`'tiles'` lub `'list'`) i zachowywany także po wylogowaniu.
+- **Widok listy (`Lista`):** sortowalna tabela (`Numer`, `Nazwa`, `Firma`, `Zamawiający` widoczny wyłącznie dla uprawnionych, `Status`, `Priorytet`, `Termin`, `Postęp`, `Zadania` otwarte i zaległe, `Właściciel`, `Akcje` ze wspólnym komponentem uprawnień), obsługiwana z klawiatury i przewijana poziomo poniżej szerokości `640 px`.
+
+---
+
 ## 📋 Logi i diagnostyka kontenerów Docker
 
 Usługi kontenerowe posiadają włączoną rotację logów (`driver: json-file`, `max-size: 10m`, `max-file: 3`), co zabezpiecza serwer przed wyczerpaniem miejsca na dysku. Serwer aplikacji loguje zdarzenia ustrukturyzowanym loggerem (`src/server/logger.ts`) z prefiksem czasu ISO i poziomu (lub jedną linią JSON przy `LOG_FORMAT=json`), bez zapisywania adresów e-mail, imion i nazwisk użytkowników oraz bez nagłówków lub ciasteczek.
@@ -605,7 +645,7 @@ W przypadku niepowodzenia testów raport HTML jest zapisywany w katalogu `playwr
 
 ## ♿ Testy dostępności
 
-Automatyczny audyt dostępności (`e2e/a11y.spec.ts`) korzysta z `@axe-core/playwright` (`wcag2a`, `wcag2aa`) i skanuje dla zalogowanego administratora wszystkie główne widoki oraz okna dialogowe (ekran logowania, listę zadań, Tablicę Kanban, Harmonogram Gantta, przegląd projektów, Kosz, szczegóły zadania, okno zadania, wszystkie 11 zakładek Ustawień wraz z sekcjami dysku i podsumowania tygodniowego, zakładkę Zaufane urządzenia w oknie konta oraz okno synchronizacji kalendarza) w trybie **jasnym** i **ciemnym**.
+Automatyczny audyt dostępności (`e2e/a11y.spec.ts`) korzysta z `@axe-core/playwright` (`wcag2a`, `wcag2aa`) i skanuje dla zalogowanego administratora wszystkie główne widoki oraz okna dialogowe (ekran logowania, listę zadań, Tablicę Kanban, Harmonogram Gantta, przegląd projektów w widoku kafelków i listy, okno finansów projektu, widok **Ekonomia** wraz ze szczegółami, Kosz, szczegóły zadania, okno zadania, wszystkie 12 zakładek Ustawień w tym **Firmy**, sekcje dysku i podsumowania tygodniowego, zakładkę Zaufane urządzenia w oknie konta oraz okno synchronizacji kalendarza) w trybie **jasnym** i **ciemnym**.
 
 ```bash
 # Uruchomienie wyłącznie audytu dostępności (wymaga uprzedniego npm run build)

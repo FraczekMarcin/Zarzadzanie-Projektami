@@ -45,6 +45,7 @@ interface A11yViewScanResult {
 const SETTINGS_TABS: Array<{ key: string; name: string }> = [
   { key: 'settings-theme', name: 'Wygląd & Motyw' },
   { key: 'settings-variables', name: 'Zmienne & Terminy' },
+  { key: 'settings-companies', name: 'Firmy' },
   { key: 'settings-users', name: 'Użytkownicy & Zgody' },
   { key: 'settings-security', name: 'Dziennik bezpieczeństwa' },
   { key: 'settings-smtp', name: 'Poczta (SMTP)' },
@@ -403,7 +404,7 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
       await expect(nav.getByRole('button', { name: 'Tablica Kanban', exact: true })).toHaveAttribute('aria-current', 'page');
       await scanView(page, scanResults, 'kanban', 'Tablica Kanban', theme);
 
-      // 6. Przegląd projektów (widok kafelków oraz widoki listy)
+      // 6. Przegląd projektów (widok kafelków, widok listy i okno finansów)
       await nav.getByRole('button', { name: 'Projekty', exact: true }).click();
       await expect(nav.getByRole('button', { name: 'Projekty', exact: true })).toHaveAttribute('aria-current', 'page');
       await page.getByRole('button', { name: 'Kafelki', exact: true }).click();
@@ -413,6 +414,14 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
       await expect(page.getByRole('button', { name: 'Lista', exact: true })).toHaveAttribute('aria-pressed', 'true');
       await expect(page.getByRole('table')).toBeVisible();
       await scanView(page, scanResults, 'projects-list', 'Przegląd projektów (Lista)', theme);
+
+      await page.getByRole('button', { name: /Kosztorys i wyceny projektu/i }).first().click();
+      const financialsModal = page.getByRole('dialog', { name: 'Projekt Referencyjny A11y' });
+      await expect(financialsModal).toBeVisible();
+      await scanView(page, scanResults, 'project-financials-modal', 'Okno finansów projektu', theme);
+      await financialsModal.getByRole('button', { name: 'Zamknij finanse projektu' }).click();
+      await expect(financialsModal).toHaveCount(0);
+
       await page.getByRole('button', { name: 'Kafelki', exact: true }).click();
 
       // 7. Ekonomia (lista i szczegóły projektu)
@@ -482,7 +491,7 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
   }
 
   test('3) zapis raportu JSON i weryfikacja trybu A11Y_STRICT', async () => {
-    expect(scanResults.length).toBeGreaterThanOrEqual(46);
+    expect(scanResults.length).toBeGreaterThanOrEqual(50);
     writeReport(scanResults);
     expect(fs.existsSync(REPORT_PATH)).toBe(true);
 
