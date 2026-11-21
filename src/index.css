@@ -3,6 +3,14 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
+  html:not(.dark) {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
   body {
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
     color: #0f172a;
@@ -13,6 +21,22 @@
   html.dark body {
     color: #f1f5f9;
     background-color: #090d16;
+  }
+
+  html.dark option,
+  html.dark optgroup {
+    background-color: #0f172a;
+    color: #f1f5f9;
+  }
+
+  html:not(.dark) ::placeholder {
+    color: #475569;
+    opacity: 1;
+  }
+
+  html.dark ::placeholder {
+    color: #94a3b8;
+    opacity: 1;
   }
 }
 

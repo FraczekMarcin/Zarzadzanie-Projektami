@@ -528,11 +528,11 @@ export const LoginGate: React.FC<LoginGateProps> = ({
   // If system has no administrator / users: render the Initial Administrator Setup Wizard
   if (setupRequired) {
     return (
-      <main id="main-content" tabIndex={-1} className="min-h-screen bg-slate-900 flex flex-col justify-center items-center p-4 relative overflow-hidden focus:outline-none">
+      <main id="main-content" tabIndex={-1} className="min-h-screen bg-slate-900 dark:bg-slate-950 flex flex-col justify-center items-center p-4 relative overflow-hidden focus:outline-none">
         <div className="absolute -top-40 -left-40 w-96 h-96 bg-amber-600/20 rounded-full blur-3xl pointer-events-none" aria-hidden="true" />
         <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-sky-600/20 rounded-full blur-3xl pointer-events-none" aria-hidden="true" />
 
-        <div className="w-full max-w-lg bg-slate-800/95 backdrop-blur-md rounded-2xl border border-amber-500/40 shadow-2xl p-6 sm:p-8 relative z-10 space-y-6">
+        <div className="w-full max-w-lg bg-slate-800/95 dark:bg-slate-900/95 backdrop-blur-md rounded-2xl border border-amber-500/40 dark:border-amber-500/50 shadow-2xl p-6 sm:p-8 relative z-10 space-y-6">
           <div className="text-center space-y-2">
             <div className="inline-flex p-3 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/30 shadow-xs mb-1" aria-hidden="true">
               <ShieldAlert className="w-9 h-9" />
@@ -544,7 +544,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
               Wykryto pierwsze uruchomienie systemu lub brak konta administratora. 
               Utwórz główne konto z uprawnieniami administracyjnymi, aby rozpocząć zarządzanie pracownią.
             </p>
-            <div className="inline-block px-2.5 py-0.5 rounded-full bg-slate-700/60 text-slate-200 font-mono text-[10px] border border-slate-600">
+            <div className="inline-block px-2.5 py-0.5 rounded-full bg-slate-700/60 dark:bg-slate-800/80 text-slate-200 font-mono text-[10px] border border-slate-600 dark:border-slate-700">
               Wydanie {CURRENT_APP_VERSION}
             </div>
           </div>
@@ -570,7 +570,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   value={adminName}
                   onChange={(e) => setAdminName(e.target.value)}
                   placeholder="np. Marcin Frączek"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
                 />
               </div>
             </div>
@@ -588,7 +588,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   value={adminEmail}
                   onChange={(e) => setAdminEmail(e.target.value)}
                   placeholder="np. admin@pracownia.pl"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
                 />
               </div>
             </div>
@@ -605,7 +605,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   value={adminDepartment}
                   onChange={(e) => setAdminDepartment(e.target.value)}
                   placeholder="np. Główny Architekt & Zarząd Pracowni"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
                 />
               </div>
             </div>
@@ -630,7 +630,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   value={adminPassword}
                   onChange={(e) => setAdminPassword(e.target.value)}
                   placeholder="Wprowadź silne hasło (12–128 znaków)..."
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                  className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
                 />
               </div>
               <PasswordRequirementsChecklist
@@ -658,7 +658,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   value={adminConfirmPassword}
                   onChange={(e) => setAdminConfirmPassword(e.target.value)}
                   placeholder="Powtórz hasło administratora..."
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                  className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
                 />
               </div>
               {adminConfirmPassword.length > 0 && adminPassword !== adminConfirmPassword && (
@@ -680,7 +680,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                     value={adminSetupToken}
                     onChange={(e) => setAdminSetupToken(e.target.value)}
                     placeholder="Wprowadź token z konfiguracji środowiska..."
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                    className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
                   />
                 </div>
                 <p className="text-[10px] text-slate-300 mt-1">
@@ -709,12 +709,12 @@ export const LoginGate: React.FC<LoginGateProps> = ({
   }
 
   return (
-    <main id="main-content" tabIndex={-1} className="min-h-screen bg-slate-900 flex flex-col justify-center items-center p-4 relative overflow-hidden focus:outline-none">
+    <main id="main-content" tabIndex={-1} className="min-h-screen bg-slate-900 dark:bg-slate-950 flex flex-col justify-center items-center p-4 relative overflow-hidden focus:outline-none">
       {/* Background architectural glow */}
       <div className="absolute -top-40 -left-40 w-96 h-96 bg-sky-600/20 rounded-full blur-3xl pointer-events-none" aria-hidden="true" />
       <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-emerald-600/20 rounded-full blur-3xl pointer-events-none" aria-hidden="true" />
 
-      <div className="w-full max-w-md bg-slate-800/90 backdrop-blur-md rounded-2xl border border-slate-700 shadow-2xl p-6 sm:p-8 relative z-10 space-y-6">
+      <div className="w-full max-w-md bg-slate-800/90 dark:bg-slate-900/95 backdrop-blur-md rounded-2xl border border-slate-700 dark:border-slate-800 shadow-2xl p-6 sm:p-8 relative z-10 space-y-6">
         {/* Brand header */}
         <div className="text-center space-y-2">
           <div className="inline-flex p-3 rounded-xl bg-sky-500/10 text-sky-400 border border-sky-500/20 shadow-xs mb-1" aria-hidden="true">
@@ -726,7 +726,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
           <p className="text-xs text-slate-300">
             System Zarządzania Projektami & Harmonogramami Pracowni
           </p>
-          <div className="inline-block px-2.5 py-0.5 rounded-full bg-slate-700/60 text-slate-200 font-mono text-[10px] border border-slate-600">
+          <div className="inline-block px-2.5 py-0.5 rounded-full bg-slate-700/60 dark:bg-slate-800/80 text-slate-200 font-mono text-[10px] border border-slate-600 dark:border-slate-700">
             Wydanie {CURRENT_APP_VERSION}
           </div>
         </div>
@@ -738,7 +738,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
           const tabGridClass =
             visibleTabsCount === 3 ? 'grid-cols-3' : visibleTabsCount === 2 ? 'grid-cols-2' : 'grid-cols-1';
           return (
-            <div role="tablist" aria-label="Tryb uwierzytelniania" className={`grid ${tabGridClass} p-1 bg-slate-900/60 rounded-xl border border-slate-700/60 text-xs font-semibold gap-1`}>
+            <div role="tablist" aria-label="Tryb uwierzytelniania" className={`grid ${tabGridClass} p-1 bg-slate-900/60 dark:bg-slate-950/70 rounded-xl border border-slate-700/60 dark:border-slate-800 text-xs font-semibold gap-1`}>
               <button
                 type="button"
                 role="tab"
@@ -838,7 +838,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                 onChange={(e) => setTotpInput(e.target.value.toUpperCase())}
                 placeholder="000000 lub XXXXX-XXXXX"
                 autoFocus
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-center text-lg tracking-[0.2em] font-mono font-bold text-emerald-400 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg px-3 py-2.5 text-center text-lg tracking-[0.2em] font-mono font-bold text-emerald-400 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
               <p className="text-[10px] text-slate-300 text-center mt-1">
                 Tolerancja czasowa ±30 sekund. Użyty kod nie może zostać wykorzystany ponownie.
@@ -894,7 +894,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                     setLoginError(null);
                   }}
                   placeholder="np. admin@pracownia.pl"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
                 />
               </div>
             </div>
@@ -913,7 +913,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Wpisz hasło..."
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
+                  className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                 />
               </div>
             </div>
@@ -936,7 +936,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                 </button>
               </div>
             ) : isSmtpConfigured === false ? (
-              <p role="status" className="text-[11px] text-slate-300 bg-slate-900/60 border border-slate-700/70 rounded-lg px-3 py-2 leading-relaxed">
+              <p role="status" className="text-[11px] text-slate-300 bg-slate-900/60 dark:bg-slate-950/70 border border-slate-700/70 dark:border-slate-800 rounded-lg px-3 py-2 leading-relaxed">
                 Odzyskiwanie hasła e-mailem jest wyłączone. Poproś administratora o reset hasła.
               </p>
             ) : null}
@@ -944,18 +944,18 @@ export const LoginGate: React.FC<LoginGateProps> = ({
             {trustedDevicesConfig.enabled && (
               <label
                 htmlFor="login-trust-device"
-                className="flex items-start gap-2.5 p-2.5 rounded-lg bg-slate-900/50 border border-slate-700/70 cursor-pointer select-none hover:border-slate-600 transition-colors"
+                className="flex items-start gap-2.5 p-2.5 rounded-lg bg-slate-900/50 dark:bg-slate-950/60 border border-slate-700/70 dark:border-slate-800 cursor-pointer select-none hover:border-slate-600 dark:hover:border-slate-700 transition-colors"
               >
                 <input
                   id="login-trust-device"
                   type="checkbox"
                   checked={trustDevice}
                   onChange={(e) => setTrustDevice(e.target.checked)}
-                  className="mt-0.5 rounded border-slate-600 bg-slate-900 text-sky-500 focus:ring-sky-500"
+                  className="mt-0.5 rounded border-slate-600 bg-slate-900 dark:bg-slate-950 text-sky-500 dark:text-sky-400 focus:ring-sky-500"
                 />
                 <span className="text-[11px] text-slate-200 leading-relaxed">
                   Ufaj temu urządzeniu przez <strong>{trustedDevicesConfig.days}</strong> dni{' '}
-                  <span className="text-slate-400">(nie używaj na wspólnych komputerach)</span>
+                  <span className="text-slate-300">(nie używaj na wspólnych komputerach)</span>
                 </span>
               </label>
             )}
@@ -1079,7 +1079,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
               </div>
             ) : (
               <form onSubmit={handleRegisterSubmit} className="space-y-3.5">
-                <div className="p-3 bg-slate-900/40 rounded-lg border border-slate-700/60 text-[11px] text-slate-300 flex items-start gap-2">
+                <div className="p-3 bg-slate-900/40 dark:bg-slate-950/60 rounded-lg border border-slate-700/60 dark:border-slate-800 text-[11px] text-slate-300 flex items-start gap-2">
                   <ShieldCheck className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" aria-hidden="true" />
                   <span>
                     Każdy nowo zarejestrowany użytkownik przed uzyskaniem dostępu do projektów musi zostać zatwierdzony przez Administratora.
@@ -1104,7 +1104,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                       value={regName}
                       onChange={(e) => setRegName(e.target.value)}
                       placeholder="np. Michał Dąbrowski"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                      className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
                     />
                   </div>
                 </div>
@@ -1120,7 +1120,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                       value={regEmail}
                       onChange={(e) => setRegEmail(e.target.value)}
                       placeholder="np. m.dabrowski@pracownia.pl"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                      className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
                     />
                   </div>
                 </div>
@@ -1132,7 +1132,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                       id="reg-role"
                       value={regRole}
                       onChange={(e) => setRegRole(e.target.value as UserRole)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"
+                      className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg px-2.5 py-2 text-xs text-white"
                     >
                       <option value="developer">Projektant</option>
                       <option value="project_manager">Kierownik Projektu</option>
@@ -1149,7 +1149,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                       value={regDepartment}
                       onChange={(e) => setRegDepartment(e.target.value)}
                       placeholder="np. Architektura"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white placeholder-slate-400"
+                      className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg px-2.5 py-2 text-xs text-white placeholder-slate-400"
                     />
                   </div>
                 </div>
@@ -1167,7 +1167,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                       value={regPassword}
                       onChange={(e) => setRegPassword(e.target.value)}
                       placeholder="Utwórz bezpieczne hasło (12–128 znaków)..."
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
+                      className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                     />
                   </div>
                   <PasswordRequirementsChecklist
@@ -1177,7 +1177,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   />
                 </div>
 
-                <div className="p-3 bg-slate-900/60 border border-slate-700/80 rounded-lg flex items-center justify-between">
+                <div className="p-3 bg-slate-900/60 dark:bg-slate-950/70 border border-slate-700/80 dark:border-slate-800 rounded-lg flex items-center justify-between">
                   <label htmlFor="reg-enable-2fa" className="cursor-pointer pr-2">
                     <span className="font-semibold text-white text-xs flex items-center gap-1.5">
                       <Smartphone className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true" />
@@ -1192,7 +1192,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                     type="checkbox"
                     checked={regEnable2FA}
                     onChange={(e) => setRegEnable2FA(e.target.checked)}
-                    className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 bg-slate-800 border-slate-600"
+                    className="w-4 h-4 rounded text-emerald-600 dark:text-emerald-400 focus:ring-emerald-500 bg-slate-800 dark:bg-slate-900 border-slate-600 dark:border-slate-700"
                   />
                 </div>
 
@@ -1278,7 +1278,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                         setRecoveryError(null);
                       }}
                       placeholder="np. fraczek.marcin@gmail.com"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
+                      className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                     />
                   </div>
                 </div>
@@ -1323,7 +1323,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                     }}
                     placeholder="000000"
                     autoFocus
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-center text-lg tracking-[0.3em] font-mono font-bold text-sky-400 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg px-3 py-2.5 text-center text-lg tracking-[0.3em] font-mono font-bold text-sky-400 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
                   />
                   <p className="text-[10px] text-slate-300 text-center mt-1">
                     Maksymalnie 5 prób weryfikacji.
@@ -1353,7 +1353,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
             {/* Krok 3: Ustawienie nowego hasła */}
             {isSmtpConfigured && recoveryStep === 'new_password' && (
               <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
-                <div className="p-3 bg-slate-900/80 border border-slate-700 rounded-lg text-xs text-slate-300">
+                <div className="p-3 bg-slate-900/80 dark:bg-slate-950/80 border border-slate-700 dark:border-slate-800 rounded-lg text-xs text-slate-300">
                   Adres e-mail: <strong className="text-white">{recoveryEmail}</strong>
                 </div>
 
@@ -1372,7 +1372,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                       value={newRecoveryPass}
                       onChange={(e) => setNewRecoveryPass(e.target.value)}
                       placeholder="Wprowadź nowe hasło (12–128 znaków)..."
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
+                      className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                     />
                   </div>
                   <PasswordRequirementsChecklist
@@ -1400,7 +1400,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                       value={confirmRecoveryPass}
                       onChange={(e) => setConfirmRecoveryPass(e.target.value)}
                       placeholder="Powtórz nowe hasło..."
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
+                      className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                     />
                   </div>
                   {confirmRecoveryPass.length > 0 && newRecoveryPass !== confirmRecoveryPass && (

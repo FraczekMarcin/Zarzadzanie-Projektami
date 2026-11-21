@@ -131,17 +131,17 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
         {/* Content */}
         <div className="p-6 overflow-y-auto space-y-5">
           {/* Release Highlights */}
-          <div className="bg-sky-50 border border-sky-200 rounded-xl p-4 space-y-2">
-            <h4 className="text-xs font-bold text-sky-950 uppercase tracking-wide flex items-center gap-1.5">
-              <GitBranch className="w-4 h-4 text-sky-700" aria-hidden="true" />
+          <div className="bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 rounded-xl p-4 space-y-2">
+            <h4 className="text-xs font-bold text-sky-950 dark:text-sky-200 uppercase tracking-wide flex items-center gap-1.5">
+              <GitBranch className="w-4 h-4 text-sky-700 dark:text-sky-400" aria-hidden="true" />
               <span>Nowości w wydaniu {latestVersion} (Zarządzanie Projektami):</span>
             </h4>
-            <ul className="text-xs text-sky-900 space-y-1.5 list-disc list-inside">
+            <ul className="text-xs text-sky-900 dark:text-sky-200 space-y-1.5 list-disc list-inside">
               <li>
                 <strong>Automatyczne kopie zapasowe (Auto-Backup)</strong> z harmonogramem, retencją migawek i gotowym zadaniem cyklicznym Linux Cron.
               </li>
               <li>
-                <strong>Nowy instalator 1-poleceniem</strong> pobierający kod bezpośrednio z oficjalnego repozytorium GitHub do <code className="font-mono bg-sky-100 px-1 rounded">{INSTALL_TARGET_DIR}</code>.
+                <strong>Nowy instalator 1-poleceniem</strong> pobierający kod bezpośrednio z oficjalnego repozytorium GitHub do <code className="font-mono bg-sky-100 dark:bg-sky-900/60 dark:text-sky-100 px-1 rounded">{INSTALL_TARGET_DIR}</code>.
               </li>
               <li>
                 <strong>Automatyczny kod projektu (np. 2026-01)</strong> z walidacją wolnego numeru i możliwością ręcznej edycji.
@@ -156,16 +156,16 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
           </div>
 
           {/* User's Key Question: Will data survive docker upgrade? */}
-          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
-            <div className="flex items-center gap-2 text-emerald-900 font-bold text-sm">
-              <ShieldCheck className="w-5 h-5 text-emerald-700 shrink-0" aria-hidden="true" />
+          <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl p-4 space-y-2">
+            <div className="flex items-center gap-2 text-emerald-900 dark:text-emerald-300 font-bold text-sm">
+              <ShieldCheck className="w-5 h-5 text-emerald-700 dark:text-emerald-400 shrink-0" aria-hidden="true" />
               <span>Czy po aktualizacji Docker dane projektów pozostaną?</span>
             </div>
-            <p className="text-xs text-emerald-950 leading-relaxed">
-              <strong>TAK, w 100%!</strong> Twoje projekty budowlane, zadania, harmonogramy i użytkownicy są bezpiecznie przechowywane w trwałym wolumenie bazy danych <code className="bg-emerald-100 px-1 py-0.5 rounded font-mono font-bold text-emerald-900">zarzadzanie_app_data</code>.
+            <p className="text-xs text-emerald-950 dark:text-emerald-200 leading-relaxed">
+              <strong>TAK, w 100%!</strong> Twoje projekty budowlane, zadania, harmonogramy i użytkownicy są bezpiecznie przechowywane w trwałym wolumenie bazy danych <code className="bg-emerald-100 dark:bg-emerald-900/60 px-1 py-0.5 rounded font-mono font-bold text-emerald-900 dark:text-emerald-100">zarzadzanie_app_data</code>.
             </p>
-            <p className="text-xs text-emerald-900 leading-relaxed">
-              Podczas aktualizacji Docker pobiera jedynie nowszy kod aplikacji z GitHub, a wolumen danych na dysku serwera w <code className="font-mono text-emerald-900">/opt/zarzadzanie-projektami</code> pozostaje <strong>całkowicie nienaruszony</strong>.
+            <p className="text-xs text-emerald-900 dark:text-emerald-300 leading-relaxed">
+              Podczas aktualizacji Docker pobiera jedynie nowszy kod aplikacji z GitHub, a wolumen danych na dysku serwera w <code className="font-mono text-emerald-900 dark:text-emerald-100">/opt/zarzadzanie-projektami</code> pozostaje <strong>całkowicie nienaruszony</strong>.
             </p>
           </div>
 
@@ -266,12 +266,12 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-xs text-slate-600">
+        <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/70 flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
           <a
             href={GITHUB_REPO_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-sky-700 hover:text-sky-900 font-medium hover:underline"
+            className="flex items-center gap-1.5 text-sky-700 dark:text-sky-400 hover:text-sky-900 dark:hover:text-sky-300 font-medium hover:underline"
           >
             <span>GitHub: FraczekMarcin/Zarzadzanie-Projektami</span>
             <ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />
@@ -279,7 +279,7 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded transition-colors font-medium"
+            className="px-4 py-1.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded transition-colors font-medium"
           >
             Zamknij
           </button>

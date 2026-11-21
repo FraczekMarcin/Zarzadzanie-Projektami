@@ -57,6 +57,14 @@ const SETTINGS_TABS: Array<{ key: string; name: string }> = [
   { key: 'settings-calendar', name: 'Kalendarz Google' },
 ];
 
+const ARCHIVE_TABS: Array<{ key: string; name: string }> = [
+  { key: 'archive-backup-auto', name: 'Automatyczne Kopie (Harmonogram)' },
+  { key: 'archive-backup-gdrive', name: 'Google Drive' },
+  { key: 'archive-backup-ftp', name: 'Serwer FTP / SFTP' },
+  { key: 'archive-backup-local', name: 'Zrzuty SQL & Pliki Lokalne' },
+  { key: 'archive-backup-history', name: 'Historia Zrzutów' },
+];
+
 async function findFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = net.createServer();
@@ -289,7 +297,7 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
   });
 
   test('1) konfiguracja danych testowych oraz skan ekranu logowania w trybie jasnym i ciemnym', async ({ page }) => {
-    test.setTimeout(90_000);
+    test.setTimeout(120_000);
     const monitor = await attachErrorMonitor(page);
     await page.goto(baseUrl);
     await expect(page.getByRole('heading', { name: 'Kreator Konfiguracji Administratora' })).toBeVisible();
@@ -307,7 +315,7 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
     expect((await setupResPromise).status()).toBe(200);
     await expect(page.getByRole('button', { name: 'Wyloguj się z systemu' })).toBeVisible();
 
-    // Utworzenie projektu oraz 2 zadań (jedno aktywne, drugie przeniesione do kosza)
+    // Utworzenie projektu oraz 2 zadań (jedno aktywne o priorytecie krytycznym, drugie przeniesione do kosza)
     const nav = page.getByRole('navigation', { name: 'Główna nawigacja' });
     await nav.getByRole('button', { name: 'Projekty', exact: true }).click();
     await page.getByRole('button', { name: 'Zarejestruj nowy projekt' }).click();
@@ -320,6 +328,7 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
 
     await page.getByRole('button', { name: 'Nowe zadanie' }).first().click();
     await page.getByLabel(/Tytuł zadania/i).fill('Zadanie referencyjne A11y');
+    await page.getByLabel(/Priorytet zadania/i).selectOption('critical');
     const task1Promise = page.waitForResponse(
       (res) => res.url().includes('/api/tasks') && res.request().method() === 'POST'
     );
@@ -333,6 +342,33 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
     );
     await page.getByRole('button', { name: 'Utwórz zadanie' }).click();
     expect((await task2Promise).status()).toBe(201);
+
+    // Dodanie pozycji finansowych (transza, wycena, koszt), aby przetestować także otwarte formularze edycji
+    await page.getByRole('button', { name: /Kosztorys i wyceny projektu/i }).first().click();
+    const setupFinanceDialog = page.getByRole('dialog', { name: 'Projekt Referencyjny A11y' });
+    await expect(setupFinanceDialog).toBeVisible();
+    await setupFinanceDialog.locator('#fin-tranche-title').fill('Transza referencyjna A11y');
+    await setupFinanceDialog.locator('#fin-tranche-net').fill('1000');
+    await setupFinanceDialog.getByRole('button', { name: 'Dodaj transzę', exact: true }).click();
+    await expect(setupFinanceDialog.getByText('Transza referencyjna A11y')).toBeVisible();
+
+    await setupFinanceDialog.locator('#fin-quote-title').fill('Wycena referencyjna A11y');
+    await setupFinanceDialog.locator('#fin-quote-price').fill('5000');
+    await setupFinanceDialog.getByRole('button', { name: /Dodaj wycenę do listy/i }).click();
+    await expect(setupFinanceDialog.getByText('Wycena referencyjna A11y')).toBeVisible();
+
+    await setupFinanceDialog.getByRole('tab', { name: /Lista kosztów i zadania/i }).click();
+    await setupFinanceDialog.locator('#fin-cost-title').fill('Koszt referencyjny A11y');
+    await setupFinanceDialog.locator('#fin-cost-net').fill('500');
+    await setupFinanceDialog.getByRole('button', { name: /Zapisz koszt/i }).click();
+    await expect(setupFinanceDialog.getByText('Koszt referencyjny A11y')).toBeVisible();
+
+    const financePatchPromise = page.waitForResponse(
+      (res) => res.url().includes('/api/projects/') && res.request().method() === 'PATCH'
+    );
+    await setupFinanceDialog.getByRole('button', { name: 'Zapisz zmiany w projekcie i kosztorysie' }).click();
+    expect((await financePatchPromise).status()).toBe(200);
+    await expect(setupFinanceDialog).toHaveCount(0);
 
     // Przeniesienie drugiego zadania do kosza, aby widok Kosz miał aktywny wpis do audytu
     await nav.getByRole('button', { name: 'Zadania', exact: true }).click();
@@ -368,7 +404,7 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
     const themeLabel = theme === 'light' ? 'trybie jasnym' : 'trybie ciemnym';
 
     test(`2) skan wszystkich widoków, szuflady, modali i zakładek Ustawień w ${themeLabel}`, async ({ page }) => {
-      test.setTimeout(150_000);
+      test.setTimeout(210_000);
       const monitor = await attachErrorMonitor(page);
       await loginThroughUi(page, baseUrl, theme);
       const nav = page.getByRole('navigation', { name: 'Główna nawigacja' });
@@ -399,12 +435,23 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
       await taskModal.getByRole('button', { name: 'Zamknij okno zadania' }).click();
       await expect(taskModal).toHaveCount(0);
 
+      // 4b. Okno filtrowanych zadań (TaskFilterModal — zakładki Krytyczne i Zablokowane)
+      await page.getByRole('button', { name: /\d+ krytycznych/i }).click();
+      const taskFilterDialog = page.getByRole('dialog', { name: /Zadania o Priorytecie Krytycznym|Zadania Zablokowane/i });
+      await expect(taskFilterDialog).toBeVisible();
+      await scanView(page, scanResults, 'task-filter-critical', 'Filtrowane zadania: Krytyczne', theme);
+      await taskFilterDialog.getByRole('tab', { name: /Zablokowane/i }).click();
+      await expect(taskFilterDialog.getByRole('tab', { name: /Zablokowane/i })).toHaveAttribute('aria-selected', 'true');
+      await scanView(page, scanResults, 'task-filter-blocked', 'Filtrowane zadania: Zablokowane', theme);
+      await taskFilterDialog.getByRole('button', { name: 'Zamknij okno filtrowanych zadań' }).click();
+      await expect(taskFilterDialog).toHaveCount(0);
+
       // 5. Kanban
       await nav.getByRole('button', { name: 'Tablica Kanban', exact: true }).click();
       await expect(nav.getByRole('button', { name: 'Tablica Kanban', exact: true })).toHaveAttribute('aria-current', 'page');
       await scanView(page, scanResults, 'kanban', 'Tablica Kanban', theme);
 
-      // 6. Przegląd projektów (widok kafelków, widok listy i okno finansów)
+      // 6. Przegląd projektów (widok kafelków, widok listy i wszystkie zakładki okna finansów)
       await nav.getByRole('button', { name: 'Projekty', exact: true }).click();
       await expect(nav.getByRole('button', { name: 'Projekty', exact: true })).toHaveAttribute('aria-current', 'page');
       await page.getByRole('button', { name: 'Kafelki', exact: true }).click();
@@ -418,7 +465,38 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
       await page.getByRole('button', { name: /Kosztorys i wyceny projektu/i }).first().click();
       const financialsModal = page.getByRole('dialog', { name: 'Projekt Referencyjny A11y' });
       await expect(financialsModal).toBeVisible();
-      await scanView(page, scanResults, 'project-financials-modal', 'Okno finansów projektu', theme);
+
+      // Zakładka 1: Wyceny i Oferty (+ otwarte formularze edycji transzy i wyceny)
+      await scanView(page, scanResults, 'project-financials-quotations', 'Okno finansów: Wyceny i Oferty', theme);
+      await financialsModal.getByRole('button', { name: /Edytuj transzę/i }).first().click();
+      await expect(financialsModal.getByRole('button', { name: 'Zapisz wiersz' })).toBeVisible();
+      await scanView(page, scanResults, 'project-financials-edit-tranche', 'Okno finansów: Edycja transzy', theme);
+      await financialsModal.getByRole('button', { name: 'Anuluj', exact: true }).first().click();
+
+      await financialsModal.getByRole('button', { name: /Edytuj wycenę/i }).first().click();
+      await expect(financialsModal.getByRole('button', { name: 'Zapisz wiersz' })).toBeVisible();
+      await scanView(page, scanResults, 'project-financials-edit-quote', 'Okno finansów: Edycja wyceny', theme);
+      await financialsModal.getByRole('button', { name: 'Anuluj', exact: true }).first().click();
+
+      // Zakładka 2: Lista kosztów i zadania (+ otwarty formularz edycji kosztu)
+      await financialsModal.getByRole('tab', { name: /Lista kosztów i zadania/i }).click();
+      await expect(financialsModal.getByRole('tab', { name: /Lista kosztów i zadania/i })).toHaveAttribute('aria-selected', 'true');
+      await scanView(page, scanResults, 'project-financials-costs', 'Okno finansów: Koszty i zadania', theme);
+      await financialsModal.getByRole('button', { name: /Edytuj koszt/i }).first().click();
+      await expect(financialsModal.getByRole('button', { name: 'Zapisz wiersz' })).toBeVisible();
+      await scanView(page, scanResults, 'project-financials-edit-cost', 'Okno finansów: Edycja kosztu', theme);
+      await financialsModal.getByRole('button', { name: 'Anuluj', exact: true }).first().click();
+
+      // Zakładka 3: Zamawiający, Dysk & Terminy
+      await financialsModal.getByRole('tab', { name: /Zamawiający, Dysk & Terminy/i }).click();
+      await expect(financialsModal.getByRole('tab', { name: /Zamawiający, Dysk & Terminy/i })).toHaveAttribute('aria-selected', 'true');
+      await scanView(page, scanResults, 'project-financials-client', 'Okno finansów: Zamawiający, Dysk & Terminy', theme);
+
+      // Zakładka 4: Podsumowanie
+      await financialsModal.getByRole('tab', { name: /Podsumowanie/i }).click();
+      await expect(financialsModal.getByRole('tab', { name: /Podsumowanie/i })).toHaveAttribute('aria-selected', 'true');
+      await scanView(page, scanResults, 'project-financials-summary', 'Okno finansów: Podsumowanie', theme);
+
       await financialsModal.getByRole('button', { name: 'Zamknij finanse projektu' }).click();
       await expect(financialsModal).toHaveCount(0);
 
@@ -473,6 +551,26 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
       await calendarDialog.getByRole('button', { name: 'Zamknij okno synchronizacji z Kalendarzem Google' }).click();
       await expect(calendarDialog).toHaveCount(0);
 
+      // 9b. Centrum Archiwizacji & Automatycznych Kopii Zapasowych (ArchiveBackupModal — wszystkie 5 zakładek)
+      await page.getByRole('button', { name: 'Ustawienia systemu' }).click();
+      const settingsDialogArchive = page.getByRole('dialog', { name: /Ustawienia Pracowni/i });
+      await expect(settingsDialogArchive).toBeVisible();
+      await settingsDialogArchive.getByRole('tab', { name: /Kopie Zapasowe/i }).click();
+      await settingsDialogArchive.getByRole('button', { name: /Otwórz pełny moduł archiwizacji/i }).click();
+      await expect(settingsDialogArchive).toHaveCount(0);
+
+      const archiveDialog = page.getByRole('dialog', { name: /Centrum Archiwizacji/i });
+      await expect(archiveDialog).toBeVisible();
+      for (const tabSpec of ARCHIVE_TABS) {
+        const escaped = tabSpec.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const tab = archiveDialog.getByRole('tab', { name: new RegExp(escaped, 'i') });
+        await tab.click();
+        await expect(tab).toHaveAttribute('aria-selected', 'true');
+        await scanView(page, scanResults, tabSpec.key, `Archiwizacja: ${tabSpec.name}`, theme);
+      }
+      await archiveDialog.getByRole('button', { name: 'Zamknij centrum archiwizacji' }).click();
+      await expect(archiveDialog).toHaveCount(0);
+
       // 10. Okno konta użytkownika — zakładka Zaufane urządzenia
       await page.getByRole('button', { name: new RegExp(`Konto użytkownika: ${ADMIN_NAME}`, 'i') }).click();
       const accountDialog = page.getByRole('dialog', { name: /Uwierzytelnianie/i });
@@ -490,10 +588,26 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
     });
   }
 
-  test('3) zapis raportu JSON i weryfikacja trybu A11Y_STRICT', async () => {
-    expect(scanResults.length).toBeGreaterThanOrEqual(50);
+  test('3) zapis raportu JSON, bezwzględna kontrola kontrastu oraz tryb A11Y_STRICT', async () => {
+    expect(scanResults.length).toBeGreaterThanOrEqual(76);
     writeReport(scanResults);
     expect(fs.existsSync(REPORT_PATH)).toBe(true);
+
+    const contrastViolations = scanResults.flatMap((entry) =>
+      entry.violations
+        .filter((v) => v.id === 'color-contrast')
+        .map(
+          (v) =>
+            `[${entry.theme}][${entry.view}] color-contrast (węzłów: ${v.nodesCount}): ${v.nodes
+              .map((n) => n.target.join(' '))
+              .join(' | ')}`
+        )
+    );
+
+    expect(
+      contrastViolations,
+      `Wykryto naruszenia kontrastu WCAG AA (color-contrast):\n${contrastViolations.join('\n')}`
+    ).toEqual([]);
 
     const strict = process.env.A11Y_STRICT === 'true';
     const seriousOrCritical = scanResults.flatMap((entry) =>

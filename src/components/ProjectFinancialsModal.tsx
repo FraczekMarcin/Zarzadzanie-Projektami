@@ -1416,32 +1416,32 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
       case 'mapa':
         return {
           label: '🗺️ Mapa do celów proj. (MDCP)',
-          color: 'text-amber-700 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800',
+          color: 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800',
         };
       case 'geologia':
         return {
           label: '🧪 Badania geotechniczne i grunt',
-          color: 'text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800',
+          color: 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800',
         };
       case 'uzgodnienia':
         return {
           label: '📋 Uzgodnienia ZUD/PPOŻ/Sanepid',
-          color: 'text-sky-700 bg-sky-50 dark:bg-sky-950/40 border-sky-200 dark:border-sky-800',
+          color: 'text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40 border-sky-200 dark:border-sky-800',
         };
       case 'podwykonawca':
         return {
           label: '🏗️ Podwykonawcy branżowi',
-          color: 'text-purple-700 bg-purple-50 dark:bg-purple-950/40 border-purple-200 dark:border-purple-800',
+          color: 'text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/40 border-purple-200 dark:border-purple-800',
         };
       case 'oplaty_urzedowe':
         return {
           label: '🏛️ Opłaty urzędowe / skarbowe',
-          color: 'text-slate-700 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700',
+          color: 'text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700',
         };
       default:
         return {
           label: '📦 Inne koszty',
-          color: 'text-slate-700 bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700',
+          color: 'text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700',
         };
     }
   };
@@ -1456,7 +1456,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby="financials-modal-title"
-        className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 relative"
+        className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 relative"
       >
         {/* Modal Header */}
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/70 flex items-center justify-between">
@@ -1849,7 +1849,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                     <strong className="text-emerald-700 dark:text-emerald-400">
                       {formatMoney(finance.tranchesPaidNet)} zł
                     </strong>
-                    <span className="mx-1 text-slate-400">/</span>
+                    <span className="mx-1 text-slate-600 dark:text-slate-400">/</span>
                     <strong className="text-amber-700 dark:text-amber-400">
                       {formatMoney(finance.tranchesRemainingNet)} zł
                     </strong>
@@ -2167,7 +2167,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                                     )}
                                   </div>
                                 ) : (
-                                  <span className="text-slate-400">—</span>
+                                  <span className="text-slate-600 dark:text-slate-400">—</span>
                                 )}
                               </td>
                               <td className="py-2 px-3 text-center">
@@ -2821,7 +2821,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                                   )}
                                 </div>
                               ) : (
-                                <span className="text-slate-400">—</span>
+                                <span className="text-slate-600 dark:text-slate-400">—</span>
                               )}
                             </td>
                             <td
@@ -2882,7 +2882,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                                     <button
                                       type="button"
                                       onClick={() => openMoveQuoteModal(q.id)}
-                                      className="px-2 py-0.5 rounded bg-purple-50 dark:bg-purple-950/50 border border-purple-300 dark:border-purple-800 text-purple-800 dark:text-purple-200 hover:bg-purple-100 text-[10px] font-semibold inline-flex items-center gap-1"
+                                      className="px-2 py-0.5 rounded bg-purple-50 dark:bg-purple-950/50 border border-purple-300 dark:border-purple-800 text-purple-800 dark:text-purple-200 hover:bg-purple-100 dark:hover:bg-purple-900/60 text-[10px] font-semibold inline-flex items-center gap-1"
                                     >
                                       <ArrowRightLeft className="w-3 h-3" aria-hidden="true" />
                                       <span>Przenieś do kosztów</span>
@@ -2902,7 +2902,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                                         <button
                                           type="button"
                                           onClick={() => setConfirmUndoMoveQuoteId(null)}
-                                          className="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-[10px]"
+                                          className="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-600 text-[10px]"
                                         >
                                           Anuluj
                                         </button>
@@ -2911,7 +2911,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                                       <button
                                         type="button"
                                         onClick={() => setConfirmUndoMoveQuoteId(q.id)}
-                                        className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 text-[10px] font-semibold inline-flex items-center gap-1"
+                                        className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 text-[10px] font-semibold inline-flex items-center gap-1"
                                       >
                                         <Undo2 className="w-3 h-3" aria-hidden="true" />
                                         <span>Cofnij przeniesienie</span>
@@ -2920,7 +2920,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                                   )}
                                 </div>
                               ) : (
-                                <span className="text-[10px] text-slate-400">Tylko odczyt</span>
+                                <span className="text-[10px] text-slate-600 dark:text-slate-400">Tylko odczyt</span>
                               )}
                             </td>
                           </tr>
@@ -3541,7 +3541,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                                   )}
                                 </div>
                               ) : (
-                                <span className="text-slate-400">—</span>
+                                <span className="text-slate-600 dark:text-slate-400">—</span>
                               )}
                             </td>
                             <td className="py-2 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">
@@ -3785,7 +3785,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                         value={newCostInvoice}
                         onChange={(e) => setNewCostInvoice(e.target.value)}
                         placeholder="np. FV/2026/11"
-                        className="w-40 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2 py-1 text-xs"
+                        className="w-40 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white rounded px-2 py-1 text-xs"
                       />
                     </div>
                     <button

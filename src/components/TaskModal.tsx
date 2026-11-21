@@ -247,21 +247,21 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-slate-900/40 dark:bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="bg-white rounded-lg shadow-xl border border-slate-200 w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95"
+        className="bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50/70">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950">
           <div>
-            <h3 id={titleId} className="text-sm font-bold text-slate-900">
+            <h3 id={titleId} className="text-sm font-bold text-slate-900 dark:text-white">
               {initialTask ? `Edycja zadania [${initialTask.code}]` : 'Nowe Zadanie'}
             </h3>
-            <p className="text-[11px] text-slate-600">
+            <p className="text-[11px] text-slate-600 dark:text-slate-300">
               Zarządzanie terminami w dniach, drzewem zależności i zadaniami blokującymi.
             </p>
           </div>
@@ -269,7 +269,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Zamknij okno zadania"
-            className="p-1 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 transition-colors"
+            className="p-1 rounded text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors"
           >
             <X className="w-4 h-4" aria-hidden="true" />
           </button>
@@ -280,13 +280,13 @@ export const TaskModal: React.FC<TaskModalProps> = ({
           {/* Project & Type */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label htmlFor={`${baseId}-project`} className="block font-semibold text-slate-700 mb-1">Projekt nadrzędny *</label>
+              <label htmlFor={`${baseId}-project`} className="block font-semibold text-slate-700 dark:text-slate-200 mb-1">Projekt nadrzędny *</label>
               <select
                 id={`${baseId}-project`}
                 required
                 value={projectId}
                 onChange={(e) => setProjectId(e.target.value)}
-                className="w-full border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
               >
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -315,7 +315,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
           {/* Title */}
           <div>
-            <label htmlFor={`${baseId}-title`} className="block font-semibold text-slate-700 mb-1">Tytuł zadania *</label>
+            <label htmlFor={`${baseId}-title`} className="block font-semibold text-slate-700 dark:text-slate-200 mb-1">Tytuł zadania *</label>
             <input
               id={`${baseId}-title`}
               type="text"
@@ -324,13 +324,13 @@ export const TaskModal: React.FC<TaskModalProps> = ({
               onChange={(e) => setTitle(e.target.value)}
               maxLength={FIELD_LIMITS.title}
               placeholder="np. Projekt wykonawczy konstrukcji żelbetowej lub uzgodnienia z rzeczoznawcą ds. PPOŻ"
-              className="w-full border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-2 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
             />
           </div>
 
           {/* Description */}
           <div>
-            <label htmlFor={`${baseId}-desc`} className="block font-semibold text-slate-700 mb-1">Opis i kryteria ukończenia</label>
+            <label htmlFor={`${baseId}-desc`} className="block font-semibold text-slate-700 dark:text-slate-200 mb-1">Opis i kryteria ukończenia</label>
             <textarea
               id={`${baseId}-desc`}
               rows={2}
@@ -338,21 +338,21 @@ export const TaskModal: React.FC<TaskModalProps> = ({
               onChange={(e) => setDescription(e.target.value)}
               maxLength={FIELD_LIMITS.description}
               placeholder="Kryteria akceptacji lub szczegóły wykonania..."
-              className="w-full border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
             />
           </div>
 
           {/* Priority & Status */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label htmlFor={`${baseId}-priority`} className="block font-semibold text-slate-700 mb-1">
+              <label htmlFor={`${baseId}-priority`} className="block font-semibold text-slate-700 dark:text-slate-200 mb-1">
                 Priorytet zadania (Domyślny: Normalny) *
               </label>
               <select
                 id={`${baseId}-priority`}
                 value={priority}
                 onChange={(e) => setPriority(e.target.value as Priority)}
-                className="w-full border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 font-medium focus:outline-none focus:ring-1 focus:ring-sky-500"
+                className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 font-medium focus:outline-none focus:ring-1 focus:ring-sky-500"
               >
                 <option value="critical">🔴 Krytyczny (P1 - Blokujący)</option>
                 <option value="high">🟠 Wysoki (P2)</option>
@@ -362,7 +362,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
             </div>
 
             <div>
-              <label htmlFor={`${baseId}-status`} className="block font-semibold text-slate-700 mb-1">Status wykonania</label>
+              <label htmlFor={`${baseId}-status`} className="block font-semibold text-slate-700 dark:text-slate-200 mb-1">Status wykonania</label>
               <select
                 id={`${baseId}-status`}
                 value={status}
@@ -380,7 +380,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                   setStatusError(null);
                   setStatus(val);
                 }}
-                className="w-full border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
               >
                 <option value="to_do">Do zrobienia</option>
                 <option value="in_progress">W toku</option>
@@ -392,33 +392,33 @@ export const TaskModal: React.FC<TaskModalProps> = ({
           </div>
 
           {statusError && (
-            <div role="alert" aria-live="assertive" className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 text-rose-700 shrink-0 mt-0.5" aria-hidden="true" />
+            <div role="alert" aria-live="assertive" className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-xs flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-700 dark:text-rose-400 shrink-0 mt-0.5" aria-hidden="true" />
               <span>{statusError}</span>
             </div>
           )}
 
           {/* DURATION IN DAYS & DATES */}
-          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
-            <span className="font-semibold text-slate-800 block text-[11px] uppercase tracking-wide">
+          <div className="p-3.5 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-lg space-y-3">
+            <span className="font-semibold text-slate-800 dark:text-slate-200 block text-[11px] uppercase tracking-wide">
               Harmonogram & Czas trwania w dniach
             </span>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <label htmlFor={`${baseId}-start`} className="block text-[11px] font-semibold text-slate-600 mb-1">Data rozpoczęcia</label>
+                <label htmlFor={`${baseId}-start`} className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">Data rozpoczęcia</label>
                 <input
                   id={`${baseId}-start`}
                   type="date"
                   required
                   value={startDate}
                   onChange={(e) => handleStartDateChange(e.target.value)}
-                  className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-900 font-mono"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 font-mono"
                 />
               </div>
 
               <div>
-                <label htmlFor={`${baseId}-duration`} className="block text-[11px] font-semibold text-slate-600 mb-1">
+                <label htmlFor={`${baseId}-duration`} className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
                   Czas trwania (w dniach) *
                 </label>
                 <div className="flex items-center">
@@ -430,29 +430,29 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                     required
                     value={durationDays}
                     onChange={(e) => handleDurationDaysChange(Number(e.target.value))}
-                    className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-900 font-mono font-bold"
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 font-mono font-bold"
                   />
-                  <span className="ml-2 font-mono text-slate-600">dni</span>
+                  <span className="ml-2 font-mono text-slate-600 dark:text-slate-300">dni</span>
                 </div>
               </div>
 
               <div>
-                <label htmlFor={`${baseId}-due`} className="block text-[11px] font-semibold text-slate-600 mb-1">Termin końcowy (Due Date)</label>
+                <label htmlFor={`${baseId}-due`} className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">Termin końcowy (Due Date)</label>
                 <input
                   id={`${baseId}-due`}
                   type="date"
                   required
                   value={dueDate}
                   onChange={(e) => handleDueDateChange(e.target.value)}
-                  className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-900 font-mono"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 font-mono"
                 />
               </div>
             </div>
 
             {/* Official Deadline Toggle */}
-            <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between">
+            <div className="pt-2 border-t border-slate-200/80 dark:border-slate-700 flex items-center justify-between">
               <div>
-                <label htmlFor={`${baseId}-official`} className="font-semibold text-slate-800 flex items-center gap-1.5 cursor-pointer">
+                <label htmlFor={`${baseId}-official`} className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 cursor-pointer">
                   <input
                     id={`${baseId}-official`}
                     type="checkbox"
@@ -460,15 +460,15 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                     onChange={(e) => setIsOfficialDeadline(e.target.checked)}
                     className="rounded text-red-600 focus:ring-red-500 w-4 h-4 cursor-pointer"
                   />
-                  <span className="text-xs text-red-900 font-bold">Termin urzędowy (rygor prawny / administracyjny)</span>
+                  <span className="text-xs text-red-900 dark:text-red-300 font-bold">Termin urzędowy (rygor prawny / administracyjny)</span>
                 </label>
-                <p className="text-[10px] text-slate-600 mt-0.5 ml-5.5">
+                <p className="text-[10px] text-slate-600 dark:text-slate-300 mt-0.5 ml-5.5">
                   Jeśli zaznaczysz tę opcję, zadanie będzie mrugać i alarmować zespół na 3 dni robocze (bez sobót i niedziel) przed upływem terminu.
                 </p>
               </div>
 
               {isOfficialDeadline && (
-                <span className="text-[10px] font-bold text-red-800 bg-red-100 px-2 py-0.5 rounded border border-red-200 animate-pulse">
+                <span className="text-[10px] font-bold text-red-800 dark:text-red-200 bg-red-100 dark:bg-red-950/60 px-2 py-0.5 rounded border border-red-200 dark:border-red-800 animate-pulse">
                   Alarm 3 dni robocze
                 </span>
               )}
@@ -476,24 +476,24 @@ export const TaskModal: React.FC<TaskModalProps> = ({
           </div>
 
           {/* BLOCKING TASKS SELECTOR (ZADANIA BLOKUJĄCE) */}
-          <div className="p-3.5 bg-amber-50/50 border border-amber-200 rounded-lg space-y-2" role="group" aria-labelledby={`${baseId}-blockers-label`}>
+          <div className="p-3.5 bg-amber-50/50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/70 rounded-lg space-y-2" role="group" aria-labelledby={`${baseId}-blockers-label`}>
             <div className="flex items-center justify-between">
-              <span id={`${baseId}-blockers-label`} className="font-semibold text-amber-950 flex items-center gap-1.5">
-                <Lock className="w-3.5 h-3.5 text-amber-700" aria-hidden="true" />
+              <span id={`${baseId}-blockers-label`} className="font-semibold text-amber-950 dark:text-amber-200 flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" aria-hidden="true" />
                 <span>Zadania blokujące to zadanie (Wymagane do wykonania wcześniej)</span>
               </span>
-              <span className="text-[10px] text-amber-800 font-semibold">
+              <span className="text-[10px] text-amber-800 dark:text-amber-300 font-semibold">
                 {blockingTaskIds.length} wybranych
               </span>
             </div>
 
-            <p className="text-[11px] text-amber-900 leading-relaxed">
+            <p className="text-[11px] text-amber-900 dark:text-amber-200/90 leading-relaxed">
               Zadanie otrzyma status <strong>Zablokowane</strong> i jego realizacja będzie możliwa dopiero po ukończeniu poniżej zaznaczonych zadań. Czas tego zadania zostanie przesunięty na moment ukończenia poprzednika.
             </p>
 
-            <div className="max-h-36 overflow-y-auto space-y-1 bg-white p-2 border border-amber-200 rounded">
+            <div className="max-h-36 overflow-y-auto space-y-1 bg-white dark:bg-slate-900 p-2 border border-amber-200 dark:border-amber-800/60 rounded">
               {availableBlockers.length === 0 ? (
-                <div className="text-[11px] text-slate-600 py-1 italic">
+                <div className="text-[11px] text-slate-600 dark:text-slate-300 py-1 italic">
                   Brak innych zadań w tym projekcie do ustawienia jako blokujące.
                 </div>
               ) : (
@@ -505,7 +505,9 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                     <label
                       key={bTask.id}
                       className={`flex items-center justify-between p-1.5 rounded cursor-pointer transition-colors ${
-                        isChecked ? 'bg-amber-100/70 text-amber-950' : 'hover:bg-slate-50 text-slate-700'
+                        isChecked
+                          ? 'bg-amber-100/70 dark:bg-amber-900/40 text-amber-950 dark:text-amber-200'
+                          : 'hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'
                       }`}
                     >
                       <div className="flex items-center gap-2 truncate pr-2">
@@ -515,7 +517,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                           onChange={() => toggleBlockingTask(bTask.id)}
                           className="rounded text-amber-600 focus:ring-0 shrink-0"
                         />
-                        <span className="font-mono text-[11px] font-bold text-slate-600 shrink-0">
+                        <span className="font-mono text-[11px] font-bold text-slate-600 dark:text-slate-400 shrink-0">
                           {bTask.code}
                         </span>
                         <span className="truncate">{bTask.title}</span>
@@ -524,8 +526,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                       <span
                         className={`text-[10px] font-mono tabular-nums px-1.5 py-0.5 rounded shrink-0 ${
                           isDone
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-slate-200 text-slate-700'
+                            ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
+                            : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
                         }`}
                       >
                         {isDone ? 'Ukończone ✓' : bTask.status}
@@ -540,15 +542,15 @@ export const TaskModal: React.FC<TaskModalProps> = ({
           {/* PARENT TASK / DRZEWO ZALEŻNOŚCI */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label htmlFor={`${baseId}-parent`} className="block font-semibold text-slate-700 mb-1 flex items-center gap-1">
-                <GitMerge className="w-3.5 h-3.5 text-slate-600" aria-hidden="true" />
+              <label htmlFor={`${baseId}-parent`} className="block font-semibold text-slate-700 dark:text-slate-200 mb-1 flex items-center gap-1">
+                <GitMerge className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" aria-hidden="true" />
                 <span>Zadanie nadrzędne (Drzewo zależności)</span>
               </label>
               <select
                 id={`${baseId}-parent`}
                 value={parentId}
                 onChange={(e) => setParentId(e.target.value)}
-                className="w-full border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
               >
                 <option value="">Brak (Zadanie głównego poziomu)</option>
                 {availableParents.map((pTask) => (
@@ -557,18 +559,18 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                   </option>
                 ))}
               </select>
-              <span className="text-[10px] text-slate-600 mt-1 block">
+              <span className="text-[10px] text-slate-600 dark:text-slate-300 mt-1 block">
                 Ukończenie wszystkich podzadań automatycznie zakończy zadanie nadrzędne.
               </span>
             </div>
 
             <div>
-              <label htmlFor={`${baseId}-assignee`} className="block font-semibold text-slate-700 mb-1">Osoba przypisana</label>
+              <label htmlFor={`${baseId}-assignee`} className="block font-semibold text-slate-700 dark:text-slate-200 mb-1">Osoba przypisana</label>
               <select
                 id={`${baseId}-assignee`}
                 value={assigneeId}
                 onChange={(e) => setAssigneeId(e.target.value)}
-                className="w-full border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
               >
                 <option value="">Brak przypisania</option>
                 {users.map((u) => (
@@ -582,29 +584,29 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
           {/* Tags */}
           <div>
-            <label htmlFor={`${baseId}-tags`} className="block font-semibold text-slate-700 mb-1">Etykiety / Tagi (oddzielone przecinkami)</label>
+            <label htmlFor={`${baseId}-tags`} className="block font-semibold text-slate-700 dark:text-slate-200 mb-1">Etykiety / Tagi (oddzielone przecinkami)</label>
             <input
               id={`${baseId}-tags`}
               type="text"
               value={tagsInput}
               onChange={(e) => setTagsInput(e.target.value)}
               placeholder="np. Architektura, Konstrukcja, PPOŻ, Pilne"
-              className="w-full border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
             />
           </div>
 
           {/* Footer buttons */}
-          <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200">
+          <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200 dark:border-slate-800">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded transition-colors"
+              className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors"
             >
               Anuluj
             </button>
             <button
               type="submit"
-              className="px-4 py-2 text-xs font-medium bg-slate-900 hover:bg-slate-800 text-white rounded transition-colors"
+              className="px-4 py-2 text-xs font-medium bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 text-white rounded transition-colors"
             >
               {initialTask ? 'Zapisz zmiany' : 'Utwórz zadanie'}
             </button>

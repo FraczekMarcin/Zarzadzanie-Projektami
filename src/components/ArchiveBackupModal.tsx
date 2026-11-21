@@ -463,28 +463,28 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+    <div className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="archive-backup-modal-title"
-        className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95"
+        className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95"
       >
         {/* Top Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-emerald-700 text-white flex items-center justify-center font-bold shadow-xs">
               <Cloud className="w-4 h-4" aria-hidden="true" />
             </div>
             <div>
-              <h2 id="archive-backup-modal-title" className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <h2 id="archive-backup-modal-title" className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <span>Centrum Archiwizacji & Automatycznych Kopii Zapasowych</span>
-                <span className="text-[10px] bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded-full border border-emerald-300">
+                <span className="text-[10px] bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-semibold px-2 py-0.5 rounded-full border border-emerald-300 dark:border-emerald-800">
                   Wersja {CURRENT_APP_VERSION}
                 </span>
               </h2>
-              <p className="text-xs text-slate-600">
+              <p className="text-xs text-slate-600 dark:text-slate-300">
                 Harmonogram automatyczny, retencja kopii, integracja z Google Drive, serwerem FTP oraz zrzuty SQL.
               </p>
             </div>
@@ -494,7 +494,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Zamknij centrum archiwizacji"
-            className="text-slate-600 hover:text-slate-800 p-1.5 rounded-lg hover:bg-slate-200 transition-colors"
+            className="text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" aria-hidden="true" />
           </button>
@@ -504,7 +504,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
         <div
           role="tablist"
           aria-label="Sekcje archiwizacji i kopii zapasowych"
-          className="flex border-b border-slate-200 px-6 bg-white gap-6 text-xs font-semibold overflow-x-auto"
+          className="flex border-b border-slate-200 dark:border-slate-800 px-6 bg-white dark:bg-slate-900 gap-6 text-xs font-semibold overflow-x-auto"
         >
           <button
             type="button"
@@ -513,11 +513,11 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
             onClick={() => setActiveTab('auto')}
             className={`py-3 flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${
               activeTab === 'auto'
-                ? 'border-emerald-700 text-emerald-800 font-bold'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'border-emerald-700 dark:border-emerald-400 text-emerald-800 dark:text-emerald-300 font-bold'
+                : 'border-transparent text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            <Clock className="w-3.5 h-3.5 text-emerald-700" aria-hidden="true" />
+            <Clock className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
             <span>Automatyczne Kopie (Harmonogram)</span>
             {autoConfig.enabled && (
               <>
@@ -534,11 +534,11 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
             onClick={() => setActiveTab('gdrive')}
             className={`py-3 flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${
               activeTab === 'gdrive'
-                ? 'border-sky-700 text-sky-800 font-bold'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'border-sky-700 dark:border-sky-400 text-sky-800 dark:text-sky-300 font-bold'
+                : 'border-transparent text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            <Cloud className="w-3.5 h-3.5 text-sky-700" aria-hidden="true" />
+            <Cloud className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400" aria-hidden="true" />
             <span>Google Drive</span>
           </button>
 
@@ -549,11 +549,11 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
             onClick={() => setActiveTab('ftp')}
             className={`py-3 flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${
               activeTab === 'ftp'
-                ? 'border-sky-700 text-sky-800 font-bold'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'border-sky-700 dark:border-sky-400 text-sky-800 dark:text-sky-300 font-bold'
+                : 'border-transparent text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            <Server className="w-3.5 h-3.5 text-slate-700" aria-hidden="true" />
+            <Server className="w-3.5 h-3.5 text-slate-700 dark:text-slate-300" aria-hidden="true" />
             <span>Serwer FTP / SFTP</span>
           </button>
 
@@ -564,11 +564,11 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
             onClick={() => setActiveTab('local')}
             className={`py-3 flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${
               activeTab === 'local'
-                ? 'border-sky-700 text-sky-800 font-bold'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'border-sky-700 dark:border-sky-400 text-sky-800 dark:text-sky-300 font-bold'
+                : 'border-transparent text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            <Database className="w-3.5 h-3.5 text-emerald-700" aria-hidden="true" />
+            <Database className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
             <span>Zrzuty SQL & Pliki Lokalne</span>
           </button>
 
@@ -579,11 +579,11 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
             onClick={() => setActiveTab('history')}
             className={`py-3 flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${
               activeTab === 'history'
-                ? 'border-sky-700 text-sky-800 font-bold'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'border-sky-700 dark:border-sky-400 text-sky-800 dark:text-sky-300 font-bold'
+                : 'border-transparent text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            <ShieldCheck className="w-3.5 h-3.5 text-purple-700" aria-hidden="true" />
+            <ShieldCheck className="w-3.5 h-3.5 text-purple-700 dark:text-purple-400" aria-hidden="true" />
             <span>Historia Zrzutów ({backupHistory.length})</span>
           </button>
         </div>
@@ -592,8 +592,8 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
         <div className="p-6 overflow-y-auto space-y-5 flex-1">
           {/* Action toast message */}
           {lastActionMsg && (
-            <div role="status" aria-live="polite" className="p-3 bg-emerald-50 border border-emerald-300 rounded-lg flex items-center gap-2 text-xs text-emerald-900 animate-in fade-in">
-              <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" aria-hidden="true" />
+            <div role="status" aria-live="polite" className="p-3 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 rounded-lg flex items-center gap-2 text-xs text-emerald-900 dark:text-emerald-200 animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" aria-hidden="true" />
               <span>{lastActionMsg}</span>
             </div>
           )}
@@ -648,9 +648,9 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
               {/* Configuration Controls */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* 1. Toggle On/Off */}
-                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                <div className="p-4 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl space-y-2">
                   <div className="flex items-center justify-between">
-                    <label htmlFor="auto-backup-enabled-checkbox" className="text-xs font-bold text-slate-800 cursor-pointer">
+                    <label htmlFor="auto-backup-enabled-checkbox" className="text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer">
                       Status automatu
                     </label>
                     <label className="relative inline-flex items-center cursor-pointer">
@@ -662,10 +662,10 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                         onChange={(e) => handleUpdateAutoConfig({ enabled: e.target.checked })}
                         className="sr-only peer"
                       />
-                      <div className="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-700"></div>
+                      <div className="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-700"></div>
                     </label>
                   </div>
-                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
                     {autoConfig.enabled
                       ? 'Automatyczne wykonywanie kopii zapasowych jest AKTYWNE.'
                       : 'Kopie automatyczne są tymczasowo wstrzymane.'}
@@ -673,42 +673,42 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                 </div>
 
                 {/* 2. Interval selector */}
-                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                  <label htmlFor="auto-backup-interval" className="text-xs font-bold text-slate-800 block">
+                <div className="p-4 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl space-y-2">
+                  <label htmlFor="auto-backup-interval" className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
                     Częstotliwość (Interwał)
                   </label>
                   <select
                     id="auto-backup-interval"
                     value={autoConfig.intervalMinutes}
                     onChange={(e) => handleUpdateAutoConfig({ intervalMinutes: Number(e.target.value) })}
-                    className="w-full border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-900 font-semibold bg-white"
+                    className="w-full border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 font-semibold bg-white dark:bg-slate-900"
                   >
                     <option value={15}>Co 15 minut (intensywna praca)</option>
                     <option value={60}>Co 1 godzinę (zalecane)</option>
                     <option value={360}>Co 6 godzin</option>
                     <option value={1440}>Codziennie (co 24 godziny)</option>
                   </select>
-                  <p className="text-[11px] text-slate-600">
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300">
                     Odstęp czasowy pomiędzy kolejnymi automatycznymi zrzutami stanu.
                   </p>
                 </div>
 
                 {/* 3. Retention Policy */}
-                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                  <label htmlFor="auto-backup-retention" className="text-xs font-bold text-slate-800 block">
+                <div className="p-4 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl space-y-2">
+                  <label htmlFor="auto-backup-retention" className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
                     Polityka Retencji (Rotacja)
                   </label>
                   <select
                     id="auto-backup-retention"
                     value={autoConfig.retentionCount}
                     onChange={(e) => handleUpdateAutoConfig({ retentionCount: Number(e.target.value) })}
-                    className="w-full border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-900 font-semibold bg-white"
+                    className="w-full border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 font-semibold bg-white dark:bg-slate-900"
                   >
                     <option value={5}>Zachowaj 5 ostatnich kopii</option>
                     <option value={10}>Zachowaj 10 ostatnich kopii (zalecane)</option>
                     <option value={20}>Zachowaj 20 ostatnich kopii</option>
                   </select>
-                  <p className="text-[11px] text-slate-600">
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300">
                     Starsze migawki powyżej limitu są automatycznie usuwane z magazynu.
                   </p>
                 </div>
@@ -717,8 +717,8 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
               {/* Snapshots Table */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-800 flex items-center gap-1.5">
-                    <Database className="w-4 h-4 text-emerald-700" aria-hidden="true" />
+                  <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <Database className="w-4 h-4 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
                     <span>Zapisane automatyczne migawki stanu ({snapshots.length}):</span>
                   </span>
                   {snapshots.length > 0 && (
@@ -730,7 +730,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                           setSnapshots([]);
                         }
                       }}
-                      className="text-[11px] text-rose-700 hover:text-rose-900 font-medium"
+                      className="text-[11px] text-rose-700 dark:text-rose-400 hover:text-rose-900 dark:hover:text-rose-300 font-medium"
                     >
                       Wyczyść listę migawek
                     </button>
@@ -738,17 +738,17 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                 </div>
 
                 {snapshots.length === 0 ? (
-                  <div className="p-6 bg-slate-50 border border-dashed border-slate-300 rounded-xl text-center space-y-2 text-xs text-slate-600">
-                    <Clock className="w-6 h-6 text-slate-600 mx-auto" aria-hidden="true" />
-                    <p className="font-medium text-slate-700">Brak zapisanych migawek automatycznych</p>
+                  <div className="p-6 bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl text-center space-y-2 text-xs text-slate-600 dark:text-slate-300">
+                    <Clock className="w-6 h-6 text-slate-600 dark:text-slate-400 mx-auto" aria-hidden="true" />
+                    <p className="font-medium text-slate-700 dark:text-slate-200">Brak zapisanych migawek automatycznych</p>
                     <p className="text-[11px]">
                       Kliknij przycisk "Wykonaj kopię teraz" powyżej lub zaczekaj na wyzwolenie zaplanowanego cyklu.
                     </p>
                   </div>
                 ) : (
-                  <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                  <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-2xs">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-100 text-slate-700 uppercase text-[10px] tracking-wider border-b border-slate-200">
+                      <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-700">
                         <tr>
                           <th scope="col" className="py-2.5 px-3">Data wykonania</th>
                           <th scope="col" className="py-2.5 px-3">Nazwa pliku</th>
@@ -757,19 +757,19 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                           <th scope="col" className="py-2.5 px-3 text-right">Akcje</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
                         {snapshots.map((snap) => (
-                          <tr key={snap.id} className="hover:bg-slate-50 transition-colors">
-                            <td className="py-2.5 px-3 font-mono text-slate-700 font-medium">
+                          <tr key={snap.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors">
+                            <td className="py-2.5 px-3 font-mono text-slate-700 dark:text-slate-300 font-medium">
                               {new Date(snap.timestamp).toLocaleString('pl-PL')}
                             </td>
-                            <td className="py-2.5 px-3 font-mono text-emerald-800 truncate max-w-[180px]">
+                            <td className="py-2.5 px-3 font-mono text-emerald-800 dark:text-emerald-300 truncate max-w-[180px]">
                               {snap.filename}
                             </td>
-                            <td className="py-2.5 px-3 text-slate-600">
+                            <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">
                               {snap.projectsCount} projektów, {snap.tasksCount} zadań
                             </td>
-                            <td className="py-2.5 px-3 text-right font-mono text-slate-700">
+                            <td className="py-2.5 px-3 text-right font-mono text-slate-700 dark:text-slate-200">
                               {formatBytes(snap.sizeBytes)}
                             </td>
                             <td className="py-2.5 px-3 text-right">
@@ -777,7 +777,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => handleRestoreFromSnapshot(snap)}
-                                  className="p-1 text-emerald-700 hover:text-emerald-900 hover:bg-emerald-100 rounded transition-colors"
+                                  className="p-1 text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-950/60 rounded transition-colors"
                                   aria-label={`Przywróć migawkę ${snap.filename}`}
                                   title="Przywróć stan aplikacji z tej kopii"
                                 >
@@ -786,7 +786,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => handleDownloadSnapshot(snap)}
-                                  className="p-1 text-slate-600 hover:text-slate-900 hover:bg-slate-200 rounded transition-colors"
+                                  className="p-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors"
                                   aria-label={`Pobierz migawkę ${snap.filename}`}
                                   title="Pobierz ten plik JSON na komputer"
                                 >
@@ -795,7 +795,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteSnapshot(snap.id)}
-                                  className="p-1 text-rose-700 hover:text-rose-900 hover:bg-rose-100 rounded transition-colors"
+                                  className="p-1 text-rose-700 dark:text-rose-400 hover:text-rose-900 dark:hover:text-rose-200 hover:bg-rose-100 dark:hover:bg-rose-950/60 rounded transition-colors"
                                   aria-label={`Usuń migawkę ${snap.filename}`}
                                   title="Usuń tę migawkę"
                                 >
@@ -812,7 +812,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
               </div>
 
               {/* Linux Server Docker Cron Configuration */}
-              <div className="p-4 bg-slate-900 text-white rounded-xl space-y-3 shadow-xs">
+              <div className="p-4 bg-slate-900 dark:bg-slate-950 text-white rounded-xl border border-slate-800 space-y-3 shadow-xs">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
                     <Terminal className="w-4 h-4 text-emerald-400" aria-hidden="true" />
@@ -852,9 +852,9 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
           {/* TAB 1: GOOGLE DRIVE */}
           {activeTab === 'gdrive' && (
             <div className="space-y-5">
-              <div className="bg-sky-50 border border-sky-200 rounded-lg p-4 flex items-start gap-3">
-                <Cloud className="w-5 h-5 text-sky-700 shrink-0 mt-0.5" aria-hidden="true" />
-                <div className="text-xs text-sky-900 leading-relaxed">
+              <div className="bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800/70 rounded-lg p-4 flex items-start gap-3">
+                <Cloud className="w-5 h-5 text-sky-700 dark:text-sky-400 shrink-0 mt-0.5" aria-hidden="true" />
+                <div className="text-xs text-sky-900 dark:text-sky-200 leading-relaxed">
                   <span className="font-bold block text-sm">Automatyczna integracja z Google Drive</span>
                   Twórz bezpieczne, zaszyfrowane kopie zapasowe projektów i terminów bezpośrednio na dysku Google Drive użytkownika lub organizacji Google Workspace.
                 </div>
@@ -862,7 +862,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
 
               <div className="space-y-4">
                 <div>
-                  <label htmlFor="gdrive-folder-input" className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label htmlFor="gdrive-folder-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">
                     Folder docelowy w Google Drive
                   </label>
                   <input
@@ -870,19 +870,19 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                     type="text"
                     value={gdriveFolder}
                     onChange={(e) => setGdriveFolder(e.target.value)}
-                    className="w-full border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 font-mono focus:outline-none focus:ring-1 focus:ring-sky-500"
+                    className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-xs text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:ring-1 focus:ring-sky-500"
                   />
-                  <span className="text-[11px] text-slate-600 mt-1 block">
+                  <span className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 block">
                     Katalog w Twoim Dysku Google, w którym zapisywane będą wersjonowane archiwa JSON/SQL.
                   </span>
                 </div>
 
-                <div className="flex items-center justify-between p-3.5 bg-slate-50 border border-slate-200 rounded-lg">
+                <div className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-lg">
                   <div>
-                    <label htmlFor="gdrive-auto-sync-checkbox" className="text-xs font-bold text-slate-800 block cursor-pointer">
+                    <label htmlFor="gdrive-auto-sync-checkbox" className="text-xs font-bold text-slate-800 dark:text-slate-100 block cursor-pointer">
                       Harmonogram automatycznego zapisu (Auto-Backup)
                     </label>
-                    <span className="text-[11px] text-slate-600">
+                    <span className="text-[11px] text-slate-600 dark:text-slate-300">
                       Codzienna archiwizacja stanu bazy danych o 02:00 w nocy.
                     </span>
                   </div>
@@ -895,13 +895,13 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                       onChange={(e) => setAutoSyncGdrive(e.target.checked)}
                       className="sr-only peer"
                     />
-                    <div className="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-700"></div>
+                    <div className="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-700"></div>
                   </label>
                 </div>
 
                 {gdriveStatus && (
-                  <div role="status" aria-live="polite" className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center gap-2 text-xs text-emerald-800">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" aria-hidden="true" />
+                  <div role="status" aria-live="polite" className="p-3 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 rounded-lg flex items-center gap-2 text-xs text-emerald-800 dark:text-emerald-200">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" aria-hidden="true" />
                     <span>{gdriveStatus}</span>
                   </div>
                 )}
@@ -924,9 +924,9 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                   <button
                     type="button"
                     onClick={handleDownloadJson}
-                    className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-medium px-4 py-2.5 rounded-lg transition-colors"
+                    className="flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium px-4 py-2.5 rounded-lg transition-colors"
                   >
-                    <Download className="w-3.5 h-3.5 text-slate-600" aria-hidden="true" />
+                    <Download className="w-3.5 h-3.5 text-slate-600 dark:text-slate-300" aria-hidden="true" />
                     <span>Pobierz plik archiwum na dysk</span>
                   </button>
 
@@ -934,9 +934,9 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                     href="https://drive.google.com/drive/my-drive"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-medium px-4 py-2.5 rounded-lg transition-colors border border-slate-300"
+                    className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-medium px-4 py-2.5 rounded-lg transition-colors border border-slate-300 dark:border-slate-700"
                   >
-                    <ExternalLink className="w-3.5 h-3.5 text-sky-700" aria-hidden="true" />
+                    <ExternalLink className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400" aria-hidden="true" />
                     <span>Otwórz Dysk Google</span>
                   </a>
                 </div>
@@ -947,22 +947,22 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
           {/* TAB 2: FTP / SFTP */}
           {activeTab === 'ftp' && (
             <div className="space-y-4">
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 flex items-start gap-3">
-                <Server className="w-5 h-5 text-slate-700 shrink-0 mt-0.5" aria-hidden="true" />
-                <div className="text-xs text-slate-700 leading-relaxed">
-                  <span className="font-bold block text-sm text-slate-900">Archiwizacja na własny serwer FTP / SFTP</span>
+              <div className="bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-lg p-4 flex items-start gap-3">
+                <Server className="w-5 h-5 text-slate-700 dark:text-slate-300 shrink-0 mt-0.5" aria-hidden="true" />
+                <div className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+                  <span className="font-bold block text-sm text-slate-900 dark:text-white">Archiwizacja na własny serwer FTP / SFTP</span>
                   Skonfiguruj przesyłanie kopii zapasowych na zewnętrzny serwer plików z obsługą szyfrowania SSH (SFTP) lub TLS (FTPS).
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
-                  <label htmlFor="ftp-protocol-select" className="block text-xs font-semibold text-slate-700 mb-1">Protokół</label>
+                  <label htmlFor="ftp-protocol-select" className="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Protokół</label>
                   <select
                     id="ftp-protocol-select"
                     value={ftpProtocol}
                     onChange={(e) => setFtpProtocol(e.target.value as 'sftp' | 'ftp' | 'ftps')}
-                    className="w-full border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 font-mono font-medium"
+                    className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-xs text-slate-900 dark:text-slate-100 font-mono font-medium"
                   >
                     <option value="sftp">SFTP (SSH File Transfer - Zalecane)</option>
                     <option value="ftps">FTPS (FTP over SSL/TLS)</option>
@@ -971,13 +971,13 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                 </div>
 
                 <div className="md:col-span-2">
-                  <label htmlFor="ftp-host-input" className="block text-xs font-semibold text-slate-700 mb-1">Host serwera</label>
+                  <label htmlFor="ftp-host-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Host serwera</label>
                   <input
                     id="ftp-host-input"
                     type="text"
                     value={ftpHost}
                     onChange={(e) => setFtpHost(e.target.value)}
-                    className="w-full border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 font-mono"
+                    className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-xs text-slate-900 dark:text-slate-100 font-mono"
                     placeholder="np. sftp.twojafirma.pl"
                   />
                 </div>
@@ -985,41 +985,41 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
-                  <label htmlFor="ftp-port-input" className="block text-xs font-semibold text-slate-700 mb-1">Port</label>
+                  <label htmlFor="ftp-port-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Port</label>
                   <input
                     id="ftp-port-input"
                     type="text"
                     value={ftpPort}
                     onChange={(e) => setFtpPort(e.target.value)}
-                    className="w-full border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 font-mono"
+                    className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-xs text-slate-900 dark:text-slate-100 font-mono"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="ftp-user-input" className="block text-xs font-semibold text-slate-700 mb-1">Użytkownik</label>
+                  <label htmlFor="ftp-user-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Użytkownik</label>
                   <input
                     id="ftp-user-input"
                     type="text"
                     value={ftpUser}
                     onChange={(e) => setFtpUser(e.target.value)}
-                    className="w-full border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 font-mono"
+                    className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-xs text-slate-900 dark:text-slate-100 font-mono"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="ftp-pass-input" className="block text-xs font-semibold text-slate-700 mb-1">Hasło / Klucz SSH</label>
+                  <label htmlFor="ftp-pass-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Hasło / Klucz SSH</label>
                   <input
                     id="ftp-pass-input"
                     type="password"
                     value={ftpPass}
                     onChange={(e) => setFtpPass(e.target.value)}
-                    className="w-full border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 font-mono"
+                    className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-xs text-slate-900 dark:text-slate-100 font-mono"
                   />
                 </div>
               </div>
 
               <div>
-                <label htmlFor="ftp-remote-path-input" className="block text-xs font-semibold text-slate-700 mb-1">
+                <label htmlFor="ftp-remote-path-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">
                   Ścieżka zdalna na serwerze (Remote Path)
                 </label>
                 <input
@@ -1027,7 +1027,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                   type="text"
                   value={ftpRemotePath}
                   onChange={(e) => setFtpRemotePath(e.target.value)}
-                  className="w-full border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 font-mono"
+                  className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-xs text-slate-900 dark:text-slate-100 font-mono"
                 />
               </div>
 
@@ -1035,19 +1035,21 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                 <div
                   role={ftpTestResult.success ? 'status' : 'alert'}
                   className={`p-3.5 rounded-lg border text-xs ${
-                    ftpTestResult.success ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'
+                    ftpTestResult.success
+                      ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
+                      : 'bg-rose-50 dark:bg-rose-950/50 border-rose-200 dark:border-rose-800 text-rose-900 dark:text-rose-200'
                   }`}
                 >
                   <div className="flex items-center gap-2 font-bold">
                     {ftpTestResult.success ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-700" aria-hidden="true" />
+                      <CheckCircle2 className="w-4 h-4 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
                     ) : (
-                      <AlertTriangle className="w-4 h-4 text-rose-700" aria-hidden="true" />
+                      <AlertTriangle className="w-4 h-4 text-rose-700 dark:text-rose-400" aria-hidden="true" />
                     )}
                     <span>{ftpTestResult.message}</span>
                   </div>
                   {ftpTestResult.details && (
-                    <p className="mt-1 font-mono text-[11px] text-slate-600">{ftpTestResult.details}</p>
+                    <p className="mt-1 font-mono text-[11px] text-slate-600 dark:text-slate-300">{ftpTestResult.details}</p>
                   )}
                 </div>
               )}
@@ -1057,7 +1059,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                   type="button"
                   onClick={handleTestFtpConnection}
                   disabled={isFtpTesting}
-                  className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold px-4 py-2.5 rounded-lg border border-slate-300 transition-colors"
+                  className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold px-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 transition-colors"
                 >
                   {isFtpTesting && <RefreshCw className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />}
                   <span>Testuj połączenie</span>
@@ -1067,7 +1069,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                   type="button"
                   onClick={handleUploadToFtp}
                   disabled={isFtpUploading}
-                  className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition-colors shadow-xs"
+                  className="flex items-center gap-2 bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition-colors shadow-xs"
                 >
                   {isFtpUploading ? (
                     <RefreshCw className="w-4 h-4 animate-spin" aria-hidden="true" />
@@ -1085,13 +1087,13 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* SQL Dump */}
-                <div className="p-4 bg-white border border-slate-200 rounded-lg shadow-xs flex flex-col justify-between">
+                <div className="p-4 bg-white dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xs flex flex-col justify-between">
                   <div>
-                    <div className="flex items-center gap-2 text-slate-900 font-bold text-sm mb-1">
-                      <Database className="w-4 h-4 text-sky-700" aria-hidden="true" />
+                    <div className="flex items-center gap-2 text-slate-900 dark:text-white font-bold text-sm mb-1">
+                      <Database className="w-4 h-4 text-sky-700 dark:text-sky-400" aria-hidden="true" />
                       <span>Zrzut Bazy SQL (.sql)</span>
                     </div>
-                    <p className="text-xs text-slate-600 mb-4 leading-relaxed">
+                    <p className="text-xs text-slate-600 dark:text-slate-300 mb-4 leading-relaxed">
                       Generuje gotowy skrypt SQL zawierający instrukcje `INSERT INTO ... ON CONFLICT DO UPDATE` dla importu danych projektów do relacyjnej bazy danych.
                     </p>
                   </div>
@@ -1106,13 +1108,13 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                 </div>
 
                 {/* JSON Full State Dump */}
-                <div className="p-4 bg-white border border-slate-200 rounded-lg shadow-xs flex flex-col justify-between">
+                <div className="p-4 bg-white dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xs flex flex-col justify-between">
                   <div>
-                    <div className="flex items-center gap-2 text-slate-900 font-bold text-sm mb-1">
-                      <FileText className="w-4 h-4 text-emerald-700" aria-hidden="true" />
+                    <div className="flex items-center gap-2 text-slate-900 dark:text-white font-bold text-sm mb-1">
+                      <FileText className="w-4 h-4 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
                       <span>Pełna kopia stanu (.json)</span>
                     </div>
-                    <p className="text-xs text-slate-600 mb-4 leading-relaxed">
+                    <p className="text-xs text-slate-600 dark:text-slate-300 mb-4 leading-relaxed">
                       Eksportuje całą strukturę aplikacji ({projects.length} projektów, {tasks.length} zadań, uprawnienia i komentarze) do uniwersalnego formatu JSON.
                     </p>
                   </div>
@@ -1128,12 +1130,12 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
               </div>
 
               {/* Restore Section */}
-              <div className="p-4 bg-amber-50/60 border border-amber-200 rounded-lg space-y-3">
+              <div className="p-4 bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/70 rounded-lg space-y-3">
                 <div>
-                  <span className="text-xs font-bold text-amber-900 block mb-1">
+                  <span className="text-xs font-bold text-amber-900 dark:text-amber-200 block mb-1">
                     Przywracanie danych z pliku kopii zapasowej
                   </span>
-                  <p className="text-xs text-amber-800 leading-relaxed">
+                  <p className="text-xs text-amber-800 dark:text-amber-200/90 leading-relaxed">
                     Wybierz wcześniej pobrany plik `.json`, aby odtworzyć wszystkie projekty, zależności drzewiaste i terminy urzędowe.
                   </p>
                 </div>
@@ -1144,14 +1146,14 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                     aria-live={restoreStatus.type === 'error' ? 'assertive' : 'polite'}
                     className={`p-3 rounded-lg border text-xs flex items-center gap-2 ${
                       restoreStatus.type === 'error'
-                        ? 'bg-rose-50 border-rose-200 text-rose-800'
-                        : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                        ? 'bg-rose-50 dark:bg-rose-950/50 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200'
+                        : 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
                     }`}
                   >
                     {restoreStatus.type === 'error' ? (
-                      <AlertTriangle className="w-4 h-4 text-rose-700 shrink-0" aria-hidden="true" />
+                      <AlertTriangle className="w-4 h-4 text-rose-700 dark:text-rose-400 shrink-0" aria-hidden="true" />
                     ) : (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" aria-hidden="true" />
+                      <CheckCircle2 className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" aria-hidden="true" />
                     )}
                     <span>{restoreStatus.message}</span>
                   </div>
@@ -1159,9 +1161,9 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
 
                 <label
                   htmlFor="restore-json-file-input"
-                  className="inline-flex items-center gap-2 bg-white border border-amber-300 hover:bg-amber-100/50 text-amber-900 text-xs font-semibold px-4 py-2 rounded-lg cursor-pointer transition-colors shadow-xs"
+                  className="inline-flex items-center gap-2 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 hover:bg-amber-100/50 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-200 text-xs font-semibold px-4 py-2 rounded-lg cursor-pointer transition-colors shadow-xs"
                 >
-                  <Upload className="w-3.5 h-3.5 text-amber-700" aria-hidden="true" />
+                  <Upload className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" aria-hidden="true" />
                   <span>Wybierz plik JSON do przywrócenia</span>
                   <input
                     id="restore-json-file-input"
@@ -1178,9 +1180,9 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
           {/* TAB 4: HISTORY */}
           {activeTab === 'history' && (
             <div className="space-y-3">
-              <div className="text-xs text-slate-600 flex items-center justify-between">
+              <div className="text-xs text-slate-600 dark:text-slate-300 flex items-center justify-between">
                 <span>Historia wygenerowanych archiwów i synchronizacji w chmurze</span>
-                <span className="font-mono text-slate-700 font-bold">Pozycji: {backupHistory.length}</span>
+                <span className="font-mono text-slate-700 dark:text-slate-200 font-bold">Pozycji: {backupHistory.length}</span>
               </div>
 
               {backupStatusMessage && (
@@ -1188,18 +1190,18 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                   role="status"
                   className={`p-3 rounded-lg border text-xs flex items-center gap-2 ${
                     isBackupActive
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                      : 'bg-amber-50 border-amber-200 text-amber-800'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
+                      : 'bg-amber-50 dark:bg-amber-950/50 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200'
                   }`}
                 >
-                  <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-700" aria-hidden="true" />
+                  <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
                   <span>{backupStatusMessage}</span>
                 </div>
               )}
 
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
+              <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100 text-slate-700 font-semibold uppercase text-[10px] tracking-wider border-b border-slate-200">
+                  <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-700">
                     <tr>
                       <th scope="col" className="py-2.5 px-3">Data wykonania</th>
                       <th scope="col" className="py-2.5 px-3">Miejsce docelowe</th>
@@ -1208,29 +1210,29 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
                       <th scope="col" className="py-2.5 px-3 text-right">Rozmiar</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
                     {backupHistory.length > 0 ? (
                       backupHistory.map((item) => (
-                        <tr key={item.id} className="hover:bg-slate-50">
-                          <td className="py-2.5 px-3 font-mono text-slate-600">{item.date}</td>
-                          <td className="py-2.5 px-3 font-medium text-slate-900">
+                        <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                          <td className="py-2.5 px-3 font-mono text-slate-600 dark:text-slate-300">{item.date}</td>
+                          <td className="py-2.5 px-3 font-medium text-slate-900 dark:text-white">
                             <span className="inline-flex items-center gap-1">
                               {item.destination.includes('Drive') ? (
-                                <Cloud className="w-3 h-3 text-sky-700" aria-hidden="true" />
+                                <Cloud className="w-3 h-3 text-sky-700 dark:text-sky-400" aria-hidden="true" />
                               ) : (
-                                <Server className="w-3 h-3 text-slate-600" aria-hidden="true" />
+                                <Server className="w-3 h-3 text-slate-600 dark:text-slate-300" aria-hidden="true" />
                               )}
                               <span>{item.destination}</span>
                             </span>
                           </td>
-                          <td className="py-2.5 px-3 font-mono text-sky-700">{item.filename}</td>
-                          <td className="py-2.5 px-3 text-slate-600">{item.recordsCount}</td>
-                          <td className="py-2.5 px-3 text-right font-mono text-slate-700 font-semibold">{item.size}</td>
+                          <td className="py-2.5 px-3 font-mono text-sky-700 dark:text-sky-400">{item.filename}</td>
+                          <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">{item.recordsCount}</td>
+                          <td className="py-2.5 px-3 text-right font-mono text-slate-700 dark:text-slate-200 font-semibold">{item.size}</td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={5} className="py-6 text-center text-slate-600 italic">
+                        <td colSpan={5} className="py-6 text-center text-slate-600 dark:text-slate-300 italic">
                           Brak zarejestrowanych kopii zapasowych w katalogu serwera.
                         </td>
                       </tr>
@@ -1243,16 +1245,16 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
         </div>
 
         {/* Modal Bottom Footer */}
-        <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-xs text-slate-600">
+        <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
           <div className="flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-emerald-700" aria-hidden="true" />
+            <ShieldCheck className="w-4 h-4 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
             <span>Kopie zawierają pełne drzewo zależności, szablony i terminy urzędowe.</span>
           </div>
 
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-1.5 bg-slate-900 text-white font-medium rounded hover:bg-slate-800 transition-colors"
+            className="px-4 py-1.5 bg-slate-900 dark:bg-slate-700 text-white font-medium rounded hover:bg-slate-800 dark:hover:bg-slate-600 transition-colors"
           >
             Zamknij
           </button>

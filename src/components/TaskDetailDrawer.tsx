@@ -118,38 +118,38 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
   const getPriorityBadge = (priority?: Priority | string) => {
     switch (priority) {
       case 'critical':
-        return <span className="text-xs font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">Krytyczny (P1)</span>;
+        return <span className="text-xs font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/50 px-2 py-0.5 rounded border border-rose-200 dark:border-rose-800">Krytyczny (P1)</span>;
       case 'high':
-        return <span className="text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">Wysoki (P2)</span>;
+        return <span className="text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">Wysoki (P2)</span>;
       case 'normal':
       case 'medium':
-        return <span className="text-xs font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">Normalny (P3)</span>;
+        return <span className="text-xs font-medium text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">Normalny (P3)</span>;
       case 'low':
-        return <span className="text-xs text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">Niski (P4)</span>;
+        return <span className="text-xs text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">Niski (P4)</span>;
       default:
-        return <span className="text-xs font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">Normalny</span>;
+        return <span className="text-xs font-medium text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">Normalny</span>;
     }
   };
 
   const safeCreatedAtDate = task.createdAt && task.createdAt.length >= 10 ? task.createdAt.slice(0, 10) : 'Bieżący';
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/40 backdrop-blur-xs flex justify-end">
+    <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/40 dark:bg-slate-950/70 backdrop-blur-xs flex justify-end">
       <div
         ref={drawerRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-full max-w-xl bg-white h-full shadow-2xl flex flex-col border-l border-slate-200 animate-in slide-in-from-right duration-200"
+        className="w-full max-w-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 h-full shadow-2xl flex flex-col border-l border-slate-200 dark:border-slate-800 animate-in slide-in-from-right duration-200"
       >
         {/* Drawer Header */}
-        <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+        <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/70 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="font-mono text-xs font-bold text-sky-700 bg-sky-100/80 px-2 py-0.5 rounded border border-sky-200">
+            <span className="font-mono text-xs font-bold text-sky-700 dark:text-sky-300 bg-sky-100/80 dark:bg-sky-950/60 px-2 py-0.5 rounded border border-sky-200 dark:border-sky-800">
               {task.code || 'ZAD'}
             </span>
-            <span className="text-xs text-slate-600" aria-hidden="true">·</span>
-            <span className="text-xs font-semibold text-slate-700 truncate max-w-[220px]">
+            <span className="text-xs text-slate-600 dark:text-slate-400" aria-hidden="true">·</span>
+            <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate max-w-[220px]">
               {project?.name || 'Zarządzanie Projektami'}
             </span>
           </div>
@@ -158,16 +158,16 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
             <button
               type="button"
               onClick={() => onEdit(task)}
-              className="flex items-center gap-1 text-xs text-slate-700 hover:text-slate-900 px-2.5 py-1 rounded border border-slate-200 bg-white hover:bg-slate-100 transition-colors font-medium"
+              className="flex items-center gap-1 text-xs text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors font-medium"
             >
-              <Edit3 className="w-3.5 h-3.5 text-slate-600" aria-hidden="true" />
+              <Edit3 className="w-3.5 h-3.5 text-slate-600 dark:text-slate-300" aria-hidden="true" />
               <span>Edytuj</span>
             </button>
             <button
               type="button"
               onClick={onClose}
               aria-label="Zamknij szczegóły zadania"
-              className="p-1 text-slate-600 hover:text-slate-900 hover:bg-slate-200 rounded transition-colors"
+              className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors"
             >
               <X className="w-5 h-5" aria-hidden="true" />
             </button>
@@ -178,8 +178,8 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
         <div className="p-6 overflow-y-auto flex-1 space-y-6 text-xs">
           {/* Error Banner when blocked */}
           {errorMessage && (
-            <div role="alert" aria-live="assertive" className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-rose-700 shrink-0 mt-0.5" aria-hidden="true" />
+            <div role="alert" aria-live="assertive" className="p-3 bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 rounded-lg text-rose-800 dark:text-rose-200 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-700 dark:text-rose-400 shrink-0 mt-0.5" aria-hidden="true" />
               <div>
                 <span className="font-bold block">Blokada zależności!</span>
                 <p className="mt-0.5 leading-relaxed">{errorMessage}</p>
@@ -191,38 +191,38 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
           <div>
             <div className="flex items-center gap-2 mb-2">
               {getPriorityBadge(task.priority)}
-              <span className="text-slate-600 uppercase tracking-wide font-medium">
+              <span className="text-slate-600 dark:text-slate-400 uppercase tracking-wide font-medium">
                 Typ: {task.type || 'zadanie'}
               </span>
               {parentTask && (
-                <span className="text-slate-600 font-mono">
-                  · Podzadanie w: <strong>{parentTask.code}</strong>
+                <span className="text-slate-600 dark:text-slate-400 font-mono">
+                  · Podzadanie w: <strong className="text-slate-800 dark:text-slate-200">{parentTask.code}</strong>
                 </span>
               )}
             </div>
-            <h2 id={titleId} className="text-base font-bold text-slate-900 leading-snug">{task.title}</h2>
+            <h2 id={titleId} className="text-base font-bold text-slate-900 dark:text-white leading-snug">{task.title}</h2>
           </div>
 
           {/* OFFICIAL STATUTORY DEADLINE WARNING BANNER */}
           {task.isOfficialDeadline && (
             <div className={`p-3.5 rounded-lg border flex items-start gap-3 ${
               isApproachingOfficialDeadline(task)
-                ? 'bg-rose-50 border-rose-300 text-rose-950 animate-official-deadline'
-                : 'bg-amber-50 border-amber-200 text-amber-950'
+                ? 'bg-rose-50 dark:bg-rose-950/50 border-rose-300 dark:border-rose-800 text-rose-950 dark:text-rose-100 animate-official-deadline'
+                : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-950 dark:text-amber-100'
             }`}>
               <div className="p-1.5 bg-rose-700 text-white rounded shrink-0">
                 <Flame className="w-4 h-4" aria-hidden="true" />
               </div>
               <div className="flex-1">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs uppercase tracking-wide text-rose-900">
+                  <span className="font-bold text-xs uppercase tracking-wide text-rose-900 dark:text-rose-200">
                     Termin urzędowy (rygor administracyjny / prawny)
                   </span>
-                  <span className="font-mono font-bold text-[11px] bg-rose-200/80 px-2 py-0.5 rounded text-rose-950">
+                  <span className="font-mono font-bold text-[11px] bg-rose-200/80 dark:bg-rose-900/70 px-2 py-0.5 rounded text-rose-950 dark:text-rose-100">
                     Pozostało: {getBusinessDaysRemaining(task.dueDate)} dni roboczych
                   </span>
                 </div>
-                <p className="text-[11px] text-rose-900/90 mt-1 leading-relaxed">
+                <p className="text-[11px] text-rose-900/90 dark:text-rose-200 mt-1 leading-relaxed">
                   {isApproachingOfficialDeadline(task)
                     ? '⚠️ Uwaga! Do upływu terminu urzędowego pozostały 3 dni robocze lub mniej (z wyłączeniem sobót, niedziel i polskich świąt ustawowych). Całe zadanie mruga na listach i harmonogramie, aby zapobiec uchybieniu terminu!'
                     : `Zadanie oznaczone jako termin urzędowy. Mruganie rozpocznie się automatycznie na 3 dni robocze przed ${task.dueDate} (dni robocze z pominięciem świąt).`}
@@ -233,20 +233,20 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
 
           {/* BLOCKER DEPENDENCY ALERT CARD WITH DIRECT JUMP */}
           {isBlockedByDependencies ? (
-            <div className="bg-slate-100 border-2 border-rose-400 rounded-lg p-3.5 space-y-2.5 task-blocked-style">
+            <div className="bg-slate-100 dark:bg-slate-800 border-2 border-rose-400 dark:border-rose-700 rounded-lg p-3.5 space-y-2.5 task-blocked-style">
               <div className="flex items-center justify-between relative z-10">
-                <div className="flex items-center gap-2 text-rose-900 font-bold">
+                <div className="flex items-center gap-2 text-rose-900 dark:text-rose-200 font-bold">
                   <div className="p-1 bg-rose-700 text-white rounded">
                     <AlertCircle className="w-4 h-4" aria-hidden="true" />
                   </div>
                   <span className="text-sm">To zadanie jest obecnie ZABLOKOWANE</span>
                 </div>
-                <span className="text-[10px] bg-rose-100 text-rose-900 border border-rose-200 font-bold px-2 py-0.5 rounded">
+                <span className="text-[10px] bg-rose-100 dark:bg-rose-950/80 text-rose-900 dark:text-rose-200 border border-rose-200 dark:border-rose-800 font-bold px-2 py-0.5 rounded">
                   Wymaga ukończenia {unfinishedBlockers.length} zadań
                 </span>
               </div>
 
-              <p className="text-slate-800 leading-relaxed text-[11px] relative z-10 font-medium bg-white/90 p-2 rounded border border-slate-200">
+              <p className="text-slate-800 dark:text-slate-200 leading-relaxed text-[11px] relative z-10 font-medium bg-white/90 dark:bg-slate-900/90 p-2 rounded border border-slate-200 dark:border-slate-700">
                 Zgodnie z regułami zależności, realizacja tego zadania będzie możliwa dopiero po ukończeniu poniższych zadań blokujących. Kliknij zadanie, aby natychmiast do niego przejść:
               </p>
 
@@ -254,13 +254,13 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
                 {blockingTasks.map((b) => (
                   <div
                     key={b.id}
-                    className="flex flex-wrap items-center justify-between gap-2 bg-white/95 backdrop-blur-xs p-2.5 rounded-md border border-slate-300 shadow-xs hover:border-sky-400 transition-colors"
+                    className="flex flex-wrap items-center justify-between gap-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs p-2.5 rounded-md border border-slate-300 dark:border-slate-700 shadow-xs hover:border-sky-400 dark:hover:border-sky-500 transition-colors"
                   >
                     <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <span className="font-mono font-bold text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-100 text-[11px] shrink-0">
+                      <span className="font-mono font-bold text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/60 px-1.5 py-0.5 rounded border border-sky-100 dark:border-sky-800 text-[11px] shrink-0">
                         {b.code}
                       </span>
-                      <span className="font-semibold text-slate-900 text-xs truncate" title={b.title}>
+                      <span className="font-semibold text-slate-900 dark:text-white text-xs truncate" title={b.title}>
                         {b.title}
                       </span>
                     </div>
@@ -269,8 +269,8 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
                       <span
                         className={`font-mono text-[10px] px-2 py-0.5 rounded font-medium ${
                           b.status === 'done'
-                            ? 'bg-emerald-100 text-emerald-800 font-bold'
-                            : 'bg-rose-100 text-rose-800'
+                            ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-bold'
+                            : 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300'
                         }`}
                       >
                         {b.status === 'done' ? 'Ukończone ✓' : `Status: ${b.status}`}
@@ -279,7 +279,7 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
                       {onNavigateToTask && (
                         <button
                           onClick={() => onNavigateToTask(b)}
-                          className="flex items-center gap-1 bg-slate-900 hover:bg-slate-800 text-white px-2.5 py-1 rounded text-[11px] font-semibold transition-colors"
+                          className="flex items-center gap-1 bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 text-white px-2.5 py-1 rounded text-[11px] font-semibold transition-colors"
                           title={`Przejdź do zadania [${b.code}]`}
                         >
                           <span>Przejdź</span>
@@ -292,25 +292,25 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
               </div>
             </div>
           ) : blockingTasks.length > 0 ? (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-emerald-900 flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg p-3 text-emerald-900 dark:text-emerald-200 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
               <span>Wszystkie zadania blokujące ({blockingTasks.length}) zostały ukończone. Zadanie odblokowane!</span>
             </div>
           ) : null}
 
           {/* GOOGLE CALENDAR & TIMELINE CARD */}
-          <div className="bg-sky-50/70 border border-sky-200 rounded-lg p-4 space-y-3">
+          <div className="bg-sky-50/70 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 rounded-lg p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-sky-900 font-semibold">
-                <Calendar className="w-4 h-4 text-sky-700" aria-hidden="true" />
+              <div className="flex items-center gap-2 text-sky-900 dark:text-sky-200 font-semibold">
+                <Calendar className="w-4 h-4 text-sky-700 dark:text-sky-400" aria-hidden="true" />
                 <span>Terminarz & Kalendarz Google</span>
               </div>
-              <div className="text-[11px] font-mono text-sky-800 tabular-nums font-semibold">
+              <div className="text-[11px] font-mono text-sky-800 dark:text-sky-300 tabular-nums font-semibold">
                 Czas trwania: {task.durationDays || 1} dni ({task.startDate || 'Brak daty'} → {task.dueDate || 'Brak daty'})
               </div>
             </div>
 
-            <p className="text-slate-600 leading-relaxed">
+            <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
               Dodaj to zadanie do Kalendarza Google lub pobierz uniwersalny plik terminów .ics.
             </p>
 
@@ -328,23 +328,23 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
               <button
                 type="button"
                 onClick={() => downloadIcsFile([task], `${task.code || 'zadanie'}-termin.ics`, project?.name)}
-                className="flex items-center gap-1.5 bg-white border border-sky-300 hover:bg-sky-100/60 text-sky-900 text-xs font-medium px-3 py-1.5 rounded transition-colors"
+                className="flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-sky-300 dark:border-sky-700 hover:bg-sky-100/60 dark:hover:bg-slate-700 text-sky-900 dark:text-sky-200 text-xs font-medium px-3 py-1.5 rounded transition-colors"
               >
-                <Download className="w-3.5 h-3.5 text-sky-700" aria-hidden="true" />
+                <Download className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400" aria-hidden="true" />
                 <span>Pobierz plik .ics</span>
               </button>
             </div>
           </div>
 
           {/* Status & Progress Selector */}
-          <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
+          <div className="grid grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
             <div>
-              <label htmlFor={`${baseId}-status`} className="block font-semibold text-slate-700 mb-1">Status zadania</label>
+              <label htmlFor={`${baseId}-status`} className="block font-semibold text-slate-700 dark:text-slate-200 mb-1">Status zadania</label>
               <select
                 id={`${baseId}-status`}
                 value={task.status || 'to_do'}
                 onChange={(e) => handleStatusChange(e.target.value as TaskStatus)}
-                className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-900 font-medium focus:ring-1 focus:ring-sky-500"
+                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 font-medium focus:ring-1 focus:ring-sky-500"
               >
                 <option value="to_do">Do zrobienia</option>
                 <option value="in_progress">W toku</option>
@@ -356,8 +356,8 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
 
             <div>
               <div className="flex justify-between items-center mb-1">
-                <label htmlFor={`${baseId}-progress`} className="font-semibold text-slate-700">Postęp</label>
-                <span className="font-mono tabular-nums font-bold text-slate-700">
+                <label htmlFor={`${baseId}-progress`} className="font-semibold text-slate-700 dark:text-slate-200">Postęp</label>
+                <span className="font-mono tabular-nums font-bold text-slate-700 dark:text-slate-200">
                   {task.progress || 0}%
                 </span>
               </div>
@@ -376,34 +376,34 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
 
           {/* SUBTASKS HIERARCHY TREE (Drzewo podzadań) */}
           {subtasks.length > 0 && (
-            <div className="border border-slate-200 rounded-lg p-3.5 bg-slate-50/70 space-y-2">
+            <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-3.5 bg-slate-50/70 dark:bg-slate-800/40 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-                  <GitMerge className="w-3.5 h-3.5 text-sky-700" aria-hidden="true" />
+                <span className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <GitMerge className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400" aria-hidden="true" />
                   <span>Podzadania w drzewie zależności ({subtasks.length})</span>
                 </span>
-                <span className="text-[11px] font-mono text-slate-600">
+                <span className="text-[11px] font-mono text-slate-600 dark:text-slate-400">
                   {subtasks.filter((s) => s.status === 'done').length}/{subtasks.length} ukończone
                 </span>
               </div>
-              <p className="text-[11px] text-slate-600">
+              <p className="text-[11px] text-slate-600 dark:text-slate-400">
                 Ukończenie wszystkich podzadań automatycznie zakończy to zadanie nadrzędne.
               </p>
               <div className="space-y-1">
                 {subtasks.map((st) => (
                   <div
                     key={st.id}
-                    className="flex items-center justify-between bg-white px-3 py-1.5 rounded border border-slate-200"
+                    className="flex items-center justify-between bg-white dark:bg-slate-900 px-3 py-1.5 rounded border border-slate-200 dark:border-slate-700"
                   >
                     <div className="flex items-center gap-2 truncate">
-                      <span className="font-mono text-slate-600 font-bold">{st.code}</span>
-                      <span className="truncate">{st.title}</span>
+                      <span className="font-mono text-slate-600 dark:text-slate-400 font-bold">{st.code}</span>
+                      <span className="truncate text-slate-900 dark:text-slate-100">{st.title}</span>
                     </div>
                     <span
                       className={`font-mono text-[10px] px-1.5 py-0.5 rounded ${
                         st.status === 'done'
-                          ? 'bg-emerald-100 text-emerald-800 font-bold'
-                          : 'bg-slate-100 text-slate-700'
+                          ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-bold'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
                       }`}
                     >
                       {st.status === 'done' ? 'Ukończone ✓' : st.status}
@@ -416,15 +416,15 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
 
           {/* TASKS BLOCKED BY THIS TASK */}
           {tasksBlockedByThis.length > 0 && (
-            <div className="border border-slate-200 rounded-lg p-3 bg-slate-50 space-y-1.5">
-              <span className="font-semibold text-slate-700 block text-[11px]">
+            <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-3 bg-slate-50 dark:bg-slate-800/40 space-y-1.5">
+              <span className="font-semibold text-slate-700 dark:text-slate-200 block text-[11px]">
                 Zadania oczekujące na wykonanie tego zadania:
               </span>
               <div className="space-y-1">
                 {tasksBlockedByThis.map((t) => (
-                  <div key={t.id} className="flex items-center justify-between bg-white p-1.5 rounded border border-slate-200 text-[11px]">
-                    <span className="font-mono font-medium text-slate-800">[{t.code}] {t.title}</span>
-                    <span className="text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                  <div key={t.id} className="flex items-center justify-between bg-white dark:bg-slate-900 p-1.5 rounded border border-slate-200 dark:border-slate-700 text-[11px]">
+                    <span className="font-mono font-medium text-slate-800 dark:text-slate-200">[{t.code}] {t.title}</span>
+                    <span className="text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
                       Oczekuje na odblokowanie
                     </span>
                   </div>
@@ -435,34 +435,34 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
 
           {/* Description */}
           <div>
-            <h3 className="font-semibold text-slate-700 uppercase tracking-wider mb-1.5">Opis i zakres</h3>
-            <div className="text-slate-800 leading-relaxed bg-white border border-slate-200 p-3.5 rounded-md whitespace-pre-line">
+            <h3 className="font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">Opis i zakres</h3>
+            <div className="text-slate-800 dark:text-slate-200 leading-relaxed bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 p-3.5 rounded-md whitespace-pre-line">
               {task.description || 'Brak opisu dla tego zadania.'}
             </div>
           </div>
 
           {/* Metadata Grid */}
-          <div className="grid grid-cols-2 gap-3 border border-slate-200 rounded-lg p-3.5 bg-slate-50/50">
+          <div className="grid grid-cols-2 gap-3 border border-slate-200 dark:border-slate-700 rounded-lg p-3.5 bg-slate-50/50 dark:bg-slate-800/40">
             <div>
-              <span className="text-slate-600 block text-[11px]">Osoba przypisana:</span>
-              <span className="font-medium text-slate-900">{assignee ? assignee.name : 'Brak'}</span>
+              <span className="text-slate-600 dark:text-slate-400 block text-[11px]">Osoba przypisana:</span>
+              <span className="font-medium text-slate-900 dark:text-white">{assignee ? assignee.name : 'Brak'}</span>
             </div>
 
             <div>
-              <span className="text-slate-600 block text-[11px]">Zgłaszający:</span>
-              <span className="font-medium text-slate-900">{reporter ? reporter.name : 'System'}</span>
+              <span className="text-slate-600 dark:text-slate-400 block text-[11px]">Zgłaszający:</span>
+              <span className="font-medium text-slate-900 dark:text-white">{reporter ? reporter.name : 'System'}</span>
             </div>
 
             <div>
-              <span className="text-slate-600 block text-[11px]">Czas trwania w dniach:</span>
-              <span className="font-mono tabular-nums text-slate-900 font-bold">
+              <span className="text-slate-600 dark:text-slate-400 block text-[11px]">Czas trwania w dniach:</span>
+              <span className="font-mono tabular-nums text-slate-900 dark:text-white font-bold">
                 {task.durationDays || 1} dni ({task.estimatedHours || 0} h)
               </span>
             </div>
 
             <div>
-              <span className="text-slate-600 block text-[11px]">Harmonogram:</span>
-              <span className="font-mono tabular-nums text-slate-700">
+              <span className="text-slate-600 dark:text-slate-400 block text-[11px]">Harmonogram:</span>
+              <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300">
                 {task.startDate || '—'} do {task.dueDate || '—'}
               </span>
             </div>
@@ -471,15 +471,15 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
           {/* Tags */}
           {task.tags && task.tags.length > 0 && (
             <div>
-              <h3 className="font-semibold text-slate-700 mb-1.5 flex items-center gap-1">
-                <Tag className="w-3.5 h-3.5 text-slate-600" aria-hidden="true" />
+              <h3 className="font-semibold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1">
+                <Tag className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" aria-hidden="true" />
                 <span>Etykiety</span>
               </h3>
               <div className="flex flex-wrap gap-1.5">
                 {task.tags.map((t, idx) => (
                   <span
                     key={idx}
-                    className="text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded"
+                    className="text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded"
                   >
                     {t}
                   </span>
@@ -489,29 +489,29 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
           )}
 
           {/* Comments and Multi-user collaboration */}
-          <div className="pt-4 border-t border-slate-200">
-            <h3 className="font-semibold text-slate-700 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-              <MessageSquare className="w-4 h-4 text-slate-600" aria-hidden="true" />
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
+            <h3 className="font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+              <MessageSquare className="w-4 h-4 text-slate-600 dark:text-slate-400" aria-hidden="true" />
               <span>Dyskusja zespołu ({taskComments.length})</span>
             </h3>
 
             <div className="space-y-3 mb-4">
               {taskComments.length === 0 ? (
-                <div className="text-slate-600 italic py-2">Brak komentarzy. Dodaj pierwszy wpis!</div>
+                <div className="text-slate-600 dark:text-slate-400 italic py-2">Brak komentarzy. Dodaj pierwszy wpis!</div>
               ) : (
                 taskComments.map((c) => {
                   const author = safeUsers.find((u) => u.id === c.userId);
                   const timeFormatted =
                     c.createdAt && c.createdAt.length >= 16 ? c.createdAt.slice(11, 16) : 'Teraz';
                   return (
-                    <div key={c.id} className="bg-slate-50 border border-slate-200 rounded p-2.5">
+                    <div key={c.id} className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded p-2.5">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="font-semibold text-slate-800">{author ? author.name : 'Użytkownik'}</span>
-                        <span className="text-[10px] text-slate-600 font-mono tabular-nums">
+                        <span className="font-semibold text-slate-800 dark:text-slate-200">{author ? author.name : 'Użytkownik'}</span>
+                        <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono tabular-nums">
                           {timeFormatted}
                         </span>
                       </div>
-                      <p className="text-slate-700 leading-relaxed">{c.content}</p>
+                      <p className="text-slate-700 dark:text-slate-300 leading-relaxed">{c.content}</p>
                     </div>
                   );
                 })
@@ -526,11 +526,11 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
                 value={commentText}
                 onChange={(e) => setCommentText(e.target.value)}
                 placeholder={`Napisz jako ${currentUser?.name || 'Użytkownik'}...`}
-                className="flex-1 border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                className="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
               />
               <button
                 type="submit"
-                className="bg-slate-900 hover:bg-slate-800 text-white px-3 py-1.5 rounded transition-colors flex items-center gap-1 shrink-0 font-medium"
+                className="bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 text-white px-3 py-1.5 rounded transition-colors flex items-center gap-1 shrink-0 font-medium"
               >
                 <Send className="w-3 h-3" aria-hidden="true" />
                 <span>Wyślij</span>
