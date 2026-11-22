@@ -4,6 +4,7 @@ import {
   canReparent,
   getDepth,
   getSubtreeHeight,
+  reconcileParentCompletionOnReparent,
   type TaskTreeNodeLike,
 } from '../utils/taskTree';
 
@@ -82,5 +83,111 @@ describe('Walidacja hierarchii zadań parentId (taskTree.ts)', () => {
     expect(canReparent(baseTasks, 't2', '', 'p1').ok).toBe(true);
     expect(canReparent(baseTasks, 't2', null, 'p1').ok).toBe(true);
     expect(canReparent(baseTasks, 't2', undefined, 'p1').ok).toBe(true);
+  });
+
+  it('pozwala na przenoszenie zadań ukończonych (status done) pod innego rodzica i na poziom główny', () => {
+    const doneTasks = [
+      { id: 'pA', projectId: 'p1', status: 'done' },
+      { id: 'pB', projectId: 'p1', status: 'in_progress' },
+      { id: 'doneChild', projectId: 'p1', parentId: 'pA', status: 'done' },
+    ];
+    expect(canReparent(doneTasks, 'doneChild', 'pB', 'p1').ok).toBe(true);
+    expect(canReparent(doneTasks, 'doneChild', null, 'p1').ok).toBe(true);
+    expect(canReparent(doneTasks, 'pA', 'pB', 'p1').ok).toBe(true);
+  });
+
+  it('przelicza postęp i dwukierunkowo zmienia status rodziców po przeniesieniu podzadania (zachowując daty i zależności)', () => {
+    const nowIso = '2026-06-01T10:00:00.000Z';
+    const tasks = [
+      {
+        id: 'oldGrand',
+        projectId: 'p1',
+        status: 'in_progress',
+        progress: 50,
+        startDate: '2026-05-01',
+        dueDate: '2026-05-20',
+        durationDays: 19,
+      },
+      {
+        id: 'oldParent',
+        projectId: 'p1',
+        parentId: 'oldGrand',
+        status: 'in_progress',
+        progress: 50,
+        startDate: '2026-05-01',
+        dueDate: '2026-05-15',
+        durationDays: 14,
+      },
+      {
+        id: 'oldSiblingDone',
+        projectId: 'p1',
+        parentId: 'oldParent',
+        status: 'done',
+        progress: 100,
+        estimatedHours: 10,
+      },
+      {
+        id: 'newParent',
+        projectId: 'p1',
+        status: 'done',
+        progress: 100,
+        startDate: '2026-05-02',
+        dueDate: '2026-05-18',
+        durationDays: 16,
+      },
+      {
+        id: 'newExistingDone',
+        projectId: 'p1',
+        parentId: 'newParent',
+        status: 'done',
+        progress: 100,
+        estimatedHours: 10,
+      },
+      {
+        id: 'movedChild',
+        projectId: 'p1',
+        // po przeniesieniu spod oldParent pod newParent:
+        parentId: 'newParent',
+        status: 'in_progress',
+        progress: 20,
+        estimatedHours: 10,
+        startDate: '2026-05-03',
+        dueDate: '2026-05-09',
+        durationDays: 6,
+        blockingTaskIds: ['oldSiblingDone'],
+      },
+    ];
+
+    const res = reconcileParentCompletionOnReparent(tasks, {
+      movedTaskId: 'movedChild',
+      oldParentId: 'oldParent',
+      newParentId: 'newParent',
+      projectId: 'p1',
+      nowIso,
+    });
+
+    const oldParentAfter = res.tasks.find((t) => t.id === 'oldParent')!;
+    const oldGrandAfter = res.tasks.find((t) => t.id === 'oldGrand')!;
+    const newParentAfter = res.tasks.find((t) => t.id === 'newParent')!;
+    const movedAfter = res.tasks.find((t) => t.id === 'movedChild')!;
+
+    // Stary rodzic ma teraz wyłącznie ukończone podzadania -> przechodzi na 'done' (100%), a z nim dziadek
+    expect(oldParentAfter.status).toBe('done');
+    expect(oldParentAfter.progress).toBe(100);
+    expect(oldGrandAfter.status).toBe('done');
+    expect(oldGrandAfter.progress).toBe(100);
+
+    // Nowy rodzic był 'done', ale otrzymał podzadanie 'in_progress' -> wraca do 'in_progress', postęp (100 + 20) / 2 = 60%
+    expect(newParentAfter.status).toBe('in_progress');
+    expect(newParentAfter.progress).toBe(60);
+
+    // Daty oraz zależności przeniesionego zadania pozostają nienaruszone
+    expect(movedAfter.startDate).toBe('2026-05-03');
+    expect(movedAfter.dueDate).toBe('2026-05-09');
+    expect(movedAfter.durationDays).toBe(6);
+    expect(movedAfter.blockingTaskIds).toEqual(['oldSiblingDone']);
+    expect(res.changedStatusParentIds).toContain('oldParent');
+    expect(res.changedStatusParentIds).toContain('oldGrand');
+    expect(res.changedStatusParentIds).toContain('newParent');
   });
 });

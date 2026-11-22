@@ -564,12 +564,14 @@ export default function App() {
     confirmDeleteTask,
     handleUpdateStatus,
     handleUpdateProgress,
+    handleReparentTask,
     handleAddComment,
   } = useTaskActions({
     tasks,
     setTasks,
     projects,
     currentUser,
+    progressWeighting,
     editingTask,
     setEditingTask,
     selectedTaskDetail,
@@ -1518,11 +1520,13 @@ export default function App() {
               projects={projectsWithProgress}
               companies={companies}
               users={users}
+              currentUser={currentUser}
               selectedProjectId={selectedProjectId}
               onSelectProject={(projId) => setSelectedProjectId(projId)}
               onSelectTask={handleSelectTask}
               onAddTask={(projId, parentTaskId) => handleOpenNewTask(undefined, parentTaskId, projId)}
               onUpdateTaskStatus={handleUpdateStatus}
+              onReparentTask={handleReparentTask}
             />
           )}
 

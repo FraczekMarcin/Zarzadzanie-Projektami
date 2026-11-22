@@ -1,40 +1,46 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useId } from 'react';
 import { Task, Project, User, Priority, TaskStatus, Company } from '../types';
-import { 
-  ChevronRight, 
-  ChevronDown, 
-  Plus, 
-  Layers, 
-  CheckCircle2, 
-  Clock, 
-  AlertTriangle, 
-  Lock, 
-  GitMerge, 
-  GitBranch, 
-  Search, 
-  Folder, 
-  Copy, 
-  Check, 
-  Building2,
+import {
+  ChevronRight,
+  ChevronDown,
+  Plus,
+  Check,
+  Search,
+  GitMerge,
+  GitBranch,
+  Copy,
   Calendar,
   ExternalLink,
-  Filter,
   Flame,
-  Hourglass
+  Hourglass,
+  Lock,
+  GripVertical,
+  MoveVertical,
+  CornerLeftUp,
+  X,
+  AlertCircle,
 } from 'lucide-react';
 import { useVariables } from '../hooks/useVariables';
 import { copyToClipboard } from '../utils/clipboard';
+import { canAccessProject } from '../utils/access';
+import { canReparent } from '../utils/taskTree';
+import { useFocusTrap } from '../utils/useFocusTrap';
 
 interface TaskTreeViewProps {
   tasks: Task[];
   projects: Project[];
   companies?: Company[];
   users: User[];
+  currentUser?: User | null;
   selectedProjectId: string | null;
   onSelectProject: (projectId: string | null) => void;
   onSelectTask: (task: Task) => void;
   onAddTask: (projectId: string, parentTaskId?: string) => void;
   onUpdateTaskStatus?: (taskId: string, status: TaskStatus) => void;
+  onReparentTask?: (
+    taskId: string,
+    newParentId: string | null
+  ) => Promise<{ ok: boolean; error?: string }> | void;
 }
 
 interface TreeNode {
@@ -48,36 +54,80 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
   projects,
   companies = [],
   users,
+  currentUser,
   selectedProjectId,
   onSelectProject,
   onSelectTask,
   onAddTask,
-  onUpdateTaskStatus,
+  onReparentTask,
 }) => {
   const { deadlineWarningDays: warningDays } = useVariables();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(() => {
-    // By default expand all root tasks
     return new Set(tasks.map((t) => t.id));
   });
   const [copiedDiskPath, setCopiedDiskPath] = useState(false);
 
-  // Active project
+  // Stan przeciągania (HTML5 Drag & Drop oraz obsługa dotyku przez Pointer Events)
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const draggedTaskIdRef = useRef<string | null>(null);
+  const [dragOverTargetId, setDragOverTargetId] = useState<string | null>(null); // 'root' lub task.id
+  const dragOverTargetIdRef = useRef<string | null>(null);
+  const hoverExpandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchDragActiveRef = useRef<{
+    pointerId: number;
+    taskId: string;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null>(null);
+
+  // Okno dialogowe przenoszenia z klawiatury / dla czytników ekranu
+  const [moveModalTaskId, setMoveModalTaskId] = useState<string | null>(null);
+  const [moveTargetSearch, setMoveTargetSearch] = useState('');
+  const [isMoveSubmitting, setIsMoveSubmitting] = useState(false);
+  const moveModalRef = useRef<HTMLDivElement>(null);
+  const moveModalTitleId = useId();
+  const [liveAnnouncement, setLiveAnnouncement] = useState('');
+
+  // Aktywny projekt
   const currentProject = projects.find((p) => p.id === selectedProjectId) || projects[0] || null;
 
-  // Filter tasks belonging to current project (or all if none)
+  // Zadania w aktywnym projekcie
   const projectTasks = useMemo(() => {
     if (!currentProject) return tasks;
     return tasks.filter((t) => t.projectId === currentProject.id);
   }, [tasks, currentProject]);
 
-  // Build tree structure
+  const projectById = useMemo(() => {
+    const map = new Map<string, Project>();
+    for (const p of projects) {
+      map.set(p.id, p);
+    }
+    return map;
+  }, [projects]);
+
+  const canMoveTask = (task: Task): boolean => {
+    if (!onReparentTask) return false;
+    if (!currentUser) return true;
+    if (currentUser.role === 'viewer') return false;
+    if (currentUser.role === 'admin' || currentUser.role === 'project_manager') return true;
+    const proj = projectById.get(task.projectId);
+    if (proj && canAccessProject(currentUser, proj)) return true;
+    return task.assigneeId === currentUser.id || task.reporterId === currentUser.id;
+  };
+
+  const hasAnyMovableTask = useMemo(
+    () => Boolean(onReparentTask) && projectTasks.some((t) => canMoveTask(t)),
+    [onReparentTask, projectTasks, currentUser, projectById]
+  );
+
+  // Budowa drzewa
   const treeNodes = useMemo(() => {
     const taskMap = new Map<string, Task>();
     projectTasks.forEach((t) => taskMap.set(t.id, t));
 
-    // Find roots: tasks with no parentId OR parentId not in this project
     const rootTasks: Task[] = [];
     const childrenMap = new Map<string, Task[]>();
 
@@ -102,6 +152,107 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
 
     return rootTasks.map((rt) => buildNode(rt, 0));
   }, [projectTasks]);
+
+  const hasChildrenSet = useMemo(() => {
+    const set = new Set<string>();
+    const byId = new Set(projectTasks.map((t) => t.id));
+    for (const t of projectTasks) {
+      if (t.parentId && byId.has(t.parentId)) {
+        set.add(t.parentId);
+      }
+    }
+    return set;
+  }, [projectTasks]);
+
+  const clearHoverExpandTimer = () => {
+    if (hoverExpandTimerRef.current) {
+      clearTimeout(hoverExpandTimerRef.current);
+      hoverExpandTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      clearHoverExpandTimer();
+    };
+  }, []);
+
+  const updateDragOverTarget = (nextTargetId: string | null) => {
+    if (dragOverTargetIdRef.current === nextTargetId) return;
+    dragOverTargetIdRef.current = nextTargetId;
+    setDragOverTargetId(nextTargetId);
+    clearHoverExpandTimer();
+
+    if (
+      nextTargetId &&
+      nextTargetId !== 'root' &&
+      hasChildrenSet.has(nextTargetId) &&
+      !expandedNodeIds.has(nextTargetId)
+    ) {
+      hoverExpandTimerRef.current = setTimeout(() => {
+        setExpandedNodeIds((prev) => {
+          if (prev.has(nextTargetId)) return prev;
+          const next = new Set(prev);
+          next.add(nextTargetId);
+          return next;
+        });
+      }, 600);
+    }
+  };
+
+  const resetDragState = () => {
+    clearHoverExpandTimer();
+    draggedTaskIdRef.current = null;
+    dragOverTargetIdRef.current = null;
+    touchDragActiveRef.current = null;
+    setDraggedTaskId(null);
+    setDragOverTargetId(null);
+  };
+
+  const closeMoveModal = () => {
+    setMoveModalTaskId(null);
+    setMoveTargetSearch('');
+  };
+
+  useFocusTrap({
+    isOpen: Boolean(moveModalTaskId),
+    containerRef: moveModalRef,
+    onClose: closeMoveModal,
+  });
+
+  const performReparent = async (sourceId: string, newParentId: string | null) => {
+    if (!onReparentTask) return;
+    const sourceTask = tasks.find((t) => t.id === sourceId);
+    if (!sourceTask) return;
+    const currentParent = sourceTask.parentId || null;
+    if (currentParent === newParentId) return;
+
+    const validation = canReparent(tasks, sourceId, newParentId, sourceTask.projectId);
+    if (!validation.ok) return;
+
+    const targetTask = newParentId ? tasks.find((t) => t.id === newParentId) : undefined;
+    setIsMoveSubmitting(true);
+    try {
+      const result = await onReparentTask(sourceId, newParentId);
+      if (!result || result.ok !== false) {
+        if (newParentId) {
+          setExpandedNodeIds((prev) => {
+            if (prev.has(newParentId)) return prev;
+            const next = new Set(prev);
+            next.add(newParentId);
+            return next;
+          });
+        }
+        setLiveAnnouncement(
+          newParentId && targetTask
+            ? `Przeniesiono zadanie ${sourceTask.code} pod ${targetTask.code}`
+            : `Przeniesiono zadanie ${sourceTask.code} na poziom główny`
+        );
+      }
+    } finally {
+      setIsMoveSubmitting(false);
+    }
+  };
 
   // Expand / collapse all
   const handleExpandAll = () => {
@@ -134,27 +285,158 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
   const getPriorityBadge = (priority: Priority) => {
     switch (priority) {
       case 'critical':
-        return <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300 dark:border-rose-800">Krytyczny</span>;
+        return (
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
+            Krytyczny
+          </span>
+        );
       case 'high':
-        return <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800">Wysoki</span>;
+        return (
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+            Wysoki
+          </span>
+        );
       case 'low':
-        return <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">Niski</span>;
+        return (
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            Niski
+          </span>
+        );
       default:
-        return <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 border border-sky-200 dark:border-sky-800">Normalny</span>;
+        return (
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
+            Normalny
+          </span>
+        );
     }
   };
 
   const getStatusBadge = (status: TaskStatus) => {
     switch (status) {
       case 'done':
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">Ukończone</span>;
+        return (
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+            Ukończone
+          </span>
+        );
       case 'in_progress':
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300">W toku</span>;
+        return (
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300">
+            W toku
+          </span>
+        );
       case 'blocked':
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300">Zablokowane</span>;
+        return (
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300">
+            Zablokowane
+          </span>
+        );
       default:
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">Do zrobienia</span>;
+        return (
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+            Do zrobienia
+          </span>
+        );
     }
+  };
+
+  const draggedTask = useMemo(
+    () => (draggedTaskId ? tasks.find((t) => t.id === draggedTaskId) || null : null),
+    [draggedTaskId, tasks]
+  );
+
+  const rootDropValid = Boolean(draggedTask && draggedTask.parentId);
+  const rootDropReason = draggedTask && !draggedTask.parentId ? 'Zadanie jest już na poziomie głównym' : undefined;
+
+  // Kandydaci do okna przenoszenia
+  const moveModalTask = useMemo(
+    () => (moveModalTaskId ? tasks.find((t) => t.id === moveModalTaskId) || null : null),
+    [moveModalTaskId, tasks]
+  );
+
+  const allowedModalTargets = useMemo(() => {
+    if (!moveModalTask) return [];
+    const query = moveTargetSearch.trim().toLowerCase();
+    return projectTasks.filter((candidate) => {
+      if (candidate.projectId !== moveModalTask.projectId) return false;
+      const check = canReparent(tasks, moveModalTask.id, candidate.id, moveModalTask.projectId);
+      if (!check.ok) return false;
+      if (!query) return true;
+      return (
+        candidate.code.toLowerCase().includes(query) ||
+        candidate.title.toLowerCase().includes(query)
+      );
+    });
+  }, [moveModalTask, moveTargetSearch, projectTasks, tasks]);
+
+  // Obsługa HTML5 DnD oraz dotykowego przeciągania Pointer Events na uchwycie
+  const handleTouchPointerDown = (e: React.PointerEvent<HTMLButtonElement>, task: Task) => {
+    if (e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
+    if (!canMoveTask(task)) return;
+
+    e.currentTarget.setPointerCapture(e.pointerId);
+    touchDragActiveRef.current = {
+      pointerId: e.pointerId,
+      taskId: task.id,
+      startX: e.clientX,
+      startY: e.clientY,
+      moved: false,
+    };
+  };
+
+  const handleTouchPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const active = touchDragActiveRef.current;
+    if (!active || active.pointerId !== e.pointerId) return;
+
+    const dx = Math.abs(e.clientX - active.startX);
+    const dy = Math.abs(e.clientY - active.startY);
+    if (!active.moved && dx + dy >= 6) {
+      active.moved = true;
+      draggedTaskIdRef.current = active.taskId;
+      setDraggedTaskId(active.taskId);
+    }
+
+    if (!active.moved) return;
+
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const dropEl = el?.closest('[data-tree-drop-target]') as HTMLElement | null;
+    const targetId = dropEl?.getAttribute('data-tree-drop-target') || null;
+    updateDragOverTarget(targetId);
+  };
+
+  const handleTouchPointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const active = touchDragActiveRef.current;
+    if (!active || active.pointerId !== e.pointerId) return;
+
+    if (active.moved) {
+      const targetId = dragOverTargetIdRef.current;
+      const sourceId = active.taskId;
+      resetDragState();
+
+      if (targetId === 'root') {
+        const source = tasks.find((t) => t.id === sourceId);
+        if (source?.parentId) {
+          void performReparent(sourceId, null);
+        }
+      } else if (targetId && targetId !== sourceId) {
+        const source = tasks.find((t) => t.id === sourceId);
+        if (source) {
+          const check = canReparent(tasks, sourceId, targetId, source.projectId);
+          if (check.ok) {
+            void performReparent(sourceId, targetId);
+          }
+        }
+      }
+      return;
+    }
+
+    resetDragState();
+  };
+
+  const handleTouchPointerCancel = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const active = touchDragActiveRef.current;
+    if (!active || active.pointerId !== e.pointerId) return;
+    resetDragState();
   };
 
   // Recursive Tree Node Renderer
@@ -163,19 +445,22 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
     const isExpanded = expandedNodeIds.has(task.id);
     const hasChildren = children.length > 0;
     const assignee = users.find((u) => u.id === task.assigneeId);
+    const movable = canMoveTask(task);
 
     // Filter match test
-    const matchesSearch = !searchQuery || 
-      task.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    const matchesSearch =
+      !searchQuery ||
+      task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       task.code.toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesStatus = statusFilter === 'all' || task.status === statusFilter;
 
     if (!matchesSearch || !matchesStatus) {
-      // If parent does not match, but children might, render matching children
       const matchingChildren = children.filter((c) => {
         return (
-          (!searchQuery || c.task.title.toLowerCase().includes(searchQuery.toLowerCase()) || c.task.code.toLowerCase().includes(searchQuery.toLowerCase())) &&
+          (!searchQuery ||
+            c.task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            c.task.code.toLowerCase().includes(searchQuery.toLowerCase())) &&
           (statusFilter === 'all' || c.task.status === statusFilter)
         );
       });
@@ -191,28 +476,126 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
     const isOverdue = task.status !== 'done' && (task.dueDate ? task.dueDate < today : false);
     const isApproaching = task.status !== 'done' && !isOverdue && diffDays >= 0 && diffDays <= warningDays;
 
+    // Ocena czy ten wiersz jest prawidłowym celem podczas trwającego przeciągania
+    const isDraggingThis = draggedTaskId === task.id;
+    const isDragActive = Boolean(draggedTaskId);
+    const dropValidation =
+      isDragActive && draggedTask && !isDraggingThis
+        ? canReparent(tasks, draggedTask.id, task.id, draggedTask.projectId)
+        : null;
+    const isDropValid = Boolean(dropValidation?.ok);
+    const isDropInvalid = Boolean(isDragActive && !isDraggingThis && dropValidation && !dropValidation.ok);
+    const isHoveredDropTarget = dragOverTargetId === task.id;
+
     let cardStyle = '';
-    if (isOverdue) {
-      // Zadania których termin minął: tło mruga na czerwono
-      cardStyle = 'bg-rose-500/20 dark:bg-rose-950/70 border-rose-500 animate-pulse text-rose-950 dark:text-rose-100 ring-2 ring-rose-500/60 shadow-md';
+    if (isDraggingThis) {
+      cardStyle = 'opacity-50 bg-slate-100 dark:bg-slate-800 border-dashed border-slate-400 dark:border-slate-600';
+    } else if (isHoveredDropTarget && isDropValid) {
+      cardStyle =
+        'bg-sky-50 dark:bg-sky-950/60 border-2 border-sky-500 ring-2 ring-sky-400/70 shadow-sm';
+    } else if (isHoveredDropTarget && isDropInvalid) {
+      cardStyle =
+        'bg-rose-50 dark:bg-rose-950/50 border-2 border-rose-400 dark:border-rose-700 opacity-75 cursor-not-allowed';
+    } else if (isDropInvalid) {
+      cardStyle =
+        'opacity-60 cursor-not-allowed bg-slate-100/70 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800';
+    } else if (isOverdue) {
+      cardStyle =
+        'bg-rose-500/20 dark:bg-rose-950/70 border-rose-500 animate-pulse text-rose-950 dark:text-rose-100 ring-2 ring-rose-500/60 shadow-md';
     } else if (isApproaching) {
-      // Zadania zbliżające się: obwiednia mruga
-      cardStyle = 'border-2 border-amber-500 ring-2 ring-amber-400 animate-pulse bg-amber-50/50 dark:bg-amber-950/30';
+      cardStyle =
+        'border-2 border-amber-500 ring-2 ring-amber-400 animate-pulse bg-amber-50/50 dark:bg-amber-950/30';
+    } else if (isDragActive && isDropValid) {
+      cardStyle =
+        level === 0
+          ? 'bg-white dark:bg-slate-900 border-sky-300 dark:border-sky-700 shadow-2xs'
+          : 'bg-slate-50/70 dark:bg-slate-900/60 border-sky-300/80 dark:border-sky-800';
     } else if (level === 0) {
-      cardStyle = 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-2xs hover:border-sky-400 dark:hover:border-sky-600';
+      cardStyle =
+        'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-2xs hover:border-sky-400 dark:hover:border-sky-600';
     } else {
-      cardStyle = 'bg-slate-50/70 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800';
+      cardStyle =
+        'bg-slate-50/70 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800';
     }
 
     return (
       <div key={task.id} className="relative">
-        {/* Node card */}
-        <div 
-          className={`group flex items-center justify-between p-2.5 rounded-lg border transition-all mb-2 ${cardStyle}`}
+        {/* Wiersz węzła drzewa */}
+        <div
+          tabIndex={0}
+          data-tree-row-id={task.id}
+          data-tree-drop-target={task.id}
+          data-drop-invalid={isDropInvalid ? 'true' : undefined}
+          aria-disabled={isDropInvalid ? 'true' : undefined}
+          title={isDropInvalid ? dropValidation?.error : undefined}
+          onKeyDown={(e) => {
+            if (e.altKey && (e.key === 'm' || e.key === 'M') && movable) {
+              e.preventDefault();
+              setMoveTargetSearch('');
+              setMoveModalTaskId(task.id);
+            }
+          }}
+          onDragOver={(e) => {
+            const activeSourceId = draggedTaskIdRef.current;
+            if (!activeSourceId) return;
+            e.preventDefault();
+            const source = tasks.find((t) => t.id === activeSourceId);
+            const res = source
+              ? canReparent(tasks, activeSourceId, task.id, source.projectId)
+              : { ok: false };
+            e.dataTransfer.dropEffect = res.ok ? 'move' : 'none';
+            updateDragOverTarget(task.id);
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+              if (dragOverTargetIdRef.current === task.id) {
+                updateDragOverTarget(null);
+              }
+            }
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            const sourceId =
+              draggedTaskIdRef.current || e.dataTransfer?.getData('text/plain') || '';
+            resetDragState();
+            if (!sourceId || sourceId === task.id) return;
+            const source = tasks.find((t) => t.id === sourceId);
+            if (!source) return;
+            const check = canReparent(tasks, sourceId, task.id, source.projectId);
+            if (!check.ok) return;
+            void performReparent(sourceId, task.id);
+          }}
+          className={`group flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 p-2.5 rounded-lg border transition-all mb-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${cardStyle}`}
           style={{ marginLeft: `${level * 24}px` }}
         >
-          {/* Left Column: Branch Expander, Code, Title & Hierarchy info */}
-          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          {/* Left Column: Drag Handle, Branch Expander, Code, Title & Hierarchy info */}
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            {movable && (
+              <button
+                type="button"
+                draggable
+                data-testid={`tree-drag-handle-${task.id}`}
+                aria-label={`Przeciągnij zadanie ${task.code} (${task.title})`}
+                title="Przeciągnij, aby zmienić zadanie nadrzędne"
+                onDragStart={(e) => {
+                  draggedTaskIdRef.current = task.id;
+                  setDraggedTaskId(task.id);
+                  e.dataTransfer.effectAllowed = 'move';
+                  e.dataTransfer.setData('text/plain', task.id);
+                }}
+                onDragEnd={() => {
+                  resetDragState();
+                }}
+                onPointerDown={(e) => handleTouchPointerDown(e, task)}
+                onPointerMove={handleTouchPointerMove}
+                onPointerUp={handleTouchPointerUp}
+                onPointerCancel={handleTouchPointerCancel}
+                className="touch-none p-1 rounded text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200/70 dark:hover:bg-slate-700/70 cursor-grab active:cursor-grabbing shrink-0"
+              >
+                <GripVertical className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+            )}
+
             {/* Expand / Collapse Button */}
             {hasChildren ? (
               <button
@@ -220,7 +603,11 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
                 onClick={() => toggleNode(task.id)}
                 className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 transition-colors shrink-0"
                 title={isExpanded ? 'Zwiń podgałęzie' : 'Rozwiń podgałęzie'}
-                aria-label={isExpanded ? `Zwiń podgałęzie zadania ${task.code}` : `Rozwiń podgałęzie zadania ${task.code}`}
+                aria-label={
+                  isExpanded
+                    ? `Zwiń podgałęzie zadania ${task.code}`
+                    : `Rozwiń podgałęzie zadania ${task.code}`
+                }
                 aria-expanded={isExpanded}
               >
                 {isExpanded ? (
@@ -230,7 +617,10 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
                 )}
               </button>
             ) : (
-              <span className="w-6 h-6 flex items-center justify-center text-slate-400 dark:text-slate-600 shrink-0" aria-hidden="true">
+              <span
+                className="w-6 h-6 flex items-center justify-center text-slate-500 dark:text-slate-500 shrink-0"
+                aria-hidden="true"
+              >
                 •
               </span>
             )}
@@ -261,6 +651,20 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
               {task.title}
             </button>
 
+            {/* Drop target indicators during drag */}
+            {isHoveredDropTarget && isDropValid && (
+              <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-sky-700 text-white dark:bg-sky-600 dark:text-white shrink-0">
+                Jako podzadanie: {task.code}
+              </span>
+            )}
+
+            {isHoveredDropTarget && isDropInvalid && (
+              <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-200 border border-rose-300 dark:border-rose-700 shrink-0 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" aria-hidden="true" />
+                <span>Niedostępne: {dropValidation?.error}</span>
+              </span>
+            )}
+
             {/* Overdue / Approaching Alarm Badges */}
             {isOverdue && (
               <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-700 text-white shrink-0 flex items-center gap-1 shadow-xs animate-bounce">
@@ -278,14 +682,19 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
 
             {/* Subtasks Count Badge */}
             {hasChildren && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-medium shrink-0">
-                {children.length} {children.length === 1 ? 'podzadanie' : children.length < 5 ? 'podzadania' : 'podzadań'}
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-medium shrink-0">
+                {children.length}{' '}
+                {children.length === 1
+                  ? 'podzadanie'
+                  : children.length < 5
+                  ? 'podzadania'
+                  : 'podzadań'}
               </span>
             )}
 
             {/* Dependency note if blocked */}
             {task.blockingTaskIds && task.blockingTaskIds.length > 0 && (
-              <span className="hidden lg:inline-flex items-center gap-1 text-[10px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+              <span className="hidden lg:inline-flex items-center gap-1 text-[10px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
                 <Lock className="w-2.5 h-2.5" aria-hidden="true" />
                 <span>Zależne od {task.blockingTaskIds.length} zadań</span>
               </span>
@@ -293,27 +702,27 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
           </div>
 
           {/* Right Column: Badges, Assignee, Dates & Branch Action Buttons */}
-          <div className="flex items-center gap-3 shrink-0 text-xs">
+          <div className="flex items-center gap-2.5 shrink-0 text-xs">
             {/* Priority */}
-            <div className="hidden sm:block">
-              {getPriorityBadge(task.priority)}
-            </div>
+            <div className="hidden sm:block">{getPriorityBadge(task.priority)}</div>
 
             {/* Status */}
-            <div>
-              {getStatusBadge(task.status)}
-            </div>
+            <div>{getStatusBadge(task.status)}</div>
 
             {/* Dates & duration */}
-            <div className="hidden md:flex items-center gap-1 text-[11px] text-slate-600 dark:text-slate-400 font-mono">
+            <div className="hidden md:flex items-center gap-1 text-[11px] text-slate-600 dark:text-slate-300 font-mono">
               <Calendar className="w-3 h-3 text-slate-600 dark:text-slate-400" aria-hidden="true" />
-              <span>{task.startDate} · {task.dueDate}</span>
-              <span className="font-bold text-slate-700 dark:text-slate-300">({task.durationDays || 7} dni)</span>
+              <span>
+                {task.startDate} · {task.dueDate}
+              </span>
+              <span className="font-bold text-slate-700 dark:text-slate-200">
+                ({task.durationDays || 7} dni)
+              </span>
             </div>
 
             {/* Assignee Avatar */}
             {assignee && (
-              <div 
+              <div
                 className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[10px] flex items-center justify-center"
                 title={`Przypisany: ${assignee.name} (${assignee.role})`}
               >
@@ -324,13 +733,32 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
             {/* Progress bar */}
             <div className="hidden sm:flex items-center gap-1.5 w-16">
               <div className="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
-                <div 
+                <div
                   className="bg-emerald-500 h-full rounded-full transition-all"
                   style={{ width: `${task.progress || 0}%` }}
                 />
               </div>
-              <span className="text-[10px] font-mono text-slate-600 dark:text-slate-400">{task.progress || 0}%</span>
+              <span className="text-[10px] font-mono text-slate-600 dark:text-slate-300">
+                {task.progress || 0}%
+              </span>
             </div>
+
+            {/* Przenieś w drzewie (klawiatura / czytnik ekranu, Alt+M) */}
+            {movable && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMoveTargetSearch('');
+                  setMoveModalTaskId(task.id);
+                }}
+                className="flex items-center gap-1 px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-[11px] border border-slate-300 dark:border-slate-700 transition-colors"
+                title={`Przenieś zadanie [${task.code}] w hierarchii (Alt+M)`}
+                aria-label={`Przenieś zadanie ${task.code}`}
+              >
+                <MoveVertical className="w-3 h-3" aria-hidden="true" />
+                <span className="hidden sm:inline">Przenieś</span>
+              </button>
+            )}
 
             {/* Action: Add subtask under this branch */}
             <button
@@ -369,6 +797,11 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* Live region dla czytników ekranu */}
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {liveAnnouncement}
+      </div>
+
       {/* Top Banner: Project Selector & Hierarchy Info */}
       <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs space-y-3">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -394,7 +827,9 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
           {/* Project selector dropdown & Add Main Task Button */}
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1.5">
-              <label htmlFor="tree-project-select" className="text-xs font-semibold text-slate-600 dark:text-slate-400">Projekt:</label>
+              <label htmlFor="tree-project-select" className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+                Projekt:
+              </label>
               <select
                 id="tree-project-select"
                 value={currentProject?.id || ''}
@@ -410,17 +845,18 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
                   );
                 })}
               </select>
-              {currentProject?.companyId && (() => {
-                const comp = companies.find((c) => c.id === currentProject.companyId);
-                return comp ? (
-                  <span
-                    title={`Firma prowadząca: ${comp.name}`}
-                    className="font-mono text-xs font-bold px-2 py-1 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
-                  >
-                    {comp.letter}
-                  </span>
-                ) : null;
-              })()}
+              {currentProject?.companyId &&
+                (() => {
+                  const comp = companies.find((c) => c.id === currentProject.companyId);
+                  return comp ? (
+                    <span
+                      title={`Firma prowadząca: ${comp.name}`}
+                      className="font-mono text-xs font-bold px-2 py-1 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                    >
+                      {comp.letter}
+                    </span>
+                  ) : null;
+                })()}
             </div>
 
             {currentProject && (
@@ -441,31 +877,42 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
         {currentProject && (
           <div className="pt-3 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs bg-slate-50 dark:bg-slate-800/40 p-3 rounded-lg">
             <div>
-              <span className="text-[10px] uppercase font-semibold text-slate-600 dark:text-slate-400 block">Zamawiający:</span>
+              <span className="text-[10px] uppercase font-semibold text-slate-600 dark:text-slate-400 block">
+                Zamawiający:
+              </span>
               <span className="font-bold text-slate-800 dark:text-slate-200">
                 {currentProject.clientName || 'Brak wpisu'}
               </span>
             </div>
 
             <div>
-              <span className="text-[10px] uppercase font-semibold text-slate-600 dark:text-slate-400 block">Czas trwania:</span>
+              <span className="text-[10px] uppercase font-semibold text-slate-600 dark:text-slate-400 block">
+                Czas trwania:
+              </span>
               <span className="font-mono text-slate-800 dark:text-slate-200">
                 {currentProject.startDate} do {currentProject.dueDate} ({currentProject.durationDays || 30} dni)
               </span>
             </div>
 
             <div>
-              <span className="text-[10px] uppercase font-semibold text-slate-600 dark:text-slate-400 block">Postęp projektu:</span>
+              <span className="text-[10px] uppercase font-semibold text-slate-600 dark:text-slate-400 block">
+                Postęp projektu:
+              </span>
               <span className="font-bold text-emerald-700 dark:text-emerald-400 font-mono">
                 {currentProject.progress}% ukończono
               </span>
             </div>
 
             <div>
-              <span className="text-[10px] uppercase font-semibold text-slate-600 dark:text-slate-400 block">Lokalizacja na dysku:</span>
+              <span className="text-[10px] uppercase font-semibold text-slate-600 dark:text-slate-400 block">
+                Lokalizacja na dysku:
+              </span>
               {currentProject.diskPath ? (
                 <div className="flex items-center gap-1">
-                  <span className="font-mono text-[11px] text-amber-700 dark:text-amber-300 truncate" title={currentProject.diskPath}>
+                  <span
+                    className="font-mono text-[11px] text-amber-700 dark:text-amber-300 truncate"
+                    title={currentProject.diskPath}
+                  >
                     {currentProject.diskPath}
                   </span>
                   <button
@@ -475,7 +922,11 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
                     title="Kopiuj ścieżkę"
                     aria-label="Kopiuj ścieżkę projektu na dysku"
                   >
-                    {copiedDiskPath ? <Check className="w-3 h-3 text-emerald-700 dark:text-emerald-400" aria-hidden="true" /> : <Copy className="w-3 h-3" aria-hidden="true" />}
+                    {copiedDiskPath ? (
+                      <Check className="w-3 h-3 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
+                    ) : (
+                      <Copy className="w-3 h-3" aria-hidden="true" />
+                    )}
                   </button>
                 </div>
               ) : (
@@ -491,7 +942,10 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
         <div className="flex flex-wrap items-center gap-3">
           {/* Search Input */}
           <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" aria-hidden="true" />
+            <Search
+              className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2"
+              aria-hidden="true"
+            />
             <input
               type="text"
               value={searchQuery}
@@ -504,7 +958,9 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
 
           {/* Status Filter */}
           <div className="flex items-center gap-1">
-            <label htmlFor="tree-status-filter" className="text-slate-600 dark:text-slate-400">Status:</label>
+            <label htmlFor="tree-status-filter" className="text-slate-600 dark:text-slate-400">
+              Status:
+            </label>
             <select
               id="tree-status-filter"
               value={statusFilter}
@@ -557,10 +1013,199 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
           </div>
         ) : (
           <div className="space-y-1">
+            {/* Strefa upuszczenia: Poziom główny (renderowana stale, aby nie przesuwać układu przy starcie DnD) */}
+            {hasAnyMovableTask && (
+              <div
+                data-testid="tree-root-dropzone"
+                data-tree-drop-target="root"
+                aria-disabled={draggedTask && !rootDropValid ? 'true' : undefined}
+                title={rootDropReason}
+                onDragOver={(e) => {
+                  const activeSourceId = draggedTaskIdRef.current;
+                  if (!activeSourceId) return;
+                  e.preventDefault();
+                  const source = tasks.find((t) => t.id === activeSourceId);
+                  const canRoot = Boolean(source && source.parentId);
+                  e.dataTransfer.dropEffect = canRoot ? 'move' : 'none';
+                  updateDragOverTarget('root');
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                    if (dragOverTargetIdRef.current === 'root') {
+                      updateDragOverTarget(null);
+                    }
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const sourceId =
+                    draggedTaskIdRef.current || e.dataTransfer?.getData('text/plain') || '';
+                  resetDragState();
+                  if (!sourceId) return;
+                  const source = tasks.find((t) => t.id === sourceId);
+                  if (!source || !source.parentId) return;
+                  void performReparent(sourceId, null);
+                }}
+                className={`mb-3 px-3 py-2 rounded-lg border-2 border-dashed text-xs flex items-center justify-between gap-2 transition-colors ${
+                  dragOverTargetId === 'root' && rootDropValid
+                    ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/60 text-sky-800 dark:text-sky-200 font-bold ring-2 ring-sky-400/60'
+                    : dragOverTargetId === 'root' && draggedTask && !rootDropValid
+                    ? 'border-rose-400 bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-200 cursor-not-allowed'
+                    : draggedTaskId && rootDropValid
+                    ? 'border-sky-300 dark:border-sky-700 bg-sky-50/50 dark:bg-sky-950/30 text-sky-800 dark:text-sky-200'
+                    : 'border-slate-300 dark:border-slate-700 bg-white/80 dark:bg-slate-900/70 text-slate-700 dark:text-slate-300'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <CornerLeftUp className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span>
+                    {dragOverTargetId === 'root' && rootDropValid
+                      ? 'Upuść tutaj: Poziom główny (usuń zadanie nadrzędne)'
+                      : dragOverTargetId === 'root' && draggedTask && !rootDropValid
+                      ? `Niedostępne: ${rootDropReason}`
+                      : 'Poziom główny — upuść tutaj podzadanie, aby przenieść je na poziom główny projektu'}
+                  </span>
+                </div>
+                {draggedTask && (
+                  <span className="text-[11px] font-mono shrink-0">[{draggedTask.code}]</span>
+                )}
+              </div>
+            )}
+
             {treeNodes.map((node) => renderTreeNode(node))}
           </div>
         )}
       </div>
+
+      {/* Okno wyboru celu przeniesienia (klawiatura / czytnik ekranu / Alt+M) */}
+      {moveModalTask && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/60 dark:bg-slate-950/75 flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeMoveModal();
+          }}
+        >
+          <div
+            ref={moveModalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={moveModalTitleId}
+            className="w-full max-w-lg rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 shadow-2xl overflow-hidden"
+          >
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-start justify-between gap-3">
+              <div>
+                <h3 id={moveModalTitleId} className="text-sm font-bold text-slate-900 dark:text-white">
+                  Przenieś zadanie [{moveModalTask.code}]
+                </h3>
+                <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5 truncate max-w-md">
+                  {moveModalTask.title}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeMoveModal}
+                aria-label="Zamknij okno przenoszenia zadania"
+                className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3">
+              <div>
+                <label htmlFor="move-task-target-search" className="sr-only">
+                  Szukaj zadania docelowego w projekcie
+                </label>
+                <div className="relative">
+                  <Search
+                    className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"
+                    aria-hidden="true"
+                  />
+                  <input
+                    id="move-task-target-search"
+                    type="text"
+                    autoFocus
+                    value={moveTargetSearch}
+                    onChange={(e) => setMoveTargetSearch(e.target.value)}
+                    placeholder="Szukaj zadania docelowego po kodzie lub tytule..."
+                    className="w-full pl-8 pr-3 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1">
+                {/* Poziom główny */}
+                <button
+                  type="button"
+                  disabled={!moveModalTask.parentId || isMoveSubmitting}
+                  onClick={() => {
+                    const sourceId = moveModalTask.id;
+                    closeMoveModal();
+                    void performReparent(sourceId, null);
+                  }}
+                  className="w-full text-left px-3 py-2 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 hover:bg-sky-50 dark:hover:bg-sky-950/60 hover:border-sky-400 dark:hover:border-sky-600 text-xs font-semibold text-slate-800 dark:text-slate-100 flex items-center justify-between gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <CornerLeftUp className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400" aria-hidden="true" />
+                    <span>Poziom główny</span>
+                  </span>
+                  {!moveModalTask.parentId && (
+                    <span className="text-[11px] font-normal text-slate-600 dark:text-slate-400">
+                      Obecna pozycja
+                    </span>
+                  )}
+                </button>
+
+                {allowedModalTargets.length === 0 ? (
+                  <p className="text-xs text-slate-600 dark:text-slate-400 text-center py-4">
+                    Brak innych dozwolonych zadań docelowych pasujących do filtra.
+                  </p>
+                ) : (
+                  allowedModalTargets.map((candidate) => {
+                    const isCurrentParent = moveModalTask.parentId === candidate.id;
+                    return (
+                      <button
+                        key={candidate.id}
+                        type="button"
+                        disabled={isCurrentParent || isMoveSubmitting}
+                        onClick={() => {
+                          const sourceId = moveModalTask.id;
+                          closeMoveModal();
+                          void performReparent(sourceId, candidate.id);
+                        }}
+                        className="w-full text-left px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/60 hover:border-sky-400 dark:hover:border-sky-600 text-xs text-slate-900 dark:text-white flex items-center justify-between gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <span className="flex items-center gap-2 min-w-0">
+                          <span className="font-mono font-bold text-sky-700 dark:text-sky-400 shrink-0">
+                            [{candidate.code}]
+                          </span>
+                          <span className="truncate font-medium">{candidate.title}</span>
+                        </span>
+                        {isCurrentParent && (
+                          <span className="text-[11px] text-slate-600 dark:text-slate-400 shrink-0">
+                            Obecny rodzic
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="px-5 py-3 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-300">
+              <span>Lista pokazuje wyłącznie dozwolone cele w tym projekcie.</span>
+              <button
+                type="button"
+                onClick={closeMoveModal}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 font-semibold"
+              >
+                Anuluj
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

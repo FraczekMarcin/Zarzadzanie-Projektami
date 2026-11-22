@@ -6,7 +6,7 @@ import {
   pickAllowedTaskFields,
   buildNewTaskRecord,
 } from '../../utils/access.js';
-import { canReparent } from '../../utils/taskTree.js';
+import { canReparent, reconcileParentCompletionOnReparent } from '../../utils/taskTree.js';
 import { hasDirectSubtasks, recomputeProjectProgress } from '../../utils/progress.js';
 import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
@@ -212,6 +212,7 @@ export function registerTaskRoutes(
       }
 
       const oldProjectId = task.projectId;
+      const oldParentId = typeof task.parentId === 'string' && task.parentId.trim() ? task.parentId.trim() : null;
       for (const [key, value] of Object.entries(allowedUpdates)) {
         if (key === 'parentId' && value === undefined) {
           delete task.parentId;
@@ -220,10 +221,63 @@ export function registerTaskRoutes(
         }
       }
 
+      const nowIso = new Date().toISOString();
       task.revision = (task.revision || 1) + 1;
-      task.updatedAt = new Date().toISOString();
+      task.updatedAt = nowIso;
 
       const progressWeighting = settingsService.getEffectiveProgressWeighting();
+      const newParentId = typeof task.parentId === 'string' && task.parentId.trim() ? task.parentId.trim() : null;
+      const affectedTaskIds = new Set<string>();
+
+      if (hasParentPatch && (oldParentId !== newParentId || oldProjectId !== task.projectId)) {
+        if (oldProjectId && oldProjectId !== task.projectId && oldParentId) {
+          const oldProjRec = reconcileParentCompletionOnReparent(appState.tasks || [], {
+            movedTaskId: task.id,
+            oldParentId,
+            newParentId: null,
+            projectId: oldProjectId,
+            progressOptions: { weighting: progressWeighting },
+            nowIso,
+          });
+          const statusSet = new Set(oldProjRec.changedStatusParentIds);
+          for (const updatedItem of oldProjRec.tasks) {
+            const target = (appState.tasks || []).find((t: any) => t.id === updatedItem.id);
+            if (!target || target.id === task.id) continue;
+            if (statusSet.has(target.id)) {
+              target.status = updatedItem.status;
+              target.updatedAt = nowIso;
+              target.revision = (target.revision || 1) + 1;
+              affectedTaskIds.add(target.id);
+            }
+          }
+        }
+
+        const rec = reconcileParentCompletionOnReparent(appState.tasks || [], {
+          movedTaskId: task.id,
+          oldParentId: oldProjectId === task.projectId ? oldParentId : null,
+          newParentId,
+          projectId: task.projectId,
+          progressOptions: { weighting: progressWeighting },
+          nowIso,
+        });
+        const statusSet = new Set(rec.changedStatusParentIds);
+        const progressSet = new Set(rec.changedProgressTaskIds);
+        for (const updatedItem of rec.tasks) {
+          const target = (appState.tasks || []).find((t: any) => t.id === updatedItem.id);
+          if (!target || target.id === task.id) continue;
+          if (statusSet.has(target.id)) {
+            target.status = updatedItem.status;
+            target.updatedAt = nowIso;
+            target.revision = (target.revision || 1) + 1;
+            affectedTaskIds.add(target.id);
+          }
+          if (progressSet.has(target.id)) {
+            target.progress = updatedItem.progress;
+            affectedTaskIds.add(target.id);
+          }
+        }
+      }
+
       if (oldProjectId) {
         recomputeProjectProgress(appState, oldProjectId, { weighting: progressWeighting });
       }
@@ -231,10 +285,20 @@ export function registerTaskRoutes(
         recomputeProjectProgress(appState, task.projectId, { weighting: progressWeighting });
       }
 
+      const affectedTasks =
+        affectedTaskIds.size > 0
+          ? (appState.tasks || []).filter((t: any) => affectedTaskIds.has(t.id))
+          : [];
+
       const newRev = stateStore.bumpStateRevision();
       await stateStore.saveStateAtomicAsync();
 
-      res.json({ success: true, task, revision: newRev });
+      res.json({
+        success: true,
+        task,
+        revision: newRev,
+        ...(affectedTasks.length > 0 ? { affectedTasks } : {}),
+      });
     } catch (err: any) {
       if (isDiskFullError(err)) {
         return res.status(507).json({ error: DISK_FULL_ERROR_MESSAGE });

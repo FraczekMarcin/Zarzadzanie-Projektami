@@ -1,3 +1,9 @@
+import {
+  computeProgressMap,
+  type ProgressOptions,
+  type ProgressTaskLike,
+} from './progress.js';
+
 export const MAX_TASK_DEPTH = 6;
 
 export interface TaskTreeNodeLike {
@@ -194,3 +200,138 @@ export function canReparent(
 
   return { ok: true };
 }
+
+export interface ReconcileReparentResult<
+  T extends TaskTreeNodeLike & ProgressTaskLike & { status?: string; progress?: number; updatedAt?: string }
+> {
+  tasks: T[];
+  changedStatusParentIds: string[];
+  changedProgressTaskIds: string[];
+}
+
+function collectAncestorChain<T extends TaskTreeNodeLike>(
+  byId: ReadonlyMap<string, T>,
+  startParentId: string | null | undefined,
+  projectId: string,
+  excludedId?: string
+): string[] {
+  const result: string[] = [];
+  const visited = new Set<string>();
+  if (excludedId) visited.add(excludedId);
+
+  let currId = typeof startParentId === 'string' ? startParentId.trim() : '';
+  while (currId && !visited.has(currId)) {
+    visited.add(currId);
+    const parent = byId.get(currId);
+    if (!parent || parent.projectId !== projectId) break;
+    result.push(currId);
+    currId = typeof parent.parentId === 'string' ? parent.parentId.trim() : '';
+  }
+  return result;
+}
+
+/**
+ * Po przeniesieniu zadania między rodzicami (bez zmiany dat i zależności):
+ * 1) sprawdza łańcuchy przodków starego i nowego rodzica od najgłębszych węzłów w górę
+ *    i stosuje regułę „wszystkie nieanulowane podzadania ukończone” w obie strony:
+ *    - wszystkie done -> parent.status = 'done'
+ *    - któreś nie-done, a parent był 'done' -> parent.status = 'in_progress'
+ * 2) przelicza postęp projektu za pomocą computeProgressMap.
+ */
+export function reconcileParentCompletionOnReparent<
+  T extends TaskTreeNodeLike & ProgressTaskLike & { status?: string; progress?: number; updatedAt?: string }
+>(
+  tasks: readonly T[],
+  options: {
+    movedTaskId: string;
+    oldParentId?: string | null;
+    newParentId?: string | null;
+    projectId: string;
+    progressOptions?: ProgressOptions;
+    nowIso?: string;
+  }
+): ReconcileReparentResult<T> {
+  const {
+    movedTaskId,
+    oldParentId,
+    newParentId,
+    projectId,
+    progressOptions = {},
+    nowIso = new Date().toISOString(),
+  } = options;
+
+  const working = tasks.map((t) => ({ ...t }));
+  const byId = new Map<string, T>();
+  for (const t of working) {
+    if (t && t.id) byId.set(t.id, t);
+  }
+
+  const oldAncestors = collectAncestorChain(byId, oldParentId, projectId, movedTaskId);
+  const newAncestors = collectAncestorChain(byId, newParentId, projectId, movedTaskId);
+  const allAncestorIds = Array.from(new Set([...oldAncestors, ...newAncestors]));
+
+  // Sortujemy malejąco po głębokości, aby dzieci przeliczyć przed ich rodzicami
+  allAncestorIds.sort((a, b) => getDepth(working, b) - getDepth(working, a));
+
+  const changedStatusParentIds: string[] = [];
+
+  for (const pid of allAncestorIds) {
+    const idx = working.findIndex((t) => t.id === pid && t.projectId === projectId);
+    if (idx === -1) continue;
+    const parent = working[idx];
+    if (!parent || (parent.status as string) === 'cancelled') continue;
+
+    const directSubtasks = working.filter(
+      (t) =>
+        t.projectId === projectId &&
+        typeof t.parentId === 'string' &&
+        t.parentId.trim() === pid &&
+        (t.status as string) !== 'cancelled'
+    );
+
+    if (directSubtasks.length === 0) {
+      continue;
+    }
+
+    const allDone = directSubtasks.every((s) => s.status === 'done');
+    if (allDone && parent.status !== 'done') {
+      working[idx] = {
+        ...parent,
+        status: 'done',
+        updatedAt: nowIso,
+      };
+      changedStatusParentIds.push(pid);
+    } else if (!allDone && parent.status === 'done') {
+      working[idx] = {
+        ...parent,
+        status: 'in_progress',
+        updatedAt: nowIso,
+      };
+      changedStatusParentIds.push(pid);
+    }
+  }
+
+  const projectTasks = working.filter((t) => t.projectId === projectId);
+  const progressMap = computeProgressMap(projectTasks, progressOptions);
+  const changedProgressTaskIds: string[] = [];
+
+  for (let i = 0; i < working.length; i += 1) {
+    const task = working[i];
+    if (!task || task.projectId !== projectId || (task.status as string) === 'cancelled') continue;
+    const computed = progressMap.get(task.id);
+    if (computed !== undefined && task.progress !== computed) {
+      working[i] = {
+        ...task,
+        progress: computed,
+      };
+      changedProgressTaskIds.push(task.id);
+    }
+  }
+
+  return {
+    tasks: working,
+    changedStatusParentIds,
+    changedProgressTaskIds,
+  };
+}
+

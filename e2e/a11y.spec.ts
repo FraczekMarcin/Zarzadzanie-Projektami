@@ -451,6 +451,12 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
       await expect(nav.getByRole('button', { name: 'Tablica Kanban', exact: true })).toHaveAttribute('aria-current', 'page');
       await scanView(page, scanResults, 'kanban', 'Tablica Kanban', theme);
 
+      // 5b. Drzewo zadań
+      await nav.getByRole('button', { name: 'Drzewo zadań', exact: true }).click();
+      await expect(nav.getByRole('button', { name: 'Drzewo zadań', exact: true })).toHaveAttribute('aria-current', 'page');
+      await expect(page.getByRole('heading', { name: 'Rozwijane Drzewo Zadań i Gałęzi' })).toBeVisible();
+      await scanView(page, scanResults, 'tree', 'Drzewo zadań', theme);
+
       // 6. Przegląd projektów (widok kafelków, widok listy i wszystkie zakładki okna finansów)
       await nav.getByRole('button', { name: 'Projekty', exact: true }).click();
       await expect(nav.getByRole('button', { name: 'Projekty', exact: true })).toHaveAttribute('aria-current', 'page');
@@ -589,7 +595,7 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
   }
 
   test('3) zapis raportu JSON, bezwzględna kontrola kontrastu oraz tryb A11Y_STRICT', async () => {
-    expect(scanResults.length).toBeGreaterThanOrEqual(76);
+    expect(scanResults.length).toBeGreaterThanOrEqual(78);
     writeReport(scanResults);
     expect(fs.existsSync(REPORT_PATH)).toBe(true);
 

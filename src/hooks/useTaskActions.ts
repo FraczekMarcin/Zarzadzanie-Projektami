@@ -4,13 +4,20 @@ import { getTodayIso, addDaysIso } from '../utils/today';
 import { cascadeScheduleDates } from '../utils/scheduleCascade';
 import type { NotificationToast } from './useAuthSession';
 import { attemptSilentDeviceLogin } from '../utils/deviceLoginClient';
-import { hasDirectSubtasks } from '../utils/progress';
+import {
+  DEFAULT_PROGRESS_WEIGHTING,
+  hasDirectSubtasks,
+  type ProgressWeighting,
+} from '../utils/progress';
+import { canAccessProject } from '../utils/access';
+import { canReparent, reconcileParentCompletionOnReparent } from '../utils/taskTree';
 
 interface UseTaskActionsParams {
   tasks: Task[];
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
   projects: Project[];
   currentUser: User;
+  progressWeighting?: ProgressWeighting;
   editingTask: Task | null;
   setEditingTask: React.Dispatch<React.SetStateAction<Task | null>>;
   selectedTaskDetail: Task | null;
@@ -28,6 +35,7 @@ export function useTaskActions({
   setTasks,
   projects,
   currentUser,
+  progressWeighting = DEFAULT_PROGRESS_WEIGHTING,
   editingTask,
   setEditingTask,
   selectedTaskDetail,
@@ -41,6 +49,8 @@ export function useTaskActions({
 }: UseTaskActionsParams) {
   // Kolejka debouncingu 500 ms dla aktualizacji wielu pól jednego zadania
   const taskPatchDebounceTimers = useRef<Map<string, { timer: any; patch: Partial<Task>; baseRevision: number }>>(new Map());
+  const tasksRef = useRef<Task[]>(tasks);
+  tasksRef.current = tasks;
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
 
   const restoreFromTrashById = async (trashId: string) => {
@@ -573,6 +583,188 @@ export function useTaskActions({
     }
   };
 
+  const handleReparentTask = async (
+    taskId: string,
+    newParentId: string | null,
+    options?: { isUndo?: boolean; overrideRevision?: number }
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const currentTasks = tasksRef.current;
+    const task = currentTasks.find((t) => t.id === taskId);
+    if (!task) {
+      return { ok: false, error: 'Nie znaleziono zadania do przeniesienia.' };
+    }
+
+    if (!currentUser || currentUser.role === 'viewer') {
+      const msg = 'Rola viewer posiada dostęp wyłącznie do odczytu.';
+      setNotificationToast({ message: msg, type: 'error' });
+      return { ok: false, error: msg };
+    }
+
+    const isAdminOrManager = currentUser.role === 'admin' || currentUser.role === 'project_manager';
+    if (!isAdminOrManager) {
+      const targetProject = projects.find((p) => p.id === task.projectId);
+      const isMember = targetProject ? canAccessProject(currentUser, targetProject) : false;
+      const isAssigneeOrReporter =
+        (task.assigneeId && task.assigneeId === currentUser.id) ||
+        (task.reporterId && task.reporterId === currentUser.id);
+      if (!isMember && !isAssigneeOrReporter) {
+        const msg = 'Brak uprawnień do przenoszenia zadania w tym projekcie.';
+        setNotificationToast({ message: msg, type: 'error' });
+        return { ok: false, error: msg };
+      }
+    }
+
+    const oldParentId =
+      typeof task.parentId === 'string' && task.parentId.trim() ? task.parentId.trim() : null;
+    const normalizedNewParentId =
+      typeof newParentId === 'string' && newParentId.trim() ? newParentId.trim() : null;
+
+    if (oldParentId === normalizedNewParentId) {
+      return { ok: true };
+    }
+
+    const validation = canReparent(currentTasks, taskId, normalizedNewParentId, task.projectId);
+    if (!validation.ok) {
+      const msg = validation.error || 'Nieprawidłowy cel przeniesienia zadania.';
+      setNotificationToast({ message: msg, type: 'error' });
+      return { ok: false, error: msg };
+    }
+
+    const previousTasks = currentTasks;
+    const previousSelectedDetail = selectedTaskDetail;
+    const nowIso = new Date().toISOString();
+    const baseRev = options?.overrideRevision ?? (task.revision !== undefined ? task.revision : 1);
+
+    // Optymistyczna zmiana wyłącznie parentId oraz przeliczenie łańcuchów rodziców (daty i dependencies zostają bez zmian)
+    const movedList = currentTasks.map((t) => {
+      if (t.id !== taskId) return t;
+      const nextTask: Task = {
+        ...t,
+        updatedAt: nowIso,
+      };
+      if (normalizedNewParentId) {
+        nextTask.parentId = normalizedNewParentId;
+      } else {
+        delete nextTask.parentId;
+      }
+      return nextTask;
+    });
+
+    const reconciled = reconcileParentCompletionOnReparent(movedList, {
+      movedTaskId: taskId,
+      oldParentId,
+      newParentId: normalizedNewParentId,
+      projectId: task.projectId,
+      progressOptions: { weighting: progressWeighting },
+      nowIso,
+    });
+
+    setTasks(reconciled.tasks);
+    if (selectedTaskDetail) {
+      const refreshedDetail = reconciled.tasks.find((t) => t.id === selectedTaskDetail.id);
+      if (refreshedDetail) {
+        setSelectedTaskDetail(refreshedDetail);
+      }
+    }
+
+    try {
+      const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'If-Match': String(baseRev),
+        },
+        body: JSON.stringify({
+          parentId: normalizedNewParentId,
+        }),
+      });
+
+      if (res.status === 401) {
+        setTasks(previousTasks);
+        setSelectedTaskDetail(previousSelectedDetail);
+        const deviceAuth = await attemptSilentDeviceLogin();
+        if (!deviceAuth.ok) {
+          setIsAuthenticated(false);
+        }
+        return { ok: false, error: 'Sesja wygasła. Zaloguj się ponownie.' };
+      }
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setTasks(previousTasks);
+        setSelectedTaskDetail(previousSelectedDetail);
+        const msg =
+          data.error ||
+          (res.status === 409
+            ? 'Konflikt wersji zadania (zostało zmodyfikowane przez innego użytkownika).'
+            : 'Nie udało się przenieść zadania.');
+        setNotificationToast({ message: msg, type: 'error' });
+        return { ok: false, error: msg };
+      }
+
+      if (typeof data.revision === 'number') {
+        applyRevision(data.revision);
+      }
+
+      const serverUpdates = new Map<string, Task>();
+      if (data.task) serverUpdates.set(data.task.id, data.task);
+      if (Array.isArray(data.affectedTasks)) {
+        for (const at of data.affectedTasks) {
+          if (at && at.id) serverUpdates.set(at.id, at);
+        }
+      }
+      if (serverUpdates.size > 0) {
+        setTasks((prev) =>
+          prev.map((t) => {
+            const srv = serverUpdates.get(t.id);
+            return srv ? { ...t, ...srv } : t;
+          })
+        );
+      }
+
+      const targetParent = normalizedNewParentId
+        ? previousTasks.find((t) => t.id === normalizedNewParentId)
+        : undefined;
+      const activityText = targetParent
+        ? `Przeniesiono zadanie ${task.code} pod ${targetParent.code}`
+        : `Przeniesiono zadanie ${task.code} na poziom główny`;
+      logActivity(activityText, task.id);
+
+      if (!options?.isUndo) {
+        const nextRevision = data.task?.revision ?? baseRev + 1;
+        setNotificationToast({
+          message: 'Przeniesiono zadanie.',
+          type: 'info',
+          durationMs: 8000,
+          action: {
+            label: 'Cofnij',
+            onClick: () => {
+              void handleReparentTask(taskId, oldParentId, {
+                isUndo: true,
+                overrideRevision: nextRevision,
+              });
+            },
+          },
+        });
+      } else {
+        setNotificationToast({
+          message: 'Cofnięto przeniesienie zadania.',
+          type: 'info',
+          durationMs: 4000,
+        });
+      }
+
+      return { ok: true };
+    } catch {
+      setTasks(previousTasks);
+      setSelectedTaskDetail(previousSelectedDetail);
+      const msg = 'Błąd połączenia z serwerem — wycofano przeniesienie zadania.';
+      setNotificationToast({ message: msg, type: 'error' });
+      return { ok: false, error: msg };
+    }
+  };
+
   const handleAddComment = (taskId: string, content: string) => {
     const newComment: Comment = {
       id: `com-${Date.now()}`,
@@ -598,6 +790,7 @@ export function useTaskActions({
     confirmDeleteTask,
     handleUpdateStatus,
     handleUpdateProgress,
+    handleReparentTask,
     handleAddComment,
   };
 }
