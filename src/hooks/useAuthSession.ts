@@ -16,6 +16,11 @@ import {
   resetDeviceLoginAttempt,
   setHasTrustedDeviceCookie,
 } from '../utils/deviceLoginClient';
+import {
+  DEFAULT_PROGRESS_WEIGHTING,
+  normalizeProgressWeighting,
+  ProgressWeighting,
+} from '../utils/progress';
 
 export interface NotificationToast {
   message: string;
@@ -31,6 +36,7 @@ interface UseAuthSessionParams {
   setProjects: React.Dispatch<React.SetStateAction<Project[]>>;
   setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
   setProjectNumbering?: React.Dispatch<React.SetStateAction<ProjectNumberingSettings>>;
+  setProgressWeighting?: React.Dispatch<React.SetStateAction<ProgressWeighting>>;
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
   setActivityLogs: React.Dispatch<React.SetStateAction<ActivityLog[]>>;
   setComments: React.Dispatch<React.SetStateAction<Comment[]>>;
@@ -44,6 +50,7 @@ export function useAuthSession({
   setProjects,
   setCompanies,
   setProjectNumbering,
+  setProgressWeighting,
   setTasks,
   setActivityLogs,
   setComments,
@@ -205,6 +212,9 @@ export function useAuthSession({
           if (Array.isArray(data.state.activityLogs)) setActivityLogs(data.state.activityLogs);
           if (Array.isArray(data.state.comments)) setComments(data.state.comments);
           if (data.state.variables) setServerVariables(data.state.variables);
+          if (data.state.progressWeighting !== undefined && setProgressWeighting) {
+            setProgressWeighting(normalizeProgressWeighting(data.state.progressWeighting));
+          }
         }
       })
       .catch(() => {});
@@ -239,6 +249,7 @@ export function useAuthSession({
     setProjects(INITIAL_PROJECTS);
     if (setCompanies) setCompanies([]);
     if (setProjectNumbering) setProjectNumbering({ scope: 'year' });
+    if (setProgressWeighting) setProgressWeighting(DEFAULT_PROGRESS_WEIGHTING);
     setTasks(INITIAL_TASKS);
     setComments([]);
     setActivityLogs(INITIAL_ACTIVITY);

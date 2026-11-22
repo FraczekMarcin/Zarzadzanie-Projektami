@@ -12,8 +12,13 @@ import {
 } from '../config.js';
 import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore, sanitizeUser } from '../state.js';
 import { SessionStore } from '../sessions.js';
+import { SettingsService } from '../settings.js';
 import { logger } from '../logger.js';
 import { sanitizeImportedCompanies } from './companies.js';
+import {
+  DEFAULT_PROGRESS_WEIGHTING,
+  recomputeAllProjectsProgress,
+} from '../../utils/progress.js';
 
 interface UpdateCheckCache {
   data: {
@@ -35,10 +40,11 @@ export function registerSystemRoutes(
     config: ServerConfig;
     stateStore: StateStore;
     sessionStore: SessionStore;
+    settingsService?: SettingsService;
     diskStatusCheckOverride?: () => Promise<DiskStatus | null>;
   }
 ): void {
-  const { config, stateStore, sessionStore, diskStatusCheckOverride } = deps;
+  const { config, stateStore, sessionStore, settingsService, diskStatusCheckOverride } = deps;
   const { requireAuth, requireAdmin } = sessionStore;
 
   let backupStatusCache: { data: any; cachedAt: number } | null = null;
@@ -73,6 +79,9 @@ export function registerSystemRoutes(
       ...filtered,
       revision: currentRevision,
       users: (filtered.users || []).map(sanitizeUser),
+      progressWeighting: settingsService
+        ? settingsService.getEffectiveProgressWeighting()
+        : DEFAULT_PROGRESS_WEIGHTING,
     };
     return res.json({ initialized: true, state: sanitized });
   });
@@ -130,6 +139,7 @@ export function registerSystemRoutes(
         weeklySummaryState: _ignoredWeeklySummaryState,
         trustedDevices: _ignoredTrustedDevices,
         variables: _ignoredVariables,
+        progressWeighting: _ignoredProgressWeighting,
         companies: incomingCompanies,
         projectNumbering: incomingProjectNumbering,
         ...safeIncoming
@@ -168,6 +178,11 @@ export function registerSystemRoutes(
       };
       stateStore.setAppState(nextState);
       stateStore.setUsers(nextUsers);
+      recomputeAllProjectsProgress(stateStore.ensureStateStructure(), {
+        weighting: settingsService
+          ? settingsService.getEffectiveProgressWeighting()
+          : DEFAULT_PROGRESS_WEIGHTING,
+      });
 
       const newRev = stateStore.bumpStateRevision();
       await stateStore.saveStateAtomicAsync();

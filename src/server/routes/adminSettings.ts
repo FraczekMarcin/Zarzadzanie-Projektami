@@ -1,5 +1,6 @@
 import express from 'express';
 import { isSameOrigin } from '../../utils/access.js';
+import { recomputeAllProjectsProgress } from '../../utils/progress.js';
 import { isValidEmail } from '../../utils/settingsSchema.js';
 import { validateVariablesUpdate } from '../../utils/variablesSchema.js';
 import { formatSmtpErrorPolish, MailerService } from '../mailer.js';
@@ -122,6 +123,14 @@ export function registerAdminSettingsRoutes(
               })
               .catch(() => {});
           }
+        }
+        if (changedFields.includes('progress.weighting')) {
+          const appState = stateStore.ensureStateStructure();
+          recomputeAllProjectsProgress(appState, {
+            weighting: settingsService.getEffectiveProgressWeighting(),
+          });
+          stateStore.bumpStateRevision();
+          await stateStore.saveStateAtomicAsync();
         }
       }
 

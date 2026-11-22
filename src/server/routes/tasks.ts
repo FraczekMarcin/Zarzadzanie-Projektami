@@ -7,6 +7,7 @@ import {
   buildNewTaskRecord,
 } from '../../utils/access.js';
 import { canReparent } from '../../utils/taskTree.js';
+import { hasDirectSubtasks, recomputeProjectProgress } from '../../utils/progress.js';
 import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
 import { SettingsService } from '../settings.js';
@@ -93,6 +94,9 @@ export function registerTaskRoutes(
       }
 
       appState.tasks.unshift(newTask);
+      recomputeProjectProgress(appState, targetProject.id, {
+        weighting: settingsService.getEffectiveProgressWeighting(),
+      });
       const newRev = stateStore.bumpStateRevision();
       await stateStore.saveStateAtomicAsync();
 
@@ -165,6 +169,16 @@ export function registerTaskRoutes(
         return res.status(400).json({ error: err.message });
       }
 
+      if (
+        Object.prototype.hasOwnProperty.call(allowedUpdates, 'progress') &&
+        allowedUpdates.progress !== undefined &&
+        hasDirectSubtasks(appState.tasks || [], task.id)
+      ) {
+        return res.status(400).json({
+          error: 'Postęp zadania nadrzędnego wynika z podzadań',
+        });
+      }
+
       if (allowedUpdates.title !== undefined) {
         const sanitizedTitle = String(allowedUpdates.title).trim();
         if (!sanitizedTitle) {
@@ -197,6 +211,7 @@ export function registerTaskRoutes(
         }
       }
 
+      const oldProjectId = task.projectId;
       for (const [key, value] of Object.entries(allowedUpdates)) {
         if (key === 'parentId' && value === undefined) {
           delete task.parentId;
@@ -207,6 +222,14 @@ export function registerTaskRoutes(
 
       task.revision = (task.revision || 1) + 1;
       task.updatedAt = new Date().toISOString();
+
+      const progressWeighting = settingsService.getEffectiveProgressWeighting();
+      if (oldProjectId) {
+        recomputeProjectProgress(appState, oldProjectId, { weighting: progressWeighting });
+      }
+      if (task.projectId && task.projectId !== oldProjectId) {
+        recomputeProjectProgress(appState, task.projectId, { weighting: progressWeighting });
+      }
 
       const newRev = stateStore.bumpStateRevision();
       await stateStore.saveStateAtomicAsync();
@@ -247,8 +270,14 @@ export function registerTaskRoutes(
         }
       }
 
+      const deletedProjectId = task.projectId;
       const retentionDays = settingsService.getEffectiveTrashRetentionDays();
       const { trashEntry } = moveTaskToTrash(appState, task, caller, retentionDays, Date.now());
+      if (deletedProjectId) {
+        recomputeProjectProgress(appState, deletedProjectId, {
+          weighting: settingsService.getEffectiveProgressWeighting(),
+        });
+      }
       const newRev = stateStore.bumpStateRevision();
       await stateStore.saveStateAtomicAsync();
 

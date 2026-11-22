@@ -55,6 +55,12 @@ import { CURRENT_APP_VERSION, GITHUB_REPO_URL } from './data/dockerConfig';
 import { isDemoProject } from './utils/demoData';
 import { sortTasksByPriorityAndDueDate } from './utils/taskSorting';
 import { canViewFinance } from './utils/access';
+import {
+  computeProgressMap,
+  computeProjectProgress,
+  DEFAULT_PROGRESS_WEIGHTING,
+  ProgressWeighting,
+} from './utils/progress';
 import { 
   FolderKanban, 
   Calendar as CalendarIcon, 
@@ -141,9 +147,46 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
 
   const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS);
+  const [progressWeighting, setProgressWeighting] = useState<ProgressWeighting>(
+    DEFAULT_PROGRESS_WEIGHTING
+  );
+
+  const progressMap = useMemo(
+    () => computeProgressMap(tasks, { weighting: progressWeighting }),
+    [tasks, progressWeighting]
+  );
+
+  const tasksWithProgress = useMemo(
+    () =>
+      tasks.map((t) => {
+        const computed = progressMap.get(t.id);
+        return computed !== undefined && computed !== t.progress
+          ? { ...t, progress: computed }
+          : t;
+      }),
+    [tasks, progressMap]
+  );
 
   // Universal task sorting: Priority (critical -> high -> normal -> low), then due date
-  const sortedTasks = useMemo(() => sortTasksByPriorityAndDueDate(tasks), [tasks]);
+  const sortedTasks = useMemo(
+    () => sortTasksByPriorityAndDueDate(tasksWithProgress),
+    [tasksWithProgress]
+  );
+
+  const projectsWithProgress = useMemo(() => {
+    const byProject = new Map<string, Task[]>();
+    for (const t of tasksWithProgress) {
+      const list = byProject.get(t.projectId);
+      if (list) list.push(t);
+      else byProject.set(t.projectId, [t]);
+    }
+    return projects.map((p) => {
+      const computed = computeProjectProgress(byProject.get(p.id) || [], {
+        weighting: progressWeighting,
+      });
+      return computed !== p.progress ? { ...p, progress: computed } : p;
+    });
+  }, [projects, tasksWithProgress, progressWeighting]);
 
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(INITIAL_ACTIVITY);
 
@@ -243,6 +286,7 @@ export default function App() {
     setProjects,
     setCompanies,
     setProjectNumbering,
+    setProgressWeighting,
     setTasks,
     setActivityLogs,
     setComments,
@@ -369,6 +413,7 @@ export default function App() {
     setProjects,
     setCompanies,
     setProjectNumbering,
+    setProgressWeighting,
     setTasks,
     setActivityLogs,
     setComments,
@@ -552,8 +597,8 @@ export default function App() {
   useDeepLink({
     isAuthenticated,
     hasLoadedState,
-    tasks,
-    projects,
+    tasks: tasksWithProgress,
+    projects: projectsWithProgress,
     onOpenTask: handleSelectTask,
     onOpenProject: (project) => {
       setSelectedProjectId(project.id);
@@ -746,8 +791,14 @@ export default function App() {
   };
 
   // Selected project info & Pending users
-  const activeProject = projects.find((p) => p.id === selectedProjectId);
-  const activeTasks = tasks.filter((t) => (!selectedProjectId ? true : t.projectId === selectedProjectId));
+  const activeProject = projectsWithProgress.find((p) => p.id === selectedProjectId);
+  const activeTasks = tasksWithProgress.filter((t) =>
+    !selectedProjectId ? true : t.projectId === selectedProjectId
+  );
+  const activeTaskDetail = useMemo(() => {
+    if (!selectedTaskDetail) return null;
+    return tasksWithProgress.find((t) => t.id === selectedTaskDetail.id) ?? selectedTaskDetail;
+  }, [selectedTaskDetail, tasksWithProgress]);
   const criticalTasksCount = activeTasks.filter((t) => t.priority === 'critical' && t.status !== 'done').length;
   const blockedTasksCount = activeTasks.filter((t) => t.status === 'blocked').length;
   const pendingUsersCount = users.filter((u) => u.isApproved === false).length;
@@ -1202,8 +1253,8 @@ export default function App() {
             onChange={(e) => setSelectedProjectId(e.target.value ? e.target.value : null)}
             className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1 text-xs text-slate-900 dark:text-slate-100 font-semibold focus:outline-none focus:ring-1 focus:ring-sky-500 transition-colors"
           >
-            <option value="">Wszystkie projekty ({projects.length})</option>
-            {projects.map((p) => {
+            <option value="">Wszystkie projekty ({projectsWithProgress.length})</option>
+            {projectsWithProgress.map((p) => {
               const comp = p.companyId ? companies.find((c) => c.id === p.companyId) : undefined;
               return (
                 <option key={p.id} value={p.id}>
@@ -1426,7 +1477,7 @@ export default function App() {
           {activeView === 'gantt' && (
             <GanttChart
               tasks={sortedTasks}
-              projects={projects}
+              projects={projectsWithProgress}
               companies={companies}
               users={users}
               selectedProjectId={selectedProjectId}
@@ -1438,7 +1489,7 @@ export default function App() {
           {activeView === 'calendar' && (
             <CalendarView
               tasks={sortedTasks}
-              projects={projects}
+              projects={projectsWithProgress}
               companies={companies}
               users={users}
               selectedProjectId={selectedProjectId}
@@ -1450,7 +1501,7 @@ export default function App() {
           {activeView === 'tasks' && (
             <TaskListView
               tasks={sortedTasks}
-              projects={projects}
+              projects={projectsWithProgress}
               companies={companies}
               users={users}
               selectedProjectId={selectedProjectId}
@@ -1464,7 +1515,7 @@ export default function App() {
           {activeView === 'tree' && (
             <TaskTreeView
               tasks={sortedTasks}
-              projects={projects}
+              projects={projectsWithProgress}
               companies={companies}
               users={users}
               selectedProjectId={selectedProjectId}
@@ -1478,7 +1529,7 @@ export default function App() {
           {activeView === 'kanban' && (
             <KanbanView
               tasks={sortedTasks}
-              projects={projects}
+              projects={projectsWithProgress}
               companies={companies}
               users={users}
               selectedProjectId={selectedProjectId}
@@ -1490,7 +1541,7 @@ export default function App() {
 
           {activeView === 'projects' && (
             <ProjectsOverview
-              projects={projects}
+              projects={projectsWithProgress}
               companies={companies}
               projectNumbering={projectNumbering}
               tasks={sortedTasks}
@@ -1514,7 +1565,7 @@ export default function App() {
 
           {activeView === 'economy' && canViewEconomy && (
             <EconomyView
-              projects={projects}
+              projects={projectsWithProgress}
               companies={companies}
               tasks={sortedTasks}
               users={users}
@@ -1556,7 +1607,7 @@ export default function App() {
               setEditingTask(null);
             }}
             onSave={handleSaveTask}
-            projects={projects}
+            projects={projectsWithProgress}
             users={users}
             allTasks={sortedTasks}
             defaultProjectId={selectedProjectId}
@@ -1567,14 +1618,15 @@ export default function App() {
         </Suspense>
       )}
 
-      {selectedTaskDetail && (
+      {activeTaskDetail && (
         <Suspense fallback={null}>
           <TaskDetailDrawer
-            task={selectedTaskDetail}
-            projects={projects}
+            task={activeTaskDetail}
+            projects={projectsWithProgress}
             users={users}
             allTasks={sortedTasks}
             currentUser={currentUser}
+            progressWeighting={progressWeighting}
             onClose={() => setSelectedTaskDetail(null)}
             onEdit={(task) => {
               setSelectedTaskDetail(null);
@@ -1597,7 +1649,7 @@ export default function App() {
             currentUser={currentUser}
             users={users}
             tasks={sortedTasks}
-            projects={projects}
+            projects={projectsWithProgress}
             onSwitchUser={(user) => {
               setCurrentUser(user);
               logActivity(`${user.name} przełączył profil synchronizacji`);
@@ -1657,7 +1709,7 @@ export default function App() {
             isOpen={isSettingsModalOpen}
             onClose={() => setIsSettingsModalOpen(false)}
             users={users}
-            projects={projects}
+            projects={projectsWithProgress}
             companies={companies}
             projectNumbering={projectNumbering}
             onRefreshState={() => fetchFreshState(false)}
@@ -1697,7 +1749,7 @@ export default function App() {
             activeFilter={taskFilterModalType}
             onChangeFilter={(f) => setTaskFilterModalType(f)}
             tasks={sortedTasks}
-            projects={projects}
+            projects={projectsWithProgress}
             users={users}
             onNavigateToTaskAndProject={handleNavigateToTaskAndProject}
           />
@@ -1710,8 +1762,8 @@ export default function App() {
           <ArchiveBackupModal
             isOpen={isArchiveModalOpen}
             onClose={() => setIsArchiveModalOpen(false)}
-            projects={projects}
-            tasks={tasks}
+            projects={projectsWithProgress}
+            tasks={tasksWithProgress}
             users={users}
             comments={comments}
             activityLogs={activityLogs}

@@ -15,6 +15,7 @@ import {
   isProjectCodeAvailable,
   isValidProjectCodeFormat,
 } from '../../utils/projectCode.js';
+import { recomputeProjectProgress } from '../../utils/progress.js';
 import { getClientIp } from '../security.js';
 import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
@@ -317,7 +318,7 @@ export function registerProjectRoutes(
         startDate: allowed.startDate || now.slice(0, 10),
         dueDate: allowed.dueDate || now.slice(0, 10),
         durationDays: typeof allowed.durationDays === 'number' ? allowed.durationDays : 30,
-        progress: typeof allowed.progress === 'number' ? allowed.progress : 0,
+        progress: 0,
         color: allowed.color || '#3b82f6',
         revision: 1,
       };
@@ -536,6 +537,8 @@ export function registerProjectRoutes(
           : project.paymentTranches,
       };
 
+      delete allowedUpdates.progress;
+
       for (const [key, value] of Object.entries(allowedUpdates)) {
         if ((key === 'companyId' || key === 'ownerId') && value === undefined) {
           delete project[key];
@@ -551,6 +554,10 @@ export function registerProjectRoutes(
           project.memberIds.push(project.ownerId);
         }
       }
+
+      recomputeProjectProgress(appState, project.id, {
+        weighting: settingsService.getEffectiveProgressWeighting(),
+      });
 
       project.revision = (project.revision || 1) + 1;
       const newRev = stateStore.bumpStateRevision();

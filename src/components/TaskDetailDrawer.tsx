@@ -28,12 +28,18 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import { getBusinessDaysRemaining, isApproachingOfficialDeadline } from '../utils/businessDays';
+import {
+  DEFAULT_PROGRESS_WEIGHTING,
+  getSubtaskProgressSummary,
+  ProgressWeighting,
+} from '../utils/progress';
 
 interface TaskDetailDrawerProps {
   task: Task | null;
   projects?: Project[];
   users?: User[];
   allTasks?: Task[];
+  progressWeighting?: ProgressWeighting;
   currentUser: User;
   onClose: () => void;
   onEdit: (task: Task) => void;
@@ -49,6 +55,7 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
   projects = [],
   users = [],
   allTasks = [],
+  progressWeighting = DEFAULT_PROGRESS_WEIGHTING,
   currentUser,
   onClose,
   onEdit,
@@ -94,6 +101,8 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
   // Parent and Subtasks (Drzewo zależności)
   const parentTask = task.parentId ? safeAllTasks.find((t) => t.id === task.parentId) : null;
   const subtasks = safeAllTasks.filter((t) => t.parentId === task.id);
+  const subtaskProgressSummary = getSubtaskProgressSummary(safeAllTasks, task.id, progressWeighting);
+  const hasDerivedProgress = subtaskProgressSummary.total > 0;
 
   const handleStatusChange = (newStatus: TaskStatus) => {
     setErrorMessage(null);
@@ -355,7 +364,7 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
             </div>
 
             <div>
-              <div className="flex justify-between items-center mb-1">
+              <div className="flex justify-between items-center mb-1 gap-2">
                 <label htmlFor={`${baseId}-progress`} className="font-semibold text-slate-700 dark:text-slate-200">Postęp</label>
                 <span className="font-mono tabular-nums font-bold text-slate-700 dark:text-slate-200">
                   {task.progress || 0}%
@@ -367,10 +376,26 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
                 min={0}
                 max={100}
                 step={5}
+                disabled={hasDerivedProgress}
+                title={hasDerivedProgress ? subtaskProgressSummary.tooltip : undefined}
                 value={task.progress || 0}
-                onChange={(e) => onUpdateProgress(task.id, Number(e.target.value))}
-                className="w-full accent-sky-600 cursor-pointer"
+                onChange={(e) => {
+                  if (hasDerivedProgress) return;
+                  onUpdateProgress(task.id, Number(e.target.value));
+                }}
+                className={`w-full accent-sky-600 ${hasDerivedProgress ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
               />
+              {hasDerivedProgress && (
+                <div
+                  title={subtaskProgressSummary.tooltip}
+                  className="mt-1 flex items-center justify-between gap-2 text-[11px] text-sky-700 dark:text-sky-300 font-medium"
+                >
+                  <span>Wyliczany z podzadań</span>
+                  <span className="font-mono text-[10px] text-slate-600 dark:text-slate-400">
+                    {subtaskProgressSummary.done}/{subtaskProgressSummary.total} · {subtaskProgressSummary.weightLabel}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 

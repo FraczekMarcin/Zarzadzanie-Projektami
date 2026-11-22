@@ -9,6 +9,7 @@ import {
   WEEKLY_MAX_ITEMS_PER_PROJECT,
   WEEKLY_MIN_ITEMS_PER_PROJECT,
 } from './weeklySummary.js';
+import type { ProgressWeighting } from './progress.js';
 
 export interface StoredReminderSettings {
   enabled?: boolean;
@@ -60,6 +61,9 @@ export interface StoredServerSettings {
     enabled?: boolean;
     days?: number;
     allowForAdmins?: boolean;
+  };
+  progress?: {
+    weighting?: ProgressWeighting;
   };
 }
 
@@ -129,6 +133,9 @@ export interface AdminSettingsResponse {
     days: SettingFieldState<number>;
     allowForAdmins: SettingFieldState<boolean>;
   };
+  progress: {
+    weighting: SettingFieldState<ProgressWeighting>;
+  };
   readOnly: AdminReadOnlySettings;
 }
 
@@ -179,6 +186,9 @@ export interface AdminSettingsUpdateInput {
     days?: unknown;
     allowForAdmins?: unknown;
   };
+  progress?: {
+    weighting?: unknown;
+  };
 }
 
 export interface NormalizedSettingsPatch {
@@ -223,6 +233,9 @@ export interface NormalizedSettingsPatch {
     enabled?: boolean;
     days?: number;
     allowForAdmins?: boolean;
+  };
+  progress?: {
+    weighting?: ProgressWeighting;
   };
 }
 
@@ -273,6 +286,9 @@ export const SERVER_SETTINGS_DEFAULTS = {
     enabled: true,
     days: 30,
     allowForAdmins: true,
+  },
+  progress: {
+    weighting: 'estimate' as ProgressWeighting,
   },
 } as const;
 
@@ -822,6 +838,30 @@ export function validateAdminSettingsUpdate(
 
       if (Object.keys(tdPatch).length > 0) {
         patch.trustedDevices = tdPatch;
+      }
+    }
+  }
+
+  // 8. Sekcja Progress (tryb ważenia postępu z podzadań)
+  if (body.progress !== undefined) {
+    if (
+      !body.progress ||
+      typeof body.progress !== 'object' ||
+      Array.isArray(body.progress) ||
+      hasForbiddenKeys(body.progress)
+    ) {
+      errors.push('Nieprawidłowy format sekcji postępu.');
+    } else {
+      const progPatch: NonNullable<NormalizedSettingsPatch['progress']> = {};
+      if (body.progress.weighting !== undefined) {
+        if (body.progress.weighting !== 'estimate' && body.progress.weighting !== 'equal') {
+          errors.push('Tryb ważenia postępu musi mieć wartość "estimate" lub "equal".');
+        } else {
+          progPatch.weighting = body.progress.weighting;
+        }
+      }
+      if (Object.keys(progPatch).length > 0) {
+        patch.progress = progPatch;
       }
     }
   }

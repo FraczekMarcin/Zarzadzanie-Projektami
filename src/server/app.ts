@@ -29,6 +29,7 @@ import { createReminderService } from './reminders.js';
 import { registerReminderRoutes } from './routes/reminders.js';
 import { createWeeklySummaryService } from './weeklySummary.js';
 import { registerWeeklySummaryRoutes } from './routes/weeklySummary.js';
+import { recomputeAllProjectsProgress } from '../utils/progress.js';
 import { setupStaticAndSpa } from './static.js';
 import { logger } from './logger.js';
 
@@ -44,6 +45,15 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
   const config: ServerConfig = resolveServerConfig(options);
   const stateStore: StateStore = await createStateStore(config);
   const settingsService = createSettingsService({ config, stateStore });
+  const bootState = stateStore.getAppState();
+  if (bootState) {
+    const { changed } = recomputeAllProjectsProgress(stateStore.ensureStateStructure(), {
+      weighting: settingsService.getEffectiveProgressWeighting(),
+    });
+    if (changed && bootState.initialized) {
+      await stateStore.saveStateAtomicAsync();
+    }
+  }
   const mailer = createMailer(settingsService);
   const security: SecurityContext = createSecurityContext();
   const sessionStore: SessionStore = createSessionStore(
@@ -149,6 +159,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
       config,
       stateStore,
       sessionStore,
+      settingsService,
       diskStatusCheckOverride: options.diskStatusCheckOverride,
     });
     registerAuthRoutes(app, {

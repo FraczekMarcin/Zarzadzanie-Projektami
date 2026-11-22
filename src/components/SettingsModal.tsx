@@ -583,6 +583,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <AccessSessionsTab
                   isOpen={isOpen}
                   currentUser={currentUser}
+                  onRefreshState={onRefreshState}
                 />
               )}
 

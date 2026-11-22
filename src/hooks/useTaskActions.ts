@@ -4,6 +4,7 @@ import { getTodayIso, addDaysIso } from '../utils/today';
 import { cascadeScheduleDates } from '../utils/scheduleCascade';
 import type { NotificationToast } from './useAuthSession';
 import { attemptSilentDeviceLogin } from '../utils/deviceLoginClient';
+import { hasDirectSubtasks } from '../utils/progress';
 
 interface UseTaskActionsParams {
   tasks: Task[];
@@ -368,11 +369,13 @@ export function useTaskActions({
       return task;
     });
 
-    // Step 2: Parent-Subtask Tree Hierarchy Rule
+    // Step 2: Parent-Subtask Tree Hierarchy Rule (zachowaj automatyczne ukończenie rodzica; wyliczanie postępu pochodzi z progress.ts/serwera)
     const parentIds = Array.from(new Set(tasksCopy.map((t) => t.parentId).filter(Boolean))) as string[];
 
     parentIds.forEach((parentId) => {
-      const subtasks = tasksCopy.filter((t) => t.parentId === parentId);
+      const subtasks = tasksCopy.filter(
+        (t) => t.parentId === parentId && (t.status as string) !== 'cancelled'
+      );
       const allSubtasksDone = subtasks.length > 0 && subtasks.every((s) => s.status === 'done');
       const parentTask = tasksCopy.find((t) => t.id === parentId);
 
@@ -390,15 +393,6 @@ export function useTaskActions({
         events.push(
           `Wszystkie podzadania zostały ukończone! Zadanie nadrzędne [${parentTask.code}] "${parentTask.title}" zostało automatycznie zakończone.`
         );
-      } else if (parentTask && subtasks.length > 0) {
-        const avgProgress = Math.round(
-          subtasks.reduce((acc, s) => acc + (s.progress || 0), 0) / subtasks.length
-        );
-        if (parentTask.progress !== avgProgress && parentTask.status !== 'done') {
-          tasksCopy = tasksCopy.map((t) =>
-            t.id === parentId ? { ...t, progress: avgProgress } : t
-          );
-        }
       }
     });
 
@@ -410,13 +404,20 @@ export function useTaskActions({
     let newTaskList: Task[];
 
     if (editingTask) {
+      const isParentTask = hasDirectSubtasks(tasks, editingTask.id);
+      const patchToSend: Partial<Task> = isParentTask
+        ? (() => {
+            const { progress: _omitProgress, ...rest } = taskData;
+            return rest;
+          })()
+        : taskData;
       const updated: Task = {
         ...editingTask,
-        ...taskData,
+        ...patchToSend,
         updatedAt: new Date().toISOString(),
       };
       newTaskList = tasks.map((t) => (t.id === editingTask.id ? updated : t));
-      queueTaskPatch(editingTask.id, taskData, editingTask.revision || 1);
+      queueTaskPatch(editingTask.id, patchToSend, editingTask.revision || 1);
       logActivity(
         `${currentUser.name} zaktualizował zadanie [${editingTask.code}]: ${updated.title}`,
         editingTask.id,
@@ -498,17 +499,22 @@ export function useTaskActions({
       return;
     }
 
+    const isParentTask = hasDirectSubtasks(tasks, taskId);
     const progress = newStatus === 'done' ? 100 : task.progress;
     const updated: Task = {
       ...task,
       status: newStatus,
-      progress,
+      ...(isParentTask ? {} : { progress }),
       updatedAt: new Date().toISOString(),
     };
 
     const newTaskList = tasks.map((t) => (t.id === taskId ? updated : t));
     const { updatedTasks, triggeredEvents } = processDependencyRules(newTaskList);
     setTasks(updatedTasks);
+
+    const statusPatch: Partial<Task> = isParentTask
+      ? { status: newStatus }
+      : { status: newStatus, progress };
 
     if (immediate) {
       const existing = taskPatchDebounceTimers.current.get(taskId);
@@ -518,11 +524,11 @@ export function useTaskActions({
       }
       await saveTaskPatchToServer(
         taskId,
-        { ...(existing?.patch || {}), status: newStatus, progress },
+        { ...(existing?.patch || {}), ...statusPatch },
         task.revision || 1
       );
     } else {
-      queueTaskPatch(taskId, { status: newStatus, progress }, task.revision || 1);
+      queueTaskPatch(taskId, statusPatch, task.revision || 1);
     }
     logActivity(`${currentUser.name} zmienił status [${task.code}] na "${newStatus}"`, taskId);
 
@@ -540,6 +546,7 @@ export function useTaskActions({
   const handleUpdateProgress = (taskId: string, progress: number) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
+    if (hasDirectSubtasks(tasks, taskId)) return;
 
     const status: TaskStatus = progress === 100 ? 'done' : task.status;
     const updated: Task = {

@@ -3,6 +3,7 @@ import { Task, Project, User, ActivityLog, Comment, Company, ProjectNumberingSet
 import type { NotificationToast } from './useAuthSession';
 import { attemptSilentDeviceLogin } from '../utils/deviceLoginClient';
 import { setServerVariables } from '../utils/variableSettings';
+import { normalizeProgressWeighting, ProgressWeighting } from '../utils/progress';
 
 export interface FinancePatchSaveResult {
   ok: boolean;
@@ -25,6 +26,7 @@ interface UseServerSyncParams {
   setProjects: React.Dispatch<React.SetStateAction<Project[]>>;
   setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
   setProjectNumbering?: React.Dispatch<React.SetStateAction<ProjectNumberingSettings>>;
+  setProgressWeighting?: React.Dispatch<React.SetStateAction<ProgressWeighting>>;
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
   setActivityLogs: React.Dispatch<React.SetStateAction<ActivityLog[]>>;
   setComments: React.Dispatch<React.SetStateAction<Comment[]>>;
@@ -41,6 +43,7 @@ export function useServerSync({
   setProjects,
   setCompanies,
   setProjectNumbering,
+  setProgressWeighting,
   setTasks,
   setActivityLogs,
   setComments,
@@ -129,6 +132,9 @@ export function useServerSync({
         }
         if (s.variables) {
           setServerVariables(s.variables);
+        }
+        if (s.progressWeighting !== undefined && setProgressWeighting) {
+          setProgressWeighting(normalizeProgressWeighting(s.progressWeighting));
         }
         setHasLoadedState(true);
         if (showNotification) {

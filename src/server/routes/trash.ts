@@ -1,4 +1,5 @@
 import express from 'express';
+import { recomputeProjectProgress } from '../../utils/progress.js';
 import { getClientIp } from '../security.js';
 import { SessionStore } from '../sessions.js';
 import { SettingsService } from '../settings.js';
@@ -47,6 +48,14 @@ export function registerTrashRoutes(
       const result = restoreTrashEntry(appState, id, caller, Date.now());
       if (!result.ok) {
         return res.status(result.status).json({ error: result.error });
+      }
+
+      const restoredProjectId =
+        result.type === 'task' ? result.task?.projectId : result.project?.id;
+      if (restoredProjectId) {
+        recomputeProjectProgress(appState, restoredProjectId, {
+          weighting: settingsService.getEffectiveProgressWeighting(),
+        });
       }
 
       const newRev = stateStore.bumpStateRevision();

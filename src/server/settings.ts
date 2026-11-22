@@ -24,6 +24,7 @@ import {
   WEEKLY_MIN_ITEMS_PER_PROJECT,
   WeeklySummarySettings,
 } from '../utils/weeklySummary.js';
+import type { ProgressWeighting } from '../utils/progress.js';
 import { ServerConfig, getLocalInstalledVersion } from './config.js';
 import { isRequestHttps } from './security.js';
 import { StateStore } from './state.js';
@@ -72,6 +73,9 @@ export interface EffectiveSettings {
     days: SettingFieldState<number>;
     allowForAdmins: SettingFieldState<boolean>;
   };
+  progress: {
+    weighting: SettingFieldState<ProgressWeighting>;
+  };
 }
 
 export interface RuntimeSmtpConfig {
@@ -112,6 +116,7 @@ export interface SettingsService {
   getEffectiveReminderSettings: () => ReminderSettings;
   getEffectiveWeeklySummarySettings: () => WeeklySummarySettings;
   getEffectiveTrustedDevicesSettings: () => EffectiveTrustedDevicesSettings;
+  getEffectiveProgressWeighting: () => ProgressWeighting;
   getRuntimeSmtpConfig: () => RuntimeSmtpConfig;
   getAdminSettingsPayload: (req: express.Request) => AdminSettingsResponse;
   findLockedFieldConflict: (input: AdminSettingsUpdateInput) => LockedFieldConflict | null;
@@ -154,6 +159,7 @@ export function createSettingsService(deps: {
     const storedReminders = stored.reminders || {};
     const storedWeekly = stored.weeklySummary || {};
     const storedTrustedDevices = stored.trustedDevices || {};
+    const storedProgress = stored.progress || {};
 
     // --- SMTP HOST ---
     const envHost = readEnvString('SMTP_HOST');
@@ -491,6 +497,12 @@ export function createSettingsService(deps: {
             locked: false,
           };
 
+    // --- PROGRESS WEIGHTING ---
+    const progressWeighting: SettingFieldState<ProgressWeighting> =
+      storedProgress.weighting === 'estimate' || storedProgress.weighting === 'equal'
+        ? { value: storedProgress.weighting, source: 'ui', locked: false }
+        : { value: SERVER_SETTINGS_DEFAULTS.progress.weighting, source: 'default', locked: false };
+
     return {
       smtp: {
         configured: host.value.trim().length > 0,
@@ -534,6 +546,9 @@ export function createSettingsService(deps: {
         days: tdDays,
         allowForAdmins: tdAllowForAdmins,
       },
+      progress: {
+        weighting: progressWeighting,
+      },
     };
   }
 
@@ -576,6 +591,10 @@ export function createSettingsService(deps: {
       days: td.days.value,
       allowForAdmins: td.allowForAdmins.value,
     };
+  }
+
+  function getEffectiveProgressWeighting(): ProgressWeighting {
+    return getEffectiveSettings().progress.weighting.value;
   }
 
   function getEffectiveSessionPolicy(): EffectiveSessionPolicy {
@@ -656,6 +675,7 @@ export function createSettingsService(deps: {
       reminders: eff.reminders,
       weeklySummary: eff.weeklySummary,
       trustedDevices: eff.trustedDevices,
+      progress: eff.progress,
       readOnly: {
         dataDir: config.dataDir,
         trustProxy: {
@@ -802,6 +822,9 @@ export function createSettingsService(deps: {
               : undefined,
             trustedDevices: appState.serverSettings.trustedDevices
               ? { ...appState.serverSettings.trustedDevices }
+              : undefined,
+            progress: appState.serverSettings.progress
+              ? { ...appState.serverSettings.progress }
               : undefined,
           }
         : {};
@@ -1013,6 +1036,22 @@ export function createSettingsService(deps: {
       currentStored.trustedDevices = nextTd;
     }
 
+    if (patch.progress) {
+      const prevWeighting =
+        currentStored.progress?.weighting === 'equal' ? 'equal' : 'estimate';
+      const nextProg = { ...(currentStored.progress || {}) };
+      if (
+        patch.progress.weighting !== undefined &&
+        patch.progress.weighting !== prevWeighting
+      ) {
+        nextProg.weighting = patch.progress.weighting;
+        changedFields.push('progress.weighting');
+      } else if (patch.progress.weighting !== undefined && nextProg.weighting === undefined) {
+        nextProg.weighting = patch.progress.weighting;
+      }
+      currentStored.progress = nextProg;
+    }
+
     if (changedFields.length > 0) {
       appState.serverSettings = currentStored;
       appState.updatedAt = new Date().toISOString();
@@ -1030,6 +1069,7 @@ export function createSettingsService(deps: {
     getEffectiveReminderSettings,
     getEffectiveWeeklySummarySettings,
     getEffectiveTrustedDevicesSettings,
+    getEffectiveProgressWeighting,
     getRuntimeSmtpConfig,
     getAdminSettingsPayload,
     findLockedFieldConflict,

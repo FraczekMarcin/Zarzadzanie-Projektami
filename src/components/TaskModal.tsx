@@ -4,6 +4,7 @@ import { X, Calendar, UserCheck, AlertTriangle, Layers, Clock, Lock, GitMerge } 
 import { TaskTypeDefinition } from '../utils/variableSettings';
 import { useVariables } from '../hooks/useVariables';
 import { FIELD_LIMITS } from '../utils/access';
+import { hasDirectSubtasks } from '../utils/progress';
 import { useFocusTrap } from '../utils/useFocusTrap';
 
 interface TaskModalProps {
@@ -221,6 +222,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       finalStatus = 'blocked';
     }
 
+    const isParentTask = Boolean(initialTask && hasDirectSubtasks(allTasks, initialTask.id));
+
     onSave({
       projectId,
       title,
@@ -236,7 +239,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       isOfficialDeadline,
       estimatedHours: Number(estimatedHours) || 0,
       spentHours: initialTask?.spentHours || 0,
-      progress: Number(progress) || 0,
+      progress: isParentTask ? (initialTask?.progress ?? 0) : Number(progress) || 0,
       blockingTaskIds,
       dependencies: blockingTaskIds,
       parentId: parentId || undefined,

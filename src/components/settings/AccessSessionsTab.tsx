@@ -22,6 +22,7 @@ import {
   TRUSTED_DEVICE_DAYS_MAX,
   TRUSTED_DEVICE_DAYS_MIN,
 } from '../../utils/settingsSchema';
+import type { ProgressWeighting } from '../../utils/progress';
 
 interface AdminSystemResponse {
   version: string;
@@ -66,9 +67,14 @@ function formatServerUptime(totalSeconds: number): string {
 export interface AccessSessionsTabProps {
   isOpen: boolean;
   currentUser: User | null;
+  onRefreshState?: () => Promise<void> | void;
 }
 
-export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({ isOpen, currentUser }) => {
+export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({
+  isOpen,
+  currentUser,
+  onRefreshState,
+}) => {
   const [data, setData] = useState<AdminSettingsResponse | null>(null);
   const [systemStatus, setSystemStatus] = useState<AdminSystemResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -82,6 +88,7 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({ isOpen, cu
   const [trustedDevicesEnabled, setTrustedDevicesEnabled] = useState(true);
   const [trustedDeviceDays, setTrustedDeviceDays] = useState<string>('30');
   const [trustedAllowForAdmins, setTrustedAllowForAdmins] = useState(true);
+  const [progressWeighting, setProgressWeighting] = useState<ProgressWeighting>('estimate');
   const [currentPassword, setCurrentPassword] = useState('');
 
   const [isSaving, setIsSaving] = useState(false);
@@ -100,6 +107,9 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({ isOpen, cu
       setTrustedDevicesEnabled(payload.trustedDevices.enabled.value);
       setTrustedDeviceDays(String(payload.trustedDevices.days.value));
       setTrustedAllowForAdmins(payload.trustedDevices.allowForAdmins.value);
+    }
+    if (payload.progress?.weighting) {
+      setProgressWeighting(payload.progress.weighting.value);
     }
   };
 
@@ -240,6 +250,10 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({ isOpen, cu
       }
     }
 
+    if (data.progress?.weighting && !data.progress.weighting.locked) {
+      body.progress = { weighting: progressWeighting };
+    }
+
     setIsSaving(true);
     try {
       const res = await fetch('/api/admin/settings', {
@@ -255,6 +269,9 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({ isOpen, cu
       }
       if (json.settings) {
         applyResponseToForm(json.settings as AdminSettingsResponse);
+      }
+      if (Array.isArray(json.changedFields) && json.changedFields.includes('progress.weighting')) {
+        await onRefreshState?.();
       }
       setCurrentPassword('');
       setSaveSuccess(
@@ -494,6 +511,34 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({ isOpen, cu
                       </span>
                     </label>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {data.progress?.weighting && (
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
+                <div>
+                  <label
+                    htmlFor="progress-weighting"
+                    className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"
+                  >
+                    Sposób ważenia postępu zadań nadrzędnych i projektów
+                  </label>
+                  <select
+                    id="progress-weighting"
+                    value={progressWeighting}
+                    onChange={(e) => setProgressWeighting(e.target.value as ProgressWeighting)}
+                    disabled={data.progress.weighting.locked}
+                    className="w-full sm:max-w-md px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs disabled:opacity-60 disabled:bg-slate-100 dark:disabled:bg-slate-800"
+                  >
+                    <option value="estimate">Wg estymacji godzinowej / czasu trwania</option>
+                    <option value="equal">Równe wagi podzadań</option>
+                  </select>
+                  <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
+                    Określa, czy postęp zadań nadrzędnych i projektów ważyć estymacją godzinową (z zapasowym czasem trwania w dniach), czy traktować każde nieanulowane podzadanie z jednakową wagą.
+                  </p>
+                  {data.progress.weighting.locked &&
+                    renderEnvLockNote(data.progress.weighting.envVar)}
                 </div>
               </div>
             )}
