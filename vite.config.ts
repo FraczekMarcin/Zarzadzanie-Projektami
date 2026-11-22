@@ -5,7 +5,7 @@ import path from 'path';
 import {defineConfig} from 'vite';
 
 function readAppVersion(): string {
-  const versionPath = path.resolve(__dirname, 'VERSION');
+  const versionPath = path.resolve(import.meta.dirname, 'VERSION');
   if (fs.existsSync(versionPath)) {
     return fs.readFileSync(versionPath, 'utf-8').trim();
   }
@@ -22,7 +22,7 @@ export default defineConfig(() => {
     },
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(import.meta.dirname, '.'),
       },
     },
     build: {
