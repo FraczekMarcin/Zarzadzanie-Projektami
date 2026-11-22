@@ -166,28 +166,46 @@ export function filterProjectForUser<T extends Record<string, any>>(
  */
 /**
  * Filtruje pojedynczą firmę pod kątem uprawnień użytkownika:
- * - admin i project_manager widzą wszystkie pola (w tym nip i address).
+ * - admin i project_manager widzą wszystkie pola (w tym nip, address, vatPayer, vatExemptionBasis).
+ * - właściciele projektów przypisanych do firmy (poza viewer) widzą także vatPayer i vatExemptionBasis.
  * - pozostali zalogowani widzą tylko pola jawne (id, name, letter, isActive).
  */
 export function filterCompanyForUser<T extends Record<string, any>>(
   company: T,
-  user: { id: string; role?: string } | null | undefined
+  user: { id: string; role?: string } | null | undefined,
+  ownedCompanyIds?: Set<string>
 ): T {
   if (!company || typeof company !== 'object') return company;
   const isAdminOrManager = user && (user.role === 'admin' || user.role === 'project_manager');
   if (isAdminOrManager) {
     return { ...company };
   }
-  const { nip: _nip, address: _address, ...publicFields } = company;
+  const { nip: _nip, address: _address, vatPayer, vatExemptionBasis, ...publicFields } = company;
+  if (user && user.role !== 'viewer' && ownedCompanyIds?.has(company.id)) {
+    return {
+      ...publicFields,
+      vatPayer,
+      ...(vatExemptionBasis !== undefined ? { vatExemptionBasis } : {}),
+    } as unknown as T;
+  }
   return publicFields as T;
 }
 
 export function filterCompaniesForUser<T extends Record<string, any>>(
   companies: T[] | null | undefined,
-  user: { id: string; role?: string } | null | undefined
+  user: { id: string; role?: string } | null | undefined,
+  projects?: Array<{ companyId?: string; ownerId?: string }> | null
 ): T[] {
   if (!user || !Array.isArray(companies)) return [];
-  return companies.map((c) => filterCompanyForUser(c, user));
+  const ownedCompanyIds = new Set<string>();
+  if (Array.isArray(projects) && user.role !== 'viewer') {
+    for (const p of projects) {
+      if (p && p.companyId && p.ownerId === user.id) {
+        ownedCompanyIds.add(p.companyId);
+      }
+    }
+  }
+  return companies.map((c) => filterCompanyForUser(c, user, ownedCompanyIds));
 }
 
 export function filterStateForUser(
@@ -277,7 +295,7 @@ export function filterStateForUser(
   return {
     ...safeState,
     ...(filteredVariables !== undefined ? { variables: filteredVariables } : {}),
-    companies: filterCompaniesForUser(safeState.companies, user),
+    companies: filterCompaniesForUser(safeState.companies, user, allProjects),
     projects: accessibleProjects,
     tasks: filteredTasks,
     comments: filteredComments,

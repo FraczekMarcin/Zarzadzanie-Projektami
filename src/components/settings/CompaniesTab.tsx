@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Building2,
   Plus,
@@ -11,6 +11,7 @@ import {
   Save,
   Lock,
   Power,
+  AlertTriangle,
 } from 'lucide-react';
 import type {
   Company,
@@ -19,6 +20,7 @@ import type {
   ProjectNumberingSettings,
   User,
 } from '../../types';
+import { useFocusTrap } from '../../utils/useFocusTrap';
 
 const ALPHABET_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
@@ -55,6 +57,8 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
   const [newLetter, setNewLetter] = useState<string>('A');
   const [newNip, setNewNip] = useState('');
   const [newAddress, setNewAddress] = useState('');
+  const [newVatPayer, setNewVatPayer] = useState<boolean>(true);
+  const [newVatBasis, setNewVatBasis] = useState('');
 
   // Ustawienia numeracji i domyślnej firmy
   const [numberingScope, setNumberingScope] = useState<ProjectNumberingScope>(
@@ -71,12 +75,27 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
   const [editNip, setEditNip] = useState('');
   const [editAddress, setEditAddress] = useState('');
   const [editIsActive, setEditIsActive] = useState(true);
+  const [editVatPayer, setEditVatPayer] = useState<boolean>(true);
+  const [editVatBasis, setEditVatBasis] = useState('');
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [pendingVatConfirm, setPendingVatConfirm] = useState<{
+    company: Company;
+    payload: Record<string, any>;
+    affectedCount: number;
+    nextVatPayer: boolean;
+  } | null>(null);
+  const vatConfirmRef = useRef<HTMLDivElement>(null);
 
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  useFocusTrap({
+    isOpen: Boolean(pendingVatConfirm),
+    onClose: () => setPendingVatConfirm(null),
+    containerRef: vatConfirmRef,
+  });
 
   useEffect(() => {
     setNumberingScope(projectNumbering?.scope === 'company' ? 'company' : 'year');
@@ -95,6 +114,7 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
       setSuccessMsg(null);
       setEditingId(null);
       setConfirmDeleteId(null);
+      setPendingVatConfirm(null);
     }
   }, [isOpen]);
 
@@ -170,6 +190,8 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
           nip: newNip.trim() || undefined,
           address: newAddress.trim() || undefined,
           isActive: true,
+          vatPayer: newVatPayer,
+          vatExemptionBasis: !newVatPayer && newVatBasis.trim() ? newVatBasis.trim() : undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -179,6 +201,8 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
         setNewName('');
         setNewNip('');
         setNewAddress('');
+        setNewVatPayer(true);
+        setNewVatBasis('');
         setSuccessMsg(`Dodano firmę ${data.company?.letter} - ${data.company?.name}.`);
         await onRefreshState?.();
       }
@@ -196,32 +220,19 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
     setEditNip(company.nip || '');
     setEditAddress(company.address || '');
     setEditIsActive(company.isActive);
+    setEditVatPayer(company.vatPayer !== false);
+    setEditVatBasis(company.vatExemptionBasis || '');
     setConfirmDeleteId(null);
+    setPendingVatConfirm(null);
     setErrorMsg(null);
     setSuccessMsg(null);
   };
 
-  const handleSaveEdit = async (company: Company) => {
-    const trimmedName = editName.trim();
-    if (!trimmedName) {
-      setErrorMsg('Nazwa firmy nie może być pusta.');
-      return;
-    }
-
+  const executeSaveEdit = async (company: Company, payload: Record<string, any>) => {
     setIsSaving(true);
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
-      const payload: Record<string, any> = {
-        name: trimmedName,
-        nip: editNip.trim(),
-        address: editAddress.trim(),
-        isActive: editIsActive,
-      };
-      if (editLetter.trim().toUpperCase() !== company.letter.toUpperCase()) {
-        payload.letter = editLetter.trim().toUpperCase();
-      }
-
       const res = await fetch(`/api/companies/${company.id}`, {
         method: 'PATCH',
         credentials: 'same-origin',
@@ -233,6 +244,7 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
         setErrorMsg(data.error || 'Nie udało się zaktualizować firmy.');
       } else {
         setEditingId(null);
+        setPendingVatConfirm(null);
         setSuccessMsg(`Zaktualizowano dane firmy ${data.company?.letter} - ${data.company?.name}.`);
         await onRefreshState?.();
       }
@@ -241,6 +253,40 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleSaveEdit = async (company: Company) => {
+    const trimmedName = editName.trim();
+    if (!trimmedName) {
+      setErrorMsg('Nazwa firmy nie może być pusta.');
+      return;
+    }
+
+    const payload: Record<string, any> = {
+      name: trimmedName,
+      nip: editNip.trim(),
+      address: editAddress.trim(),
+      isActive: editIsActive,
+      vatPayer: editVatPayer,
+      vatExemptionBasis: !editVatPayer ? editVatBasis.trim() : null,
+    };
+    if (editLetter.trim().toUpperCase() !== company.letter.toUpperCase()) {
+      payload.letter = editLetter.trim().toUpperCase();
+    }
+
+    const prevVatPayer = company.vatPayer !== false;
+    const affectedCount = projectCountByCompany.get(company.id) || 0;
+    if (editVatPayer !== prevVatPayer && affectedCount > 0) {
+      setPendingVatConfirm({
+        company,
+        payload,
+        affectedCount,
+        nextVatPayer: editVatPayer,
+      });
+      return;
+    }
+
+    await executeSaveEdit(company, payload);
   };
 
   const handleToggleActive = async (company: Company) => {
@@ -478,7 +524,7 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
-              <div className="sm:col-span-9">
+              <div className="sm:col-span-5">
                 <label
                   htmlFor="new-company-address"
                   className="block font-semibold text-slate-700 dark:text-slate-300 mb-1"
@@ -495,6 +541,43 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
                   className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-2 text-xs text-slate-900 dark:text-white"
                 />
               </div>
+
+              <div className="sm:col-span-4">
+                <span className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Status VAT firmy
+                </span>
+                <div
+                  role="group"
+                  aria-label="Status VAT nowej firmy"
+                  className="inline-flex w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 p-0.5"
+                >
+                  <button
+                    type="button"
+                    aria-pressed={newVatPayer}
+                    onClick={() => setNewVatPayer(true)}
+                    className={`flex-1 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                      newVatPayer
+                        ? 'bg-white dark:bg-slate-900 text-teal-800 dark:text-teal-300 shadow-xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    Płatnik VAT
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={!newVatPayer}
+                    onClick={() => setNewVatPayer(false)}
+                    className={`flex-1 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                      !newVatPayer
+                        ? 'bg-white dark:bg-slate-900 text-amber-800 dark:text-amber-300 shadow-xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    Zwolniona z VAT
+                  </button>
+                </div>
+              </div>
+
               <div className="sm:col-span-3 flex justify-end">
                 <button
                   type="submit"
@@ -506,6 +589,26 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
                 </button>
               </div>
             </div>
+
+            {!newVatPayer && (
+              <div>
+                <label
+                  htmlFor="new-company-vat-basis"
+                  className="block font-semibold text-slate-700 dark:text-slate-300 mb-1"
+                >
+                  Podstawa zwolnienia (opcjonalnie)
+                </label>
+                <input
+                  id="new-company-vat-basis"
+                  type="text"
+                  maxLength={200}
+                  value={newVatBasis}
+                  onChange={(e) => setNewVatBasis(e.target.value)}
+                  placeholder="np. art. 113 ust. 1 ustawy o VAT"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-2 text-xs text-slate-900 dark:text-white"
+                />
+              </div>
+            )}
           </>
         )}
       </form>
@@ -628,6 +731,64 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
                         </div>
                       </div>
 
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                        <div className="sm:col-span-5">
+                          <span className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                            Status VAT
+                          </span>
+                          <div
+                            role="group"
+                            aria-label={`Status VAT firmy ${company.name}`}
+                            className="inline-flex w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 p-0.5"
+                          >
+                            <button
+                              type="button"
+                              aria-pressed={editVatPayer}
+                              onClick={() => setEditVatPayer(true)}
+                              className={`flex-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
+                                editVatPayer
+                                  ? 'bg-white dark:bg-slate-900 text-teal-800 dark:text-teal-300 shadow-xs'
+                                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                              }`}
+                            >
+                              Płatnik VAT
+                            </button>
+                            <button
+                              type="button"
+                              aria-pressed={!editVatPayer}
+                              onClick={() => setEditVatPayer(false)}
+                              className={`flex-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
+                                !editVatPayer
+                                  ? 'bg-white dark:bg-slate-900 text-amber-800 dark:text-amber-300 shadow-xs'
+                                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                              }`}
+                            >
+                              Zwolniona z VAT
+                            </button>
+                          </div>
+                        </div>
+
+                        {!editVatPayer && (
+                          <div className="sm:col-span-7">
+                            <label
+                              htmlFor={`edit-vat-basis-${company.id}`}
+                              className="block font-semibold text-slate-700 dark:text-slate-300 mb-1"
+                            >
+                              Podstawa zwolnienia
+                            </label>
+                            <input
+                              id={`edit-vat-basis-${company.id}`}
+                              type="text"
+                              maxLength={200}
+                              value={editVatBasis}
+                              onChange={(e) => setEditVatBasis(e.target.value)}
+                              placeholder="np. art. 113 ust. 1 ustawy o VAT"
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+                            />
+                          </div>
+                        )}
+                      </div>
+
                       {projCount > 0 && (
                         <p className="text-[11px] text-slate-600 dark:text-slate-400">
                           Litery firmy nie można zmienić, ponieważ posiada przypisane projekty ({projCount}).
@@ -674,6 +835,15 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
                                 Nieaktywna
                               </span>
                             )}
+                            {company.vatPayer === false ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                Zwolniona z VAT
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-teal-100 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300 border border-teal-200 dark:border-teal-800">
+                                Płatnik VAT
+                              </span>
+                            )}
                             {isDefault && (
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-100 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
                                 Domyślna
@@ -683,10 +853,15 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
                               Projekty: {projCount}
                             </span>
                           </div>
-                          {(company.nip || company.address) && (
+                          {(company.nip || company.address || (company.vatPayer === false && company.vatExemptionBasis)) && (
                             <div className="text-[11px] text-slate-600 dark:text-slate-400 flex flex-wrap gap-3">
                               {company.nip && <span className="font-mono">NIP: {company.nip}</span>}
                               {company.address && <span>{company.address}</span>}
+                              {company.vatPayer === false && company.vatExemptionBasis && (
+                                <span className="text-amber-800 dark:text-amber-300">
+                                  Podstawa ZW: {company.vatExemptionBasis}
+                                </span>
+                              )}
                             </div>
                           )}
                         </div>
@@ -751,6 +926,67 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
           </div>
         )}
       </div>
+
+      {pendingVatConfirm && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="vat-change-confirm-title"
+        >
+          <div
+            ref={vatConfirmRef}
+            tabIndex={-1}
+            className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl p-5 space-y-4"
+          >
+            <div className="flex items-start gap-3">
+              <span className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 shrink-0">
+                <AlertTriangle className="w-5 h-5" aria-hidden="true" />
+              </span>
+              <div className="space-y-1">
+                <h6
+                  id="vat-change-confirm-title"
+                  className="text-sm font-bold text-slate-900 dark:text-white"
+                >
+                  Potwierdź zmianę statusu VAT firmy
+                </h6>
+                <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                  Firma{' '}
+                  <span className="font-semibold text-slate-900 dark:text-white">
+                    {pendingVatConfirm.company.letter} - {pendingVatConfirm.company.name}
+                  </span>{' '}
+                  ma przypisane projekty ({pendingVatConfirm.affectedCount}).
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
+              {pendingVatConfirm.nextVatPayer
+                ? 'Po zmianie na „Płatnik VAT” bilans i koszty projektów będą rozliczane według kwot netto. Dotychczasowe dane zapisane w bazie projektów pozostaną nienaruszone.'
+                : 'Po zmianie na „Zwolniona z VAT” przychody projektów będą liczone bez VAT (stawka ZW), a koszty według kwoty brutto (VAT nieodliczalny). Dotychczasowe kwoty zapisane w bazie projektów nie zostaną nadpisane.'}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={() => setPendingVatConfirm(null)}
+                className="px-3.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold"
+              >
+                Anuluj
+              </button>
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={() => executeSaveEdit(pendingVatConfirm.company, pendingVatConfirm.payload)}
+                className="px-3.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-semibold"
+              >
+                Potwierdź zmianę
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

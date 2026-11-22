@@ -76,7 +76,11 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
 
   const assignedMembers = users.filter((u) => project.memberIds?.includes(u.id));
 
-  const finance = computeProjectFinance(project);
+  const projectCompany = project.companyId
+    ? companies.find((c) => c.id === project.companyId)
+    : undefined;
+
+  const finance = computeProjectFinance(project, projectCompany);
   const baselineValue = finance.baseProjectValueNet;
   const baselineValueGross = finance.baseProjectValueGross;
   const balanceNet = finance.profitNet;
@@ -252,13 +256,15 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
             <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1">
               <span className="text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1">
                 <DollarSign className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" aria-hidden="true" />
-                <span>Wartość umowy (netto)</span>
+                <span>{finance.isVatExempt ? 'Wartość umowy (ZW)' : 'Wartość umowy (netto)'}</span>
               </span>
               <span className="font-mono font-bold text-sm text-slate-900 dark:text-white block">
                 {baselineValue > 0 ? `${formatMoney(baselineValue)} zł` : 'Nie określono'}
               </span>
               <span className="text-[10px] text-slate-600 dark:text-slate-400">
-                Brutto: {baselineValueGross > 0 ? `${formatMoney(baselineValueGross)} zł` : '-'}
+                {finance.isVatExempt
+                  ? 'Zwolniona z VAT (brutto = netto)'
+                  : `Brutto: ${baselineValueGross > 0 ? `${formatMoney(baselineValueGross)} zł` : '-'}`}
               </span>
             </div>
 

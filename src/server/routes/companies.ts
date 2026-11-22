@@ -9,6 +9,7 @@ import { logger } from '../logger.js';
 
 export const MAX_COMPANIES_COUNT = 26;
 export const COMPANY_NAME_MAX_LENGTH = 200;
+export const COMPANY_VAT_BASIS_MAX_LENGTH = 200;
 export const COMPANY_LETTER_REGEX = /^[A-Z]$/;
 
 export function companyHasProjects(appState: any, companyId: string): boolean {
@@ -55,6 +56,11 @@ export function sanitizeImportedCompanies(rawCompanies: unknown): Company[] {
     const rawNip = typeof (item as any).nip === 'string' ? (item as any).nip.trim().slice(0, 50) : '';
     const rawAddress = typeof (item as any).address === 'string' ? (item as any).address.trim().slice(0, 200) : '';
     const isActive = typeof (item as any).isActive === 'boolean' ? (item as any).isActive : true;
+    const vatPayer = typeof (item as any).vatPayer === 'boolean' ? (item as any).vatPayer : true;
+    const rawBasis =
+      typeof (item as any).vatExemptionBasis === 'string'
+        ? (item as any).vatExemptionBasis.trim().slice(0, COMPANY_VAT_BASIS_MAX_LENGTH)
+        : '';
 
     usedLetters.add(rawLetter);
     usedIds.add(rawId);
@@ -66,6 +72,8 @@ export function sanitizeImportedCompanies(rawCompanies: unknown): Company[] {
       ...(rawNip ? { nip: rawNip } : {}),
       ...(rawAddress ? { address: rawAddress } : {}),
       isActive,
+      vatPayer,
+      ...(rawBasis ? { vatExemptionBasis: rawBasis } : {}),
     });
   }
 
@@ -80,11 +88,11 @@ export function registerCompanyRoutes(
   const { requireAuth, requireAdmin } = sessionStore;
   const { securityLogger } = stateStore;
 
-  // GET /api/companies — widoczne dla wszystkich zalogowanych (nip i address tylko dla admin i project_manager)
+  // GET /api/companies — widoczne dla wszystkich zalogowanych (nip i address tylko dla admin i project_manager; vatPayer także dla właścicieli projektów)
   app.get('/api/companies', requireAuth, (req, res) => {
     const appState = stateStore.ensureStateStructure();
     const caller = (req as any).user;
-    const companies = filterCompaniesForUser(appState.companies || [], caller);
+    const companies = filterCompaniesForUser(appState.companies || [], caller, appState.projects || []);
     const projectNumbering = appState.projectNumbering || { scope: 'year' as ProjectNumberingScope };
 
     return res.json({
@@ -201,6 +209,16 @@ export function registerCompanyRoutes(
       if (body.isActive !== undefined && typeof body.isActive !== 'boolean') {
         return res.status(400).json({ error: 'Pole isActive musi być wartością logiczną.' });
       }
+      if (body.vatPayer !== undefined && typeof body.vatPayer !== 'boolean') {
+        return res.status(400).json({ error: 'Pole vatPayer musi być wartością logiczną.' });
+      }
+      if (
+        body.vatExemptionBasis !== undefined &&
+        body.vatExemptionBasis !== null &&
+        typeof body.vatExemptionBasis !== 'string'
+      ) {
+        return res.status(400).json({ error: 'Podstawa zwolnienia z VAT musi być ciągiem znaków.' });
+      }
 
       const nip = typeof body.nip === 'string' ? body.nip.trim() : '';
       if (nip.length > 50) {
@@ -212,6 +230,14 @@ export function registerCompanyRoutes(
         return res.status(400).json({ error: `Adres może mieć maksymalnie ${COMPANY_NAME_MAX_LENGTH} znaków.` });
       }
 
+      const vatExemptionBasis =
+        typeof body.vatExemptionBasis === 'string' ? body.vatExemptionBasis.trim() : '';
+      if (vatExemptionBasis.length > COMPANY_VAT_BASIS_MAX_LENGTH) {
+        return res.status(400).json({
+          error: `Podstawa zwolnienia z VAT może mieć maksymalnie ${COMPANY_VAT_BASIS_MAX_LENGTH} znaków.`,
+        });
+      }
+
       const newCompany: Company = {
         id: crypto.randomUUID(),
         name,
@@ -219,6 +245,8 @@ export function registerCompanyRoutes(
         ...(nip ? { nip } : {}),
         ...(address ? { address } : {}),
         isActive: body.isActive !== undefined ? body.isActive : true,
+        vatPayer: body.vatPayer !== undefined ? body.vatPayer : true,
+        ...(vatExemptionBasis ? { vatExemptionBasis } : {}),
       };
 
       companies.push(newCompany);
@@ -340,6 +368,8 @@ export function registerCompanyRoutes(
         }
       }
 
+      const previousVatPayer = company.vatPayer !== false;
+
       if (body.isActive !== undefined) {
         if (typeof body.isActive !== 'boolean') {
           return res.status(400).json({ error: 'Pole isActive musi być wartością logiczną.' });
@@ -350,6 +380,37 @@ export function registerCompanyRoutes(
         }
       }
 
+      if (body.vatPayer !== undefined) {
+        if (typeof body.vatPayer !== 'boolean') {
+          return res.status(400).json({ error: 'Pole vatPayer musi być wartością logiczną.' });
+        }
+        company.vatPayer = body.vatPayer;
+      } else if (typeof company.vatPayer !== 'boolean') {
+        company.vatPayer = true;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(body, 'vatExemptionBasis')) {
+        if (body.vatExemptionBasis === null || body.vatExemptionBasis === '') {
+          delete company.vatExemptionBasis;
+        } else if (typeof body.vatExemptionBasis === 'string') {
+          const trimmedBasis = body.vatExemptionBasis.trim();
+          if (trimmedBasis.length > COMPANY_VAT_BASIS_MAX_LENGTH) {
+            return res.status(400).json({
+              error: `Podstawa zwolnienia z VAT może mieć maksymalnie ${COMPANY_VAT_BASIS_MAX_LENGTH} znaków.`,
+            });
+          }
+          if (trimmedBasis) {
+            company.vatExemptionBasis = trimmedBasis;
+          } else {
+            delete company.vatExemptionBasis;
+          }
+        } else {
+          return res.status(400).json({ error: 'Podstawa zwolnienia z VAT musi być ciągiem znaków.' });
+        }
+      }
+
+      const vatPayerChanged = company.vatPayer !== previousVatPayer;
+
       const newRev = stateStore.bumpStateRevision();
       await stateStore.saveStateAtomicAsync();
 
@@ -358,7 +419,14 @@ export function registerCompanyRoutes(
           userId: caller.id,
           ip: getClientIp(req),
           userAgent: (req.headers['user-agent'] || '').slice(0, 100),
-          details: { companyId: company.id, name: company.name, letter: company.letter, isActive: company.isActive },
+          details: {
+            companyId: company.id,
+            name: company.name,
+            letter: company.letter,
+            isActive: company.isActive,
+            vatPayer: company.vatPayer,
+            ...(vatPayerChanged ? { vatPayerChanged: true, previousVatPayer } : {}),
+          },
         })
         .catch(() => {});
 

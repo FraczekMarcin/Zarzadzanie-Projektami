@@ -79,6 +79,7 @@ export function formatSignedPln(amount: number): string {
 export interface EconomyProjectRow {
   project: Project;
   company: Company | null;
+  isVatExempt: boolean;
   year: number | null;
   summary: ProjectFinanceSummary;
   clientNameDisplay: string;
@@ -86,6 +87,8 @@ export interface EconomyProjectRow {
   valueGross: number;
   costsNet: number;
   costsGross: number;
+  nominalCostsNet: number;
+  nominalCostsGross: number;
   balanceNet: number;
   balanceGross: number;
   expectedInflowNet: number;
@@ -138,9 +141,9 @@ export function buildEconomyRows(
   const rows: EconomyProjectRow[] = [];
   for (const project of projects) {
     if (!project || !canViewFinance(currentUser, project)) continue;
-    const summary = computeProjectFinance(project, { todayIso });
     const company = project.companyId ? companyMap.get(project.companyId) || null : null;
-    const expectedBalanceNet = subtractMoney(summary.expectedInflowNet, summary.expectedOutflowNet);
+    const summary = computeProjectFinance(project, company, { todayIso });
+    const expectedBalanceNet = subtractMoney(summary.expectedInflowNet, summary.economicExpectedOutflow);
     const expectedBalanceGross = subtractMoney(
       summary.expectedInflowGross,
       summary.expectedOutflowGross
@@ -149,18 +152,21 @@ export function buildEconomyRows(
     rows.push({
       project,
       company,
+      isVatExempt: summary.isVatExempt,
       year: extractProjectYear(project),
       summary,
       clientNameDisplay: project.clientName?.trim() || '—',
       valueNet: summary.totalRevenueNet,
       valueGross: summary.totalRevenueGross,
-      costsNet: summary.totalCostsNet,
+      costsNet: summary.economicTotalCosts,
       costsGross: summary.totalCostsGross,
+      nominalCostsNet: summary.totalCostsNet,
+      nominalCostsGross: summary.totalCostsGross,
       balanceNet: summary.profitNet,
       balanceGross: summary.profitGross,
       expectedInflowNet: summary.expectedInflowNet,
       expectedInflowGross: summary.expectedInflowGross,
-      expectedOutflowNet: summary.expectedOutflowNet,
+      expectedOutflowNet: summary.economicExpectedOutflow,
       expectedOutflowGross: summary.expectedOutflowGross,
       expectedBalanceNet,
       expectedBalanceGross,
@@ -322,8 +328,10 @@ export interface PaymentScheduleCandidate {
 
 export function getProjectPaymentCandidates(
   project: Project,
-  tasksById: Map<string, Task>
+  tasksById: Map<string, Task>,
+  company?: Pick<Company, 'vatPayer'> | null
 ): PaymentScheduleCandidate[] {
+  const isVatExempt = company?.vatPayer === false;
   const vatRate = project.projectVatRate !== undefined ? Number(project.projectVatRate) : 23;
   const result: PaymentScheduleCandidate[] = [];
 
@@ -334,6 +342,7 @@ export function getProjectPaymentCandidates(
       tranche.scheduledTaskId && tasksById.has(tranche.scheduledTaskId)
         ? tranche.scheduledTaskId
         : undefined;
+    const netAmount = tranche.amountNet || 0;
     result.push({
       projectId: project.id,
       projectKey: project.key,
@@ -341,11 +350,12 @@ export function getProjectPaymentCandidates(
       kind: 'tranche',
       itemId: tranche.id,
       title: tranche.title,
-      amountNet: tranche.amountNet || 0,
-      amountGross:
-        tranche.amountGross !== undefined
+      amountNet: netAmount,
+      amountGross: isVatExempt
+        ? netAmount
+        : tranche.amountGross !== undefined
           ? tranche.amountGross
-          : calcGrossFromNet(tranche.amountNet || 0, vatRate),
+          : calcGrossFromNet(netAmount, vatRate),
       dueDate,
       direction: 'wpływ',
       isPaid: Boolean(tranche.isPaid),
@@ -361,6 +371,17 @@ export function getProjectPaymentCandidates(
       quote.scheduledTaskId && tasksById.has(quote.scheduledTaskId)
         ? quote.scheduledTaskId
         : undefined;
+    const netAmount = quote.totalNet || 0;
+    const grossAmount =
+      quote.type === 'koszt'
+        ? quote.totalGross !== undefined
+          ? quote.totalGross
+          : calcGrossFromNet(netAmount, quote.vatRate ?? vatRate)
+        : isVatExempt
+          ? netAmount
+          : quote.totalGross !== undefined
+            ? quote.totalGross
+            : calcGrossFromNet(netAmount, quote.vatRate ?? vatRate);
     result.push({
       projectId: project.id,
       projectKey: project.key,
@@ -368,11 +389,8 @@ export function getProjectPaymentCandidates(
       kind: 'quotation',
       itemId: quote.id,
       title: quote.title,
-      amountNet: quote.totalNet || 0,
-      amountGross:
-        quote.totalGross !== undefined
-          ? quote.totalGross
-          : calcGrossFromNet(quote.totalNet || 0, quote.vatRate ?? vatRate),
+      amountNet: isVatExempt && quote.type === 'koszt' ? grossAmount : netAmount,
+      amountGross: grossAmount,
       dueDate,
       direction: quote.type === 'koszt' ? 'wydatek' : 'wpływ',
       isPaid: Boolean(quote.isPaid),
@@ -387,6 +405,10 @@ export function getProjectPaymentCandidates(
       cost.scheduledTaskId && tasksById.has(cost.scheduledTaskId)
         ? cost.scheduledTaskId
         : undefined;
+    const grossAmount =
+      cost.amountGross !== undefined
+        ? cost.amountGross
+        : calcGrossFromNet(cost.amountNet || 0, cost.vatRate ?? vatRate);
     result.push({
       projectId: project.id,
       projectKey: project.key,
@@ -394,11 +416,8 @@ export function getProjectPaymentCandidates(
       kind: 'cost',
       itemId: cost.id,
       title: cost.title,
-      amountNet: cost.amountNet || 0,
-      amountGross:
-        cost.amountGross !== undefined
-          ? cost.amountGross
-          : calcGrossFromNet(cost.amountNet || 0, cost.vatRate ?? vatRate),
+      amountNet: isVatExempt ? grossAmount : cost.amountNet || 0,
+      amountGross: grossAmount,
       dueDate,
       direction: 'wydatek',
       isPaid: Boolean(cost.isPaid || cost.status === 'paid'),
@@ -413,12 +432,18 @@ export function getUpcomingUnscheduledPayments(
   projects: Project[],
   tasksById: Map<string, Task>,
   currentUser: Pick<User, 'id' | 'role'> | null | undefined,
-  todayIso: string = getTodayIso()
+  todayIso: string = getTodayIso(),
+  companies?: Company[]
 ): PaymentScheduleCandidate[] {
+  const companyMap = new Map<string, Company>();
+  for (const comp of companies || []) {
+    if (comp && comp.id) companyMap.set(comp.id, comp);
+  }
   const candidates: PaymentScheduleCandidate[] = [];
   for (const project of projects) {
     if (!canEditFinance(currentUser, project)) continue;
-    for (const item of getProjectPaymentCandidates(project, tasksById)) {
+    const company = project.companyId ? companyMap.get(project.companyId) || null : null;
+    for (const item of getProjectPaymentCandidates(project, tasksById, company)) {
       if (!item.isPaid && !item.scheduledTaskId && item.dueDate >= todayIso) {
         candidates.push(item);
       }
@@ -679,6 +704,8 @@ export function exportEconomyCsv(
     `Przewidywane płatności (${modeLabel})`,
     'Najbliższy termin płatności',
     'Status',
+    'Status VAT firmy',
+    'Podstawa wyliczeń',
   ];
 
   const statusLabels: Record<Project['status'], string> = {
@@ -701,6 +728,14 @@ export function exportEconomyCsv(
     const statusText = row.project.isArchived
       ? `${statusLabels[row.project.status] || row.project.status} (Archiwalny)`
       : statusLabels[row.project.status] || row.project.status;
+    const vatStatusLabel = row.isVatExempt ? 'Zwolniona z VAT' : 'Płatnik VAT';
+    const calcBasis = row.isVatExempt
+      ? row.company?.vatExemptionBasis
+        ? `Przychód ZW, koszt brutto (VAT nieodliczalny) — ${row.company.vatExemptionBasis}`
+        : 'Przychód ZW, koszt brutto (VAT nieodliczalny)'
+      : amountMode === 'gross'
+        ? 'Przychód i koszt brutto'
+        : 'Przychód i koszt netto';
 
     const cells = [
       row.project.key || '',
@@ -715,6 +750,8 @@ export function exportEconomyCsv(
       formatCsvNumber(expBal),
       row.nextPaymentDate || '',
       statusText,
+      vatStatusLabel,
+      calcBasis,
     ];
     lines.push(cells.map(formatCsvCell).join(';'));
   }

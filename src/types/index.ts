@@ -108,6 +108,8 @@ export interface Company {
   nip?: string;
   address?: string;
   isActive: boolean;
+  vatPayer: boolean;
+  vatExemptionBasis?: string;
 }
 
 export interface ProjectNumberingSettings {

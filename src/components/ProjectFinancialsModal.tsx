@@ -135,6 +135,18 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   const [diskPath, setDiskPath] = useState(project.diskPath || '');
   const [copiedPath, setCopiedPath] = useState(false);
 
+  // Available VAT rates & clients from server-synced system variables
+  const { vatRates: vatRateOptions, clients: availableClients } = useVariables();
+  const projectCompany = project.companyId
+    ? companies.find((c) => c.id === project.companyId)
+    : undefined;
+  const isVatExempt = projectCompany?.vatPayer === false;
+  const defaultVarVatRate =
+    vatRateOptions.find((v) => v.isDefault)?.value ??
+    vatRateOptions.find((v) => v.value === 23)?.value ??
+    vatRateOptions[0]?.value ??
+    23;
+
   // Base Contract Value (Wartość projektu z umowy) — pusta, jeśli projekt jej nie ma
   const initialVatRate = project.projectVatRate !== undefined ? project.projectVatRate : 23;
   const [projectVatRate, setProjectVatRate] = useState<number>(initialVatRate);
@@ -181,8 +193,12 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   const [newQuoteUnit, setNewQuoteUnit] = useState('kpl');
   const [newQuotePriceStr, setNewQuotePriceStr] = useState('');
   const [newQuotePriceError, setNewQuotePriceError] = useState<string | undefined>();
-  const [newQuoteTaxType, setNewQuoteTaxType] = useState<'netto' | 'brutto' | 'zwolniony'>('netto');
-  const [newQuoteVatRate, setNewQuoteVatRate] = useState(23);
+  const [newQuoteTaxType, setNewQuoteTaxType] = useState<'netto' | 'brutto' | 'zwolniony'>(() =>
+    isVatExempt ? 'zwolniony' : 'netto'
+  );
+  const [newQuoteVatRate, setNewQuoteVatRate] = useState(() =>
+    isVatExempt ? 0 : defaultVarVatRate
+  );
   const [newQuoteDueDate, setNewQuoteDueDate] = useState('');
   const [newQuoteIsSelected, setNewQuoteIsSelected] = useState(true);
   const [newQuoteIsPaid, setNewQuoteIsPaid] = useState(false);
@@ -213,9 +229,6 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   const [moveQuoteCategory, setMoveQuoteCategory] = useState<CostCategory>('podwykonawca');
   const [confirmUndoMoveQuoteId, setConfirmUndoMoveQuoteId] = useState<string | null>(null);
 
-  // Available VAT rates & clients from server-synced system variables
-  const { vatRates: vatRateOptions, clients: availableClients } = useVariables();
-
   // Costs items
   const [costs, setCosts] = useState<CostItem[]>(() =>
     (project.costs || []).map((c) => ({
@@ -231,7 +244,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   const [newCostAmountGrossStr, setNewCostAmountGrossStr] = useState('');
   const [newCostNetError, setNewCostNetError] = useState<string | undefined>();
   const [newCostGrossError, setNewCostGrossError] = useState<string | undefined>();
-  const [newCostVatRate, setNewCostVatRate] = useState(23);
+  const [newCostVatRate, setNewCostVatRate] = useState(() => defaultVarVatRate);
   const [newCostContractor, setNewCostContractor] = useState('');
   const [newCostInvoice, setNewCostInvoice] = useState('');
   const [newCostTaskId, setNewCostTaskId] = useState<string>('');
@@ -334,7 +347,9 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
     paymentTranches,
   };
 
-  const finance = computeProjectFinance(draftProjectSnapshot);
+  const finance = computeProjectFinance(draftProjectSnapshot, projectCompany);
+  const effectiveTrancheVat = isVatExempt ? 0 : projectVatRate;
+  const hasZeroVatOption = vatRateOptions.some((v) => (v.value ?? v.rate) === 0);
   const selectedQuotations = quotations.filter((q) => q.isSelected !== false);
   const revenueQuotes = selectedQuotations.filter((q) => q.type !== 'koszt');
   const unlinkedCostQuotes = selectedQuotations.filter(
@@ -401,6 +416,9 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   // --- Base Project Value Handlers ---
   const handleBaseNetChange = (raw: string) => {
     setBaseNetStr(raw);
+    if (isVatExempt && projectVatRate !== 0) {
+      setProjectVatRate(0);
+    }
     if (raw.trim() === '') {
       setBaseNetError(undefined);
       setBaseGrossStr('');
@@ -413,7 +431,8 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
     } else {
       setBaseNetError(undefined);
       if (res.value !== null) {
-        setBaseGrossStr(res.value > 0 ? formatMoney(calcGrossFromNet(res.value, projectVatRate)) : '0,00');
+        const effVat = isVatExempt ? 0 : projectVatRate;
+        setBaseGrossStr(res.value > 0 ? formatMoney(calcGrossFromNet(res.value, effVat)) : '0,00');
         setBaseGrossError(undefined);
       }
     }
@@ -427,6 +446,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   };
 
   const handleBaseGrossChange = (raw: string) => {
+    if (isVatExempt) return;
     setBaseGrossStr(raw);
     if (raw.trim() === '') {
       setBaseGrossError(undefined);
@@ -454,6 +474,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   };
 
   const handleProjectVatRateChange = (newVat: number) => {
+    if (isVatExempt) return;
     setProjectVatRate(newVat);
     const parsedNet = parseMoney(baseNetStr);
     if (baseNetStr.trim() !== '' && parsedNet !== null) {
@@ -559,11 +580,15 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
     e.preventDefault();
     if (!canSubmitNewQuotation || parsedNewQuotePrice === null || parsedNewQuoteQty === null) return;
 
+    const effectiveTaxType =
+      isVatExempt && newQuoteDirection === 'przychod' ? 'zwolniony' : newQuoteTaxType;
+    const effectiveVatInput = effectiveTaxType === 'zwolniony' ? 0 : newQuoteVatRate;
+
     const { vatRate, unitNet, unitGross, totalNet, totalGross } = computeQuoteTotals(
       parsedNewQuoteQty,
       parsedNewQuotePrice,
-      newQuoteTaxType,
-      newQuoteVatRate
+      effectiveTaxType,
+      effectiveVatInput
     );
 
     const newItem: QuotationItem = {
@@ -574,7 +599,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
       unit: newQuoteUnit.trim() || 'kpl',
       unitPriceNet: unitNet,
       unitPriceGross: unitGross,
-      taxType: newQuoteTaxType,
+      taxType: effectiveTaxType,
       vatRate,
       totalNet,
       totalGross,
@@ -667,11 +692,15 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
       return;
     }
 
+    const effectiveTaxType =
+      isVatExempt && editQuoteDraft.type === 'przychod' ? 'zwolniony' : editQuoteDraft.taxType;
+    const effectiveVatInput = effectiveTaxType === 'zwolniony' ? 0 : editQuoteDraft.vatRate;
+
     const { vatRate, unitNet, unitGross, totalNet, totalGross } = computeQuoteTotals(
       qtyRes.value!,
       priceRes.value!,
-      editQuoteDraft.taxType,
-      editQuoteDraft.vatRate
+      effectiveTaxType,
+      effectiveVatInput
     );
 
     const existing = quotations.find((q) => q.id === id);
@@ -690,7 +719,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
               unit: editQuoteDraft.unit.trim() || 'kpl',
               unitPriceNet: unitNet,
               unitPriceGross: unitGross,
-              taxType: editQuoteDraft.taxType,
+              taxType: effectiveTaxType,
               vatRate,
               totalNet,
               totalGross,
@@ -1042,7 +1071,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
     } else {
       setNewTrancheNetError(undefined);
       if (res.value !== null) {
-        setNewTrancheGrossStr(formatMoney(calcGrossFromNet(res.value, projectVatRate)));
+        setNewTrancheGrossStr(formatMoney(calcGrossFromNet(res.value, effectiveTrancheVat)));
         setNewTrancheGrossError(undefined);
       }
     }
@@ -1056,6 +1085,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   };
 
   const handleNewTrancheGrossChange = (raw: string) => {
+    if (isVatExempt) return;
     setNewTrancheGrossStr(raw);
     if (raw.trim() === '') {
       setNewTrancheGrossError(undefined);
@@ -1069,7 +1099,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
     } else {
       setNewTrancheGrossError(undefined);
       if (res.value !== null) {
-        setNewTrancheNetStr(formatMoney(calcNetFromGross(res.value, projectVatRate)));
+        setNewTrancheNetStr(formatMoney(calcNetFromGross(res.value, effectiveTrancheVat)));
         setNewTrancheNetError(undefined);
       }
     }
@@ -1115,10 +1145,11 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
     e.preventDefault();
     if (!canSubmitNewTranche || parsedNewTrancheNet === null) return;
 
-    const gross =
-      parsedNewTrancheGross !== null
+    const gross = isVatExempt
+      ? parsedNewTrancheNet
+      : parsedNewTrancheGross !== null
         ? parsedNewTrancheGross
-        : calcGrossFromNet(parsedNewTrancheNet, projectVatRate);
+        : calcGrossFromNet(parsedNewTrancheNet, effectiveTrancheVat);
 
     const newTranche: PaymentTranche = {
       id: `trn-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -1169,7 +1200,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
     setEditTrancheDraft({
       title: t.title,
       amountNetStr: formatMoney(t.amountNet),
-      amountGrossStr: formatMoney(t.amountGross),
+      amountGrossStr: isVatExempt ? formatMoney(t.amountNet) : formatMoney(t.amountGross),
       dueDate: t.dueDate || '',
       isPaid: t.isPaid,
       paidAt: t.paidAt || '',
@@ -1185,7 +1216,9 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   const saveEditTranche = (id: string) => {
     if (!canEdit || !editTrancheDraft) return;
     const netRes = validateMoneyInput(editTrancheDraft.amountNetStr, { requiredPositive: true });
-    const grossRes = validateMoneyInput(editTrancheDraft.amountGrossStr, { requiredPositive: true });
+    const grossRes = isVatExempt
+      ? netRes
+      : validateMoneyInput(editTrancheDraft.amountGrossStr, { requiredPositive: true });
     const paidRes = validateMoneyInput(editTrancheDraft.paidAmountStr, { allowEmpty: true });
 
     if (!editTrancheDraft.title.trim() || !netRes.valid || !grossRes.valid || !paidRes.valid) {
@@ -1209,7 +1242,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
               ...t,
               title: editTrancheDraft.title.trim(),
               amountNet: netRes.value!,
-              amountGross: grossRes.value!,
+              amountGross: isVatExempt ? netRes.value! : grossRes.value!,
               dueDate: editTrancheDraft.dueDate || undefined,
               isPaid: editTrancheDraft.isPaid,
               paidAt: editTrancheDraft.isPaid ? editTrancheDraft.paidAt || getTodayIso() : undefined,
@@ -1472,19 +1505,22 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                 <span className="font-mono text-xs font-bold text-sky-700 dark:text-sky-400">
                   {project.key}
                 </span>
-                {(() => {
-                  const comp = project.companyId
-                    ? companies.find((c) => c.id === project.companyId)
-                    : undefined;
-                  return comp ? (
-                    <span
-                      title={`Firma prowadząca: ${comp.name}`}
-                      className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
-                    >
-                      {comp.letter}
-                    </span>
-                  ) : null;
-                })()}
+                {projectCompany && (
+                  <span
+                    title={`Firma prowadząca: ${projectCompany.name}`}
+                    className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                  >
+                    {projectCompany.letter}
+                  </span>
+                )}
+                {isVatExempt && (
+                  <span
+                    title={projectCompany?.vatExemptionBasis ? `Podstawa: ${projectCompany.vatExemptionBasis}` : 'Firma zwolniona z VAT'}
+                    className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800"
+                  >
+                    Zwolniona z VAT
+                  </span>
+                )}
                 <h3 id="financials-modal-title" className="text-sm font-bold text-slate-900 dark:text-white">
                   {project.name}
                 </h3>
@@ -1558,11 +1594,24 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
           </div>
         )}
 
+        {/* Historical VAT Warning when company is VAT-exempt */}
+        {finance.hasHistoricalNonZeroRevenueVat && (
+          <div
+            role="status"
+            className="px-6 py-2.5 bg-amber-50 dark:bg-amber-950/50 border-b border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs flex items-start gap-2"
+          >
+            <AlertTriangle className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" aria-hidden="true" />
+            <span>
+              <strong>Stawka VAT zapisana przed zmianą statusu firmy:</strong> Przychody firmy zwolnionej z VAT są wyliczane bez VAT (ZW, brutto = netto), bez nadpisywania zapisanych historycznie kwot w bazie.
+            </span>
+          </div>
+        )}
+
         {/* Top Financial Stats Bar */}
         <div className="bg-slate-100/70 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 px-6 py-2.5 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
           <div>
             <span className="text-[11px] text-slate-600 dark:text-slate-400 block">
-              Wartość Projektu (Netto)
+              {finance.isVatExempt ? 'Wartość Projektu (ZW)' : 'Wartość Projektu (Netto)'}
             </span>
             <span
               data-testid="finance-total-revenue"
@@ -1579,22 +1628,24 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
 
           <div>
             <span className="text-[11px] text-slate-600 dark:text-slate-400 block">
-              Koszty łączne (Netto)
+              {finance.isVatExempt ? 'Koszt ekonomiczny (brutto, VAT nieodliczalny)' : 'Koszty łączne (Netto)'}
             </span>
             <span
               data-testid="finance-total-costs"
               className="font-bold text-rose-700 dark:text-rose-400 text-sm font-mono"
             >
-              {formatMoney(finance.totalCostsNet)} PLN
+              {formatMoney(finance.economicTotalCosts)} PLN
             </span>
             <span className="text-[10px] text-slate-600 dark:text-slate-400 block">
-              Opłacono: {formatMoney(finance.paidCostsNet)} zł
+              {finance.isVatExempt
+                ? `Netto: ${formatMoney(finance.totalCostsNet)} zł · Opłacono: ${formatMoney(finance.paidCostsEconomic)} zł`
+                : `Opłacono: ${formatMoney(finance.paidCostsNet)} zł`}
             </span>
           </div>
 
           <div>
             <span className="text-[11px] text-slate-600 dark:text-slate-400 block">
-              Wynik finansowy (Netto)
+              {finance.isVatExempt ? 'Bilans (Przychód ZW − Koszt brutto)' : 'Wynik finansowy (Netto)'}
             </span>
             <span
               data-testid="finance-profit-net"
@@ -1715,7 +1766,9 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                     Przychód z wycen ({selectedQuotations.length} z {quotations.length} ofert):
                   </span>
                   <span className="text-sm font-bold text-sky-700 dark:text-sky-400 font-mono">
-                    {formatMoney(finance.totalQuotationNet)} zł netto ({formatMoney(finance.totalQuotationGross)} zł brutto)
+                    {finance.isVatExempt
+                      ? `${formatMoney(finance.totalQuotationNet)} zł (ZW, bez VAT)`
+                      : `${formatMoney(finance.totalQuotationNet)} zł netto (${formatMoney(finance.totalQuotationGross)} zł brutto)`}
                   </span>
                 </div>
               </div>
@@ -1730,7 +1783,9 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                         Wartość bazowa projektu (kwota umowy głównej)
                       </span>
                       <span className="text-[11px] text-slate-600 dark:text-slate-400">
-                        Podstawa przychodu w bilansie projektu. Kwoty netto i brutto przeliczają się z dokładnością do 0,01 zł.
+                        {finance.isVatExempt
+                          ? `Firma zwolniona z VAT${finance.vatExemptionBasis ? ` (${finance.vatExemptionBasis})` : ''} — przychody bez VAT (ZW, brutto = netto).`
+                          : 'Podstawa przychodu w bilansie projektu. Kwoty netto i brutto przeliczają się z dokładnością do 0,01 zł.'}
                       </span>
                     </div>
                   </div>
@@ -1738,7 +1793,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                   <div className="flex flex-wrap items-start gap-2.5">
                     <div>
                       <label htmlFor="fin-base-contract" className="block text-[10px] text-slate-600 dark:text-slate-400 mb-0.5">
-                        Kwota netto PLN
+                        {finance.isVatExempt ? 'Kwota umowy (ZW) PLN' : 'Kwota netto PLN'}
                       </label>
                       <input
                         id="fin-base-contract"
@@ -1762,14 +1817,14 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
 
                     <div>
                       <label htmlFor="fin-base-contract-gross" className="block text-[10px] text-slate-600 dark:text-slate-400 mb-0.5">
-                        Kwota brutto PLN
+                        {isVatExempt ? 'Kwota brutto (ZW) PLN' : 'Kwota brutto PLN'}
                       </label>
                       <input
                         id="fin-base-contract-gross"
                         type="text"
                         inputMode="decimal"
-                        disabled={!canEdit}
-                        value={baseGrossStr}
+                        disabled={!canEdit || isVatExempt}
+                        value={isVatExempt ? baseNetStr : baseGrossStr}
                         onChange={(e) => handleBaseGrossChange(e.target.value)}
                         onBlur={handleBaseGrossBlur}
                         placeholder="0,00"
@@ -1790,14 +1845,15 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                       </label>
                       <select
                         id="fin-base-vat"
-                        disabled={!canEdit}
-                        value={projectVatRate}
+                        disabled={!canEdit || isVatExempt}
+                        value={isVatExempt ? 0 : projectVatRate}
                         onChange={(e) => handleProjectVatRateChange(Number(e.target.value))}
                         className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-900 dark:text-white disabled:opacity-60"
                       >
+                        {!hasZeroVatOption && <option value={0}>Zwolniony (ZW, 0%)</option>}
                         {vatRateOptions.map((v) => (
                           <option key={v.id} value={v.value ?? v.rate}>
-                            {v.label}
+                            {isVatExempt && (v.value ?? v.rate) === 0 ? 'Zwolniony (ZW, 0%)' : v.label}
                           </option>
                         ))}
                       </select>
@@ -1841,7 +1897,9 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                       <span>Płatności zamawiającego</span>
                     </h5>
                     <p className="text-[11px] text-slate-600 dark:text-slate-400">
-                      Harmonogram transz płatności z VAT projektu ({projectVatRate}%).
+                      {isVatExempt
+                        ? 'Harmonogram transz płatności — firma zwolniona z VAT (ZW, brutto = netto).'
+                        : `Harmonogram transz płatności z VAT projektu (${projectVatRate}%).`}
                     </p>
                   </div>
                   <div className="text-xs font-mono bg-white dark:bg-slate-900 px-3 py-1.5 rounded border border-slate-200 dark:border-slate-700">
@@ -1928,98 +1986,100 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                                         className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2 py-1 text-xs"
                                       />
                                     </div>
-                                    <div>
-                                      <label htmlFor={`edit-trn-net-${t.id}`} className="block text-[10px] text-slate-600 dark:text-slate-400 mb-0.5">
-                                        Netto (zł) *
-                                      </label>
-                                      <input
-                                        id={`edit-trn-net-${t.id}`}
-                                        type="text"
-                                        inputMode="decimal"
-                                        value={editTrancheDraft.amountNetStr}
-                                        onChange={(e) => {
-                                          const raw = e.target.value;
-                                          const res = validateMoneyInput(raw, { requiredPositive: true });
-                                          setEditTrancheDraft((prev) =>
-                                            prev
-                                              ? {
-                                                  ...prev,
-                                                  amountNetStr: raw,
-                                                  netError: raw.trim() === '' ? 'Podaj kwotę większą od 0' : res.valid ? undefined : res.error,
-                                                  amountGrossStr:
-                                                    res.valid && res.value !== null
-                                                      ? formatMoney(calcGrossFromNet(res.value, projectVatRate))
-                                                      : prev.amountGrossStr,
-                                                  grossError: res.valid ? undefined : prev.grossError,
-                                                }
-                                              : null
-                                          );
-                                        }}
-                                        onBlur={() => {
-                                          const p = parseMoney(editTrancheDraft.amountNetStr);
-                                          if (p !== null) {
+                                      <div>
+                                        <label htmlFor={`edit-trn-net-${t.id}`} className="block text-[10px] text-slate-600 dark:text-slate-400 mb-0.5">
+                                          {isVatExempt ? 'Kwota ZW (zł) *' : 'Netto (zł) *'}
+                                        </label>
+                                        <input
+                                          id={`edit-trn-net-${t.id}`}
+                                          type="text"
+                                          inputMode="decimal"
+                                          value={editTrancheDraft.amountNetStr}
+                                          onChange={(e) => {
+                                            const raw = e.target.value;
+                                            const res = validateMoneyInput(raw, { requiredPositive: true });
                                             setEditTrancheDraft((prev) =>
-                                              prev ? { ...prev, amountNetStr: formatMoney(p) } : null
+                                              prev
+                                                ? {
+                                                    ...prev,
+                                                    amountNetStr: raw,
+                                                    netError: raw.trim() === '' ? 'Podaj kwotę większą od 0' : res.valid ? undefined : res.error,
+                                                    amountGrossStr:
+                                                      res.valid && res.value !== null
+                                                        ? formatMoney(calcGrossFromNet(res.value, effectiveTrancheVat))
+                                                        : prev.amountGrossStr,
+                                                    grossError: res.valid ? undefined : prev.grossError,
+                                                  }
+                                                : null
                                             );
-                                          }
-                                        }}
-                                        placeholder="0,00"
-                                        aria-invalid={Boolean(editTrancheDraft.netError)}
-                                        aria-describedby={editTrancheDraft.netError ? `edit-trn-net-err-${t.id}` : undefined}
-                                        className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2 py-1 text-xs font-mono text-right"
-                                      />
-                                      {editTrancheDraft.netError && (
-                                        <p id={`edit-trn-net-err-${t.id}`} role="alert" className="text-[10px] text-rose-700 dark:text-rose-400 mt-0.5">
-                                          {editTrancheDraft.netError}
-                                        </p>
-                                      )}
-                                    </div>
-                                    <div>
-                                      <label htmlFor={`edit-trn-gross-${t.id}`} className="block text-[10px] text-slate-600 dark:text-slate-400 mb-0.5">
-                                        Brutto (zł) *
-                                      </label>
-                                      <input
-                                        id={`edit-trn-gross-${t.id}`}
-                                        type="text"
-                                        inputMode="decimal"
-                                        value={editTrancheDraft.amountGrossStr}
-                                        onChange={(e) => {
-                                          const raw = e.target.value;
-                                          const res = validateMoneyInput(raw, { requiredPositive: true });
-                                          setEditTrancheDraft((prev) =>
-                                            prev
-                                              ? {
-                                                  ...prev,
-                                                  amountGrossStr: raw,
-                                                  grossError: raw.trim() === '' ? 'Podaj kwotę większą od 0' : res.valid ? undefined : res.error,
-                                                  amountNetStr:
-                                                    res.valid && res.value !== null
-                                                      ? formatMoney(calcNetFromGross(res.value, projectVatRate))
-                                                      : prev.amountNetStr,
-                                                  netError: res.valid ? undefined : prev.netError,
-                                                }
-                                              : null
-                                          );
-                                        }}
-                                        onBlur={() => {
-                                          const p = parseMoney(editTrancheDraft.amountGrossStr);
-                                          if (p !== null) {
+                                          }}
+                                          onBlur={() => {
+                                            const p = parseMoney(editTrancheDraft.amountNetStr);
+                                            if (p !== null) {
+                                              setEditTrancheDraft((prev) =>
+                                                prev ? { ...prev, amountNetStr: formatMoney(p) } : null
+                                              );
+                                            }
+                                          }}
+                                          placeholder="0,00"
+                                          aria-invalid={Boolean(editTrancheDraft.netError)}
+                                          aria-describedby={editTrancheDraft.netError ? `edit-trn-net-err-${t.id}` : undefined}
+                                          className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2 py-1 text-xs font-mono text-right"
+                                        />
+                                        {editTrancheDraft.netError && (
+                                          <p id={`edit-trn-net-err-${t.id}`} role="alert" className="text-[10px] text-rose-700 dark:text-rose-400 mt-0.5">
+                                            {editTrancheDraft.netError}
+                                          </p>
+                                        )}
+                                      </div>
+                                      <div>
+                                        <label htmlFor={`edit-trn-gross-${t.id}`} className="block text-[10px] text-slate-600 dark:text-slate-400 mb-0.5">
+                                          {isVatExempt ? 'Brutto (ZW, zł)' : 'Brutto (zł) *'}
+                                        </label>
+                                        <input
+                                          id={`edit-trn-gross-${t.id}`}
+                                          type="text"
+                                          inputMode="decimal"
+                                          disabled={isVatExempt}
+                                          value={isVatExempt ? editTrancheDraft.amountNetStr : editTrancheDraft.amountGrossStr}
+                                          onChange={(e) => {
+                                            if (isVatExempt) return;
+                                            const raw = e.target.value;
+                                            const res = validateMoneyInput(raw, { requiredPositive: true });
                                             setEditTrancheDraft((prev) =>
-                                              prev ? { ...prev, amountGrossStr: formatMoney(p) } : null
+                                              prev
+                                                ? {
+                                                    ...prev,
+                                                    amountGrossStr: raw,
+                                                    grossError: raw.trim() === '' ? 'Podaj kwotę większą od 0' : res.valid ? undefined : res.error,
+                                                    amountNetStr:
+                                                      res.valid && res.value !== null
+                                                        ? formatMoney(calcNetFromGross(res.value, effectiveTrancheVat))
+                                                        : prev.amountNetStr,
+                                                    netError: res.valid ? undefined : prev.netError,
+                                                  }
+                                                : null
                                             );
-                                          }
-                                        }}
-                                        placeholder="0,00"
-                                        aria-invalid={Boolean(editTrancheDraft.grossError)}
-                                        aria-describedby={editTrancheDraft.grossError ? `edit-trn-gross-err-${t.id}` : undefined}
-                                        className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2 py-1 text-xs font-mono text-right"
-                                      />
-                                      {editTrancheDraft.grossError && (
-                                        <p id={`edit-trn-gross-err-${t.id}`} role="alert" className="text-[10px] text-rose-700 dark:text-rose-400 mt-0.5">
-                                          {editTrancheDraft.grossError}
-                                        </p>
-                                      )}
-                                    </div>
+                                          }}
+                                          onBlur={() => {
+                                            const p = parseMoney(editTrancheDraft.amountGrossStr);
+                                            if (p !== null) {
+                                              setEditTrancheDraft((prev) =>
+                                                prev ? { ...prev, amountGrossStr: formatMoney(p) } : null
+                                              );
+                                            }
+                                          }}
+                                          placeholder="0,00"
+                                          aria-invalid={Boolean(editTrancheDraft.grossError)}
+                                          aria-describedby={editTrancheDraft.grossError ? `edit-trn-gross-err-${t.id}` : undefined}
+                                          className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2 py-1 text-xs font-mono text-right disabled:opacity-60"
+                                        />
+                                        {editTrancheDraft.grossError && (
+                                          <p id={`edit-trn-gross-err-${t.id}`} role="alert" className="text-[10px] text-rose-700 dark:text-rose-400 mt-0.5">
+                                            {editTrancheDraft.grossError}
+                                          </p>
+                                        )}
+                                      </div>
                                     <div>
                                       <label htmlFor={`edit-trn-due-${t.id}`} className="block text-[10px] text-slate-600 dark:text-slate-400 mb-0.5">
                                         Termin płatności
@@ -2154,7 +2214,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                                 {formatMoney(t.amountNet)} zł
                               </td>
                               <td className="py-2 px-3 text-right font-mono text-slate-600 dark:text-slate-400">
-                                {formatMoney(t.amountGross)} zł
+                                {isVatExempt ? `${formatMoney(t.amountNet)} zł (ZW)` : `${formatMoney(t.amountGross)} zł`}
                               </td>
                               <td className="py-2 px-3 whitespace-nowrap font-mono text-[11px]">
                                 {t.dueDate ? (
@@ -2258,7 +2318,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                       </div>
                       <div>
                         <label htmlFor="fin-tranche-net" className="block text-[10px] text-slate-600 dark:text-slate-400 mb-0.5">
-                          Kwota netto (zł) *
+                          {isVatExempt ? 'Kwota ZW (zł) *' : 'Kwota netto (zł) *'}
                         </label>
                         <input
                           id="fin-tranche-net"
@@ -2280,19 +2340,20 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                       </div>
                       <div>
                         <label htmlFor="fin-tranche-gross" className="block text-[10px] text-slate-600 dark:text-slate-400 mb-0.5">
-                          Kwota brutto (zł)
+                          {isVatExempt ? 'Kwota brutto (ZW, zł)' : 'Kwota brutto (zł)'}
                         </label>
                         <input
                           id="fin-tranche-gross"
                           type="text"
                           inputMode="decimal"
-                          value={newTrancheGrossStr}
+                          disabled={isVatExempt}
+                          value={isVatExempt ? newTrancheNetStr : newTrancheGrossStr}
                           onChange={(e) => handleNewTrancheGrossChange(e.target.value)}
                           onBlur={handleNewTrancheGrossBlur}
                           placeholder="0,00"
                           aria-invalid={Boolean(newTrancheGrossError)}
                           aria-describedby={newTrancheGrossError ? `${uidPrefix}-trn-gross-err` : undefined}
-                          className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2.5 py-1 text-xs font-mono text-right"
+                          className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2.5 py-1 text-xs font-mono text-right disabled:opacity-60"
                         />
                         {newTrancheGrossError && (
                           <p id={`${uidPrefix}-trn-gross-err`} role="alert" className="text-[10px] text-rose-700 dark:text-rose-400 mt-0.5">
@@ -2440,13 +2501,19 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                                     <select
                                       id={`edit-q-dir-${q.id}`}
                                       value={editQuoteDraft.type}
-                                      onChange={(e) =>
-                                        setEditQuoteDraft((prev) =>
-                                          prev
-                                            ? { ...prev, type: e.target.value as 'przychod' | 'koszt' }
-                                            : null
-                                        )
-                                      }
+                                      onChange={(e) => {
+                                        const dir = e.target.value as 'przychod' | 'koszt';
+                                        setEditQuoteDraft((prev) => {
+                                          if (!prev) return null;
+                                          if (isVatExempt && dir === 'przychod') {
+                                            return { ...prev, type: dir, taxType: 'zwolniony', vatRate: 0 };
+                                          }
+                                          if (isVatExempt && dir === 'koszt' && prev.taxType === 'zwolniony') {
+                                            return { ...prev, type: dir, taxType: 'netto', vatRate: defaultVarVatRate };
+                                          }
+                                          return { ...prev, type: dir };
+                                        });
+                                      }}
                                       className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2 py-1 text-xs"
                                     >
                                       <option value="przychod">Przychód (+)</option>
@@ -2588,7 +2655,12 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                                     </label>
                                     <select
                                       id={`edit-q-tax-${q.id}`}
-                                      value={editQuoteDraft.taxType}
+                                      disabled={isVatExempt && editQuoteDraft.type === 'przychod'}
+                                      value={
+                                        isVatExempt && editQuoteDraft.type === 'przychod'
+                                          ? 'zwolniony'
+                                          : editQuoteDraft.taxType
+                                      }
                                       onChange={(e) =>
                                         setEditQuoteDraft((prev) =>
                                           prev
@@ -2596,7 +2668,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                                             : null
                                         )
                                       }
-                                      className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2 py-1 text-xs"
+                                      className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2 py-1 text-xs disabled:opacity-50"
                                     >
                                       <option value="netto">Netto</option>
                                       <option value="brutto">Brutto</option>
@@ -2609,8 +2681,16 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                                     </label>
                                     <select
                                       id={`edit-q-vat-${q.id}`}
-                                      disabled={editQuoteDraft.taxType === 'zwolniony'}
-                                      value={editQuoteDraft.taxType === 'zwolniony' ? 0 : editQuoteDraft.vatRate}
+                                      disabled={
+                                        (isVatExempt && editQuoteDraft.type === 'przychod') ||
+                                        editQuoteDraft.taxType === 'zwolniony'
+                                      }
+                                      value={
+                                        (isVatExempt && editQuoteDraft.type === 'przychod') ||
+                                        editQuoteDraft.taxType === 'zwolniony'
+                                          ? 0
+                                          : editQuoteDraft.vatRate
+                                      }
                                       onChange={(e) =>
                                         setEditQuoteDraft((prev) =>
                                           prev ? { ...prev, vatRate: Number(e.target.value) } : null
@@ -2618,6 +2698,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                                       }
                                       className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2 py-1 text-xs disabled:opacity-50"
                                     >
+                                      {!hasZeroVatOption && <option value={0}>Zwolniony (0%)</option>}
                                       {vatRateOptions.map((v) => (
                                         <option key={v.id} value={v.value}>
                                           {v.label} ({v.value}%)
@@ -2807,7 +2888,11 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                             </td>
                             <td className="py-2 px-2.5 text-center">
                               <span className="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                                {q.taxType === 'zwolniony' ? 'ZW (0%)' : `${q.taxType || 'netto'} ${q.vatRate}%`}
+                                {isVatExempt && !isCost
+                                  ? 'ZW (0%)'
+                                  : q.taxType === 'zwolniony'
+                                    ? 'ZW (0%)'
+                                    : `${q.taxType || 'netto'} ${q.vatRate}%`}
                               </span>
                             </td>
                             <td className="py-2 px-2.5 whitespace-nowrap font-mono text-[11px]">
@@ -2833,7 +2918,9 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                               {formatMoney(q.totalNet)} zł
                             </td>
                             <td className="py-2 px-2.5 text-right font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                              {formatMoney(q.totalGross)} zł
+                              {isVatExempt && !isCost
+                                ? `${formatMoney(q.totalNet)} zł (ZW)`
+                                : `${formatMoney(q.totalGross)} zł`}
                             </td>
                             <td className="py-2 px-2.5 text-center whitespace-nowrap">
                               {canEdit ? (
@@ -2979,7 +3066,19 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                       <select
                         id="fin-quote-direction"
                         value={newQuoteDirection}
-                        onChange={(e) => setNewQuoteDirection(e.target.value as 'przychod' | 'koszt')}
+                        onChange={(e) => {
+                          const dir = e.target.value as 'przychod' | 'koszt';
+                          setNewQuoteDirection(dir);
+                          if (isVatExempt) {
+                            if (dir === 'przychod') {
+                              setNewQuoteTaxType('zwolniony');
+                              setNewQuoteVatRate(0);
+                            } else {
+                              setNewQuoteTaxType('netto');
+                              setNewQuoteVatRate(defaultVarVatRate);
+                            }
+                          }
+                        }}
                         className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-semibold"
                       >
                         <option value="przychod">📈 Przychód: Wycena dla Inwestora</option>
@@ -3058,9 +3157,12 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                       </label>
                       <select
                         id="fin-quote-tax-type"
-                        value={newQuoteTaxType}
+                        disabled={isVatExempt && newQuoteDirection === 'przychod'}
+                        value={
+                          isVatExempt && newQuoteDirection === 'przychod' ? 'zwolniony' : newQuoteTaxType
+                        }
                         onChange={(e) => setNewQuoteTaxType(e.target.value as 'netto' | 'brutto' | 'zwolniony')}
-                        className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+                        className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white disabled:opacity-50"
                       >
                         <option value="netto">Netto</option>
                         <option value="brutto">Brutto</option>
@@ -3070,7 +3172,11 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
 
                     <div>
                       <label htmlFor="fin-quote-price" className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">
-                        {newQuoteTaxType === 'brutto' ? 'Cena jedn. brutto (zł) *' : 'Cena jedn. netto (zł) *'}
+                        {newQuoteTaxType === 'brutto'
+                          ? 'Cena jedn. brutto (zł) *'
+                          : isVatExempt && newQuoteDirection === 'przychod'
+                            ? 'Cena jedn. (ZW, zł) *'
+                            : 'Cena jedn. netto (zł) *'}
                       </label>
                       <input
                         id="fin-quote-price"
@@ -3097,11 +3203,20 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                       </label>
                       <select
                         id="fin-quote-vat"
-                        disabled={newQuoteTaxType === 'zwolniony'}
-                        value={newQuoteTaxType === 'zwolniony' ? 0 : newQuoteVatRate}
+                        disabled={
+                          (isVatExempt && newQuoteDirection === 'przychod') ||
+                          newQuoteTaxType === 'zwolniony'
+                        }
+                        value={
+                          (isVatExempt && newQuoteDirection === 'przychod') ||
+                          newQuoteTaxType === 'zwolniony'
+                            ? 0
+                            : newQuoteVatRate
+                        }
                         onChange={(e) => setNewQuoteVatRate(Number(e.target.value))}
                         className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white disabled:opacity-50"
                       >
+                        {!hasZeroVatOption && <option value={0}>Zwolniony (0%)</option>}
                         {vatRateOptions.map((v) => (
                           <option key={v.id} value={v.value}>
                             {v.label} ({v.value}%)
@@ -3153,10 +3268,14 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                 </div>
                 <div className="text-left sm:text-right bg-rose-50 dark:bg-rose-950/40 p-2.5 rounded-lg border border-rose-200 dark:border-rose-800">
                   <span className="text-[11px] text-rose-800 dark:text-rose-300 block">
-                    Koszty bezpośrednie ({costs.length}):
+                    {finance.isVatExempt
+                      ? `Koszty bezpośrednie (${costs.length}) — brutto (VAT nieodliczalny):`
+                      : `Koszty bezpośrednie (${costs.length}):`}
                   </span>
                   <span className="text-sm font-bold text-rose-700 dark:text-rose-400 font-mono">
-                    {formatMoney(finance.directCostsNet)} zł netto ({formatMoney(finance.directCostsGross)} zł brutto)
+                    {finance.isVatExempt
+                      ? `${formatMoney(finance.directCostsGross)} zł brutto (netto: ${formatMoney(finance.directCostsNet)} zł)`
+                      : `${formatMoney(finance.directCostsNet)} zł netto (${formatMoney(finance.directCostsGross)} zł brutto)`}
                   </span>
                 </div>
               </div>
@@ -3172,7 +3291,9 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                       <th scope="col" className="py-2.5 px-3 font-semibold">Wykonawca</th>
                       <th scope="col" className="py-2.5 px-3 font-semibold">Termin płatności</th>
                       <th scope="col" className="py-2.5 px-3 font-semibold text-right">Netto</th>
-                      <th scope="col" className="py-2.5 px-3 font-semibold text-right">Brutto</th>
+                      <th scope="col" className="py-2.5 px-3 font-semibold text-right">
+                        {finance.isVatExempt ? 'Brutto (koszt)' : 'Brutto'}
+                      </th>
                       {canEdit && <th scope="col" className="py-2.5 px-3 font-semibold text-center">Akcje</th>}
                     </tr>
                   </thead>
@@ -3544,10 +3665,10 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                                 <span className="text-slate-600 dark:text-slate-400">—</span>
                               )}
                             </td>
-                            <td className="py-2 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                            <td className={`py-2 px-3 text-right font-mono whitespace-nowrap ${finance.isVatExempt ? 'text-slate-600 dark:text-slate-400' : 'font-bold text-slate-900 dark:text-slate-100'}`}>
                               {formatMoney(c.amountNet)} zł
                             </td>
-                            <td className="py-2 px-3 text-right font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                            <td className={`py-2 px-3 text-right font-mono whitespace-nowrap ${finance.isVatExempt ? 'font-bold text-rose-700 dark:text-rose-400' : 'text-slate-600 dark:text-slate-400'}`}>
                               {formatMoney(c.amountGross)} zł
                             </td>
                             {canEdit && (
@@ -4013,32 +4134,43 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
           {/* TAB 4: PODSUMOWANIE */}
           {activeTab === 'summary' && (
             <div className="space-y-4">
-              <h4 className="font-bold text-slate-900 dark:text-white text-sm">
-                Podsumowanie Finansowe, Rentowność i Prognoza Płatności
-              </h4>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h4 className="font-bold text-slate-900 dark:text-white text-sm">
+                  Podsumowanie Finansowe, Rentowność i Prognoza Płatności
+                </h4>
+                {finance.isVatExempt && (
+                  <span className="text-[11px] px-2.5 py-1 rounded bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 font-medium">
+                    Firma zwolniona z VAT{finance.vatExemptionBasis ? ` (${finance.vatExemptionBasis})` : ''}: przychody ZW, koszty ekonomiczne brutto
+                  </span>
+                )}
+              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg">
                   <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-300 block mb-1">
-                    Wartość projektu (Umowa + Wyceny)
+                    {finance.isVatExempt ? 'Wartość projektu (ZW, Umowa + Wyceny)' : 'Wartość projektu (Umowa + Wyceny)'}
                   </span>
                   <div className="text-xl font-bold font-mono text-emerald-700 dark:text-emerald-400">
                     {formatMoney(finance.totalRevenueNet)} PLN
                   </div>
                   <span className="text-[11px] text-emerald-700 dark:text-emerald-400 block mt-1">
-                    Brutto z VAT: {formatMoney(finance.totalRevenueGross)} PLN
+                    {finance.isVatExempt
+                      ? 'Zwolniona z VAT (brutto = netto)'
+                      : `Brutto z VAT: ${formatMoney(finance.totalRevenueGross)} PLN`}
                   </span>
                 </div>
 
                 <div className="p-4 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 rounded-lg">
                   <span className="text-xs font-semibold text-rose-800 dark:text-rose-300 block mb-1">
-                    Koszty łączne (Netto)
+                    {finance.isVatExempt ? 'Koszt ekonomiczny (brutto, VAT nieodliczalny)' : 'Koszty łączne (Netto)'}
                   </span>
                   <div className="text-xl font-bold font-mono text-rose-700 dark:text-rose-400">
-                    {formatMoney(finance.totalCostsNet)} PLN
+                    {formatMoney(finance.economicTotalCosts)} PLN
                   </div>
                   <span className="text-[11px] text-rose-700 dark:text-rose-400 block mt-1">
-                    Brutto z VAT: {formatMoney(finance.totalCostsGross)} PLN
+                    {finance.isVatExempt
+                      ? `Nominalnie netto: ${formatMoney(finance.totalCostsNet)} PLN (brutto: ${formatMoney(finance.totalCostsGross)} PLN)`
+                      : `Brutto z VAT: ${formatMoney(finance.totalCostsGross)} PLN`}
                   </span>
                 </div>
 
@@ -4056,7 +4188,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                         : 'text-rose-800 dark:text-rose-300'
                     }`}
                   >
-                    Bilans (Netto)
+                    {finance.isVatExempt ? 'Bilans (Przychód ZW − Koszt brutto)' : 'Bilans (Netto)'}
                   </span>
                   <div
                     className={`text-xl font-bold font-mono ${
@@ -4105,10 +4237,12 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                     data-testid="finance-expected-outflow"
                     className="text-lg font-bold font-mono text-rose-700 dark:text-rose-400"
                   >
-                    {formatMoney(finance.expectedOutflowNet)} PLN
+                    {formatMoney(finance.economicExpectedOutflow)} PLN
                   </div>
                   <span className="text-[11px] text-slate-600 dark:text-slate-400 block mt-1">
-                    Niezapłacone i planowane koszty z terminem płatności
+                    {finance.isVatExempt
+                      ? 'Niezapłacone i planowane koszty z terminem płatności (brutto — VAT nieodliczalny)'
+                      : 'Niezapłacone i planowane koszty z terminem płatności'}
                   </span>
                 </div>
 
@@ -4133,7 +4267,9 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                     <span>Wartość Projektu — Rozbicie na elementy i koszty</span>
                   </h5>
                   <span className="font-mono text-xs font-bold text-emerald-700 dark:text-emerald-400">
-                    Przychód łączny: {formatMoney(finance.totalRevenueNet)} PLN netto
+                    {finance.isVatExempt
+                      ? `Przychód łączny: ${formatMoney(finance.totalRevenueNet)} PLN (ZW)`
+                      : `Przychód łączny: ${formatMoney(finance.totalRevenueNet)} PLN netto`}
                   </span>
                 </div>
 
@@ -4153,7 +4289,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                             Wartość bazowa projektu (umowa główna)
                           </span>
                           <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
-                            {formatMoney(finance.baseProjectValueNet)} zł netto
+                            {formatMoney(finance.baseProjectValueNet)} {finance.isVatExempt ? 'zł (ZW)' : 'zł netto'}
                           </span>
                         </div>
                       )}
@@ -4166,11 +4302,13 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
-                              {formatMoney(q.totalNet)} zł netto
+                              {formatMoney(q.totalNet)} {finance.isVatExempt ? 'zł (ZW)' : 'zł netto'}
                             </span>
-                            <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono">
-                              ({formatMoney(q.totalGross)} brutto)
-                            </span>
+                            {!finance.isVatExempt && (
+                              <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono">
+                                ({formatMoney(q.totalGross)} brutto)
+                              </span>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -4180,7 +4318,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                   <div className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 pt-2">
                     2. Koszty zewnętrzne i podwykonawcy branżowi (bez podwójnego liczenia ofert przeniesionych):
                   </div>
-                  {finance.totalCostsNet === 0 ? (
+                  {finance.economicTotalCosts === 0 ? (
                     <div className="text-[11px] text-slate-600 dark:text-slate-400 italic">Brak przypisanych kosztów</div>
                   ) : (
                     <div className="divide-y divide-slate-100 dark:divide-slate-700/50 bg-slate-50/50 dark:bg-slate-900/40 rounded border border-slate-200 dark:border-slate-700">
@@ -4191,9 +4329,16 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                             <span className="font-medium text-slate-900 dark:text-slate-100">{q.title}</span>
                             <span className="text-[10px] text-slate-600 dark:text-slate-400">({q.companyName})</span>
                           </div>
-                          <span className="font-mono font-bold text-rose-700 dark:text-rose-400">
-                            -{formatMoney(q.totalNet)} zł netto
-                          </span>
+                          <div className="text-right font-mono">
+                            <span className="font-bold text-rose-700 dark:text-rose-400">
+                              -{formatMoney(finance.isVatExempt ? q.totalGross : q.totalNet)} {finance.isVatExempt ? 'zł brutto' : 'zł netto'}
+                            </span>
+                            {finance.isVatExempt && (
+                              <span className="text-[10px] text-slate-600 dark:text-slate-400 ml-1.5">
+                                (netto: {formatMoney(q.totalNet)} zł)
+                              </span>
+                            )}
+                          </div>
                         </div>
                       ))}
                       {costs.map((c) => (
@@ -4205,9 +4350,16 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                               <span className="text-[10px] text-slate-600 dark:text-slate-400">({c.contractorName})</span>
                             )}
                           </div>
-                          <span className="font-mono font-bold text-rose-700 dark:text-rose-400">
-                            -{formatMoney(c.amountNet)} zł netto
-                          </span>
+                          <div className="text-right font-mono">
+                            <span className="font-bold text-rose-700 dark:text-rose-400">
+                              -{formatMoney(finance.isVatExempt ? c.amountGross : c.amountNet)} {finance.isVatExempt ? 'zł brutto' : 'zł netto'}
+                            </span>
+                            {finance.isVatExempt && (
+                              <span className="text-[10px] text-slate-600 dark:text-slate-400 ml-1.5">
+                                (netto: {formatMoney(c.amountNet)} zł)
+                              </span>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -4218,14 +4370,14 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
               {/* Category Breakdown */}
               <div className="p-4 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg space-y-3">
                 <h5 className="font-bold text-slate-800 dark:text-slate-200 text-xs">
-                  Struktura kosztów bezpośrednich według kategorii:
+                  Struktura kosztów bezpośrednich według kategorii{finance.isVatExempt ? ' (brutto — VAT nieodliczalny)' : ''}:
                 </h5>
                 <div className="space-y-2">
                   {(Object.keys(finance.costsByCategory) as CostCategory[]).map((catKey) => {
                     const catAmount = finance.costsByCategory[catKey] || 0;
                     const catPct =
-                      finance.totalCostsNet > 0
-                        ? Math.round((catAmount / finance.totalCostsNet) * 100)
+                      finance.economicTotalCosts > 0
+                        ? Math.round((catAmount / finance.economicTotalCosts) * 100)
                         : 0;
                     const meta = getCategoryLabel(catKey);
                     return (

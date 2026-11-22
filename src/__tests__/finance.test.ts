@@ -892,4 +892,181 @@ describe('Logika finansowa projektu (finance.ts) i API finansów', () => {
       fs.rmSync(dataDir, { recursive: true, force: true });
     }
   });
+
+  it('dla firmy zwolnionej z VAT liczy przychody jako ZW (brutto = netto) i koszty ekonomiczne brutto (VAT nieodliczalny)', () => {
+    const project = makeBaseProject({
+      projectValue: 10000,
+      projectValueGross: 12300, // historyczna kwota sprzed zmiany statusu firmy
+      projectVatRate: 23,
+      quotations: [
+        {
+          id: 'q-rev-1',
+          title: 'Dodatkowy etap',
+          type: 'przychod',
+          isSelected: true,
+          taxType: 'netto',
+          quantity: 1,
+          unit: 'kpl.',
+          unitPriceNet: 2000,
+          unitPriceGross: 2460,
+          vatRate: 23,
+          totalNet: 2000,
+          totalGross: 2460,
+          status: 'accepted',
+          dueDate: '2026-06-01',
+          isPaid: false,
+        },
+        {
+          id: 'q-cost-unlinked',
+          title: 'Oferta geodezyjna',
+          type: 'koszt',
+          isSelected: true,
+          taxType: 'netto',
+          quantity: 1,
+          unit: 'kpl.',
+          unitPriceNet: 1000,
+          unitPriceGross: 1230,
+          vatRate: 23,
+          totalNet: 1000,
+          totalGross: 1230,
+          status: 'accepted',
+          dueDate: '2026-05-20',
+          isPaid: false,
+        },
+      ],
+      costs: [
+        {
+          id: 'c-paid',
+          projectId: 'prj-1',
+          title: 'Mapa MDCP',
+          amountNet: 2000,
+          amountGross: 2460,
+          vatRate: 23,
+          category: 'mapa',
+          date: '2026-04-01',
+          status: 'paid',
+          isPaid: true,
+        },
+        {
+          id: 'c-unpaid',
+          projectId: 'prj-1',
+          title: 'Ekspertyza',
+          amountNet: 1000,
+          amountGross: 1230,
+          vatRate: 23,
+          category: 'inne',
+          date: '2026-04-10',
+          dueDate: '2026-05-25',
+          status: 'planned',
+          isPaid: false,
+        },
+      ],
+      paymentTranches: [
+        {
+          id: 'tr-1',
+          title: 'Zaliczka',
+          amountNet: 4000,
+          amountGross: 4920,
+          dueDate: '2026-05-15',
+          isPaid: false,
+        },
+      ],
+    });
+
+    const payerSummary = computeProjectFinance(project, { vatPayer: true });
+    expect(payerSummary.isVatExempt).toBe(false);
+    expect(payerSummary.totalRevenueNet).toBe(12000);
+    expect(payerSummary.totalRevenueGross).toBe(14760);
+    expect(payerSummary.economicTotalCosts).toBe(4000);
+    expect(payerSummary.profitNet).toBe(8000);
+    expect(payerSummary.paidCostsEconomic).toBe(2000);
+    expect(payerSummary.economicExpectedOutflow).toBe(2000);
+
+    const exemptSummary = computeProjectFinance(project, {
+      vatPayer: false,
+      vatExemptionBasis: 'art. 113 ust. 1 ustawy o VAT',
+    });
+    expect(exemptSummary.isVatExempt).toBe(true);
+    expect(exemptSummary.vatExemptionBasis).toBe('art. 113 ust. 1 ustawy o VAT');
+    expect(exemptSummary.hasHistoricalNonZeroRevenueVat).toBe(true);
+    expect(exemptSummary.projectVatRate).toBe(0);
+    expect(exemptSummary.baseProjectValueNet).toBe(10000);
+    expect(exemptSummary.baseProjectValueGross).toBe(10000);
+    expect(exemptSummary.nominalBaseProjectValueGross).toBe(12300);
+    expect(exemptSummary.totalRevenueNet).toBe(12000);
+    expect(exemptSummary.totalRevenueGross).toBe(12000);
+    expect(exemptSummary.nominalTotalRevenueGross).toBe(14760);
+    expect(exemptSummary.totalCostsNet).toBe(4000);
+    expect(exemptSummary.totalCostsGross).toBe(4920);
+    expect(exemptSummary.economicTotalCosts).toBe(4920);
+    expect(exemptSummary.profitNet).toBe(7080); // 12000 - 4920
+    expect(exemptSummary.profitGross).toBe(7080); // 12000 - 4920
+    expect(exemptSummary.paidCostsEconomic).toBe(2460);
+    expect(exemptSummary.tranchesTotalNet).toBe(4000);
+    expect(exemptSummary.tranchesTotalGross).toBe(4000);
+    expect(exemptSummary.expectedInflowNet).toBe(6000);
+    expect(exemptSummary.expectedInflowGross).toBe(6000);
+    expect(exemptSummary.expectedOutflowNet).toBe(2000);
+    expect(exemptSummary.expectedOutflowGross).toBe(2460);
+    expect(exemptSummary.economicExpectedOutflow).toBe(2460);
+    expect(exemptSummary.costsByCategory.mapa).toBe(2460);
+    expect(exemptSummary.costsByCategory.inne).toBe(1230);
+  });
+
+  it('validateProjectFinanceFields dopuszcza ZW (0%) na kontrakcie/transzach firmy zwolnionej nawet przy historycznym VAT 23% i zachowuje VAT kosztu', () => {
+    const exemptOpts = { company: { vatPayer: false } };
+
+    // Kontrakt z historycznym projectVatRate: 23, ale zapisany z kwotą ZW (brutto = netto)
+    const okBaseZw = validateProjectFinanceFields(
+      { projectValue: 10000, projectValueGross: 10000 },
+      { projectValue: 10000, projectVatRate: 23 },
+      exemptOpts
+    );
+    expect(okBaseZw.ok).toBe(true);
+
+    // Transza ZW (brutto = netto) mimo historycznego projectVatRate: 23
+    const okTrancheZw = validateProjectFinanceFields(
+      {
+        paymentTranches: [
+          {
+            id: 'tr-zw',
+            title: 'Transza ZW',
+            amountNet: 5000,
+            amountGross: 5000,
+          },
+        ],
+      },
+      { projectValue: 10000, projectVatRate: 23 },
+      exemptOpts
+    );
+    expect(okTrancheZw.ok).toBe(true);
+
+    // Koszt w firmie zwolnionej nadal może mieć 23% VAT z faktury kosztowej
+    const okCost23 = validateProjectFinanceFields(
+      {
+        costs: [
+          {
+            id: 'c-23',
+            title: 'Usługa 23%',
+            category: 'inne',
+            amountNet: 1000,
+            amountGross: 1230,
+            vatRate: 23,
+            status: 'planned',
+          },
+        ],
+      },
+      { projectValue: 10000, projectVatRate: 0 },
+      exemptOpts
+    );
+    expect(okCost23.ok).toBe(true);
+
+    // Błędna kwota brutto dla firmy zwolnionej (ani 0%, ani 23%) -> odrzucona
+    const badBase = validateProjectFinanceFields(
+      { projectValue: 10000, projectValueGross: 15000 },
+      { projectValue: 10000, projectVatRate: 23 },
+      exemptOpts
+    );
+    expect(badBase.ok).toBe(false);
+  });
 });

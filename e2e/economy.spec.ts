@@ -351,4 +351,80 @@ test.describe.serial('Widok Ekonomia z podziałem na firmy i harmonogramem płat
     const nav = page.getByRole('navigation', { name: 'Główna nawigacja' });
     await expect(nav.getByRole('button', { name: 'Ekonomia', exact: true })).toHaveCount(0);
   });
+
+  test('firma zwolniona z VAT w Ustawieniach, widoku Ekonomia i oknie finansów projektu (przychód ZW, koszt brutto)', async ({ page }) => {
+    test.setTimeout(90_000);
+    await loginThroughUi(page, baseUrl, ADMIN_EMAIL, ADMIN_PASS);
+
+    // Dodaj firmę zwolnioną z VAT i projekt dla niej przez API sesji
+    const setupData = await page.evaluate(async () => {
+      const compRes = await fetch('/api/companies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Gamma Zwolniona',
+          letter: 'G',
+          isActive: true,
+          vatPayer: false,
+          vatExemptionBasis: 'art. 113 ust. 1 ustawy o VAT',
+        }),
+      });
+      if (!compRes.ok) throw new Error(`comp create failed: ${compRes.status}`);
+      const company = (await compRes.json()).company;
+
+      const projRes = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId: company.id,
+          name: 'Pawilon Zwolniony Gamma',
+          clientName: 'Klient Gamma',
+          status: 'active',
+          startDate: '2026-03-01',
+          dueDate: '2026-12-01',
+          projectValue: 10000,
+          projectValueGross: 10000,
+          projectVatRate: 0,
+          costs: [
+            {
+              id: 'c-gamma-1',
+              title: 'Faktura z VAT 23%',
+              amountNet: 2000,
+              amountGross: 2460,
+              vatRate: 23,
+              category: 'inne',
+              date: '2026-04-01',
+              status: 'planned',
+              isPaid: false,
+            },
+          ],
+        }),
+      });
+      if (!projRes.ok) throw new Error(`proj create failed: ${projRes.status}`);
+      return { companyId: company.id };
+    });
+    expect(setupData.companyId).toBeTruthy();
+
+    await page.reload();
+    const nav = page.getByRole('navigation', { name: 'Główna nawigacja' });
+    await nav.getByRole('button', { name: 'Ekonomia', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Ekonomia i finanse firm' })).toBeVisible();
+
+    // Zakładka firmy zwolnionej pokazuje plakietkę 'Zwolniona z VAT' i wyliczenia przychód 10 000 zł, koszt brutto 2 460 zł, bilans +7 540,00 zł
+    const gammaTab = page.getByRole('tab', { name: /G - Gamma Zwolniona/ });
+    await expect(gammaTab).toBeVisible();
+    await expect(gammaTab).toContainText('Zwolniona z VAT');
+    await gammaTab.click();
+
+    await expect(page.locator('tfoot')).toContainText('10 000,00 zł');
+    await expect(page.locator('tfoot')).toContainText('2 460,00 zł');
+    await expect(page.locator('tfoot')).toContainText('+7 540,00 zł');
+
+    // Przełączenie na Brutto zachowuje koszt ekonomiczny brutto 2 460,00 zł i przychód ZW 10 000,00 zł
+    await page.getByRole('button', { name: 'Brutto', exact: true }).click();
+    await expect(page.locator('tfoot')).toContainText('10 000,00 zł');
+    await expect(page.locator('tfoot')).toContainText('2 460,00 zł');
+    await expect(page.locator('tfoot')).toContainText('+7 540,00 zł');
+    await expect(page.getByText(/Podstawa wyliczeń:/)).toBeVisible();
+  });
 });

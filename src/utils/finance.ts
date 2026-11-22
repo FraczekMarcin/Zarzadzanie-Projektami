@@ -1,4 +1,4 @@
-import type { CostCategory, CostItem, PaymentTranche, Project, QuotationItem } from '../types/index.js';
+import type { Company, CostCategory, CostItem, PaymentTranche, Project, QuotationItem } from '../types/index.js';
 import {
   addMoney,
   calcGrossFromNet,
@@ -15,28 +15,43 @@ import { getTodayIso } from './today.js';
 export {
   validateProjectFinanceFields,
   type FinanceValidationResult,
+  type FinanceValidationOptions,
 } from './financeValidation.js';
 
 export interface ProjectFinanceSummary {
+  isVatExempt: boolean;
+  vatExemptionBasis?: string;
+  hasHistoricalNonZeroRevenueVat: boolean;
   baseProjectValueNet: number;
   baseProjectValueGross: number;
+  nominalBaseProjectValueGross: number;
   projectVatRate: number;
   totalQuotationNet: number;
   totalQuotationGross: number;
+  nominalTotalQuotationGross: number;
   totalRevenueNet: number;
   totalRevenueGross: number;
+  nominalTotalRevenueGross: number;
   directCostsNet: number;
   directCostsGross: number;
+  nominalDirectCostsNet: number;
+  nominalDirectCostsGross: number;
   quoteCostsNet: number;
   quoteCostsGross: number;
+  nominalQuoteCostsNet: number;
+  nominalQuoteCostsGross: number;
   totalCostsNet: number;
   totalCostsGross: number;
+  nominalTotalCostsNet: number;
+  nominalTotalCostsGross: number;
+  economicTotalCosts: number;
   profitNet: number;
   profitGross: number;
   marginPercent: number;
   paidRevenueNet: number;
   unpaidRevenueNet: number;
   paidCostsNet: number;
+  paidCostsEconomic: number;
   unpaidCostsNet: number;
   tranchesTotalNet: number;
   tranchesTotalGross: number;
@@ -47,6 +62,7 @@ export interface ProjectFinanceSummary {
   expectedInflowGross: number;
   expectedOutflowNet: number;
   expectedOutflowGross: number;
+  economicExpectedOutflow: number;
   nextPaymentDate: string | null;
   costsByCategory: Record<CostCategory, number>;
 }
@@ -64,6 +80,12 @@ export function isPaymentOverdue(
   return trimmed < todayIso;
 }
 
+export type ProjectFinanceCompanyInput = Pick<Company, 'vatPayer' | 'vatExemptionBasis'>;
+
+export interface ComputeProjectFinanceOptions {
+  todayIso?: string;
+}
+
 export function computeProjectFinance(
   project: Pick<
     Project,
@@ -76,15 +98,34 @@ export function computeProjectFinance(
     | 'costs'
     | 'paymentTranches'
   >,
-  options?: { todayIso?: string }
+  companyOrOptions?: ProjectFinanceCompanyInput | ComputeProjectFinanceOptions | null,
+  maybeOptions?: ComputeProjectFinanceOptions
 ): ProjectFinanceSummary {
+  const hasCompanyShape =
+    companyOrOptions !== null &&
+    companyOrOptions !== undefined &&
+    ('vatPayer' in companyOrOptions || 'vatExemptionBasis' in companyOrOptions);
+  const company = hasCompanyShape ? (companyOrOptions as ProjectFinanceCompanyInput) : null;
+  const options = hasCompanyShape
+    ? maybeOptions
+    : ((companyOrOptions as ComputeProjectFinanceOptions | null | undefined) ?? maybeOptions);
+
+  const isVatExempt = company?.vatPayer === false;
+  const vatExemptionBasis =
+    isVatExempt && typeof company?.vatExemptionBasis === 'string' && company.vatExemptionBasis.trim()
+      ? company.vatExemptionBasis.trim()
+      : undefined;
+
   const todayIso = options?.todayIso || getTodayIso();
-  const projectVatRate = project.projectVatRate !== undefined ? Number(project.projectVatRate) : 23;
+  const rawProjectVatRate = project.projectVatRate !== undefined ? Number(project.projectVatRate) : 23;
   const baseProjectValueNet = roundMoney(Number(project.projectValue || 0));
-  const baseProjectValueGross =
+  const nominalBaseProjectValueGross =
     project.projectValueGross !== undefined && baseProjectValueNet > 0
       ? roundMoney(Number(project.projectValueGross))
-      : calcGrossFromNet(baseProjectValueNet, projectVatRate);
+      : calcGrossFromNet(baseProjectValueNet, rawProjectVatRate);
+
+  const projectVatRate = isVatExempt ? 0 : rawProjectVatRate;
+  const baseProjectValueGross = isVatExempt ? baseProjectValueNet : nominalBaseProjectValueGross;
 
   const quotations: QuotationItem[] = Array.isArray(project.quotations) ? project.quotations : [];
   const costs: CostItem[] = Array.isArray(project.costs) ? project.costs : [];
@@ -100,28 +141,67 @@ export function computeProjectFinance(
     (q) => q.type === 'koszt' && !q.linkedCostId
   );
 
+  const baseHasHistoricalVat =
+    isVatExempt &&
+    baseProjectValueNet > 0 &&
+    ((project.projectVatRate !== undefined && Number(project.projectVatRate) !== 0) ||
+      (project.projectValueGross !== undefined &&
+        toGrosze(project.projectValueGross) !== toGrosze(baseProjectValueNet)));
+
+  const quoteHasHistoricalVat =
+    isVatExempt &&
+    revenueQuotes.some(
+      (q) =>
+        ((q.vatRate || 0) > 0 && q.taxType !== 'zwolniony') ||
+        toGrosze(q.totalGross || 0) !== toGrosze(q.totalNet || 0)
+    );
+
+  const trancheHasHistoricalVat =
+    isVatExempt &&
+    tranches.some(
+      (t) =>
+        t.amountGross !== undefined &&
+        toGrosze(t.amountGross) !== toGrosze(t.amountNet || 0)
+    );
+
+  const hasHistoricalNonZeroRevenueVat =
+    isVatExempt && (baseHasHistoricalVat || quoteHasHistoricalVat || trancheHasHistoricalVat);
+
   const totalQuotationNet = addMoney(...revenueQuotes.map((q) => q.totalNet || 0));
-  const totalQuotationGross = addMoney(...revenueQuotes.map((q) => q.totalGross || 0));
+  const nominalTotalQuotationGross = addMoney(...revenueQuotes.map((q) => q.totalGross || 0));
+  const totalQuotationGross = isVatExempt ? totalQuotationNet : nominalTotalQuotationGross;
 
   const totalRevenueNet = addMoney(baseProjectValueNet, totalQuotationNet);
-  const totalRevenueGross = addMoney(baseProjectValueGross, totalQuotationGross);
+  const nominalTotalRevenueGross = addMoney(nominalBaseProjectValueGross, nominalTotalQuotationGross);
+  const totalRevenueGross = isVatExempt ? totalRevenueNet : nominalTotalRevenueGross;
 
-  const directCostsNet = addMoney(...costs.map((c) => c.amountNet || 0));
-  const directCostsGross = addMoney(...costs.map((c) => c.amountGross || 0));
+  const nominalDirectCostsNet = addMoney(...costs.map((c) => c.amountNet || 0));
+  const nominalDirectCostsGross = addMoney(...costs.map((c) => c.amountGross || 0));
 
-  const quoteCostsNet = addMoney(...costQuotesUnlinked.map((q) => q.totalNet || 0));
-  const quoteCostsGross = addMoney(...costQuotesUnlinked.map((q) => q.totalGross || 0));
+  const nominalQuoteCostsNet = addMoney(...costQuotesUnlinked.map((q) => q.totalNet || 0));
+  const nominalQuoteCostsGross = addMoney(...costQuotesUnlinked.map((q) => q.totalGross || 0));
 
-  const totalCostsNet = addMoney(directCostsNet, quoteCostsNet);
-  const totalCostsGross = addMoney(directCostsGross, quoteCostsGross);
+  const nominalTotalCostsNet = addMoney(nominalDirectCostsNet, nominalQuoteCostsNet);
+  const nominalTotalCostsGross = addMoney(nominalDirectCostsGross, nominalQuoteCostsGross);
 
-  const profitNet = subtractMoney(totalRevenueNet, totalCostsNet);
+  const directCostsNet = nominalDirectCostsNet;
+  const directCostsGross = nominalDirectCostsGross;
+  const quoteCostsNet = nominalQuoteCostsNet;
+  const quoteCostsGross = nominalQuoteCostsGross;
+  const totalCostsNet = nominalTotalCostsNet;
+  const totalCostsGross = nominalTotalCostsGross;
+
+  const economicTotalCosts = isVatExempt ? totalCostsGross : totalCostsNet;
+
+  const profitNet = subtractMoney(totalRevenueNet, economicTotalCosts);
   const profitGross = subtractMoney(totalRevenueGross, totalCostsGross);
   const marginPercent = calcMarginPercent(totalRevenueNet, profitNet);
 
   // Transze płatności od zamawiającego
   const tranchesTotalNet = addMoney(...tranches.map((t) => t.amountNet || 0));
-  const tranchesTotalGross = addMoney(...tranches.map((t) => t.amountGross || 0));
+  const tranchesTotalGross = isVatExempt
+    ? tranchesTotalNet
+    : addMoney(...tranches.map((t) => t.amountGross || 0));
   const tranchesPaidNet = addMoney(
     ...tranches
       .filter((t) => t.isPaid)
@@ -158,6 +238,15 @@ export function computeProjectFinance(
     ...costQuotesUnlinked.filter((q) => q.isPaid).map((q) => q.totalNet || 0)
   );
   const paidCostsNet = addMoney(paidDirectCostsNet, paidQuoteCostsNet);
+  const paidDirectCostsGross = addMoney(
+    ...costs.filter((c) => c.isPaid || c.status === 'paid').map((c) => c.amountGross || c.amountNet || 0)
+  );
+  const paidQuoteCostsGross = addMoney(
+    ...costQuotesUnlinked.filter((q) => q.isPaid).map((q) => q.totalGross || q.totalNet || 0)
+  );
+  const paidCostsEconomic = isVatExempt
+    ? addMoney(paidDirectCostsGross, paidQuoteCostsGross)
+    : paidCostsNet;
   const unpaidCostsNet = Math.max(0, subtractMoney(totalCostsNet, paidCostsNet));
 
   // Oczekiwane wpływy: niezapłacone transze i wyceny przychodowe z terminem płatności
@@ -171,24 +260,26 @@ export function computeProjectFinance(
     ...datedUnpaidTranches.map((t) => Math.max(0, subtractMoney(t.amountNet || 0, t.paidAmount || 0))),
     ...datedUnpaidRevenueQuotes.map((q) => Math.max(0, subtractMoney(q.totalNet || 0, q.paidAmount || 0)))
   );
-  const expectedInflowGross = addMoney(
-    ...datedUnpaidTranches.map((t) => {
-      const gross =
-        t.amountGross !== undefined
-          ? t.amountGross
-          : calcGrossFromNet(t.amountNet || 0, projectVatRate);
-      const paidGross = t.paidAmount ? calcGrossFromNet(t.paidAmount, projectVatRate) : 0;
-      return Math.max(0, subtractMoney(gross, paidGross));
-    }),
-    ...datedUnpaidRevenueQuotes.map((q) => {
-      const gross =
-        q.totalGross !== undefined
-          ? q.totalGross
-          : calcGrossFromNet(q.totalNet || 0, q.vatRate ?? projectVatRate);
-      const paidGross = q.paidAmount ? calcGrossFromNet(q.paidAmount, q.vatRate ?? projectVatRate) : 0;
-      return Math.max(0, subtractMoney(gross, paidGross));
-    })
-  );
+  const expectedInflowGross = isVatExempt
+    ? expectedInflowNet
+    : addMoney(
+        ...datedUnpaidTranches.map((t) => {
+          const gross =
+            t.amountGross !== undefined
+              ? t.amountGross
+              : calcGrossFromNet(t.amountNet || 0, rawProjectVatRate);
+          const paidGross = t.paidAmount ? calcGrossFromNet(t.paidAmount, rawProjectVatRate) : 0;
+          return Math.max(0, subtractMoney(gross, paidGross));
+        }),
+        ...datedUnpaidRevenueQuotes.map((q) => {
+          const gross =
+            q.totalGross !== undefined
+              ? q.totalGross
+              : calcGrossFromNet(q.totalNet || 0, q.vatRate ?? rawProjectVatRate);
+          const paidGross = q.paidAmount ? calcGrossFromNet(q.paidAmount, q.vatRate ?? rawProjectVatRate) : 0;
+          return Math.max(0, subtractMoney(gross, paidGross));
+        })
+      );
 
   // Oczekiwane wydatki: niezapłacone i planowane koszty z terminem płatności
   const datedUnpaidCosts = costs.filter(
@@ -205,14 +296,15 @@ export function computeProjectFinance(
     ...datedUnpaidCosts.map((c) =>
       c.amountGross !== undefined
         ? c.amountGross
-        : calcGrossFromNet(c.amountNet || 0, c.vatRate ?? projectVatRate)
+        : calcGrossFromNet(c.amountNet || 0, c.vatRate ?? rawProjectVatRate)
     ),
     ...datedUnpaidCostQuotes.map((q) =>
       q.totalGross !== undefined
         ? q.totalGross
-        : calcGrossFromNet(q.totalNet || 0, q.vatRate ?? projectVatRate)
+        : calcGrossFromNet(q.totalNet || 0, q.vatRate ?? rawProjectVatRate)
     )
   );
+  const economicExpectedOutflow = isVatExempt ? expectedOutflowGross : expectedOutflowNet;
 
   // Najbliższy termin płatności (preferuje daty >= todayIso, w przeciwnym razie najwcześniejszy zaległy)
   const candidateDates: string[] = [];
@@ -239,32 +331,47 @@ export function computeProjectFinance(
     }
   }
 
-  // Struktura kosztów wg kategorii
+  // Struktura kosztów wg kategorii (w firmie zwolnionej wg kwoty brutto / nieodliczalny VAT)
   const costsByCategory = costs.reduce((acc, c) => {
-    acc[c.category] = addMoney(acc[c.category] || 0, c.amountNet || 0);
+    const amount = isVatExempt ? c.amountGross || c.amountNet || 0 : c.amountNet || 0;
+    acc[c.category] = addMoney(acc[c.category] || 0, amount);
     return acc;
   }, {} as Record<CostCategory, number>);
 
   return {
+    isVatExempt,
+    ...(vatExemptionBasis ? { vatExemptionBasis } : {}),
+    hasHistoricalNonZeroRevenueVat,
     baseProjectValueNet,
     baseProjectValueGross,
+    nominalBaseProjectValueGross,
     projectVatRate,
     totalQuotationNet,
     totalQuotationGross,
+    nominalTotalQuotationGross,
     totalRevenueNet,
     totalRevenueGross,
+    nominalTotalRevenueGross,
     directCostsNet,
     directCostsGross,
+    nominalDirectCostsNet,
+    nominalDirectCostsGross,
     quoteCostsNet,
     quoteCostsGross,
+    nominalQuoteCostsNet,
+    nominalQuoteCostsGross,
     totalCostsNet,
     totalCostsGross,
+    nominalTotalCostsNet,
+    nominalTotalCostsGross,
+    economicTotalCosts,
     profitNet,
     profitGross,
     marginPercent,
     paidRevenueNet,
     unpaidRevenueNet,
     paidCostsNet,
+    paidCostsEconomic,
     unpaidCostsNet,
     tranchesTotalNet,
     tranchesTotalGross,
@@ -275,6 +382,7 @@ export function computeProjectFinance(
     expectedInflowGross,
     expectedOutflowNet,
     expectedOutflowGross,
+    economicExpectedOutflow,
     nextPaymentDate,
     costsByCategory,
   };

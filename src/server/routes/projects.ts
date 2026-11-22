@@ -211,16 +211,6 @@ export function registerProjectRoutes(
         return res.status(400).json({ error: 'Wymagana nazwa projektu.' });
       }
 
-      const financeValidation = validateProjectFinanceFields(allowed);
-      if (!financeValidation.ok) {
-        return res.status(400).json({
-          error: financeValidation.error,
-          itemType: financeValidation.itemType,
-          itemId: financeValidation.itemId,
-          field: financeValidation.field,
-        });
-      }
-
       const companies = Array.isArray(appState.companies) ? appState.companies : [];
       const activeCompanies = companies.filter((c: any) => c && c.isActive);
       const rawCompanyId =
@@ -234,6 +224,18 @@ export function registerProjectRoutes(
         }
       } else if (activeCompanies.length > 0) {
         return res.status(400).json({ error: 'Wybór aktywnej firmy jest wymagany.' });
+      }
+
+      const financeValidation = validateProjectFinanceFields(allowed, undefined, {
+        company: selectedCompany,
+      });
+      if (!financeValidation.ok) {
+        return res.status(400).json({
+          error: financeValidation.error,
+          itemType: financeValidation.itemType,
+          itemId: financeValidation.itemId,
+          field: financeValidation.field,
+        });
       }
 
       const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
@@ -449,7 +451,32 @@ export function registerProjectRoutes(
         return res.status(400).json({ error: err.message });
       }
 
-      const financeValidation = validateProjectFinanceFields(allowedUpdates, project);
+      const companies = Array.isArray(appState.companies) ? appState.companies : [];
+      let targetCompany: any = project.companyId
+        ? companies.find((c: any) => c && c.id === project.companyId)
+        : undefined;
+
+      if (hasCompanyIdPatch) {
+        const rawCid = patch.companyId;
+        if (rawCid === null || rawCid === '') {
+          allowedUpdates.companyId = undefined;
+          targetCompany = undefined;
+        } else if (typeof rawCid === 'string') {
+          const trimmedCid = rawCid.trim();
+          const foundCompany = companies.find((c: any) => c && c.id === trimmedCid);
+          if (!foundCompany) {
+            return res.status(400).json({ error: 'Wybrana firma nie istnieje.' });
+          }
+          allowedUpdates.companyId = trimmedCid;
+          targetCompany = foundCompany;
+        } else {
+          return res.status(400).json({ error: 'Nieprawidłowy identyfikator firmy.' });
+        }
+      }
+
+      const financeValidation = validateProjectFinanceFields(allowedUpdates, project, {
+        company: targetCompany,
+      });
       if (!financeValidation.ok) {
         return res.status(400).json({
           error: financeValidation.error,
@@ -457,23 +484,6 @@ export function registerProjectRoutes(
           itemId: financeValidation.itemId,
           field: financeValidation.field,
         });
-      }
-
-      if (hasCompanyIdPatch) {
-        const rawCid = patch.companyId;
-        if (rawCid === null || rawCid === '') {
-          allowedUpdates.companyId = undefined;
-        } else if (typeof rawCid === 'string') {
-          const trimmedCid = rawCid.trim();
-          const companies = Array.isArray(appState.companies) ? appState.companies : [];
-          const foundCompany = companies.find((c: any) => c && c.id === trimmedCid);
-          if (!foundCompany) {
-            return res.status(400).json({ error: 'Wybrana firma nie istnieje.' });
-          }
-          allowedUpdates.companyId = trimmedCid;
-        } else {
-          return res.status(400).json({ error: 'Nieprawidłowy identyfikator firmy.' });
-        }
       }
 
       if (hasOwnerIdPatch) {

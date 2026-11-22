@@ -45,16 +45,16 @@ export const ProjectTile: React.FC<ProjectTileProps> = ({
     (t) => t.priority === 'critical' && t.status !== 'done'
   ).length;
 
-  const selectedQuotes = (project.quotations || []).filter((q) => q.isSelected !== false);
-  const revenueQuotes = selectedQuotes.filter((q) => q.type !== 'koszt');
-  const finance = computeProjectFinance(project);
-  const quoteNet = finance.totalQuotationNet;
-  const totalCostsNet = finance.totalCostsNet;
-  const profitNet = finance.profitNet;
-
   const comp = project.companyId
     ? companies.find((c) => c.id === project.companyId)
     : undefined;
+
+  const selectedQuotes = (project.quotations || []).filter((q) => q.isSelected !== false);
+  const revenueQuotes = selectedQuotes.filter((q) => q.type !== 'koszt');
+  const finance = computeProjectFinance(project, comp);
+  const quoteNet = finance.totalQuotationNet;
+  const totalCostsNet = finance.economicTotalCosts;
+  const profitNet = finance.profitNet;
 
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between">

@@ -18,6 +18,10 @@ export interface FinanceValidationResult {
   field?: string;
 }
 
+export interface FinanceValidationOptions {
+  company?: { vatPayer?: boolean } | null;
+}
+
 export const FINANCE_ARRAY_LIMITS = {
   quotations: 500,
   costs: 500,
@@ -181,11 +185,14 @@ function validateExpectedGross(
 
 export function validateProjectFinanceFields(
   patch: Record<string, any>,
-  existingProject?: { projectValue?: number; projectVatRate?: number } | null
+  existingProject?: { projectValue?: number; projectVatRate?: number } | null,
+  options?: FinanceValidationOptions
 ): FinanceValidationResult {
   if (!patch || typeof patch !== 'object') {
     return { ok: true };
   }
+
+  const isCompanyVatExempt = options?.company?.vatPayer === false;
 
   if (patch.projectValue !== undefined && patch.projectValue !== null) {
     if (typeof patch.projectValue !== 'number' || parseMoney(patch.projectValue) === null) {
@@ -235,10 +242,16 @@ export function validateProjectFinanceFields(
           ? existingProject.projectValue
           : 0;
     const grossCheck = validateExpectedGross(netValue, patch.projectValueGross, effectiveProjectVatRate);
-    if (!grossCheck.valid) {
+    const exemptGrossCheck = isCompanyVatExempt
+      ? validateExpectedGross(netValue, patch.projectValueGross, 0)
+      : null;
+    if (!grossCheck.valid && !(exemptGrossCheck && exemptGrossCheck.valid)) {
+      const expectedText = isCompanyVatExempt
+        ? `${formatMoney(exemptGrossCheck!.expectedGross)} zł przy VAT 0% (ZW)`
+        : `${formatMoney(grossCheck.expectedGross)} zł przy VAT ${effectiveProjectVatRate}%`;
       return {
         ok: false,
-        error: `Niespójna kwota brutto wartości projektu (oczekiwano ok. ${formatMoney(grossCheck.expectedGross)} zł przy VAT ${effectiveProjectVatRate}%).`,
+        error: `Niespójna kwota brutto wartości projektu (oczekiwano ok. ${expectedText}).`,
         itemType: 'project',
         field: 'projectValueGross',
       };
@@ -759,10 +772,16 @@ export function validateProjectFinanceFields(
         t.amountGross,
         effectiveProjectVatRate
       );
-      if (!trancheGrossCheck.valid) {
+      const exemptTrancheCheck = isCompanyVatExempt
+        ? validateExpectedGross(t.amountNet, t.amountGross, 0)
+        : null;
+      if (!trancheGrossCheck.valid && !(exemptTrancheCheck && exemptTrancheCheck.valid)) {
+        const expectedText = isCompanyVatExempt
+          ? `${formatMoney(exemptTrancheCheck!.expectedGross)} zł przy VAT 0% (ZW)`
+          : `${formatMoney(trancheGrossCheck.expectedGross)} zł przy VAT ${effectiveProjectVatRate}%`;
         return {
           ok: false,
-          error: `Niespójna kwota brutto transzy "${t.title.trim()}" (oczekiwano ok. ${formatMoney(trancheGrossCheck.expectedGross)} zł przy VAT ${effectiveProjectVatRate}%).`,
+          error: `Niespójna kwota brutto transzy "${t.title.trim()}" (oczekiwano ok. ${expectedText}).`,
           itemType: 'tranche',
           itemId: id,
           field: 'amountGross',

@@ -37,8 +37,8 @@ const USERS: User[] = [
 ];
 
 const COMPANIES: Company[] = [
-  { id: 'c-a', name: 'Alfa Sp. z o.o.', letter: 'A', isActive: true },
-  { id: 'c-b', name: 'Beta Studio', letter: 'B', isActive: true },
+  { id: 'c-a', name: 'Alfa Sp. z o.o.', letter: 'A', isActive: true, vatPayer: true },
+  { id: 'c-b', name: 'Beta Studio', letter: 'B', isActive: true, vatPayer: true },
 ];
 
 const PROJECTS: Project[] = [

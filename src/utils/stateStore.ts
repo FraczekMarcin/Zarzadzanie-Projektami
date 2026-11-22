@@ -71,6 +71,22 @@ export function normalizeStateStructure(raw?: any): AppState {
   if (!Array.isArray(state.trustedDevices)) state.trustedDevices = [];
   state.variables = normalizeVariablesState(state.variables);
 
+  for (const c of state.companies) {
+    if (!c || typeof c !== 'object') continue;
+    if (typeof c.vatPayer !== 'boolean') {
+      c.vatPayer = true;
+    }
+    if (typeof c.vatExemptionBasis === 'string') {
+      const trimmedBasis = c.vatExemptionBasis.trim().slice(0, 200);
+      if (trimmedBasis) {
+        c.vatExemptionBasis = trimmedBasis;
+      } else {
+        delete c.vatExemptionBasis;
+      }
+    } else if (c.vatExemptionBasis !== undefined) {
+      delete c.vatExemptionBasis;
+    }
+  }
   for (const t of state.tasks) {
     if (t && typeof t.revision !== 'number') t.revision = 1;
   }

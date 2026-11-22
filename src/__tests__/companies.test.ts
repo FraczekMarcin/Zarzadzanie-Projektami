@@ -4,6 +4,7 @@ import path from 'path';
 import os from 'os';
 import http from 'http';
 import { createApp, CreateAppOptions } from '../../server.js';
+import { normalizeStateStructure } from '../utils/stateStore.js';
 
 const TEST_APP_SECRET = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
@@ -561,5 +562,152 @@ describe('Integracyjne testy firm (companies) i numeracji RRRR-X_L', () => {
       headers: { Cookie: adminCookie },
     });
     expect(restoreRes.status).toBe(409);
+  });
+
+  it('obsługuje status VAT firmy (vatPayer, vatExemptionBasis), migrację stanu, dziennik zmian i RBAC bez nadpisywania kwot projektów', async () => {
+    // 1. Migracja istniejących firm bez pola vatPayer -> domyślnie true + normalizacja podstawy
+    const migrated = normalizeStateStructure({
+      revision: 1,
+      companies: [
+        { id: 'legacy-1', name: 'Stara Firma', letter: 'S', isActive: true, vatExemptionBasis: '   ' },
+      ],
+      projects: [],
+      tasks: [],
+      users: [],
+      comments: [],
+      activityLogs: [],
+    });
+    expect(migrated.companies?.[0]?.vatPayer).toBe(true);
+    expect(migrated.companies?.[0]?.vatExemptionBasis).toBeUndefined();
+
+    ctx = await startTestServer();
+    const { cookie: adminCookie } = await setupAdmin(ctx.baseUrl);
+    const devOwner = await createAndLoginUser(ctx.baseUrl, adminCookie, {
+      name: 'Właściciel Dev',
+      email: 'dev.vat.owner@pracownia.pl',
+      role: 'developer',
+      password: 'Projekt-Strop-2026-Lublin!',
+    });
+    const devOther = await createAndLoginUser(ctx.baseUrl, adminCookie, {
+      name: 'Obcy Dev',
+      email: 'dev.vat.other@pracownia.pl',
+      role: 'developer',
+      password: 'Projekt-Okno-2026-Torun!',
+    });
+
+    // 2. Walidacja błędnego vatPayer i podstawy > 200 znaków
+    const badBoolRes = await fetch(`${ctx.baseUrl}/api/companies`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({ name: 'Błędna', letter: 'X', vatPayer: 'nie' }),
+    });
+    expect(badBoolRes.status).toBe(400);
+
+    const badBasisRes = await fetch(`${ctx.baseUrl}/api/companies`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        name: 'Za długa podstawa',
+        letter: 'Y',
+        vatPayer: false,
+        vatExemptionBasis: 'a'.repeat(201),
+      }),
+    });
+    expect(badBasisRes.status).toBe(400);
+
+    // 3. Utworzenie firmy zwolnionej z VAT i projektu z historyczną stawką 23%
+    const createZwRes = await fetch(`${ctx.baseUrl}/api/companies`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        name: 'Pracownia Zwolniona',
+        letter: 'Z',
+        nip: '123-456-78-90',
+        address: 'ul. Mała 1',
+        vatPayer: false,
+        vatExemptionBasis: 'art. 113 ust. 1 ustawy o VAT',
+      }),
+    });
+    expect(createZwRes.status).toBe(201);
+    const compZ = (await createZwRes.json()).company;
+    expect(compZ.vatPayer).toBe(false);
+    expect(compZ.vatExemptionBasis).toBe('art. 113 ust. 1 ustawy o VAT');
+
+    const projRes = await fetch(`${ctx.baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        name: 'Projekt Zwolnionej Firmy',
+        companyId: compZ.id,
+        ownerId: devOwner.user.id,
+        projectValue: 10000,
+        projectValueGross: 10000,
+        projectVatRate: 0,
+        costs: [
+          {
+            id: 'cost-z1',
+            title: 'Faktura z VAT 23%',
+            category: 'inne',
+            amountNet: 1000,
+            amountGross: 1230,
+            vatRate: 23,
+            status: 'planned',
+          },
+        ],
+      }),
+    });
+    expect(projRes.status).toBe(201);
+    const projBeforeToggle = (await projRes.json()).project;
+
+    // 4. RBAC: właściciel projektu (developer) widzi vatPayer i vatExemptionBasis, ale bez nip/address; obcy developer nie widzi vatPayer
+    const ownerCompaniesRes = await fetch(`${ctx.baseUrl}/api/companies`, {
+      headers: { Cookie: devOwner.cookie },
+    });
+    const ownerComp = (await ownerCompaniesRes.json()).companies.find((c: any) => c.id === compZ.id);
+    expect(ownerComp.vatPayer).toBe(false);
+    expect(ownerComp.vatExemptionBasis).toBe('art. 113 ust. 1 ustawy o VAT');
+    expect(ownerComp.nip).toBeUndefined();
+    expect(ownerComp.address).toBeUndefined();
+
+    const otherCompaniesRes = await fetch(`${ctx.baseUrl}/api/companies`, {
+      headers: { Cookie: devOther.cookie },
+    });
+    const otherComp = (await otherCompaniesRes.json()).companies.find((c: any) => c.id === compZ.id);
+    expect(otherComp).toEqual({
+      id: compZ.id,
+      name: 'Pracownia Zwolniona',
+      letter: 'Z',
+      isActive: true,
+    });
+
+    // 5. Zmiana statusu VAT firmy (false -> true) zapisuje audit log i NIE nadpisuje kwot w projekcie
+    const toggleRes = await fetch(`${ctx.baseUrl}/api/companies/${compZ.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({ vatPayer: true }),
+    });
+    expect(toggleRes.status).toBe(200);
+    const toggledComp = (await toggleRes.json()).company;
+    expect(toggledComp.vatPayer).toBe(true);
+
+    const stateAfterToggle = await (
+      await fetch(`${ctx.baseUrl}/api/state`, { headers: { Cookie: adminCookie } })
+    ).json();
+    const projAfterToggle = stateAfterToggle.state.projects.find((p: any) => p.id === projBeforeToggle.id);
+    expect(projAfterToggle.projectValue).toBe(10000);
+    expect(projAfterToggle.projectValueGross).toBe(10000);
+    expect(projAfterToggle.projectVatRate).toBe(0);
+    expect(projAfterToggle.costs[0].amountNet).toBe(1000);
+    expect(projAfterToggle.costs[0].amountGross).toBe(1230);
+
+    const secEvents = await (
+      await fetch(`${ctx.baseUrl}/api/security/events`, { headers: { Cookie: adminCookie } })
+    ).json();
+    const vatChangeEvent = (secEvents.events || []).find(
+      (ev: any) => ev.type === 'company_updated' && ev.details?.vatPayerChanged === true
+    );
+    expect(vatChangeEvent).toBeDefined();
+    expect(vatChangeEvent.details.previousVatPayer).toBe(false);
+    expect(vatChangeEvent.details.vatPayer).toBe(true);
   });
 });

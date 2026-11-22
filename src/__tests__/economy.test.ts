@@ -127,8 +127,8 @@ const VIEWER_USER: User = {
 };
 
 const COMPANIES: Company[] = [
-  { id: 'cmp-a', name: 'Alfa Studio', letter: 'A', isActive: true },
-  { id: 'cmp-b', name: 'Beta Projekt', letter: 'B', isActive: true },
+  { id: 'cmp-a', name: 'Alfa Studio', letter: 'A', isActive: true, vatPayer: true },
+  { id: 'cmp-b', name: 'Beta Projekt', letter: 'B', isActive: true, vatPayer: true },
 ];
 
 const SAMPLE_PROJECTS: Project[] = [
@@ -377,6 +377,143 @@ describe('Ekonomia — testy jednostkowe', () => {
       '2026-05-01'
     );
     expect(upcomingForViewer).toEqual([]);
+  });
+
+  it('łączy w widoku Wszystkie firmę VAT (netto/brutto) i firmę zwolnioną z VAT (przychód ZW, koszt ekonomiczny brutto)', () => {
+    const mixedCompanies: Company[] = [
+      { id: 'cmp-vat', name: 'Alfa VAT', letter: 'A', isActive: true, vatPayer: true },
+      {
+        id: 'cmp-zw',
+        name: 'Beta Zwolniona',
+        letter: 'B',
+        isActive: true,
+        vatPayer: false,
+        vatExemptionBasis: 'art. 113 ust. 1 ustawy o VAT',
+      },
+    ];
+    const mixedProjects: Project[] = [
+      {
+        ...SAMPLE_PROJECTS[0],
+        id: 'p-vat',
+        key: '2026-1_A',
+        companyId: 'cmp-vat',
+        projectValue: 10000,
+        projectVatRate: 23,
+        costs: [
+          {
+            id: 'c-vat',
+            projectId: 'p-vat',
+            title: 'Koszt VAT',
+            amountNet: 2000,
+            amountGross: 2460,
+            vatRate: 23,
+            category: 'mapa',
+            date: '2026-04-01',
+            dueDate: '2026-06-15',
+            status: 'planned',
+            isPaid: false,
+          },
+        ],
+        paymentTranches: [],
+        quotations: [],
+      },
+      {
+        ...SAMPLE_PROJECTS[0],
+        id: 'p-zw',
+        key: '2026-2_B',
+        name: 'Projekt Zwolniony',
+        companyId: 'cmp-zw',
+        projectValue: 10000,
+        projectValueGross: 12300, // historyczna wartość sprzed zmiany statusu firmy
+        projectVatRate: 23,
+        costs: [
+          {
+            id: 'c-zw',
+            projectId: 'p-zw',
+            title: 'Faktura kosztowa 23%',
+            amountNet: 2000,
+            amountGross: 2460,
+            vatRate: 23,
+            category: 'geologia',
+            date: '2026-04-01',
+            dueDate: '2026-06-20',
+            status: 'planned',
+            isPaid: false,
+          },
+        ],
+        paymentTranches: [
+          {
+            id: 'tr-zw',
+            title: 'Transza ZW',
+            amountNet: 5000,
+            amountGross: 6150,
+            dueDate: '2026-06-10',
+            isPaid: false,
+          },
+        ],
+        quotations: [],
+      },
+    ];
+
+    const rows = buildEconomyRows(mixedProjects, mixedCompanies, ADMIN_USER, '2026-05-01');
+    expect(rows).toHaveLength(2);
+
+    const vatRow = rows.find((r) => r.project.id === 'p-vat')!;
+    const zwRow = rows.find((r) => r.project.id === 'p-zw')!;
+
+    expect(vatRow.isVatExempt).toBe(false);
+    expect(vatRow.valueNet).toBe(10000);
+    expect(vatRow.valueGross).toBe(12300);
+    expect(vatRow.costsNet).toBe(2000);
+    expect(vatRow.costsGross).toBe(2460);
+    expect(vatRow.balanceNet).toBe(8000);
+    expect(vatRow.balanceGross).toBe(9840);
+
+    // Firma zwolniona: przychód bez VAT (ZW), koszt ekonomiczny = brutto (2460), nominał zachowany
+    expect(zwRow.isVatExempt).toBe(true);
+    expect(zwRow.valueNet).toBe(10000);
+    expect(zwRow.valueGross).toBe(10000);
+    expect(zwRow.costsNet).toBe(2460);
+    expect(zwRow.costsGross).toBe(2460);
+    expect(zwRow.nominalCostsNet).toBe(2000);
+    expect(zwRow.nominalCostsGross).toBe(2460);
+    expect(zwRow.balanceNet).toBe(7540);
+    expect(zwRow.balanceGross).toBe(7540);
+    expect(zwRow.expectedOutflowNet).toBe(2460);
+    expect(zwRow.expectedOutflowGross).toBe(2460);
+
+    // Sumy w widoku "Wszystkie": przychody (10000+10000 netto, 12300+10000 brutto) i koszty (2000+2460 netto/ekon., 2460+2460 brutto)
+    const totals = computeEconomyTotals(rows);
+    expect(totals.valueNet).toBe(20000);
+    expect(totals.valueGross).toBe(22300);
+    expect(totals.costsNet).toBe(4460);
+    expect(totals.costsGross).toBe(4920);
+    expect(totals.balanceNet).toBe(15540);
+    expect(totals.balanceGross).toBe(17380);
+
+    // Nadchodzące płatności uwzględniają koszt ekonomiczny brutto i wpływ ZW
+    const upcoming = getUpcomingUnscheduledPayments(
+      mixedProjects,
+      new Map<string, Task>(),
+      ADMIN_USER,
+      '2026-05-01',
+      mixedCompanies
+    );
+    const upcomingCostZw = upcoming.find((u) => u.itemId === 'c-zw')!;
+    const upcomingTrancheZw = upcoming.find((u) => u.itemId === 'tr-zw')!;
+    expect(upcomingCostZw.amountNet).toBe(2460);
+    expect(upcomingCostZw.amountGross).toBe(2460);
+    expect(upcomingTrancheZw.amountNet).toBe(5000);
+    expect(upcomingTrancheZw.amountGross).toBe(5000);
+
+    // Eksport CSV zawiera kolumny Status VAT firmy oraz Podstawa wyliczeń
+    const csv = exportEconomyCsv(rows, 'net');
+    const lines = csv.slice(1).split('\r\n');
+    expect(lines[0]).toContain(';Status VAT firmy;Podstawa wyliczeń');
+    expect(lines[1]).toContain(';Płatnik VAT;Przychód i koszt netto');
+    expect(lines[2]).toContain(
+      ';Zwolniona z VAT;Przychód ZW, koszt brutto (VAT nieodliczalny) — art. 113 ust. 1 ustawy o VAT'
+    );
   });
 });
 

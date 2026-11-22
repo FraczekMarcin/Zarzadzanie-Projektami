@@ -274,9 +274,23 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
         filteredRows.map((r) => r.project),
         tasksById,
         currentUser,
-        todayIso
+        todayIso,
+        companies
       ),
-    [filteredRows, tasksById, currentUser, todayIso]
+    [filteredRows, tasksById, currentUser, todayIso, companies]
+  );
+
+  const hasAnyExemptRows = useMemo(
+    () => baseRows.some((r) => r.isVatExempt),
+    [baseRows]
+  );
+
+  const selectedCompany = useMemo(
+    () =>
+      companyFilter !== 'all' && companyFilter !== 'none'
+        ? companies.find((c) => c.id === companyFilter) || null
+        : null,
+    [companyFilter, companies]
   );
 
   const handleChangeAmountMode = (mode: EconomyAmountMode) => {
@@ -378,7 +392,8 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
       targetProjects,
       tasksById,
       currentUser,
-      todayIso
+      todayIso,
+      companies
     );
     if (candidates.length === 0) {
       onNotify?.('Brak nadchodzących, nieopłaconych płatności do dodania do harmonogramu.', 'info');
@@ -707,12 +722,12 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
     const owner = project.ownerId ? usersById.get(project.ownerId) : undefined;
 
     const valProject = amountMode === 'gross' ? summary.totalRevenueGross : summary.totalRevenueNet;
-    const valCosts = amountMode === 'gross' ? summary.totalCostsGross : summary.totalCostsNet;
+    const valCosts = amountMode === 'gross' ? summary.totalCostsGross : summary.economicTotalCosts;
     const valBalance = amountMode === 'gross' ? summary.profitGross : summary.profitNet;
     const valInflow =
       amountMode === 'gross' ? summary.expectedInflowGross : summary.expectedInflowNet;
     const valOutflow =
-      amountMode === 'gross' ? summary.expectedOutflowGross : summary.expectedOutflowNet;
+      amountMode === 'gross' ? summary.expectedOutflowGross : summary.economicExpectedOutflow;
     const valForecast =
       amountMode === 'gross'
         ? selectedDetailRow.expectedBalanceGross
@@ -737,7 +752,7 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
     const costsById = new Map(costs.map((c) => [c.id, c]));
 
     const upcomingForProject = canEdit
-      ? getUpcomingUnscheduledPayments([project], tasksById, currentUser, todayIso)
+      ? getUpcomingUnscheduledPayments([project], tasksById, currentUser, todayIso, companies)
       : [];
 
     return (
@@ -764,6 +779,11 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
                     {selectedDetailRow.company.letter} - {selectedDetailRow.company.name}
                   </span>
                 )}
+                {summary.isVatExempt && (
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                    Zwolniona z VAT
+                  </span>
+                )}
                 <span className="text-xs px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium">
                   {PROJECT_STATUS_LABELS[project.status] || project.status}
                 </span>
@@ -784,6 +804,9 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
               <p className="text-xs text-slate-600 dark:text-slate-400">
                 Zamawiający: <strong className="text-slate-800 dark:text-slate-200">{selectedDetailRow.clientNameDisplay}</strong>
                 {owner ? ` · Właściciel: ${owner.name}` : ''}
+                {summary.isVatExempt && summary.vatExemptionBasis
+                  ? ` · Podstawa zwolnienia: ${summary.vatExemptionBasis}`
+                  : ''}
               </p>
             </div>
           </div>
@@ -858,7 +881,7 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 shadow-2xs">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-              Wartość projektu ({amountMode === 'gross' ? 'brutto' : 'netto'})
+              Wartość projektu ({summary.isVatExempt ? 'ZW' : amountMode === 'gross' ? 'brutto' : 'netto'})
             </div>
             <div className="text-lg font-bold text-slate-900 dark:text-white mt-1 tabular-nums">
               {formatPln(valProject)}
@@ -867,7 +890,7 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
 
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 shadow-2xs">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-              Koszty ({amountMode === 'gross' ? 'brutto' : 'netto'})
+              Koszty ({summary.isVatExempt ? 'brutto, VAT nieodliczalny' : amountMode === 'gross' ? 'brutto' : 'netto'})
             </div>
             <div className="text-lg font-bold text-slate-900 dark:text-white mt-1 tabular-nums">
               {formatPln(valCosts)}
@@ -876,7 +899,7 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
 
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 shadow-2xs">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-              Bilans ({amountMode === 'gross' ? 'brutto' : 'netto'})
+              Bilans ({summary.isVatExempt ? 'przychód ZW − koszty brutto' : amountMode === 'gross' ? 'brutto' : 'netto'})
             </div>
             <div
               className={`text-lg font-bold mt-1 tabular-nums flex items-center gap-1.5 ${
@@ -986,11 +1009,16 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
               ) : (
                 <ul className="space-y-2">
                   {tranches.map((t) => {
-                    const amountGross =
-                      t.amountGross !== undefined
+                    const amountGross = summary.isVatExempt
+                      ? t.amountNet || 0
+                      : t.amountGross !== undefined
                         ? t.amountGross
                         : calcGrossFromNet(t.amountNet || 0, vatRate);
-                    const displayAmount = amountMode === 'gross' ? amountGross : t.amountNet || 0;
+                    const displayAmount = summary.isVatExempt
+                      ? t.amountNet || 0
+                      : amountMode === 'gross'
+                        ? amountGross
+                        : t.amountNet || 0;
                     const overdue = isPaymentOverdue(t.dueDate, t.isPaid, todayIso);
                     return (
                       <li
@@ -1077,11 +1105,16 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
               ) : (
                 <ul className="space-y-2">
                   {selectedRevenueQuotes.map((q) => {
-                    const amountGross =
-                      q.totalGross !== undefined
+                    const amountGross = summary.isVatExempt
+                      ? q.totalNet || 0
+                      : q.totalGross !== undefined
                         ? q.totalGross
                         : calcGrossFromNet(q.totalNet || 0, q.vatRate ?? vatRate);
-                    const displayAmount = amountMode === 'gross' ? amountGross : q.totalNet || 0;
+                    const displayAmount = summary.isVatExempt
+                      ? q.totalNet || 0
+                      : amountMode === 'gross'
+                        ? amountGross
+                        : q.totalNet || 0;
                     const overdue = isPaymentOverdue(q.dueDate, q.isPaid, todayIso);
                     return (
                       <li
@@ -1185,7 +1218,11 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
                       c.amountGross !== undefined
                         ? c.amountGross
                         : calcGrossFromNet(c.amountNet || 0, c.vatRate ?? vatRate);
-                    const displayAmount = amountMode === 'gross' ? amountGross : c.amountNet || 0;
+                    const displayAmount = summary.isVatExempt
+                      ? amountGross
+                      : amountMode === 'gross'
+                        ? amountGross
+                        : c.amountNet || 0;
                     const paid = Boolean(c.isPaid || c.status === 'paid');
                     const statusLabel = paid
                       ? 'Zapłacony'
@@ -1292,7 +1329,11 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
                       q.totalGross !== undefined
                         ? q.totalGross
                         : calcGrossFromNet(q.totalNet || 0, q.vatRate ?? vatRate);
-                    const displayAmount = amountMode === 'gross' ? amountGross : q.totalNet || 0;
+                    const displayAmount = summary.isVatExempt
+                      ? amountGross
+                      : amountMode === 'gross'
+                        ? amountGross
+                        : q.totalNet || 0;
                     const overdue = isPaymentOverdue(q.dueDate, q.isPaid, todayIso);
                     return (
                       <li
@@ -1598,35 +1639,42 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
 
           <div className="flex flex-wrap items-center gap-2">
             {/* Przełącznik Netto / Brutto */}
-            <div
-              role="group"
-              aria-label="Tryb wyświetlania kwot"
-              className="inline-flex items-center rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 p-0.5"
-            >
-              <button
-                type="button"
-                aria-pressed={amountMode === 'net'}
-                onClick={() => handleChangeAmountMode('net')}
-                className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${
-                  amountMode === 'net'
-                    ? 'bg-sky-700 text-white shadow-2xs'
-                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                }`}
+            <div className="flex flex-col items-start sm:items-end gap-0.5">
+              <div
+                role="group"
+                aria-label="Tryb wyświetlania kwot"
+                className="inline-flex items-center rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 p-0.5"
               >
-                Netto
-              </button>
-              <button
-                type="button"
-                aria-pressed={amountMode === 'gross'}
-                onClick={() => handleChangeAmountMode('gross')}
-                className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${
-                  amountMode === 'gross'
-                    ? 'bg-sky-700 text-white shadow-2xs'
-                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                }`}
-              >
-                Brutto
-              </button>
+                <button
+                  type="button"
+                  aria-pressed={amountMode === 'net'}
+                  onClick={() => handleChangeAmountMode('net')}
+                  className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${
+                    amountMode === 'net'
+                      ? 'bg-sky-700 text-white shadow-2xs'
+                      : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  Netto
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={amountMode === 'gross'}
+                  onClick={() => handleChangeAmountMode('gross')}
+                  className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${
+                    amountMode === 'gross'
+                      ? 'bg-sky-700 text-white shadow-2xs'
+                      : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  Brutto
+                </button>
+              </div>
+              {(hasAnyExemptRows || selectedCompany?.vatPayer === false) && (
+                <span className="text-[11px] text-amber-800 dark:text-amber-300">
+                  Przełącznik Netto/Brutto dotyczy wyłącznie projektów płatników VAT.
+                </span>
+              )}
             </div>
 
             {bulkAllCandidates.length > 0 && (
@@ -1690,6 +1738,17 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
               <span>
                 {comp.letter} - {comp.name}
               </span>
+              {comp.vatPayer === false && (
+                <span
+                  className={`px-1.5 py-0.2 rounded text-[10px] font-semibold ${
+                    companyFilter === comp.id
+                      ? 'bg-amber-400/25 text-amber-100 border border-amber-200/40'
+                      : 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                  }`}
+                >
+                  Zwolniona z VAT
+                </span>
+              )}
             </button>
           ))}
 
@@ -1941,6 +2000,14 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
                         >
                           {row.project.name}
                         </button>
+                        {row.isVatExempt && (
+                          <span
+                            title={row.company?.vatExemptionBasis || 'Firma zwolniona z VAT'}
+                            className="ml-2 text-[11px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold"
+                          >
+                            Zwolniona z VAT
+                          </span>
+                        )}
                         {row.project.isArchived && (
                           <span className="ml-2 text-[11px] px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-200 font-semibold">
                             Archiwum
@@ -1954,7 +2021,12 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
                         {formatPln(val)}
                       </td>
                       <td className="px-3 py-2.5 text-right tabular-nums font-medium text-slate-900 dark:text-slate-100 whitespace-nowrap">
-                        {formatPln(cost)}
+                        <div>{formatPln(cost)}</div>
+                        {row.isVatExempt && row.nominalCostsNet !== row.costsGross && (
+                          <div className="text-[10px] text-slate-600 dark:text-slate-400">
+                            brutto (netto: {formatPln(row.nominalCostsNet)})
+                          </div>
+                        )}
                       </td>
                       <td
                         className={`px-3 py-2.5 text-right tabular-nums font-bold whitespace-nowrap ${
@@ -2110,6 +2182,13 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Przypis podstawy wyliczeń */}
+      <p className="text-[11px] text-slate-600 dark:text-slate-400 px-1">
+        <strong>Podstawa wyliczeń:</strong> dla firm będących płatnikami VAT przychody i koszty wyliczane są w kwotach{' '}
+        {amountMode === 'gross' ? 'brutto' : 'netto'} zgodnie z wybranym trybem. Dla firm oznaczonych jako{' '}
+        <strong>Zwolniona z VAT</strong> przychody liczone są bez VAT (stawka ZW, brutto = netto), a koszty i bilans według kwoty brutto (VAT nieodliczalny).
+      </p>
 
       {renderModals()}
     </section>

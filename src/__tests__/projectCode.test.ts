@@ -8,8 +8,8 @@ import {
 import type { Company, Project, TrashEntry } from '../types';
 
 const COMPANIES: Company[] = [
-  { id: 'comp-a', name: 'Alfa Sp. z o.o.', letter: 'A', isActive: true },
-  { id: 'comp-b', name: 'Beta Pracownia', letter: 'B', isActive: true },
+  { id: 'comp-a', name: 'Alfa Sp. z o.o.', letter: 'A', isActive: true, vatPayer: true },
+  { id: 'comp-b', name: 'Beta Pracownia', letter: 'B', isActive: true, vatPayer: true },
 ];
 
 function makeProject(id: string, key: string, extras: Partial<Project> = {}): Project {
