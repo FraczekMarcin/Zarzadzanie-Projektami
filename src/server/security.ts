@@ -39,6 +39,7 @@ export interface SecurityContext {
   remindersPreviewLimiter: RateLimiter;
   weeklySummaryPreviewLimiter: RateLimiter;
   deviceLoginIpLimiter: RateLimiter;
+  tenderWriteLimiter: RateLimiter;
   passwordResetTokens: Map<string, PasswordResetToken>;
   passwordResetEmailAttempts: Map<string, EmailResetAttempts>;
   isRateLimited: (account: string, clientIp: string) => boolean;
@@ -359,6 +360,7 @@ export function createSecurityContext(): SecurityContext {
   const remindersPreviewLimiter = createRateLimiter({ max: 3, windowMs: 60 * 60 * 1000 });
   const weeklySummaryPreviewLimiter = createRateLimiter({ max: 3, windowMs: 60 * 60 * 1000 });
   const deviceLoginIpLimiter = createRateLimiter({ max: 20, windowMs: 15 * 60 * 1000 });
+  const tenderWriteLimiter = createRateLimiter({ max: 60, windowMs: 60 * 60 * 1000 });
 
   const failedLogins = new Map<string, FailedLoginRec>();
   const passwordResetTokens = new Map<string, PasswordResetToken>();
@@ -459,6 +461,7 @@ export function createSecurityContext(): SecurityContext {
     remindersPreviewLimiter.destroy();
     weeklySummaryPreviewLimiter.destroy();
     deviceLoginIpLimiter.destroy();
+    tenderWriteLimiter.destroy();
   }
 
   return {
@@ -472,6 +475,7 @@ export function createSecurityContext(): SecurityContext {
     remindersPreviewLimiter,
     weeklySummaryPreviewLimiter,
     deviceLoginIpLimiter,
+    tenderWriteLimiter,
     passwordResetTokens,
     passwordResetEmailAttempts,
     isRateLimited,

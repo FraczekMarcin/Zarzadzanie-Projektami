@@ -11,6 +11,7 @@ import { registerSystemRoutes } from './routes/system.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerTaskRoutes } from './routes/tasks.js';
 import { registerProjectRoutes } from './routes/projects.js';
+import { registerTenderRoutes } from './routes/tenders.js';
 import { registerCompanyRoutes } from './routes/companies.js';
 import { registerCommentRoutes } from './routes/comments.js';
 import { registerUserRoutes } from './routes/users.js';
@@ -183,6 +184,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
     });
     registerTaskRoutes(app, { stateStore, sessionStore, settingsService });
     registerProjectRoutes(app, { stateStore, sessionStore, settingsService });
+    registerTenderRoutes(app, { stateStore, sessionStore, security });
     registerCompanyRoutes(app, { stateStore, sessionStore });
     registerTrashRoutes(app, { stateStore, sessionStore, settingsService });
     registerCommentRoutes(app, { stateStore, sessionStore });

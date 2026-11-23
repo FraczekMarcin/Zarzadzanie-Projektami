@@ -153,12 +153,53 @@ export interface Project {
   costs?: CostItem[];
   paymentTranches?: PaymentTranche[];
   isDemo?: boolean;
+  // Powiązanie z przetargiem źródłowym (utworzenie projektu z wygranego przetargu)
+  sourceTenderId?: string;
   // Archiwum projektów (tylko Administrator)
   isArchived?: boolean;
   archivedAt?: string;
   archivedBy?: string;
   // Rewizja zasobu (współbieżna synchronizacja)
   revision?: number;
+}
+
+export type TenderStatus = 'announced' | 'resolved' | 'cancelled';
+
+export type TenderPriceBasis = 'net' | 'gross';
+
+export interface Bidder {
+  id: string;
+  name: string;
+  price?: number;
+  isOurs: boolean;
+  companyId?: string;
+  isDisqualified?: boolean;
+  notes?: string;
+}
+
+export interface Tender {
+  id: string;
+  name: string;
+  contractingAuthority: string;
+  referenceNumber?: string;
+  description?: string;
+  url?: string;
+  announcementDate?: string;
+  submissionDeadline?: string;
+  resolutionDate: string;
+  status: TenderStatus;
+  priceBasis: TenderPriceBasis;
+  authorityBudget?: number;
+  scopeQuantity?: number;
+  scopeUnit?: string;
+  notes?: string;
+  bidders: Bidder[];
+  winnerBidderId?: string;
+  linkedProjectId?: string;
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+  revision: number;
 }
 
 export interface Task {

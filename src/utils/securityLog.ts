@@ -45,7 +45,11 @@ export type SecurityEventType =
   | 'company_created'
   | 'company_updated'
   | 'company_deleted'
-  | 'finance_changed';
+  | 'finance_changed'
+  | 'tender_created'
+  | 'tender_updated'
+  | 'tender_deleted'
+  | 'tender_project_created';
 
 export type LoginFailureReason =
   | 'bad_password'
@@ -200,6 +204,10 @@ export const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   company_updated: 'Aktualizacja firmy',
   company_deleted: 'Usunięcie firmy',
   finance_changed: 'Zmiana danych finansowych projektu',
+  tender_created: 'Utworzenie przetargu',
+  tender_updated: 'Aktualizacja przetargu',
+  tender_deleted: 'Usunięcie przetargu',
+  tender_project_created: 'Utworzenie projektu z przetargu',
 };
 
 /**

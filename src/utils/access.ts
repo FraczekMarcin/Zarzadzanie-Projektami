@@ -216,6 +216,7 @@ export function filterStateForUser(
   const {
     serverSettings: _serverSettings,
     trash: _trash,
+    tenders: _tenders,
     reminderState: _reminderState,
     weeklySummaryState: _weeklySummaryState,
     trustedDevices: _trustedDevices,

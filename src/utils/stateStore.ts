@@ -5,13 +5,14 @@ import { TrustedDeviceRecord } from './trustedDevices.js';
 import { normalizeVariablesState, ServerVariablesState } from './variablesSchema.js';
 import { logger } from '../server/logger.js';
 
-import type { Company, ProjectNumberingSettings } from '../types/index.js';
+import type { Company, ProjectNumberingSettings, Tender } from '../types/index.js';
 
 export interface AppState {
   initialized?: boolean;
   revision: number;
   tasks: any[];
   projects: any[];
+  tenders?: Tender[];
   companies?: Company[];
   projectNumbering?: ProjectNumberingSettings;
   users: any[];
@@ -39,6 +40,7 @@ export function normalizeStateStructure(raw?: any): AppState {
         revision: 0,
         tasks: [],
         projects: [],
+        tenders: [],
         companies: [],
         projectNumbering: { scope: 'year' },
         users: [],
@@ -53,6 +55,7 @@ export function normalizeStateStructure(raw?: any): AppState {
   }
   if (!Array.isArray(state.tasks)) state.tasks = [];
   if (!Array.isArray(state.projects)) state.projects = [];
+  if (!Array.isArray(state.tenders)) state.tenders = [];
   if (!Array.isArray(state.companies)) state.companies = [];
   if (!state.projectNumbering || typeof state.projectNumbering !== 'object') {
     state.projectNumbering = { scope: 'year' };
@@ -92,6 +95,9 @@ export function normalizeStateStructure(raw?: any): AppState {
   }
   for (const p of state.projects) {
     if (p && typeof p.revision !== 'number') p.revision = 1;
+  }
+  for (const td of state.tenders) {
+    if (td && typeof td.revision !== 'number') td.revision = 1;
   }
 
   return state;

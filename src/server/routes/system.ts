@@ -136,6 +136,7 @@ export function registerSystemRoutes(
       const {
         serverSettings: _ignoredServerSettings,
         trash: _ignoredTrash,
+        tenders: _ignoredTenders,
         reminderState: _ignoredReminderState,
         weeklySummaryState: _ignoredWeeklySummaryState,
         trustedDevices: _ignoredTrustedDevices,
@@ -169,6 +170,7 @@ export function registerSystemRoutes(
         projectNumbering: nextProjectNumbering,
         serverSettings: appState.serverSettings,
         trash: Array.isArray(appState.trash) ? appState.trash : [],
+        tenders: Array.isArray(appState.tenders) ? appState.tenders : [],
         reminderState: appState.reminderState,
         weeklySummaryState: appState.weeklySummaryState,
         trustedDevices: Array.isArray(appState.trustedDevices) ? appState.trustedDevices : [],
