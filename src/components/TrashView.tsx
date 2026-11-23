@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import type { TrashEntrySummary, User } from '../types';
 import { useFocusTrap } from '../utils/useFocusTrap';
+import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 
 interface TrashViewProps {
   currentUser: User;
@@ -40,6 +41,21 @@ export const TrashView: React.FC<TrashViewProps> = ({
   const purgeModalRef = useRef<HTMLDivElement>(null);
   const emptyModalRef = useRef<HTMLDivElement>(null);
 
+  const { backdropProps: purgeBackdropProps } = useDismissOnOutsideClick({
+    isOpen: Boolean(purgeTarget),
+    mode: 'form',
+    panelRef: purgeModalRef,
+    onDismiss: () => setPurgeTarget(null),
+  });
+
+  const { backdropProps: emptyBackdropProps } = useDismissOnOutsideClick({
+    isOpen: isEmptyModalOpen,
+    mode: 'form',
+    panelRef: emptyModalRef,
+    onDismiss: () => setIsEmptyModalOpen(false),
+    disabled: isEmptying,
+  });
+
   useFocusTrap({
     isOpen: Boolean(purgeTarget),
     containerRef: purgeModalRef,
@@ -50,6 +66,7 @@ export const TrashView: React.FC<TrashViewProps> = ({
     isOpen: isEmptyModalOpen,
     containerRef: emptyModalRef,
     onClose: () => setIsEmptyModalOpen(false),
+    disableEscape: isEmptying,
   });
 
   const loadTrash = async () => {
@@ -365,6 +382,7 @@ export const TrashView: React.FC<TrashViewProps> = ({
           role="dialog"
           aria-modal="true"
           aria-labelledby="purge-trash-modal-title"
+          {...purgeBackdropProps}
         >
           <div
             ref={purgeModalRef}
@@ -410,6 +428,7 @@ export const TrashView: React.FC<TrashViewProps> = ({
           role="dialog"
           aria-modal="true"
           aria-labelledby="empty-trash-modal-title"
+          {...emptyBackdropProps}
         >
           <div
             ref={emptyModalRef}

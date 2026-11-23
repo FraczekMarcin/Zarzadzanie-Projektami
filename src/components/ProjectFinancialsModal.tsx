@@ -15,6 +15,8 @@ import { useVariables } from '../hooks/useVariables';
 import { copyToClipboard } from '../utils/clipboard';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { canEditFinance } from '../utils/access';
+import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
+import { DiscardChangesModal } from './DiscardChangesModal';
 import {
   buildFinancePatch,
   computeProjectFinance,
@@ -115,8 +117,10 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   onItemsMarkedPaid,
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
+  const footerCancelRef = useRef<HTMLButtonElement>(null);
+  const moveQuoteModalRef = useRef<HTMLDivElement>(null);
+  const moveQuoteCancelRef = useRef<HTMLButtonElement>(null);
   const uidPrefix = useId();
-  useFocusTrap({ isOpen, onClose, containerRef: modalRef });
 
   const effectiveUser =
     currentUser ?? (isAdmin ? ({ id: 'admin', role: 'admin' } as User) : null);
@@ -314,6 +318,145 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
     currentProject?: Project;
   } | null>(null);
 
+  const buildFinanceSnapshot = (vals: {
+    clientName: string;
+    clientContactPerson: string;
+    clientPhone: string;
+    clientEmail: string;
+    clientNip: string;
+    clientAddress: string;
+    diskPath: string;
+    startDate: string;
+    dueDate: string;
+    baseNetStr: string;
+    baseGrossStr: string;
+    projectVatRate: number;
+    isBaseContractPaid: boolean;
+    quotations: QuotationItem[];
+    costs: CostItem[];
+    paymentTranches: PaymentTranche[];
+  }) => JSON.stringify(vals);
+
+  const [baselineSnapshot, setBaselineSnapshot] = useState<string>(() =>
+    buildFinanceSnapshot({
+      clientName: project.clientName || '',
+      clientContactPerson: project.clientContactPerson || '',
+      clientPhone: project.clientPhone || '',
+      clientEmail: project.clientEmail || '',
+      clientNip: project.clientNip || '',
+      clientAddress: project.clientAddress || '',
+      diskPath: project.diskPath || '',
+      startDate: project.startDate || getTodayIso(),
+      dueDate: project.dueDate || getTodayIso(),
+      baseNetStr: getInitialMoneyStr(project.projectValue),
+      baseGrossStr:
+        project.projectValue && project.projectValue > 0
+          ? formatMoney(
+              project.projectValueGross && project.projectValueGross > 0
+                ? project.projectValueGross
+                : calcGrossFromNet(project.projectValue, initialVatRate)
+            )
+          : '',
+      projectVatRate: initialVatRate,
+      isBaseContractPaid:
+        project.isBaseContractPaid !== undefined
+          ? Boolean(project.isBaseContractPaid)
+          : project.status === 'completed',
+      quotations: (project.quotations || []).map((q) => ({
+        ...q,
+        companyName: q.companyName || project.clientName || 'Inwestor Główny',
+        isSelected: q.isSelected !== undefined ? q.isSelected : true,
+        taxType: q.taxType || 'netto',
+        isPaid: q.isPaid || false,
+      })),
+      costs: (project.costs || []).map((c) => ({
+        ...c,
+        isPaid: c.isPaid !== undefined ? c.isPaid : c.status === 'paid',
+      })),
+      paymentTranches: project.paymentTranches || [],
+    })
+  );
+
+  const currentSnapshot = buildFinanceSnapshot({
+    clientName,
+    clientContactPerson,
+    clientPhone,
+    clientEmail,
+    clientNip,
+    clientAddress,
+    diskPath,
+    startDate,
+    dueDate,
+    baseNetStr,
+    baseGrossStr,
+    projectVatRate,
+    isBaseContractPaid,
+    quotations,
+    costs,
+    paymentTranches,
+  });
+
+  const hasUnsavedInlineDraft = Boolean(
+    editingQuoteId ||
+      editingCostId ||
+      editingTrancheId ||
+      newQuoteTitle.trim() ||
+      newQuotePriceStr.trim() ||
+      newCostTitle.trim() ||
+      newCostAmountNetStr.trim() ||
+      newCostAmountGrossStr.trim() ||
+      newTrancheTitle.trim() ||
+      newTrancheNetStr.trim() ||
+      newTrancheGrossStr.trim()
+  );
+
+  const isDirty =
+    isOpen &&
+    canEdit &&
+    (currentSnapshot !== baselineSnapshot || hasUnsavedInlineDraft);
+
+  const {
+    backdropProps,
+    flashClassName,
+    requestClose,
+    isDiscardModalOpen,
+    confirmDiscard,
+    cancelDiscard,
+  } = useDismissOnOutsideClick({
+    isOpen,
+    mode: canEdit ? 'form' : 'dismiss',
+    panelRef: modalRef,
+    onDismiss: onClose,
+    disabled: isSaving,
+    isDirty,
+    cancelButtonRef: footerCancelRef,
+  });
+
+  useFocusTrap({
+    isOpen,
+    onClose: requestClose,
+    containerRef: modalRef,
+    disableEscape: isSaving,
+  });
+
+  const isMoveQuoteOpen = Boolean(moveQuoteModalId && quotations.some((q) => q.id === moveQuoteModalId));
+
+  const {
+    backdropProps: moveQuoteBackdropProps,
+  } = useDismissOnOutsideClick({
+    isOpen: isMoveQuoteOpen,
+    mode: 'form',
+    panelRef: moveQuoteModalRef,
+    onDismiss: () => setMoveQuoteModalId(null),
+    cancelButtonRef: moveQuoteCancelRef,
+  });
+
+  useFocusTrap({
+    isOpen: isMoveQuoteOpen,
+    onClose: () => setMoveQuoteModalId(null),
+    containerRef: moveQuoteModalRef,
+  });
+
   if (!isOpen) return null;
 
   const projectTasks = tasks.filter((t) => t.projectId === project.id);
@@ -359,6 +502,34 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   // Rehydrate modal states when user clicks "Odśwież dane projektu" po 409
   const applyFreshProjectToModal = (fresh: Project) => {
     const freshVat = fresh.projectVatRate !== undefined ? fresh.projectVatRate : 23;
+    const nextStart = fresh.startDate || getTodayIso();
+    const nextDue = fresh.dueDate || getTodayIso();
+    const nextBaseNetStr = getInitialMoneyStr(fresh.projectValue);
+    const nextBaseGrossStr =
+      fresh.projectValue && fresh.projectValue > 0
+        ? formatMoney(
+            fresh.projectValueGross && fresh.projectValueGross > 0
+              ? fresh.projectValueGross
+              : calcGrossFromNet(fresh.projectValue, freshVat)
+          )
+        : '';
+    const nextBasePaid =
+      fresh.isBaseContractPaid !== undefined
+        ? Boolean(fresh.isBaseContractPaid)
+        : fresh.status === 'completed';
+    const nextQuotations = (fresh.quotations || []).map((q) => ({
+      ...q,
+      companyName: q.companyName || fresh.clientName || 'Inwestor Główny',
+      isSelected: q.isSelected !== undefined ? q.isSelected : true,
+      taxType: q.taxType || 'netto',
+      isPaid: q.isPaid || false,
+    }));
+    const nextCosts = (fresh.costs || []).map((c) => ({
+      ...c,
+      isPaid: c.isPaid !== undefined ? c.isPaid : c.status === 'paid',
+    }));
+    const nextTranches = fresh.paymentTranches || [];
+
     setClientName(fresh.clientName || '');
     setClientContactPerson(fresh.clientContactPerson || '');
     setClientPhone(fresh.clientPhone || '');
@@ -366,42 +537,37 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
     setClientNip(fresh.clientNip || '');
     setClientAddress(fresh.clientAddress || '');
     setDiskPath(fresh.diskPath || '');
-    setStartDate(fresh.startDate || getTodayIso());
-    setDueDate(fresh.dueDate || getTodayIso());
+    setStartDate(nextStart);
+    setDueDate(nextDue);
     setProjectVatRate(freshVat);
-    setBaseNetStr(getInitialMoneyStr(fresh.projectValue));
-    setBaseGrossStr(
-      fresh.projectValue && fresh.projectValue > 0
-        ? formatMoney(
-            fresh.projectValueGross && fresh.projectValueGross > 0
-              ? fresh.projectValueGross
-              : calcGrossFromNet(fresh.projectValue, freshVat)
-          )
-        : ''
-    );
+    setBaseNetStr(nextBaseNetStr);
+    setBaseGrossStr(nextBaseGrossStr);
     setBaseNetError(undefined);
     setBaseGrossError(undefined);
-    setIsBaseContractPaid(
-      fresh.isBaseContractPaid !== undefined
-        ? Boolean(fresh.isBaseContractPaid)
-        : fresh.status === 'completed'
+    setIsBaseContractPaid(nextBasePaid);
+    setQuotations(nextQuotations);
+    setCosts(nextCosts);
+    setPaymentTranches(nextTranches);
+    setBaselineSnapshot(
+      buildFinanceSnapshot({
+        clientName: fresh.clientName || '',
+        clientContactPerson: fresh.clientContactPerson || '',
+        clientPhone: fresh.clientPhone || '',
+        clientEmail: fresh.clientEmail || '',
+        clientNip: fresh.clientNip || '',
+        clientAddress: fresh.clientAddress || '',
+        diskPath: fresh.diskPath || '',
+        startDate: nextStart,
+        dueDate: nextDue,
+        baseNetStr: nextBaseNetStr,
+        baseGrossStr: nextBaseGrossStr,
+        projectVatRate: freshVat,
+        isBaseContractPaid: nextBasePaid,
+        quotations: nextQuotations,
+        costs: nextCosts,
+        paymentTranches: nextTranches,
+      })
     );
-    setQuotations(
-      (fresh.quotations || []).map((q) => ({
-        ...q,
-        companyName: q.companyName || fresh.clientName || 'Inwestor Główny',
-        isSelected: q.isSelected !== undefined ? q.isSelected : true,
-        taxType: q.taxType || 'netto',
-        isPaid: q.isPaid || false,
-      }))
-    );
-    setCosts(
-      (fresh.costs || []).map((c) => ({
-        ...c,
-        isPaid: c.isPaid !== undefined ? c.isPaid : c.status === 'paid',
-      }))
-    );
-    setPaymentTranches(fresh.paymentTranches || []);
     setEditingQuoteId(null);
     setEditQuoteDraft(null);
     setEditingCostId(null);
@@ -1483,13 +1649,16 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   const projectServerError = saveError?.itemType === 'project' ? saveError.error : undefined;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+    <div
+      {...backdropProps}
+      className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4"
+    >
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="financials-modal-title"
-        className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 relative"
+        className={`bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 relative ${flashClassName}`}
       >
         {/* Modal Header */}
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/70 flex items-center justify-between">
@@ -1533,9 +1702,10 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
 
           <button
             type="button"
-            onClick={onClose}
+            disabled={isSaving}
+            onClick={requestClose}
             aria-label="Zamknij finanse projektu"
-            className="p-1 rounded text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+            className="p-1 rounded text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
           >
             <X className="w-5 h-5" aria-hidden="true" />
           </button>
@@ -4405,9 +4575,11 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
         {/* Modal Footer */}
         <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/70 flex items-center justify-between">
           <button
+            ref={footerCancelRef}
             type="button"
+            disabled={isSaving}
             onClick={onClose}
-            className="px-4 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors"
+            className="px-4 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors disabled:opacity-50"
           >
             {canEdit ? 'Anuluj' : 'Zamknij'}
           </button>
@@ -4428,16 +4600,11 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
         {/* Sub-dialog: Wybór kategorii przy przenoszeniu wyceny do kosztów */}
         {quoteToMove && (
           <div
+            {...moveQuoteBackdropProps}
             className="fixed inset-0 z-60 bg-black/50 flex items-center justify-center p-4"
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                e.preventDefault();
-                e.stopPropagation();
-                setMoveQuoteModalId(null);
-              }
-            }}
           >
             <div
+              ref={moveQuoteModalRef}
               role="dialog"
               aria-modal="true"
               aria-labelledby="move-quote-dialog-title"
@@ -4468,6 +4635,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <button
+                  ref={moveQuoteCancelRef}
                   type="button"
                   onClick={() => setMoveQuoteModalId(null)}
                   className="px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300"
@@ -4486,6 +4654,11 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
           </div>
         )}
       </div>
+      <DiscardChangesModal
+        isOpen={isDiscardModalOpen}
+        onCancel={cancelDiscard}
+        onConfirm={confirmDiscard}
+      />
     </div>
   );
 };

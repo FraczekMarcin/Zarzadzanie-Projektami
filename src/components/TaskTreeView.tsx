@@ -25,6 +25,7 @@ import { copyToClipboard } from '../utils/clipboard';
 import { canAccessProject } from '../utils/access';
 import { canReparent } from '../utils/taskTree';
 import { useFocusTrap } from '../utils/useFocusTrap';
+import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 
 interface TaskTreeViewProps {
   tasks: Task[];
@@ -214,10 +215,21 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
     setMoveTargetSearch('');
   };
 
+  const isMoveModalDisabled = isMoveSubmitting || Boolean(draggedTaskId);
+  const { backdropProps: moveBackdropProps, requestClose: requestCloseMoveModal } =
+    useDismissOnOutsideClick({
+      isOpen: Boolean(moveModalTaskId),
+      mode: 'dismiss',
+      panelRef: moveModalRef,
+      onDismiss: closeMoveModal,
+      disabled: isMoveModalDisabled,
+    });
+
   useFocusTrap({
     isOpen: Boolean(moveModalTaskId),
     containerRef: moveModalRef,
-    onClose: closeMoveModal,
+    onClose: requestCloseMoveModal,
+    disableEscape: isMoveModalDisabled,
   });
 
   const performReparent = async (sourceId: string, newParentId: string | null) => {
@@ -1081,9 +1093,7 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
       {moveModalTask && (
         <div
           className="fixed inset-0 z-50 bg-slate-900/60 dark:bg-slate-950/75 flex items-center justify-center p-4"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) closeMoveModal();
-          }}
+          {...moveBackdropProps}
         >
           <div
             ref={moveModalRef}

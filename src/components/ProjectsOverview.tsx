@@ -9,6 +9,8 @@ import { calcGrossFromNet, formatMoney } from '../utils/money';
 import { getTodayIso } from '../utils/today';
 import type { FinancePatchSaveResult } from '../hooks/useServerSync';
 import { useFocusTrap } from '../utils/useFocusTrap';
+import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
+import { DiscardChangesModal } from './DiscardChangesModal';
 import { ProjectTile } from './projects/ProjectTile';
 import { ProjectRow } from './projects/ProjectRow';
 import {
@@ -186,6 +188,89 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   const archiveModalRef = useRef<HTMLDivElement>(null);
   const deleteModalRef = useRef<HTMLDivElement>(null);
   const formModalRef = useRef<HTMLDivElement>(null);
+  const formCancelRef = useRef<HTMLButtonElement>(null);
+  const [formBaselineSnapshot, setFormBaselineSnapshot] = useState<string>('');
+
+  const buildProjectFormSnapshot = (vals: {
+    selectedTemplateId: string;
+    companyId: string;
+    projectCode: string;
+    name: string;
+    description: string;
+    priority: Priority;
+    status: string;
+    startDate: string;
+    durationDays: number;
+    dueDate: string;
+    budget: string;
+    projectValue: number;
+    projectVatRate: number;
+    ownerId: string;
+    selectedMemberIds: string[];
+    clientName: string;
+    clientContactPerson: string;
+    clientPhone: string;
+    clientEmail: string;
+    clientNip: string;
+    diskPath: string;
+  }) => JSON.stringify(vals);
+
+  const currentFormSnapshot = buildProjectFormSnapshot({
+    selectedTemplateId,
+    companyId,
+    projectCode,
+    name,
+    description,
+    priority,
+    status,
+    startDate,
+    durationDays,
+    dueDate,
+    budget,
+    projectValue,
+    projectVatRate,
+    ownerId,
+    selectedMemberIds,
+    clientName,
+    clientContactPerson,
+    clientPhone,
+    clientEmail,
+    clientNip,
+    diskPath,
+  });
+
+  const isProjectFormDirty =
+    isModalOpen && formBaselineSnapshot !== '' && currentFormSnapshot !== formBaselineSnapshot;
+
+  const { backdropProps: archiveBackdropProps } = useDismissOnOutsideClick({
+    isOpen: Boolean(projectToArchive),
+    mode: 'form',
+    panelRef: archiveModalRef,
+    onDismiss: () => setProjectToArchive(null),
+  });
+
+  const { backdropProps: deleteBackdropProps } = useDismissOnOutsideClick({
+    isOpen: Boolean(projectToDelete),
+    mode: 'form',
+    panelRef: deleteModalRef,
+    onDismiss: () => setProjectToDelete(null),
+  });
+
+  const {
+    backdropProps: formBackdropProps,
+    flashClassName: formFlashClassName,
+    requestClose: requestCloseProjectForm,
+    isDiscardModalOpen: isProjectDiscardOpen,
+    confirmDiscard: confirmProjectDiscard,
+    cancelDiscard: cancelProjectDiscard,
+  } = useDismissOnOutsideClick({
+    isOpen: isModalOpen,
+    mode: 'form',
+    panelRef: formModalRef,
+    onDismiss: () => setIsModalOpen(false),
+    isDirty: isProjectFormDirty,
+    cancelButtonRef: formCancelRef,
+  });
 
   useFocusTrap({
     isOpen: Boolean(projectToArchive),
@@ -202,7 +287,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   useFocusTrap({
     isOpen: isModalOpen,
     containerRef: formModalRef,
-    onClose: () => setIsModalOpen(false),
+    onClose: requestCloseProjectForm,
   });
 
   useEffect(() => {
@@ -310,31 +395,57 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setAvailableTemplates(templates);
 
     const today = getTodayIsoDate();
+    let initTemplate = 'none';
+    let initName = '';
+    let initDesc = '';
+    let initPriority: Priority = 'normal';
+    let initDur = 60;
+    let initDue = calculateDueDate(today, 60);
+    let initBudget = '150 000 PLN';
+    let initVal = 150000;
+
     if (preselectedTemplate) {
-      setSelectedTemplateId(preselectedTemplate.id);
-      setName(preselectedTemplate.name);
-      setDescription(preselectedTemplate.description);
-      setPriority(preselectedTemplate.defaultPriority);
-      setStatus('active');
-      setStartDate(today);
-      setDurationDays(preselectedTemplate.defaultDurationDays);
-      setDueDate(calculateDueDate(today, preselectedTemplate.defaultDurationDays));
-      setBudget(preselectedTemplate.defaultBudget || '180 000 PLN');
-      setProjectValue(180000);
-      setProjectVatRate(23);
-    } else {
-      setSelectedTemplateId('none');
-      setName('');
-      setDescription('');
-      setPriority('normal');
-      setStatus('active');
-      setStartDate(today);
-      setDurationDays(60);
-      setDueDate(calculateDueDate(today, 60));
-      setBudget('150 000 PLN');
-      setProjectValue(150000);
-      setProjectVatRate(23);
+      initTemplate = preselectedTemplate.id;
+      initName = preselectedTemplate.name;
+      initDesc = preselectedTemplate.description;
+      initPriority = preselectedTemplate.defaultPriority;
+      initDur = preselectedTemplate.defaultDurationDays;
+      initDue = calculateDueDate(today, preselectedTemplate.defaultDurationDays);
+      initBudget = preselectedTemplate.defaultBudget || '180 000 PLN';
+      initVal = 180000;
     }
+
+    let initCode = '';
+    if (activeCompanies.length > 0) {
+      if (defaultCompany) {
+        try {
+          initCode = getNextProjectCode(
+            projects,
+            [],
+            companies,
+            defaultCompany,
+            new Date().getFullYear(),
+            projectNumbering.scope
+          );
+        } catch {
+          initCode = '';
+        }
+      }
+    } else {
+      initCode = getNextProjectCode(projects);
+    }
+
+    setSelectedTemplateId(initTemplate);
+    setName(initName);
+    setDescription(initDesc);
+    setPriority(initPriority);
+    setStatus('active');
+    setStartDate(today);
+    setDurationDays(initDur);
+    setDueDate(initDue);
+    setBudget(initBudget);
+    setProjectValue(initVal);
+    setProjectVatRate(23);
     setClientName('');
     setClientContactPerson('');
     setClientPhone('');
@@ -343,6 +454,31 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setDiskPath('');
     setOwnerId('');
     setSelectedMemberIds(['usr-1', 'usr-2']);
+    setFormBaselineSnapshot(
+      buildProjectFormSnapshot({
+        selectedTemplateId: initTemplate,
+        companyId: defaultCompany,
+        projectCode: initCode,
+        name: initName,
+        description: initDesc,
+        priority: initPriority,
+        status: 'active',
+        startDate: today,
+        durationDays: initDur,
+        dueDate: initDue,
+        budget: initBudget,
+        projectValue: initVal,
+        projectVatRate: 23,
+        ownerId: '',
+        selectedMemberIds: ['usr-1', 'usr-2'],
+        clientName: '',
+        clientContactPerson: '',
+        clientPhone: '',
+        clientEmail: '',
+        clientNip: '',
+        diskPath: '',
+      })
+    );
     setIsModalOpen(true);
   };
 
@@ -362,7 +498,21 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
   const openEditModal = (project: Project) => {
     setEditingProject(project);
-    setCompanyId(project.companyId || '');
+    const initCompany = project.companyId || '';
+    const initDur = project.durationDays || 30;
+    const initBudget = project.budget || '';
+    const initVal = project.projectValue || 100000;
+    const initVat = project.projectVatRate !== undefined ? project.projectVatRate : 23;
+    const initOwner = project.ownerId || '';
+    const initMembers = project.memberIds || [];
+    const initClientName = project.clientName || '';
+    const initClientContact = project.clientContactPerson || '';
+    const initClientPhone = project.clientPhone || '';
+    const initClientEmail = project.clientEmail || '';
+    const initClientNip = project.clientNip || '';
+    const initDiskPath = project.diskPath || '';
+
+    setCompanyId(initCompany);
     setUseAutoCode(false);
     setProjectCode(project.key);
     setName(project.name);
@@ -370,19 +520,44 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setPriority(project.priority);
     setStatus(project.status);
     setStartDate(project.startDate);
-    setDurationDays(project.durationDays || 30);
+    setDurationDays(initDur);
     setDueDate(project.dueDate);
-    setBudget(project.budget || '');
-    setProjectValue(project.projectValue || 100000);
-    setProjectVatRate(project.projectVatRate !== undefined ? project.projectVatRate : 23);
-    setOwnerId(project.ownerId || '');
-    setSelectedMemberIds(project.memberIds || []);
-    setClientName(project.clientName || '');
-    setClientContactPerson(project.clientContactPerson || '');
-    setClientPhone(project.clientPhone || '');
-    setClientEmail(project.clientEmail || '');
-    setClientNip(project.clientNip || '');
-    setDiskPath(project.diskPath || '');
+    setBudget(initBudget);
+    setProjectValue(initVal);
+    setProjectVatRate(initVat);
+    setOwnerId(initOwner);
+    setSelectedMemberIds(initMembers);
+    setClientName(initClientName);
+    setClientContactPerson(initClientContact);
+    setClientPhone(initClientPhone);
+    setClientEmail(initClientEmail);
+    setClientNip(initClientNip);
+    setDiskPath(initDiskPath);
+    setFormBaselineSnapshot(
+      buildProjectFormSnapshot({
+        selectedTemplateId,
+        companyId: initCompany,
+        projectCode: project.key,
+        name: project.name,
+        description: project.description,
+        priority: project.priority,
+        status: project.status,
+        startDate: project.startDate,
+        durationDays: initDur,
+        dueDate: project.dueDate,
+        budget: initBudget,
+        projectValue: initVal,
+        projectVatRate: initVat,
+        ownerId: initOwner,
+        selectedMemberIds: initMembers,
+        clientName: initClientName,
+        clientContactPerson: initClientContact,
+        clientPhone: initClientPhone,
+        clientEmail: initClientEmail,
+        clientNip: initClientNip,
+        diskPath: initDiskPath,
+      })
+    );
     setIsModalOpen(true);
   };
 
@@ -1086,6 +1261,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
           role="dialog"
           aria-modal="true"
           aria-labelledby="archive-project-modal-title"
+          {...archiveBackdropProps}
         >
           <div ref={archiveModalRef} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 max-w-md w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center gap-2.5 text-purple-700 dark:text-purple-400">
@@ -1147,6 +1323,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
             role="dialog"
             aria-modal="true"
             aria-labelledby="delete-project-modal-title"
+            {...deleteBackdropProps}
           >
             <div ref={deleteModalRef} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 max-w-md w-full shadow-2xl space-y-3 animate-in fade-in zoom-in-95">
               <div className="flex items-center gap-2.5 text-rose-700 dark:text-rose-400">
@@ -1204,8 +1381,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
           role="dialog"
           aria-modal="true"
           aria-labelledby="project-form-modal-title"
+          {...formBackdropProps}
         >
-          <div ref={formModalRef} className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+          <div ref={formModalRef} className={`bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 ${formFlashClassName}`}>
             <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/70 flex items-center justify-between">
               <div>
                 <h3 id="project-form-modal-title" className="text-sm font-bold text-slate-900 dark:text-white">
@@ -1217,7 +1395,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => setIsModalOpen(false)}
+                onClick={requestCloseProjectForm}
                 className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 p-1"
                 aria-label="Zamknij okno projektu"
               >
@@ -1709,6 +1887,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
               <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2">
                 <button
+                  ref={formCancelRef}
                   type="button"
                   onClick={() => setIsModalOpen(false)}
                   className="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -1725,6 +1904,11 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
               </div>
             </form>
           </div>
+          <DiscardChangesModal
+            isOpen={isProjectDiscardOpen}
+            onCancel={cancelProjectDiscard}
+            onConfirm={confirmProjectDiscard}
+          />
         </div>
       )}
     </div>

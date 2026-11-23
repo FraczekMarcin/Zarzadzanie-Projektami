@@ -301,6 +301,14 @@ test.describe.serial('Testy end-to-end aplikacji Zarządzanie Projektami', () =>
     await expect(page.getByRole('heading', { name: /Osiedle Parkowe E2E/ })).toBeVisible();
     await page.getByRole('button', { name: 'Powrót do listy' }).click();
 
+    await nav.getByRole('button', { name: 'Drzewo zadań', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Rozwijane Drzewo Zadań i Gałęzi' })).toBeVisible();
+    await page.getByRole('button', { name: /Przenieś zadanie/i }).first().click();
+    const moveDialog = page.getByRole('dialog', { name: /Przenieś zadanie/i });
+    await expect(moveDialog).toBeVisible();
+    await moveDialog.getByRole('button', { name: 'Zamknij okno przenoszenia zadania' }).click();
+    await expect(moveDialog).toHaveCount(0);
+
     await monitor.assertClean();
   });
 

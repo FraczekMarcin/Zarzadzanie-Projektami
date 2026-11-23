@@ -16,6 +16,7 @@ import { isPaymentOverdue } from '../utils/finance';
 import { calcGrossFromNet } from '../utils/money';
 import { getTodayIso } from '../utils/today';
 import { useFocusTrap } from '../utils/useFocusTrap';
+import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { useVariables } from '../hooks/useVariables';
 import {
   EconomyAmountMode,
@@ -160,10 +161,32 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
   const [bulkSelectedKeys, setBulkSelectedKeys] = useState<Set<string>>(new Set());
   const [isBulkSaving, setIsBulkSaving] = useState<boolean>(false);
   const bulkModalRef = useRef<HTMLDivElement>(null);
+  const bulkCancelRef = useRef<HTMLButtonElement>(null);
 
   // Propozycja zamknięcia powiązanego zadania po oznaczeniu płatności jako zapłaconej
   const [closeTaskPromptTasks, setCloseTaskPromptTasks] = useState<Task[] | null>(null);
   const closeTaskModalRef = useRef<HTMLDivElement>(null);
+
+  const {
+    backdropProps: bulkBackdropProps,
+    flashClassName: bulkFlashClassName,
+  } = useDismissOnOutsideClick({
+    isOpen: Boolean(bulkModalItems),
+    mode: 'form',
+    panelRef: bulkModalRef,
+    onDismiss: () => {
+      if (!isBulkSaving) setBulkModalItems(null);
+    },
+    disabled: isBulkSaving,
+    cancelButtonRef: bulkCancelRef,
+  });
+
+  const { backdropProps: closeTaskBackdropProps } = useDismissOnOutsideClick({
+    isOpen: Boolean(closeTaskPromptTasks && closeTaskPromptTasks.length > 0),
+    mode: 'form',
+    panelRef: closeTaskModalRef,
+    onDismiss: () => setCloseTaskPromptTasks(null),
+  });
 
   useFocusTrap({
     isOpen: Boolean(bulkModalItems),
@@ -171,6 +194,7 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
     onClose: () => {
       if (!isBulkSaving) setBulkModalItems(null);
     },
+    disableEscape: isBulkSaving,
   });
 
   useFocusTrap({
@@ -1442,10 +1466,11 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
             role="dialog"
             aria-modal="true"
             aria-labelledby={`${uidPrefix}-bulk-title`}
+            {...bulkBackdropProps}
           >
             <div
               ref={bulkModalRef}
-              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 max-w-2xl w-full shadow-2xl space-y-4 max-h-[85vh] flex flex-col"
+              className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 max-w-2xl w-full shadow-2xl space-y-4 max-h-[85vh] flex flex-col ${bulkFlashClassName}`}
             >
               <div className="flex items-center justify-between gap-3">
                 <h3
@@ -1514,6 +1539,7 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
 
               <div className="flex items-center justify-end gap-2 pt-1">
                 <button
+                  ref={bulkCancelRef}
                   type="button"
                   disabled={isBulkSaving}
                   onClick={() => setBulkModalItems(null)}
@@ -1543,6 +1569,7 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
             role="dialog"
             aria-modal="true"
             aria-labelledby={`${uidPrefix}-close-task-title`}
+            {...closeTaskBackdropProps}
           >
             <div
               ref={closeTaskModalRef}

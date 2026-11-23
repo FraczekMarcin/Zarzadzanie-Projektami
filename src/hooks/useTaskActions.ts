@@ -583,6 +583,64 @@ export function useTaskActions({
     }
   };
 
+  const handleUpdateTaskFields = (taskId: string, patch: Partial<Task>) => {
+    const currentList = tasksRef.current;
+    const task = currentList.find((t) => t.id === taskId);
+    if (!task) return;
+    if (!currentUser || currentUser.role === 'viewer') return;
+
+    const queued = taskPatchDebounceTimers.current.get(taskId);
+    if (queued) {
+      clearTimeout(queued.timer);
+      taskPatchDebounceTimers.current.delete(taskId);
+    }
+
+    const basePatch: Partial<Task> = queued ? { ...queued.patch, ...patch } : { ...patch };
+    const isParentTask = hasDirectSubtasks(currentList, taskId);
+    const mergedPatch: Partial<Task> = isParentTask
+      ? (() => {
+          const { progress: _omitProgress, ...rest } = basePatch;
+          return rest;
+        })()
+      : basePatch;
+
+    const nextStart = mergedPatch.startDate ?? task.startDate;
+    const nextDue = mergedPatch.dueDate ?? task.dueDate;
+    if (('startDate' in mergedPatch || 'dueDate' in mergedPatch) && !('durationDays' in mergedPatch)) {
+      const startMs = Date.parse(`${nextStart}T00:00:00Z`);
+      const dueMs = Date.parse(`${nextDue}T00:00:00Z`);
+      if (Number.isFinite(startMs) && Number.isFinite(dueMs)) {
+        mergedPatch.durationDays = Math.max(1, Math.round((dueMs - startMs) / 86400000) + 1);
+      }
+    }
+
+    const updated: Task = {
+      ...task,
+      ...mergedPatch,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const newTaskList = currentList.map((t) => (t.id === taskId ? updated : t));
+    const { updatedTasks, triggeredEvents } = processDependencyRules(newTaskList);
+    tasksRef.current = updatedTasks;
+    setTasks(updatedTasks);
+
+    const baseRev = queued?.baseRevision ?? (task.revision !== undefined ? task.revision : 1);
+    void saveTaskPatchToServer(taskId, mergedPatch, baseRev);
+
+    if (triggeredEvents.length > 0) {
+      triggeredEvents.forEach((evt) => logActivity(evt));
+      setNotificationToast({ message: triggeredEvents[0], type: 'success' });
+    } else if (mergedPatch.title) {
+      logActivity(`Zaktualizowano zadanie ${updated.code}: "${updated.title}"`, taskId);
+    }
+
+    if (selectedTaskDetail?.id === taskId) {
+      const refreshed = updatedTasks.find((t) => t.id === taskId);
+      if (refreshed) handleSelectTask(refreshed);
+    }
+  };
+
   const handleReparentTask = async (
     taskId: string,
     newParentId: string | null,
@@ -790,6 +848,7 @@ export function useTaskActions({
     confirmDeleteTask,
     handleUpdateStatus,
     handleUpdateProgress,
+    handleUpdateTaskFields,
     handleReparentTask,
     handleAddComment,
   };

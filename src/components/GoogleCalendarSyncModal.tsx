@@ -3,6 +3,7 @@ import { User, Task, Project } from '../types';
 import { downloadIcsFile, generateGoogleCalendarSubscribeUrl, isPrivateOrLocalUrl } from '../utils/calendar';
 import { copyToClipboard } from '../utils/clipboard';
 import { useFocusTrap } from '../utils/useFocusTrap';
+import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { 
   X, 
   Calendar as CalendarIcon, 
@@ -54,7 +55,16 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
   const userSelectId = useId();
   const feedUrlInputId = useId();
 
-  useFocusTrap({ isOpen, onClose, containerRef });
+  const isBusy = isGenerating || isRevoking;
+  const { backdropProps, requestClose } = useDismissOnOutsideClick({
+    isOpen,
+    mode: 'dismiss',
+    panelRef: containerRef,
+    onDismiss: onClose,
+    disabled: isBusy,
+  });
+
+  useFocusTrap({ isOpen, onClose: requestClose, containerRef, disableEscape: isBusy });
 
   // Sprawdzanie tokenu po otwarciu modalu
   useEffect(() => {
@@ -164,7 +174,10 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4"
+      {...backdropProps}
+    >
       <div
         ref={containerRef}
         tabIndex={-1}

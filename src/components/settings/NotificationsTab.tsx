@@ -19,6 +19,7 @@ import {
   WEEKLY_MAX_ITEMS_PER_PROJECT,
   WEEKLY_MIN_ITEMS_PER_PROJECT,
 } from '../../utils/weeklySummary';
+import { useSettingsTabDirty } from './SettingsDirtyContext';
 
 export interface ReminderStatusResponse {
   enabled: boolean;
@@ -64,6 +65,7 @@ export const NotificationsTab: React.FC<NotificationsTabProps> = ({
   currentUser,
   onOpenSmtpTab,
 }) => {
+  const reportTabDirty = useSettingsTabDirty();
   const [data, setData] = useState<AdminSettingsResponse | null>(null);
   const [status, setStatus] = useState<ReminderStatusResponse | null>(null);
   const [weeklyStatus, setWeeklyStatus] = useState<WeeklySummaryStatusResponse | null>(null);
@@ -164,6 +166,35 @@ export const NotificationsTab: React.FC<NotificationsTabProps> = ({
       fetchAll();
     }
   }, [isOpen]);
+
+  const isDaysEqual =
+    Boolean(data) &&
+    daysBefore.length === data!.reminders.daysBefore.value.length &&
+    daysBefore.every((d, i) => d === data!.reminders.daysBefore.value[i]);
+
+  const isDirty = Boolean(
+    isOpen &&
+      data &&
+      (enabled !== data.reminders.enabled.value ||
+        sendHour !== data.reminders.sendHour.value ||
+        timezone !== (data.reminders.timezone.value || 'Europe/Warsaw') ||
+        !isDaysEqual ||
+        notifyOverdue !== data.reminders.notifyOverdue.value ||
+        appBaseUrl !== (data.reminders.appBaseUrl.value || '') ||
+        (data.weeklySummary &&
+          (wsEnabled !== data.weeklySummary.enabled.value ||
+            wsDayOfWeek !== data.weeklySummary.dayOfWeek.value ||
+            wsTime !== (data.weeklySummary.time.value || '08:00') ||
+            wsWindowDays !== (data.weeklySummary.windowDays.value === 14 ? 14 : 7) ||
+            wsIncludeAdmins !== data.weeklySummary.includeAdmins.value ||
+            wsMaxItemsPerProject !== data.weeklySummary.maxItemsPerProject.value)) ||
+        currentPassword.length > 0)
+  );
+
+  useEffect(() => {
+    reportTabDirty('notifications', isDirty);
+    return () => reportTabDirty('notifications', false);
+  }, [isDirty, reportTabDirty]);
 
   const toggleDay = (day: number) => {
     setDaysBefore((prev) =>

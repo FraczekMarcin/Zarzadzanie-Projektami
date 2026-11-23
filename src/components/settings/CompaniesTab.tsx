@@ -21,6 +21,8 @@ import type {
   User,
 } from '../../types';
 import { useFocusTrap } from '../../utils/useFocusTrap';
+import { useDismissOnOutsideClick } from '../../hooks/useDismissOnOutsideClick';
+import { useSettingsTabDirty } from './SettingsDirtyContext';
 
 const ALPHABET_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
@@ -41,6 +43,7 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
   projectNumbering,
   onRefreshState,
 }) => {
+  const reportTabDirty = useSettingsTabDirty();
   const isAdmin = currentUser?.role === 'admin';
 
   // Formularz nowej firmy
@@ -86,15 +89,29 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
     nextVatPayer: boolean;
   } | null>(null);
   const vatConfirmRef = useRef<HTMLDivElement>(null);
+  const vatCancelRef = useRef<HTMLButtonElement>(null);
 
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  const {
+    backdropProps: vatBackdropProps,
+    flashClassName: vatFlashClassName,
+  } = useDismissOnOutsideClick({
+    isOpen: Boolean(pendingVatConfirm),
+    mode: 'form',
+    panelRef: vatConfirmRef,
+    onDismiss: () => setPendingVatConfirm(null),
+    disabled: isSaving,
+    cancelButtonRef: vatCancelRef,
+  });
+
   useFocusTrap({
     isOpen: Boolean(pendingVatConfirm),
     onClose: () => setPendingVatConfirm(null),
     containerRef: vatConfirmRef,
+    disableEscape: isSaving,
   });
 
   useEffect(() => {
@@ -117,6 +134,26 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
       setPendingVatConfirm(null);
     }
   }, [isOpen]);
+
+  const serverScope = projectNumbering?.scope === 'company' ? 'company' : 'year';
+  const serverDefaultCompanyId = projectNumbering?.defaultCompanyId || '';
+  const isDirty = Boolean(
+    isOpen &&
+      isAdmin &&
+      (numberingScope !== serverScope ||
+        defaultCompanyId !== serverDefaultCompanyId ||
+        editingId !== null ||
+        newName.trim() ||
+        newNip.trim() ||
+        newAddress.trim() ||
+        !newVatPayer ||
+        newVatBasis.trim())
+  );
+
+  useEffect(() => {
+    reportTabDirty('companies', isDirty);
+    return () => reportTabDirty('companies', false);
+  }, [isDirty, reportTabDirty]);
 
   const activeCompanies = useMemo(
     () => companies.filter((c) => c.isActive),
@@ -929,15 +966,23 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
 
       {pendingVatConfirm && (
         <div
+          onPointerDown={(e) => {
+            vatBackdropProps.onPointerDown(e);
+            e.stopPropagation();
+          }}
+          onClick={(e) => {
+            vatBackdropProps.onClick(e);
+            e.stopPropagation();
+          }}
           className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="vat-change-confirm-title"
         >
           <div
             ref={vatConfirmRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="vat-change-confirm-title"
             tabIndex={-1}
-            className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl p-5 space-y-4"
+            className={`w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl p-5 space-y-4 ${vatFlashClassName}`}
           >
             <div className="flex items-start gap-3">
               <span className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 shrink-0">
@@ -968,6 +1013,7 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
 
             <div className="flex justify-end gap-2 pt-1">
               <button
+                ref={vatCancelRef}
                 type="button"
                 disabled={isSaving}
                 onClick={() => setPendingVatConfirm(null)}

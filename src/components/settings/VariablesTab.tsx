@@ -25,6 +25,7 @@ import {
   clearLegacyLocalVariables,
 } from '../../utils/variableSettings';
 import { useVariables } from '../../hooks/useVariables';
+import { useSettingsTabDirty } from './SettingsDirtyContext';
 
 export interface VariablesTabProps {
   isOpen: boolean;
@@ -35,6 +36,7 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
   isOpen,
   currentUser,
 }) => {
+  const reportTabDirty = useSettingsTabDirty();
   const serverVars = useVariables();
   const isAdmin = currentUser?.role === 'admin';
   const canViewClients = currentUser?.role === 'admin' || currentUser?.role === 'project_manager';
@@ -77,6 +79,29 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
     }
     setShowMigrationBanner(Boolean(isAdmin && !serverVars.initialized && hasLegacyLocalVariables()));
   }, [isOpen, isAdmin, serverVars.initialized]);
+
+  const isDirty = Boolean(
+    isOpen &&
+      isAdmin &&
+      (warningDaysInput !== String(serverVars.deadlineWarningDays) ||
+        newVatRate !== 23 ||
+        (newVatLabel.trim() !== '' && newVatLabel !== '23% Podstawowa') ||
+        newVatExempt !== false ||
+        newClientName.trim() ||
+        newClientContact.trim() ||
+        newClientPhone.trim() ||
+        newClientEmail.trim() ||
+        newClientNip.trim() ||
+        newClientAddress.trim() ||
+        newTaskTypeId.trim() ||
+        newTaskTypeLabel.trim() ||
+        newTaskTypeDesc.trim())
+  );
+
+  useEffect(() => {
+    reportTabDirty('variables', isDirty);
+    return () => reportTabDirty('variables', false);
+  }, [isDirty, reportTabDirty]);
 
   const persistPatch = async (
     patch: Parameters<typeof saveVariablesToServer>[0],

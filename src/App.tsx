@@ -6,6 +6,7 @@ import { useAuthSession, NotificationToast } from './hooks/useAuthSession';
 import { useServerSync } from './hooks/useServerSync';
 import { useTaskActions } from './hooks/useTaskActions';
 import { useDeepLink } from './hooks/useDeepLink';
+import { useDismissOnOutsideClick } from './hooks/useDismissOnOutsideClick';
 
 // Leniwe ładowanie widoków oraz ciężkich modali/szuflad (optymalizacja początkowego rozmiaru paczki)
 const loadLoginGate = () => import('./components/LoginGate').then((m) => ({ default: m.LoginGate }));
@@ -564,6 +565,7 @@ export default function App() {
     confirmDeleteTask,
     handleUpdateStatus,
     handleUpdateProgress,
+    handleUpdateTaskFields,
     handleReparentTask,
     handleAddComment,
   } = useTaskActions({
@@ -582,6 +584,13 @@ export default function App() {
     applyRevision,
     fetchFreshState,
     logActivity,
+  });
+
+  const { backdropProps: deleteTaskBackdropProps } = useDismissOnOutsideClick({
+    isOpen: Boolean(taskToDelete),
+    mode: 'form',
+    panelRef: taskDeleteModalRef,
+    onDismiss: () => setTaskToDelete(null),
   });
 
   useFocusTrap({
@@ -1638,6 +1647,7 @@ export default function App() {
             }}
             onUpdateStatus={handleUpdateStatus}
             onUpdateProgress={handleUpdateProgress}
+            onUpdateTaskFields={handleUpdateTaskFields}
             onAddComment={handleAddComment}
             comments={comments}
             onNavigateToTask={handleSelectTask}
@@ -1808,6 +1818,7 @@ export default function App() {
           role="dialog"
           aria-modal="true"
           aria-labelledby="delete-task-modal-title"
+          {...deleteTaskBackdropProps}
         >
           <div
             ref={taskDeleteModalRef}

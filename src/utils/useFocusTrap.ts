@@ -23,6 +23,16 @@ let savedBodyOverflow: string | null = null;
 let lastOutsideFocusedElement: HTMLElement | null = null;
 let focusTrackerInstalled = false;
 
+export function getOpenDialogCount(): number {
+  return openDialogStack.length;
+}
+
+export function isTopDialogContainer(container: HTMLElement | null): boolean {
+  if (!container || openDialogStack.length === 0) return false;
+  const top = openDialogStack[openDialogStack.length - 1];
+  return top.container === container;
+}
+
 function ensureFocusTracker(): void {
   if (focusTrackerInstalled || typeof document === 'undefined') return;
   focusTrackerInstalled = true;
@@ -78,6 +88,7 @@ export interface UseFocusTrapOptions {
   onClose: () => void;
   containerRef: RefObject<HTMLElement | null>;
   initialFocusRef?: RefObject<HTMLElement | null>;
+  disableEscape?: boolean;
 }
 
 export function useFocusTrap({
@@ -85,9 +96,12 @@ export function useFocusTrap({
   onClose,
   containerRef,
   initialFocusRef,
+  disableEscape = false,
 }: UseFocusTrapOptions): void {
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const disableEscapeRef = useRef(disableEscape);
+  disableEscapeRef.current = disableEscape;
 
   useEffect(() => {
     if (!isOpen || typeof document === 'undefined') return;
@@ -148,7 +162,7 @@ export function useFocusTrap({
       if (!topEntry || topEntry.id !== instanceId) return;
 
       if (event.key === 'Escape') {
-        if (event.defaultPrevented) return;
+        if (event.defaultPrevented || disableEscapeRef.current) return;
         event.preventDefault();
         event.stopPropagation();
         onCloseRef.current();

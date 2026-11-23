@@ -6,6 +6,8 @@ import { useVariables } from '../hooks/useVariables';
 import { FIELD_LIMITS } from '../utils/access';
 import { hasDirectSubtasks } from '../utils/progress';
 import { useFocusTrap } from '../utils/useFocusTrap';
+import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
+import { DiscardChangesModal } from './DiscardChangesModal';
 
 interface TaskModalProps {
   isOpen: boolean;
@@ -59,11 +61,69 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   const [parentId, setParentId] = useState<string>('');
   const [isOfficialDeadline, setIsOfficialDeadline] = useState<boolean>(false);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [baselineSnapshot, setBaselineSnapshot] = useState<string>('');
   const modalRef = useRef<HTMLDivElement>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const baseId = useId();
   const titleId = `${baseId}-dialog-title`;
 
-  useFocusTrap({ isOpen, onClose, containerRef: modalRef });
+  const buildSnapshot = (vals: {
+    projectId: string;
+    title: string;
+    description: string;
+    type: TaskType;
+    priority: Priority;
+    status: TaskStatus;
+    assigneeId: string;
+    startDate: string;
+    durationDays: number;
+    dueDate: string;
+    estimatedHours: number;
+    progress: number;
+    tagsInput: string;
+    blockingTaskIds: string[];
+    parentId: string;
+    isOfficialDeadline: boolean;
+  }) => JSON.stringify(vals);
+
+  const currentSnapshot = buildSnapshot({
+    projectId,
+    title,
+    description,
+    type,
+    priority,
+    status,
+    assigneeId,
+    startDate,
+    durationDays,
+    dueDate,
+    estimatedHours,
+    progress,
+    tagsInput,
+    blockingTaskIds,
+    parentId,
+    isOfficialDeadline,
+  });
+
+  const isDirty = isOpen && baselineSnapshot !== '' && currentSnapshot !== baselineSnapshot;
+
+  const {
+    backdropProps,
+    flashClassName,
+    requestClose,
+    isDiscardModalOpen,
+    confirmDiscard,
+    cancelDiscard,
+  } = useDismissOnOutsideClick({
+    isOpen,
+    mode: 'form',
+    panelRef: modalRef,
+    onDismiss: onClose,
+    isDirty,
+    cancelButtonRef,
+  });
+
+  useFocusTrap({ isOpen, onClose: requestClose, containerRef: modalRef });
 
   // Helper to calculate due date from start date and duration days
   const calculateDueDate = (start: string, days: number): string => {
@@ -95,43 +155,105 @@ export const TaskModal: React.FC<TaskModalProps> = ({
     setStatusError(null);
     const currentTypes: TaskTypeDefinition[] = taskTypes;
     if (initialTask) {
-      setProjectId(initialTask.projectId);
-      setTitle(initialTask.title);
-      setDescription(initialTask.description || '');
-      setType(initialTask.type);
-      setPriority(initialTask.priority || 'normal');
-      setStatus(initialTask.status);
-      setAssigneeId(initialTask.assigneeId || '');
-      setStartDate(initialTask.startDate);
-      setDueDate(initialTask.dueDate);
+      const initProjectId = initialTask.projectId;
+      const initTitle = initialTask.title;
+      const initDesc = initialTask.description || '';
+      const initType = initialTask.type;
+      const initPriority = initialTask.priority || 'normal';
+      const initStatus = initialTask.status;
+      const initAssignee = initialTask.assigneeId || '';
+      const initStart = initialTask.startDate;
+      const initDue = initialTask.dueDate;
       const days = initialTask.durationDays || calculateDays(initialTask.startDate, initialTask.dueDate);
+      const initOfficial = !!initialTask.isOfficialDeadline;
+      const initEst = initialTask.estimatedHours || 0;
+      const initProg = initialTask.progress || 0;
+      const initTags = initialTask.tags ? initialTask.tags.join(', ') : '';
+      const initBlockers = initialTask.blockingTaskIds || initialTask.dependencies || [];
+      const initParent = initialTask.parentId || '';
+
+      setProjectId(initProjectId);
+      setTitle(initTitle);
+      setDescription(initDesc);
+      setType(initType);
+      setPriority(initPriority);
+      setStatus(initStatus);
+      setAssigneeId(initAssignee);
+      setStartDate(initStart);
+      setDueDate(initDue);
       setDurationDays(days);
-      setIsOfficialDeadline(!!initialTask.isOfficialDeadline);
-      setEstimatedHours(initialTask.estimatedHours || 0);
-      setProgress(initialTask.progress || 0);
-      setTagsInput(initialTask.tags ? initialTask.tags.join(', ') : '');
-      setBlockingTaskIds(initialTask.blockingTaskIds || initialTask.dependencies || []);
-      setParentId(initialTask.parentId || '');
+      setIsOfficialDeadline(initOfficial);
+      setEstimatedHours(initEst);
+      setProgress(initProg);
+      setTagsInput(initTags);
+      setBlockingTaskIds(initBlockers);
+      setParentId(initParent);
+      setBaselineSnapshot(
+        buildSnapshot({
+          projectId: initProjectId,
+          title: initTitle,
+          description: initDesc,
+          type: initType,
+          priority: initPriority,
+          status: initStatus,
+          assigneeId: initAssignee,
+          startDate: initStart,
+          durationDays: days,
+          dueDate: initDue,
+          estimatedHours: initEst,
+          progress: initProg,
+          tagsInput: initTags,
+          blockingTaskIds: initBlockers,
+          parentId: initParent,
+          isOfficialDeadline: initOfficial,
+        })
+      );
     } else {
-      setProjectId(defaultProjectId || (projects[0]?.id ?? ''));
+      const initProjectId = defaultProjectId || (projects[0]?.id ?? '');
+      const initType = currentTypes[0]?.id || 'rysunek';
+      const initAssignee = users[0]?.id || '';
+      const sDate = defaultDate || getTodayIsoDate();
+      const dDate = calculateDueDate(sDate, 7);
+      const initParent = defaultParentId || '';
+
+      setProjectId(initProjectId);
       setTitle('');
       setDescription('');
-      setType(currentTypes[0]?.id || 'rysunek');
+      setType(initType);
       setPriority('normal'); // Default Normalny
       setStatus('to_do');
-      setAssigneeId(users[0]?.id || '');
-      const sDate = defaultDate || getTodayIsoDate();
+      setAssigneeId(initAssignee);
       setStartDate(sDate);
       setDurationDays(7);
-      setDueDate(calculateDueDate(sDate, 7));
+      setDueDate(dDate);
       setIsOfficialDeadline(false);
       setEstimatedHours(16);
       setProgress(0);
       setTagsInput('');
       setBlockingTaskIds([]);
-      setParentId(defaultParentId || '');
+      setParentId(initParent);
+      setBaselineSnapshot(
+        buildSnapshot({
+          projectId: initProjectId,
+          title: '',
+          description: '',
+          type: initType,
+          priority: 'normal',
+          status: 'to_do',
+          assigneeId: initAssignee,
+          startDate: sDate,
+          durationDays: 7,
+          dueDate: dDate,
+          estimatedHours: 16,
+          progress: 0,
+          tagsInput: '',
+          blockingTaskIds: [],
+          parentId: initParent,
+          isOfficialDeadline: false,
+        })
+      );
     }
-  }, [initialTask, defaultProjectId, defaultDate, defaultParentId, projects, users]);
+  }, [isOpen, initialTask, defaultProjectId, defaultDate, defaultParentId, projects, users]);
 
   // When start date changes, recompute due date from duration
   const handleStartDateChange = (newStart: string) => {
@@ -250,13 +372,16 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/40 dark:bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 bg-slate-900/40 dark:bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4"
+      {...backdropProps}
+    >
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95"
+        className={`bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 ${flashClassName}`}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950">
@@ -270,7 +395,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
             aria-label="Zamknij okno zadania"
             className="p-1 rounded text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors"
           >
@@ -601,6 +726,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
           {/* Footer buttons */}
           <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200 dark:border-slate-800">
             <button
+              ref={cancelButtonRef}
               type="button"
               onClick={onClose}
               className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors"
@@ -616,6 +742,11 @@ export const TaskModal: React.FC<TaskModalProps> = ({
           </div>
         </form>
       </div>
+      <DiscardChangesModal
+        isOpen={isDiscardModalOpen}
+        onCancel={cancelDiscard}
+        onConfirm={confirmDiscard}
+      />
     </div>
   );
 };

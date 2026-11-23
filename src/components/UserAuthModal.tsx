@@ -25,6 +25,8 @@ import { validatePassword } from '../utils/passwordPolicy';
 import { PasswordRequirementsChecklist } from './PasswordRequirementsChecklist';
 import { TrustedDevicesSection } from './TrustedDevicesSection';
 import { useFocusTrap } from '../utils/useFocusTrap';
+import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
+import { DiscardChangesModal } from './DiscardChangesModal';
 
 interface UserAuthModalProps {
   isOpen: boolean;
@@ -87,12 +89,58 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
   const [weeklyPrefStatus, setWeeklyPrefStatus] = useState<string | null>(null);
   const [weeklyPrefError, setWeeklyPrefError] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const deleteModalRef = useRef<HTMLDivElement>(null);
   const baseId = useId();
   const titleId = `${baseId}-title`;
   const deleteTitleId = `${baseId}-delete-title`;
 
-  useFocusTrap({ isOpen, onClose, containerRef: modalRef });
+  const isAuthFormDirty = Boolean(
+    enteredPassword ||
+      name.trim() ||
+      email.trim() ||
+      password ||
+      currentPassword ||
+      newPassword ||
+      confirmPassword
+  );
+
+  const handleDiscardAuth = () => {
+    setEnteredPassword('');
+    setPasswordError(null);
+    setName('');
+    setEmail('');
+    setPassword('');
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    onClose();
+  };
+
+  const {
+    backdropProps,
+    flashClassName,
+    requestClose,
+    isDiscardModalOpen,
+    confirmDiscard,
+    cancelDiscard,
+  } = useDismissOnOutsideClick({
+    isOpen,
+    mode: 'form',
+    panelRef: modalRef,
+    onDismiss: handleDiscardAuth,
+    isDirty: isAuthFormDirty,
+    cancelButtonRef: closeButtonRef,
+  });
+
+  const { backdropProps: deleteBackdropProps } = useDismissOnOutsideClick({
+    isOpen: Boolean(isOpen && userToDelete),
+    mode: 'form',
+    panelRef: deleteModalRef,
+    onDismiss: () => setUserToDelete(null),
+  });
+
+  useFocusTrap({ isOpen, onClose: requestClose, containerRef: modalRef });
   useFocusTrap({
     isOpen: Boolean(isOpen && userToDelete),
     onClose: () => setUserToDelete(null),
@@ -274,13 +322,16 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
   const demoUsersCount = users.filter((u) => u.isDemo).length;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4"
+      {...backdropProps}
+    >
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95"
+        className={`bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 ${flashClassName}`}
       >
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/70 flex items-center justify-between">
@@ -323,6 +374,7 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
               </button>
             )}
             <button
+              ref={closeButtonRef}
               type="button"
               onClick={onClose}
               aria-label="Zamknij okno uwierzytelniania"
@@ -949,7 +1001,10 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
 
         {/* Delete user confirmation sub-modal */}
         {userToDelete && (
-          <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-2xs flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 z-60 bg-black/60 backdrop-blur-2xs flex items-center justify-center p-4"
+            {...deleteBackdropProps}
+          >
             <div
               ref={deleteModalRef}
               role="dialog"
@@ -987,6 +1042,11 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
           </div>
         )}
       </div>
+      <DiscardChangesModal
+        isOpen={isDiscardModalOpen}
+        onCancel={cancelDiscard}
+        onConfirm={confirmDiscard}
+      />
     </div>
   );
 };

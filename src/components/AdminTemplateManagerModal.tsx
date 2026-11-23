@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useId } from 'react';
 import { Project, Task, User, ProjectTemplate, TemplateTaskBlueprint } from '../types';
 import { useFocusTrap } from '../utils/useFocusTrap';
+import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
+import { DiscardChangesModal } from './DiscardChangesModal';
 import { 
   loadAllProjectTemplates, 
   saveCustomProjectTemplate, 
@@ -73,10 +75,45 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
 
   const [notification, setNotification] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
+  const closeFooterRef = useRef<HTMLButtonElement>(null);
   const baseId = useId();
   const titleId = `${baseId}-title`;
 
-  useFocusTrap({ isOpen, onClose, containerRef: modalRef });
+  const isDirty = Boolean(
+    templateNameFromProj.trim() ||
+      scratchName.trim() ||
+      scratchDescription.trim() ||
+      scratchDuration !== 120 ||
+      scratchBudget !== '150 000 PLN' ||
+      scratchStages.length !== 7
+  );
+
+  const handleResetAndClose = () => {
+    setTemplateNameFromProj('');
+    setScratchName('');
+    setScratchDescription('');
+    setScratchDuration(120);
+    setScratchBudget('150 000 PLN');
+    onClose();
+  };
+
+  const {
+    backdropProps,
+    flashClassName,
+    requestClose,
+    isDiscardModalOpen,
+    confirmDiscard,
+    cancelDiscard,
+  } = useDismissOnOutsideClick({
+    isOpen,
+    mode: 'form',
+    panelRef: modalRef,
+    onDismiss: handleResetAndClose,
+    isDirty,
+    cancelButtonRef: closeFooterRef,
+  });
+
+  useFocusTrap({ isOpen, onClose: requestClose, containerRef: modalRef });
 
   const refreshTemplates = () => {
     const list = loadAllProjectTemplates();
@@ -200,13 +237,16 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 dark:bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 bg-slate-900/60 dark:bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4"
+      {...backdropProps}
+    >
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-5xl h-[88vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95"
+        className={`bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-5xl h-[88vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 ${flashClassName}`}
       >
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex items-center justify-between">
@@ -228,7 +268,7 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
             aria-label="Zamknij zarządzanie szablonami"
             className="p-1 rounded text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
           >
@@ -723,14 +763,20 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
         <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
           <span>Szablony są natychmiast dostępne podczas rejestracji nowych projektów budowlanych.</span>
           <button
+            ref={closeFooterRef}
             type="button"
-            onClick={onClose}
+            onClick={handleResetAndClose}
             className="px-4 py-1.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded transition-colors font-medium"
           >
             Zamknij
           </button>
         </div>
       </div>
+      <DiscardChangesModal
+        isOpen={isDiscardModalOpen}
+        onCancel={cancelDiscard}
+        onConfirm={confirmDiscard}
+      />
     </div>
   );
 };

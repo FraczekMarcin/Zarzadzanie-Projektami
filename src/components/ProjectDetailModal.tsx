@@ -5,6 +5,7 @@ import { FIELD_LIMITS } from '../utils/access';
 import { computeProjectFinance } from '../utils/finance';
 import { formatMoney } from '../utils/money';
 import { useFocusTrap } from '../utils/useFocusTrap';
+import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { 
   X, 
   Briefcase, 
@@ -63,7 +64,14 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
   const modalRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
-  useFocusTrap({ isOpen: Boolean(isOpen && project), onClose, containerRef: modalRef });
+  const { backdropProps, requestClose } = useDismissOnOutsideClick({
+    isOpen: Boolean(isOpen && project),
+    mode: 'dismiss',
+    panelRef: modalRef,
+    onDismiss: onClose,
+  });
+
+  useFocusTrap({ isOpen: Boolean(isOpen && project), onClose: requestClose, containerRef: modalRef });
 
   if (!isOpen || !project) return null;
 
@@ -119,7 +127,10 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+    <div
+      className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto"
+      {...backdropProps}
+    >
       <div
         ref={modalRef}
         role="dialog"

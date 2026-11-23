@@ -113,6 +113,21 @@ html.dark .task-blocked-style {
   animation: officialDeadlinePulse 1.25s ease-in-out infinite !important;
 }
 
+/* Attention flash when clicking outside a dirty form modal */
+@keyframes modalAttentionFlash {
+  0%, 100% {
+    box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25);
+  }
+  25%, 75% {
+    box-shadow: 0 0 0 3px #f59e0b, 0 25px 50px -12px rgba(245, 158, 11, 0.4);
+    border-color: #f59e0b;
+  }
+}
+
+.animate-modal-flash {
+  animation: modalAttentionFlash 0.45s ease-in-out 1;
+}
+
 /* Skip link: hidden visually until focused via keyboard */
 .skip-link {
   position: fixed;
@@ -165,6 +180,7 @@ html.dark :where(a, button, input, select, textarea, summary, [tabindex], [role=
   }
 
   .animate-official-deadline,
+  .animate-modal-flash,
   .animate-pulse,
   .animate-bounce,
   .animate-ping,

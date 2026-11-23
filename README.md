@@ -536,7 +536,7 @@ Okno finansów projektu (`ProjectFinancialsModal`) zapewnia spójną księgowoś
 
 - **Precyzja kwot i brak narzucanych domyślnych wartości:** pola kwot akceptują separator dziesiętny `,` lub `.` z walidacją do dwóch miejsc po przecinku (ilości w wycenach do trzech miejsc po przecinku), formatowaniem po opuszczeniu pola i wyrównaniem do prawej; pola nowej wyceny, kosztu i transzy startują puste bez proponowanych kwot.
 - **Edycja pozycji i przenoszenie wycen do kosztów:** każda pozycja wyceny, kosztu i transzy obsługuje edycję w wierszu oraz usuwanie z potwierdzeniem. Zaakceptowaną wycenę kosztową można jednym kliknięciem przenieść do kosztów projektu (`linkedCostId`), co automatycznie zapobiega podwójnemu liczeniu tej samej kwoty w sumie kosztów i bilansie.
-- **Uprawnienia i właściciel projektu (`ownerId`):** podgląd i edycja danych finansowych oraz zamawiającego są egzekwowane po stronie serwera i w interfejsie (`canViewFinance` / `canEditFinance`): administrator ma pełny dostęp, kierownik projektu edytuje finanse własnych projektów (dla cudzych widzi tryb tylko do odczytu), a pozostali użytkownicy widzą finanse wyłącznie jako właściciele projektu w trybie tylko do odczytu.
+- **Uprawnienia i właściciel projektu (`ownerId`):** podgląd i edycja danych finansowych oraz zamawiającego są egzekwowane po stronie serwera i w interfejsie (`canViewFinance` / `canEditFinance`): administrator zawsze edytuje finanse; właściciel projektu (`ownerId === user.id`, niezależnie od roli poza `viewer`) ma pełne prawo edycji własnego projektu; kierownik projektu (`project_manager`) niebędący właścicielem projektu z przypisanym `ownerId` widzi finanse w trybie tylko do odczytu (dla starszych projektów bez `ownerId` zachowuje prawo edycji); każda zmiana finansów przez `PATCH /api/projects/:id` rejestruje wpis `finance_changed` w dzienniku bezpieczeństwa.
 - **Transze płatności i terminy płatności:** harmonogram płatności (nazwa transzy, kwota netto/brutto, termin płatności, status opłacenia) wylicza kwotę zapłaconą, pozostałą do zapłaty, ostrzega przy przekroczeniu wartości projektu oraz wyróżnia przeterminowane płatności.
 - **Zmienne systemowe na serwerze:** stawki VAT, baza zamawiających (filtrowana serwerowo dla ról bez uprawnień finansowych), typy zadań oraz próg ostrzeżeń o terminach są zapisywane w `app_state.json` (`PUT /api/admin/variables`) i synchronizowane między stanowiskami.
 
@@ -567,6 +567,44 @@ Zakładka **Projekty** obsługuje dwa tryby prezentacji wybierane przełączniki
 
 - **Zapamiętywanie preferencji:** domyślnie aktywny jest widok **Kafelki**, a wybrany tryb jest zapisywany w `localStorage` pod kluczem `oph_pref_projects_view` (`'tiles'` lub `'list'`) i zachowywany także po wylogowaniu.
 - **Widok listy (`Lista`):** sortowalna tabela (`Numer`, `Nazwa`, `Firma`, `Zamawiający` widoczny wyłącznie dla uprawnionych, `Status`, `Priorytet`, `Termin`, `Postęp`, `Zadania` otwarte i zaległe, `Właściciel`, `Akcje` ze wspólnym komponentem uprawnień), obsługiwana z klawiatury i przewijana poziomo poniżej szerokości `640 px`.
+
+---
+
+## 🧾 Status VAT firmy
+
+Każda firma w rejestrze (**Ustawienia → Firmy**) posiada flagę `vatPayer` (domyślnie `true` — czynny płatnik VAT) oraz opcjonalne pole `vatExemptionBasis` (podstawa zwolnienia z VAT, np. art. 113 ust. 1 ustawy o VAT, maks. 200 znaków):
+
+- **Firma będąca płatnikiem VAT (`vatPayer = true`):** przychody i koszty rozliczane są w kwotach netto (VAT jest przepływem przechodnim), a bilans projektu to różnica przychodów netto i kosztów netto.
+- **Firma zwolniona z VAT (`vatPayer = false`):** nie nalicza podatku VAT od przychodów (stawka `ZW`, brutto równe netto, walidacja odrzuca stawki VAT większe od zera), a VAT z faktur kosztowych jest nieodliczalny — kosztem ekonomicznym w bilansie projektu i w widoku **Ekonomia** (`src/utils/finance.ts`, `src/utils/economy.ts`) staje się kwota **brutto**, z przejrzystą informacją i obsługą przełącznika Netto / Brutto.
+- **Zabezpieczenie zmian i kompatybilność:** istniejące rekordy w `app_state.json` bez pola `vatPayer` domyślnie przyjmują `true`; właściciele projektów spoza grona kierowników widzą pola `vatPayer` i `vatExemptionBasis` wyłącznie dla firm przypisanych do swoich projektów.
+
+---
+
+## 📊 Postęp zadań i projektów
+
+Postęp zadań nadrzędnych oraz całych projektów jest wyliczany deterministycznie oddolnie (bottom-up) po stronie serwera i w przeglądarce (`src/utils/progress.ts`):
+
+- **Zadania liściowe i zadania nadrzędne:** zadanie bez nieanulowanych podzadań zachowuje swój postęp `0–100%` (status `done` zawsze wymusza `100%`), natomiast zadanie nadrzędne dziedziczy ważoną średnią swoich nieanulowanych podzadań (suwak postępu w jego szczegółach jest zablokowany, a ręczna próba modyfikacji przez `PATCH /api/tasks/:id` zwraca kod `400`). Zadania anulowane (`cancelled`) są pomijane w wyliczeniach.
+- **Ważenie i przeliczanie projektu:** administrator wybiera w **Ustawienia → Dostęp i sesje** tryb ważenia (`progress.weighting`): według pracochłonności `estimatedHours` (domyślnie `'estimate'`, z rezerwą na czas trwania zadania lub wagę `1`) albo równe wagi (`'equal'`). Postęp projektu jest wyliczany z zadań najwyższego poziomu po każdej operacji CRUD/kosza na zadaniach oraz przy starcie serwera (`recomputeProjectProgress`) bez podbijania rewizji przeliczonych rodziców.
+
+---
+
+## 🌳 Drzewo zadań (przesuwanie)
+
+Widok **Drzewo zadań** (`src/components/TaskTreeView.tsx`) umożliwia zmianę zagnieżdżenia zadań i poddrzew w ramach projektu z zachowaniem spójności hierarchii (`src/utils/taskTree.ts`):
+
+- **Przeciąganie myszą i dotykiem:** każde zadanie z prawem edycji (z wyłączeniem roli `viewer`) posiada uchwyt przeciągania (HTML5 Drag & Drop oraz obsługa dotyku przez Pointer Events). Upuszczenie na inne zadanie przenosi je jako podzadanie (wskaźnik **„Jako podzadanie: \<kod\>”**), a strefa **Poziom główny** u góry drzewa usuwa `parentId`; najechanie przez ok. `600 ms` na zwiniętą gałąź automatycznie ją rozwija.
+- **Walidacja celów i dostępność (`Przenieś` / `Alt+M`):** niedozwolone cele (samo zadanie, jego potomkowie tworzący cykl, zadania z innego projektu oraz przekroczenie maksymalnej głębokości **6** poziomów wg `canReparent`) są wyraźnie oznaczane jako niedostępne. Przycisk **Przenieś** oraz skrót `Alt+M` otwierają dostępne okno dialogowe z wyszukiwarką wyłącznie dozwolonych celów i ogłaszaniem wyniku przez `aria-live="polite"`.
+- **Trwałość, cofanie i status rodziców:** przeniesienie wywołuje `PATCH /api/tasks/:id` z nagłówkiem `If-Match` (przy błędzie lub `409` zmiana jest wycofywana), wyświetla 8-sekundowy toast **Cofnij**, zapisuje wpis w historii aktywności, zachowuje daty oraz zależności (`dependencies` / `blockingTaskIds`), a także dwukierunkowo aktualizuje status ukończenia i postęp obu łańcuchów przodków (`reconcileParentCompletionOnReparent`).
+
+---
+
+## 🌙 Tryb ciemny
+
+Aplikacja wspiera pełny tryb ciemny (`html.dark`) wraz z automatycznym wykrywaniem preferencji systemu oraz ochroną przed regresją kontrastu:
+
+- **Natywne kontrolki i okna dialogowe:** w `src/index.css` zdefiniowano `color-scheme: light` / `color-scheme: dark` oraz ciemne stylowanie elementów `option` i pól wyboru, a wszystkie modale i szuflady (`TaskDetailDrawer`, `TaskFilterModal`, `ArchiveBackupModal`, `AdminTemplateManagerModal`, `ProjectFinancialsModal` i okno przenoszenia w drzewie) posiadają pełne warianty `dark:`.
+- **Automatyczna ochrona przed regresją:** test jednostkowy `src/__tests__/darkMode.test.ts` blokuje łączenie klasy `dark:bg-*` z ciemnym tekstem bez jawnego `dark:text-*`, sprawdza obecność wariantów `dark:` w każdym oknie `role="dialog"` i weryfikuje reguły `color-scheme` w CSS, a audyt `e2e/a11y.spec.ts` kontroluje kontrast WCAG AA we wszystkich widokach w obu motywach.
 
 ---
 
@@ -645,7 +683,7 @@ W przypadku niepowodzenia testów raport HTML jest zapisywany w katalogu `playwr
 
 ## ♿ Testy dostępności
 
-Automatyczny audyt dostępności (`e2e/a11y.spec.ts`) korzysta z `@axe-core/playwright` (`wcag2a`, `wcag2aa`) i skanuje dla zalogowanego administratora wszystkie główne widoki oraz okna dialogowe (ekran logowania, listę zadań, Tablicę Kanban, Harmonogram Gantta, przegląd projektów w widoku kafelków i listy, okno finansów projektu, widok **Ekonomia** wraz ze szczegółami, Kosz, szczegóły zadania, okno zadania, wszystkie 12 zakładek Ustawień w tym **Firmy**, sekcje dysku i podsumowania tygodniowego, zakładkę Zaufane urządzenia w oknie konta oraz okno synchronizacji kalendarza) w trybie **jasnym** i **ciemnym**.
+Automatyczny audyt dostępności (`e2e/a11y.spec.ts`) korzysta z `@axe-core/playwright` (`wcag2a`, `wcag2aa`) i skanuje dla zalogowanego administratora wszystkie główne widoki oraz okna dialogowe (ekran logowania, listę zadań, **Drzewo zadań** wraz z oknem przenoszenia zadania, Tablicę Kanban, Harmonogram Gantta, przegląd projektów w widoku kafelków i listy, okno finansów projektu, widok **Ekonomia** wraz ze szczegółami, Kosz, szczegóły zadania, okno zadania, okno filtrowanych zadań, centrum archiwizacji, wszystkie 12 zakładek Ustawień w tym **Firmy**, sekcje dysku i podsumowania tygodniowego, zakładkę Zaufane urządzenia w oknie konta oraz okno synchronizacji kalendarza) w trybie **jasnym** i **ciemnym**.
 
 ```bash
 # Uruchomienie wyłącznie audytu dostępności (wymaga uprzedniego npm run build)

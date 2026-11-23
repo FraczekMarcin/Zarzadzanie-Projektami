@@ -22,6 +22,9 @@ import { getAutoBackupConfig, saveAutoBackupConfig } from '../utils/autoBackup';
 import { User, Project, Company, ProjectNumberingSettings } from '../types';
 import { copyToClipboard } from '../utils/clipboard';
 import { useVariables } from '../hooks/useVariables';
+import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
+import { DiscardChangesModal } from './DiscardChangesModal';
+import { SettingsDirtyProvider, useSettingsAnyDirty } from './settings/SettingsDirtyContext';
 
 const ThemeTab = lazy(() =>
   import('./settings/ThemeTab').then((m) => ({ default: m.ThemeTab }))
@@ -105,7 +108,7 @@ const SettingsTabLoader: React.FC = () => (
   </div>
 );
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({
+const SettingsModalContent: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
   users,
@@ -129,7 +132,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   initialTab = 'theme',
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
-  useFocusTrap({ isOpen, onClose, containerRef: modalRef });
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const isAnyTabDirty = useSettingsAnyDirty();
+
+  const {
+    backdropProps,
+    flashClassName,
+    requestClose,
+    isDiscardModalOpen,
+    confirmDiscard,
+    cancelDiscard,
+  } = useDismissOnOutsideClick({
+    isOpen,
+    mode: 'conditional',
+    panelRef: modalRef,
+    onDismiss: onClose,
+    isDirty: isAnyTabDirty,
+    cancelButtonRef: closeButtonRef,
+  });
+
+  useFocusTrap({ isOpen, onClose: requestClose, containerRef: modalRef });
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [currentTheme, setCurrentTheme] = useState<ThemeMode>('system');
@@ -188,13 +210,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5">
+    <div
+      {...backdropProps}
+      className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5"
+    >
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-modal-title"
-        className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95"
+        className={`bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 ${flashClassName}`}
       >
         {/* Modal Top Header */}
         <div className="px-6 py-3.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/80 flex items-center justify-between shrink-0">
@@ -219,7 +244,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
             aria-label="Zamknij ustawienia"
             className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
           >
@@ -632,6 +657,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Modal Bottom Footer */}
         <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/80 flex items-center justify-end shrink-0">
           <button
+            ref={closeButtonRef}
             type="button"
             onClick={onClose}
             className="px-4 py-1.5 bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-800 text-white rounded text-xs font-semibold shadow-xs"
@@ -640,6 +666,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
       </div>
+      <DiscardChangesModal
+        isOpen={isDiscardModalOpen}
+        onCancel={cancelDiscard}
+        onConfirm={confirmDiscard}
+      />
     </div>
   );
 };
+
+export const SettingsModal: React.FC<SettingsModalProps> = (props) => (
+  <SettingsDirtyProvider>
+    <SettingsModalContent {...props} />
+  </SettingsDirtyProvider>
+);

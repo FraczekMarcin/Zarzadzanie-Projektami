@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { isApproachingOfficialDeadline, getBusinessDaysRemaining } from '../utils/businessDays';
 import { useFocusTrap } from '../utils/useFocusTrap';
+import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 
 interface TaskFilterModalProps {
   isOpen: boolean;
@@ -37,7 +38,14 @@ export const TaskFilterModal: React.FC<TaskFilterModalProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
-  useFocusTrap({ isOpen, onClose, containerRef });
+  const { backdropProps, requestClose } = useDismissOnOutsideClick({
+    isOpen,
+    mode: 'dismiss',
+    panelRef: containerRef,
+    onDismiss: onClose,
+  });
+
+  useFocusTrap({ isOpen, onClose: requestClose, containerRef });
 
   if (!isOpen) return null;
 
@@ -47,7 +55,10 @@ export const TaskFilterModal: React.FC<TaskFilterModalProps> = ({
   const currentList = activeFilter === 'blocked' ? blockedTasks : criticalTasks;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+    <div
+      className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in"
+      {...backdropProps}
+    >
       <div
         ref={containerRef}
         tabIndex={-1}

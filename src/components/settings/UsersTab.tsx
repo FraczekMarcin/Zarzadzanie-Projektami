@@ -14,6 +14,7 @@ import { validatePassword } from '../../utils/passwordPolicy';
 import { TwoFactorManager } from '../TwoFactorManager';
 import { PasswordRequirementsChecklist } from '../PasswordRequirementsChecklist';
 import { TrustedDevicesSection } from '../TrustedDevicesSection';
+import { useSettingsTabDirty } from './SettingsDirtyContext';
 
 export interface UsersTabProps {
   isOpen: boolean;
@@ -42,6 +43,7 @@ export const UsersTab: React.FC<UsersTabProps> = ({
   onRefreshUsers,
   onUpdateUserPassword,
 }) => {
+  const reportTabDirty = useSettingsTabDirty();
   const [settingsCurrentPassword, setSettingsCurrentPassword] = useState('');
   const [settingsNewPassword, setSettingsNewPassword] = useState('');
   const [settingsConfirmPassword, setSettingsConfirmPassword] = useState('');
@@ -77,6 +79,18 @@ export const UsersTab: React.FC<UsersTabProps> = ({
       loadSessions();
     }
   }, [isOpen]);
+
+  const isDirty = Boolean(
+    isOpen &&
+      (settingsCurrentPassword.length > 0 ||
+        settingsNewPassword.length > 0 ||
+        settingsConfirmPassword.length > 0)
+  );
+
+  useEffect(() => {
+    reportTabDirty('users', isDirty);
+    return () => reportTabDirty('users', false);
+  }, [isDirty, reportTabDirty]);
 
   const handleSettingsPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -65,6 +65,42 @@ function extractCookie(res: Response): string {
   return '';
 }
 
+async function attachErrorMonitor(page: Page) {
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+
+  await page.addInitScript(() => {
+    const win = window as unknown as { __cspViolations?: string[] };
+    win.__cspViolations = [];
+    window.addEventListener('securitypolicyviolation', (event) => {
+      win.__cspViolations?.push(
+        `${event.violatedDirective || event.effectiveDirective}: ${event.blockedURI}`
+      );
+    });
+  });
+
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') {
+      consoleErrors.push(msg.text());
+    }
+  });
+  page.on('pageerror', (err) => {
+    pageErrors.push(err.message || String(err));
+  });
+
+  return {
+    assertClean: async () => {
+      const cspViolations = await page.evaluate(() => {
+        const win = window as unknown as { __cspViolations?: string[] };
+        return win.__cspViolations || [];
+      });
+      expect(consoleErrors, 'Błędy konsoli przeglądarki').toEqual([]);
+      expect(pageErrors, 'Nieobsłużone wyjątki pageerror').toEqual([]);
+      expect(cspViolations, 'Naruszenia Content-Security-Policy').toEqual([]);
+    },
+  };
+}
+
 test.describe.serial('P66: Przesuwanie zadań w drzewie (E2E)', () => {
   let serverProc: ChildProcess | null = null;
   let tempDataDir = '';
@@ -159,7 +195,8 @@ test.describe.serial('P66: Przesuwanie zadań w drzewie (E2E)', () => {
     }
   });
 
-  test('przeciąganie, niedostępny cel, przenoszenie z klawiatury (Przenieś) oraz cofnięcie toasta', async ({ page }) => {
+  test('przeciąganie, niedostępny cel, przenoszenie z klawiatury (Przenieś) oraz cofnięcie toasta bez błędów w konsoli i bez naruszeń CSP', async ({ page }) => {
+    const monitor = await attachErrorMonitor(page);
     await loginThroughUi(page, baseUrl, ADMIN_EMAIL, ADMIN_PASS);
 
     const nav = page.getByRole('navigation', { name: 'Główna nawigacja' });
@@ -233,5 +270,6 @@ test.describe.serial('P66: Przesuwanie zadań w drzewie (E2E)', () => {
     await moveDialog2.getByRole('button', { name: 'Poziom główny' }).click();
     expect((await rootPatchPromise).status()).toBe(200);
     await expect(page.getByText(`Przeniesiono zadanie ${taskChildA.code} na poziom główny`)).toBeAttached();
+    await monitor.assertClean();
   });
 });

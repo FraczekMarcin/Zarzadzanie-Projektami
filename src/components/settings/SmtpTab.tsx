@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import type { User } from '../../types';
 import type { AdminSettingsResponse, SmtpEncryption } from '../../utils/settingsSchema';
+import { useSettingsTabDirty } from './SettingsDirtyContext';
 
 export interface SmtpTabProps {
   isOpen: boolean;
@@ -19,6 +20,7 @@ export interface SmtpTabProps {
 }
 
 export const SmtpTab: React.FC<SmtpTabProps> = ({ isOpen, currentUser }) => {
+  const reportTabDirty = useSettingsTabDirty();
   const [data, setData] = useState<AdminSettingsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -85,6 +87,26 @@ export const SmtpTab: React.FC<SmtpTabProps> = ({ isOpen, currentUser }) => {
       }
     }
   }, [isOpen]);
+
+  const isDirty = Boolean(
+    isOpen &&
+      data &&
+      (host !== data.smtp.host.value ||
+        port !== String(data.smtp.port.value) ||
+        encryption !== data.smtp.encryption.value ||
+        user !== data.smtp.user.value ||
+        fromName !== data.smtp.fromName.value ||
+        fromAddress !== data.smtp.fromAddress.value ||
+        allowSelfSigned !== data.smtp.allowSelfSigned.value ||
+        password.length > 0 ||
+        clearPassword ||
+        currentPassword.length > 0)
+  );
+
+  useEffect(() => {
+    reportTabDirty('smtp', isDirty);
+    return () => reportTabDirty('smtp', false);
+  }, [isDirty, reportTabDirty]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -23,6 +23,7 @@ import {
   TRUSTED_DEVICE_DAYS_MIN,
 } from '../../utils/settingsSchema';
 import type { ProgressWeighting } from '../../utils/progress';
+import { useSettingsTabDirty } from './SettingsDirtyContext';
 
 interface AdminSystemResponse {
   version: string;
@@ -75,6 +76,7 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({
   currentUser,
   onRefreshState,
 }) => {
+  const reportTabDirty = useSettingsTabDirty();
   const [data, setData] = useState<AdminSettingsResponse | null>(null);
   const [systemStatus, setSystemStatus] = useState<AdminSystemResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -146,6 +148,28 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({
       fetchSettings();
     }
   }, [isOpen]);
+
+  const isDirty = Boolean(
+    isOpen &&
+      data &&
+      (allowSelfRegistration !== data.access.allowSelfRegistration.value ||
+        idleMinutes !== String(data.sessions.idleMinutes.value) ||
+        maxHours !== String(data.sessions.maxHours.value) ||
+        (data.trash?.retentionDays &&
+          trashRetentionDays !== String(data.trash.retentionDays.value)) ||
+        (data.trustedDevices &&
+          (trustedDevicesEnabled !== data.trustedDevices.enabled.value ||
+            trustedDeviceDays !== String(data.trustedDevices.days.value) ||
+            trustedAllowForAdmins !== data.trustedDevices.allowForAdmins.value)) ||
+        (data.progress?.weighting &&
+          progressWeighting !== data.progress.weighting.value) ||
+        currentPassword.length > 0)
+  );
+
+  useEffect(() => {
+    reportTabDirty('access', isDirty);
+    return () => reportTabDirty('access', false);
+  }, [isDirty, reportTabDirty]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();

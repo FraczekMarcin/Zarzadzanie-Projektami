@@ -8,6 +8,7 @@ import {
 } from '../data/dockerConfig';
 import { copyToClipboard } from '../utils/clipboard';
 import { useFocusTrap } from '../utils/useFocusTrap';
+import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { 
   X, 
   Copy, 
@@ -32,7 +33,14 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
   const containerRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
-  useFocusTrap({ isOpen, onClose, containerRef });
+  const { backdropProps, requestClose } = useDismissOnOutsideClick({
+    isOpen,
+    mode: 'dismiss',
+    panelRef: containerRef,
+    onDismiss: onClose,
+  });
+
+  useFocusTrap({ isOpen, onClose: requestClose, containerRef });
 
   if (!isOpen) return null;
 
@@ -47,7 +55,10 @@ export const DockerDeploymentModal: React.FC<DockerDeploymentModalProps> = ({ is
   const gitCloneAndInstall = `git clone ${GITHUB_REPO_URL}.git ${INSTALL_TARGET_DIR} && cd ${INSTALL_TARGET_DIR} && ${INSTALL_COMMAND}`;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 dark:bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 bg-slate-900/60 dark:bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4"
+      {...backdropProps}
+    >
       <div
         ref={containerRef}
         tabIndex={-1}

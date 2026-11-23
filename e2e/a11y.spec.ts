@@ -451,11 +451,17 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
       await expect(nav.getByRole('button', { name: 'Tablica Kanban', exact: true })).toHaveAttribute('aria-current', 'page');
       await scanView(page, scanResults, 'kanban', 'Tablica Kanban', theme);
 
-      // 5b. Drzewo zadań
+      // 5b. Drzewo zadań (+ okno przenoszenia zadania)
       await nav.getByRole('button', { name: 'Drzewo zadań', exact: true }).click();
       await expect(nav.getByRole('button', { name: 'Drzewo zadań', exact: true })).toHaveAttribute('aria-current', 'page');
       await expect(page.getByRole('heading', { name: 'Rozwijane Drzewo Zadań i Gałęzi' })).toBeVisible();
       await scanView(page, scanResults, 'tree', 'Drzewo zadań', theme);
+      await page.getByRole('button', { name: /Przenieś zadanie/i }).first().click();
+      const treeMoveDialog = page.getByRole('dialog', { name: /Przenieś zadanie/i });
+      await expect(treeMoveDialog).toBeVisible();
+      await scanView(page, scanResults, 'tree-move-modal', 'Drzewo zadań: Okno przenoszenia zadania', theme);
+      await treeMoveDialog.getByRole('button', { name: 'Zamknij okno przenoszenia zadania' }).click();
+      await expect(treeMoveDialog).toHaveCount(0);
 
       // 6. Przegląd projektów (widok kafelków, widok listy i wszystkie zakładki okna finansów)
       await nav.getByRole('button', { name: 'Projekty', exact: true }).click();
@@ -595,7 +601,7 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
   }
 
   test('3) zapis raportu JSON, bezwzględna kontrola kontrastu oraz tryb A11Y_STRICT', async () => {
-    expect(scanResults.length).toBeGreaterThanOrEqual(78);
+    expect(scanResults.length).toBeGreaterThanOrEqual(80);
     writeReport(scanResults);
     expect(fs.existsSync(REPORT_PATH)).toBe(true);
 

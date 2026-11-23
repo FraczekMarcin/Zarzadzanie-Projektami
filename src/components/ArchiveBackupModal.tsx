@@ -37,6 +37,8 @@ import { INSTALL_TARGET_DIR, CURRENT_APP_VERSION } from '../data/dockerConfig';
 import { copyToClipboard } from '../utils/clipboard';
 import { sanitizeUsersForBackup } from '../utils/authSecurity';
 import { useFocusTrap } from '../utils/useFocusTrap';
+import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
+import { DiscardChangesModal } from './DiscardChangesModal';
 
 interface ArchiveBackupModalProps {
   isOpen: boolean;
@@ -67,7 +69,7 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
   onLogActivity,
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
-  useFocusTrap({ isOpen, onClose, containerRef: modalRef });
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   const [activeTab, setActiveTab] = useState<'auto' | 'gdrive' | 'ftp' | 'local' | 'history'>('auto');
 
@@ -144,6 +146,54 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
         .catch(() => {});
     }
   }, [isOpen, projects.length, tasks.length]);
+
+  const isBusy = isGdriveSyncing || isFtpTesting || isFtpUploading;
+  const [formBaselineSnapshot, setFormBaselineSnapshot] = useState<string>('');
+
+  const currentFormSnapshot = JSON.stringify({
+    gdriveFolder,
+    autoSyncGdrive,
+    ftpProtocol,
+    ftpHost,
+    ftpPort,
+    ftpUser,
+    ftpPass,
+    ftpRemotePath,
+  });
+
+  useEffect(() => {
+    if (isOpen) {
+      setFormBaselineSnapshot(currentFormSnapshot);
+    }
+    // Intentionally capture baseline snapshot only when modal opens
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  const isDirty = isOpen && formBaselineSnapshot !== '' && currentFormSnapshot !== formBaselineSnapshot;
+
+  const {
+    backdropProps,
+    flashClassName,
+    requestClose,
+    isDiscardModalOpen,
+    confirmDiscard,
+    cancelDiscard,
+  } = useDismissOnOutsideClick({
+    isOpen,
+    mode: 'conditional',
+    panelRef: modalRef,
+    onDismiss: onClose,
+    disabled: isBusy,
+    isDirty,
+    cancelButtonRef: closeButtonRef,
+  });
+
+  useFocusTrap({
+    isOpen,
+    onClose: requestClose,
+    containerRef: modalRef,
+    disableEscape: isBusy,
+  });
 
   if (!isOpen) return null;
 
@@ -463,13 +513,16 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+    <div
+      {...backdropProps}
+      className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in"
+    >
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="archive-backup-modal-title"
-        className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95"
+        className={`bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 ${flashClassName}`}
       >
         {/* Top Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
@@ -492,9 +545,10 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
 
           <button
             type="button"
-            onClick={onClose}
+            disabled={isBusy}
+            onClick={requestClose}
             aria-label="Zamknij centrum archiwizacji"
-            className="text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+            className="text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
           >
             <X className="w-5 h-5" aria-hidden="true" />
           </button>
@@ -1252,14 +1306,21 @@ export const ArchiveBackupModal: React.FC<ArchiveBackupModalProps> = ({
           </div>
 
           <button
+            ref={closeButtonRef}
             type="button"
+            disabled={isBusy}
             onClick={onClose}
-            className="px-4 py-1.5 bg-slate-900 dark:bg-slate-700 text-white font-medium rounded hover:bg-slate-800 dark:hover:bg-slate-600 transition-colors"
+            className="px-4 py-1.5 bg-slate-900 dark:bg-slate-700 text-white font-medium rounded hover:bg-slate-800 dark:hover:bg-slate-600 transition-colors disabled:opacity-50"
           >
             Zamknij
           </button>
         </div>
       </div>
+      <DiscardChangesModal
+        isOpen={isDiscardModalOpen}
+        onCancel={cancelDiscard}
+        onConfirm={confirmDiscard}
+      />
     </div>
   );
 };

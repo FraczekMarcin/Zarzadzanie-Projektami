@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Task, Project, User, TaskStatus, Priority, Company } from '../types';
 import { generateGoogleCalendarUrl } from '../utils/calendar';
+import { useMenuDismiss } from '../hooks/useDismissOnOutsideClick';
 import { 
   Plus, 
   Calendar, 
@@ -66,23 +67,13 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
   const menuContainerRef = useRef<HTMLDivElement | null>(null);
   const menuOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
-  useEffect(() => {
-    if (!openMoveMenuTaskId) return;
-    const handleOutsideClick = (event: MouseEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      const trigger = menuTriggerRefs.current[openMoveMenuTaskId];
-      if (
-        menuContainerRef.current?.contains(target) ||
-        trigger?.contains(target)
-      ) {
-        return;
-      }
-      setOpenMoveMenuTaskId(null);
-    };
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [openMoveMenuTaskId]);
+  useMenuDismiss({
+    isOpen: Boolean(openMoveMenuTaskId),
+    menuRef: menuContainerRef,
+    triggerRef: () =>
+      openMoveMenuTaskId ? menuTriggerRefs.current[openMoveMenuTaskId] || null : null,
+    onClose: () => setOpenMoveMenuTaskId(null),
+  });
 
   const projectTasks = useMemo(() => {
     return tasks.filter((t) => {

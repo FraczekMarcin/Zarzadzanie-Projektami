@@ -13,6 +13,7 @@ import {
 import { GITHUB_REPO_URL, CURRENT_APP_VERSION, INSTALL_TARGET_DIR } from '../data/dockerConfig';
 import { copyToClipboard } from '../utils/clipboard';
 import { useFocusTrap } from '../utils/useFocusTrap';
+import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 
 interface GitHubUpdateModalProps {
   isOpen: boolean;
@@ -36,7 +37,15 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
-  useFocusTrap({ isOpen, onClose, containerRef });
+  const { backdropProps, requestClose } = useDismissOnOutsideClick({
+    isOpen,
+    mode: 'dismiss',
+    panelRef: containerRef,
+    onDismiss: onClose,
+    disabled: updating,
+  });
+
+  useFocusTrap({ isOpen, onClose: requestClose, containerRef, disableEscape: updating });
 
   if (!isOpen) return null;
 
@@ -91,7 +100,10 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4"
+      {...backdropProps}
+    >
       <div
         ref={containerRef}
         tabIndex={-1}
@@ -278,8 +290,9 @@ export const GitHubUpdateModal: React.FC<GitHubUpdateModalProps> = ({
           </a>
           <button
             type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded transition-colors font-medium"
+            disabled={updating}
+            onClick={requestClose}
+            className="px-4 py-1.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 disabled:opacity-50 text-slate-800 dark:text-slate-200 rounded transition-colors font-medium"
           >
             Zamknij
           </button>
