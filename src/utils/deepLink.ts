@@ -61,8 +61,8 @@ export function parseDeepLink(search: string | null | undefined): DeepLinkTarget
     const allViews = params.getAll('view');
     if (allViews.length !== 1) return null;
     const rawView = allViews[0]?.trim();
-    if (rawView === 'economy') {
-      return { type: 'view', id: 'economy' };
+    if (rawView === 'economy' || rawView === 'tenders') {
+      return { type: 'view', id: rawView };
     }
   }
 
@@ -104,7 +104,7 @@ export function readPendingDeepLink(
       typeof parsed !== 'object' ||
       (parsed.type !== 'task' && parsed.type !== 'project' && parsed.type !== 'view') ||
       !isValidDeepLinkId(parsed.id) ||
-      (parsed.type === 'view' && parsed.id !== 'economy') ||
+      (parsed.type === 'view' && parsed.id !== 'economy' && parsed.id !== 'tenders') ||
       typeof parsed.storedAt !== 'number' ||
       !Number.isFinite(parsed.storedAt)
     ) {
@@ -141,7 +141,8 @@ export function buildUrlWithoutDeepLinkParams(currentHref: string): string {
     const url = new URL(currentHref);
     url.searchParams.delete('task');
     url.searchParams.delete('project');
-    if (url.searchParams.get('view') === 'economy') {
+    const viewParam = url.searchParams.get('view');
+    if (viewParam === 'economy' || viewParam === 'tenders') {
       url.searchParams.delete('view');
     }
     const search = url.searchParams.toString();

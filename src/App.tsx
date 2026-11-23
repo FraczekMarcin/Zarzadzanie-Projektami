@@ -17,6 +17,7 @@ const loadTaskTreeView = () => import('./components/TaskTreeView').then((m) => (
 const loadKanbanView = () => import('./components/KanbanView').then((m) => ({ default: m.KanbanView }));
 const loadProjectsOverview = () => import('./components/ProjectsOverview').then((m) => ({ default: m.ProjectsOverview }));
 const loadEconomyView = () => import('./components/EconomyView').then((m) => ({ default: m.EconomyView }));
+const loadTendersView = () => import('./components/TendersView').then((m) => ({ default: m.TendersView }));
 const loadTrashView = () => import('./components/TrashView').then((m) => ({ default: m.TrashView }));
 const loadTaskModal = () => import('./components/TaskModal').then((m) => ({ default: m.TaskModal }));
 const loadTaskDetailDrawer = () => import('./components/TaskDetailDrawer').then((m) => ({ default: m.TaskDetailDrawer }));
@@ -36,6 +37,7 @@ const TaskTreeView = lazy(loadTaskTreeView);
 const KanbanView = lazy(loadKanbanView);
 const ProjectsOverview = lazy(loadProjectsOverview);
 const EconomyView = lazy(loadEconomyView);
+const TendersView = lazy(loadTendersView);
 const TrashView = lazy(loadTrashView);
 const TaskModal = lazy(loadTaskModal);
 const TaskDetailDrawer = lazy(loadTaskDetailDrawer);
@@ -69,6 +71,7 @@ import {
   LayoutGrid, 
   Briefcase, 
   Wallet,
+  Gavel,
   Server, 
   Download, 
   Plus, 
@@ -100,8 +103,9 @@ import {
   Trash2,
   AlertTriangle
 } from 'lucide-react';
+import { canAccessTenders } from './utils/tenderUi';
 
-type ActiveView = 'gantt' | 'calendar' | 'tasks' | 'tree' | 'kanban' | 'projects' | 'economy' | 'trash';
+type ActiveView = 'gantt' | 'calendar' | 'tasks' | 'tree' | 'kanban' | 'projects' | 'economy' | 'tenders' | 'trash';
 
 const VIEW_PRELOADERS: Record<ActiveView, () => Promise<unknown>> = {
   gantt: loadGanttChart,
@@ -111,6 +115,7 @@ const VIEW_PRELOADERS: Record<ActiveView, () => Promise<unknown>> = {
   kanban: loadKanbanView,
   projects: loadProjectsOverview,
   economy: loadEconomyView,
+  tenders: loadTendersView,
   trash: loadTrashView,
 };
 
@@ -302,6 +307,11 @@ export default function App() {
     [projects, currentUser]
   );
 
+  const canViewTenders = useMemo(
+    () => canAccessTenders(currentUser),
+    [currentUser]
+  );
+
   // Natychmiastowe ładowanie domyślnego widoku po zalogowaniu oraz doładowanie pozostałych w bezczynności
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -317,6 +327,9 @@ export default function App() {
       preloadView('trash');
       if (canViewEconomy) {
         preloadView('economy');
+      }
+      if (canViewTenders) {
+        preloadView('tenders');
       }
       loadTaskDetailDrawer().catch(() => {});
       loadTaskModal().catch(() => {});
@@ -338,7 +351,7 @@ export default function App() {
 
     const timerId = window.setTimeout(preloadRemainingViews, 1500);
     return () => window.clearTimeout(timerId);
-  }, [isAuthenticated]);
+  }, [isAuthenticated, canViewEconomy, canViewTenders]);
 
   // Automatyczna weryfikacja aktualizacji przez serwerowy endpoint /api/system/check-update (wyłącznie po zalogowaniu)
   useEffect(() => {
@@ -603,7 +616,10 @@ export default function App() {
     if (hasLoadedState && activeView === 'economy' && !canViewEconomy) {
       setActiveView('gantt');
     }
-  }, [hasLoadedState, activeView, canViewEconomy]);
+    if (hasLoadedState && activeView === 'tenders' && !canViewTenders) {
+      setActiveView('gantt');
+    }
+  }, [hasLoadedState, activeView, canViewEconomy, canViewTenders]);
 
   useDeepLink({
     isAuthenticated,
@@ -622,6 +638,16 @@ export default function App() {
       } else {
         setNotificationToast({
           message: 'Brak uprawnień do widoku Ekonomia lub brak projektów z dostępem do finansów.',
+          type: 'error',
+        });
+      }
+    },
+    onOpenTenders: () => {
+      if (canViewTenders) {
+        setActiveView('tenders');
+      } else {
+        setNotificationToast({
+          message: 'Dostęp do przetargów wymaga roli administratora lub kierownika projektu.',
           type: 'error',
         });
       }
@@ -732,6 +758,43 @@ export default function App() {
       `${currentUser.name} dodał płatność do harmonogramu jako zadanie [${createdTask.code}]: ${createdTask.title}`,
       createdTask.id
     );
+  };
+
+  const handleProjectCreatedFromTender = ({
+    project,
+    revision,
+    selectedTemplate,
+  }: {
+    project: Project;
+    revision?: number;
+    selectedTemplate?: ProjectTemplate;
+  }) => {
+    if (typeof revision === 'number') {
+      applyRevision(revision);
+    }
+    setProjects((prev) =>
+      prev.some((p) => p.id === project.id)
+        ? prev.map((p) => (p.id === project.id ? project : p))
+        : [...prev, project]
+    );
+    setSelectedProjectId(project.id);
+
+    if (selectedTemplate && selectedTemplate.tasks && selectedTemplate.tasks.length > 0) {
+      const templateTasks = instantiateTasksFromTemplate(
+        selectedTemplate,
+        project.id,
+        project.startDate,
+        currentUser
+      );
+      const { updatedTasks } = processDependencyRules([...tasks, ...templateTasks]);
+      setTasks(updatedTasks);
+      templateTasks.forEach((tt) => createTaskOnServer(tt));
+      logActivity(
+        `${currentUser.name} utworzył projekt [${project.key}] z wygranego przetargu z szablonem "${selectedTemplate.name}" (${templateTasks.length} etapów)`
+      );
+    } else {
+      logActivity(`${currentUser.name} utworzył projekt [${project.key}] z wygranego przetargu: ${project.name}`);
+    }
   };
 
   const handleDeleteProject = async (projectId: string) => {
@@ -1027,6 +1090,24 @@ export default function App() {
             >
               <Wallet className="w-3.5 h-3.5" aria-hidden="true" />
               <span>Ekonomia</span>
+            </button>
+          )}
+
+          {canViewTenders && (
+            <button
+              type="button"
+              onClick={() => setActiveView('tenders')}
+              onMouseEnter={() => preloadView('tenders')}
+              onFocus={() => preloadView('tenders')}
+              aria-current={activeView === 'tenders' ? 'page' : undefined}
+              className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
+                activeView === 'tenders'
+                  ? 'text-sky-700 dark:text-sky-400 border-b-2 border-sky-700 dark:border-sky-400 font-bold'
+                  : 'hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              <Gavel className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Przetargi</span>
             </button>
           )}
 
@@ -1410,6 +1491,20 @@ export default function App() {
                 Ekonomia
               </button>
             )}
+            {canViewTenders && (
+              <button
+                type="button"
+                aria-pressed={activeView === 'tenders'}
+                onClick={() => setActiveView('tenders')}
+                onMouseEnter={() => preloadView('tenders')}
+                onFocus={() => preloadView('tenders')}
+                className={`px-2 py-1 text-[11px] font-medium rounded ${
+                  activeView === 'tenders' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
+                }`}
+              >
+                Przetargi
+              </button>
+            )}
             <button
               type="button"
               aria-pressed={activeView === 'trash'}
@@ -1593,6 +1688,27 @@ export default function App() {
               onOpenTask={handleSelectTask}
               onNotify={(msg, type = 'info') =>
                 setNotificationToast({ message: msg, type })
+              }
+            />
+          )}
+
+          {activeView === 'tenders' && canViewTenders && (
+            <TendersView
+              companies={companies}
+              projects={projectsWithProgress}
+              currentUser={currentUser}
+              onProjectCreated={handleProjectCreatedFromTender}
+              onOpenProject={(projectId) => {
+                setSelectedProjectId(projectId);
+                setActiveView('projects');
+                setPendingDetailProjectId(projectId);
+              }}
+              onNotify={(msg, type = 'info', action) =>
+                setNotificationToast({
+                  message: msg,
+                  type,
+                  ...(action ? { action } : {}),
+                })
               }
             />
           )}

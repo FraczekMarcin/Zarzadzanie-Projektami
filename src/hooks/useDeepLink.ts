@@ -17,6 +17,7 @@ interface UseDeepLinkParams {
   onOpenTask: (task: Task) => void;
   onOpenProject: (project: Project) => void;
   onOpenEconomy?: () => void;
+  onOpenTenders?: () => void;
   onNotifyMissing: (message: string) => void;
 }
 
@@ -28,6 +29,7 @@ export function useDeepLink({
   onOpenTask,
   onOpenProject,
   onOpenEconomy,
+  onOpenTenders,
   onNotifyMissing,
 }: UseDeepLinkParams): void {
   const initialUrlTargetRef = useRef<DeepLinkTarget | null>(null);
@@ -91,6 +93,11 @@ export function useDeepLink({
 
     if (target.type === 'view' && target.id === 'economy') {
       onOpenEconomy?.();
+      return;
     }
-  }, [isAuthenticated, hasLoadedState, tasks, projects, onOpenTask, onOpenProject, onOpenEconomy, onNotifyMissing]);
+
+    if (target.type === 'view' && target.id === 'tenders') {
+      onOpenTenders?.();
+    }
+  }, [isAuthenticated, hasLoadedState, tasks, projects, onOpenTask, onOpenProject, onOpenEconomy, onOpenTenders, onNotifyMissing]);
 }

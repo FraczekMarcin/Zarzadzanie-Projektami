@@ -134,7 +134,9 @@ async function scanView(
   label: string,
   theme: ThemeKind
 ): Promise<void> {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   const analysis = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   const violations: A11yViolationEntry[] = analysis.violations.map((v) => ({
     id: v.id,
     impact: v.impact || 'minor',
@@ -383,6 +385,37 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
     await deleteDialog.getByRole('button', { name: 'Tak, przenieś do kosza' }).click();
     expect((await deleteResPromise).status()).toBe(200);
 
+    // Utworzenie przetargu referencyjnego do audytu dostępności widoku Przetargi i jego modali
+    const tenderCreatedStatus = await page.evaluate(async () => {
+      const res = await fetch('/api/tenders', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Przetarg Referencyjny A11y',
+          contractingAuthority: 'Urząd Miasta A11y',
+          referenceNumber: 'A11Y.271.1.2026',
+          description: 'Opis postępowania referencyjnego do audytu WCAG.',
+          url: 'https://example.pl/przetarg-a11y',
+          announcementDate: '2026-04-01',
+          submissionDeadline: '2026-04-20',
+          resolutionDate: '2026-05-05',
+          status: 'resolved',
+          priceBasis: 'gross',
+          authorityBudget: 250000,
+          scopeQuantity: 10,
+          scopeUnit: 'km',
+          winnerBidderId: 'bid-a11y-1',
+          bidders: [
+            { id: 'bid-a11y-1', name: 'Nasza Pracownia A11y', price: 200000, isOurs: true },
+            { id: 'bid-a11y-2', name: 'Konkurent A11y', price: 240000, isOurs: false },
+          ],
+        }),
+      });
+      return res.status;
+    });
+    expect(tenderCreatedStatus).toBe(201);
+
     // Wylogowanie i skan ekranu logowania w trybie jasnym i ciemnym
     await page.getByRole('button', { name: 'Wyloguj się z systemu' }).click();
     await expect(page.getByRole('button', { name: 'Zaloguj do pracowni' })).toBeVisible();
@@ -524,6 +557,34 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
       await scanView(page, scanResults, 'economy-detail', 'Ekonomia: Szczegóły projektu', theme);
       await page.getByRole('button', { name: 'Powrót do listy' }).click();
       await expect(page.getByRole('heading', { name: 'Ekonomia i finanse firm' })).toBeVisible();
+
+      // 7b. Przetargi (+ szczegóły, formularz i kopiowanie do projektu)
+      await nav.getByRole('button', { name: 'Przetargi', exact: true }).click();
+      await expect(nav.getByRole('button', { name: 'Przetargi', exact: true })).toHaveAttribute('aria-current', 'page');
+      await expect(page.getByRole('button', { name: 'Przetarg Referencyjny A11y' })).toBeVisible();
+      await scanView(page, scanResults, 'tenders', 'Przetargi', theme);
+
+      await page.getByRole('button', { name: 'Przetarg Referencyjny A11y' }).click();
+      const tenderDetailDialog = page.getByRole('dialog', { name: 'Przetarg Referencyjny A11y' });
+      await expect(tenderDetailDialog).toBeVisible();
+      await scanView(page, scanResults, 'tender-detail', 'Przetargi: Szczegóły przetargu', theme);
+
+      await tenderDetailDialog.getByRole('button', { name: 'Kopiuj jako projekt' }).click();
+      const tenderCopyDialog = page.getByRole('dialog', { name: 'Kopiuj przetarg jako projekt' });
+      await expect(tenderCopyDialog).toBeVisible();
+      await scanView(page, scanResults, 'tender-copy-modal', 'Przetargi: Kopiuj jako projekt', theme);
+      await tenderCopyDialog.getByRole('button', { name: 'Anuluj' }).click();
+      await expect(tenderCopyDialog).toHaveCount(0);
+
+      await tenderDetailDialog.getByRole('button', { name: 'Edytuj' }).click();
+      const tenderFormDialog = page.getByRole('dialog', { name: 'Edycja przetargu' });
+      await expect(tenderFormDialog).toBeVisible();
+      await scanView(page, scanResults, 'tender-form-modal', 'Przetargi: Formularz przetargu', theme);
+      await tenderFormDialog.getByRole('button', { name: 'Anuluj' }).click();
+      await expect(tenderFormDialog).toHaveCount(0);
+
+      await tenderDetailDialog.getByRole('button', { name: 'Zamknij szczegóły przetargu' }).click();
+      await expect(tenderDetailDialog).toHaveCount(0);
 
       // 8. Kosz
       await nav.getByRole('button', { name: 'Kosz', exact: true }).click();

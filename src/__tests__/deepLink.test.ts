@@ -117,8 +117,11 @@ describe('sessionStorage TTL dla oczekującego deep linka (10 minut)', () => {
     expect(storage.getItem(DEEP_LINK_STORAGE_KEY)).toBeNull();
   });
 
-  it('usuwa parametry ?task oraz ?project z URL zachowując pozostałe parametry', () => {
+  it('usuwa parametry ?task, ?project oraz ?view=economy/?view=tenders z URL zachowując pozostałe parametry', () => {
+    expect(parseDeepLink('?view=tenders')).toEqual({ type: 'view', id: 'tenders' });
+    expect(parseDeepLink('?view=economy')).toEqual({ type: 'view', id: 'economy' });
     expect(buildUrlWithoutDeepLinkParams('http://localhost:3000/?task=tsk-1')).toBe('/');
+    expect(buildUrlWithoutDeepLinkParams('http://localhost:3000/?view=tenders')).toBe('/');
     expect(buildUrlWithoutDeepLinkParams('http://localhost:3000/app?foo=1&task=tsk-1&project=prj-2#sec')).toBe(
       '/app?foo=1#sec'
     );
