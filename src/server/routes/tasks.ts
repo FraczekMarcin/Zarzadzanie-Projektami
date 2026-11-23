@@ -1,4 +1,5 @@
 import express from 'express';
+import crypto from 'crypto';
 import {
   canAccessProject,
   canWrite,
@@ -7,7 +8,11 @@ import {
   buildNewTaskRecord,
 } from '../../utils/access.js';
 import { canReparent, reconcileParentCompletionOnReparent } from '../../utils/taskTree.js';
-import { hasDirectSubtasks, recomputeProjectProgress } from '../../utils/progress.js';
+import {
+  hasDirectSubtasks,
+  reconcileLeafTaskConsistency,
+  recomputeProjectProgress,
+} from '../../utils/progress.js';
 import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
 import { SettingsService } from '../settings.js';
@@ -93,6 +98,7 @@ export function registerTaskRoutes(
         return res.status(400).json({ error: err.message });
       }
 
+      reconcileLeafTaskConsistency(newTask, { hasSubtasks: false });
       appState.tasks.unshift(newTask);
       recomputeProjectProgress(appState, targetProject.id, {
         weighting: settingsService.getEffectiveProgressWeighting(),
@@ -213,6 +219,7 @@ export function registerTaskRoutes(
 
       const oldProjectId = task.projectId;
       const oldParentId = typeof task.parentId === 'string' && task.parentId.trim() ? task.parentId.trim() : null;
+      const previousStatus = task.status;
       for (const [key, value] of Object.entries(allowedUpdates)) {
         if (key === 'parentId' && value === undefined) {
           delete task.parentId;
@@ -222,8 +229,32 @@ export function registerTaskRoutes(
       }
 
       const nowIso = new Date().toISOString();
+      const isParentAfterPatch = hasDirectSubtasks(appState.tasks || [], task.id);
+      const leafSync = reconcileLeafTaskConsistency(task, {
+        previousStatus,
+        hasSubtasks: isParentAfterPatch,
+      });
+
       task.revision = (task.revision || 1) + 1;
       task.updatedAt = nowIso;
+
+      if (leafSync.statusChangedToDone) {
+        if (!Array.isArray(appState.activityLogs)) {
+          appState.activityLogs = [];
+        }
+        const actorName = caller?.name || caller?.email || caller?.id || 'Użytkownik';
+        appState.activityLogs.unshift({
+          id: `act-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
+          projectId: task.projectId || undefined,
+          taskId: task.id,
+          userId: caller.id,
+          action: `${actorName} zmienił status [${task.code || task.id}] na "done"`,
+          timestamp: nowIso,
+        });
+        if (appState.activityLogs.length > 500) {
+          appState.activityLogs = appState.activityLogs.slice(0, 500);
+        }
+      }
 
       const progressWeighting = settingsService.getEffectiveProgressWeighting();
       const newParentId = typeof task.parentId === 'string' && task.parentId.trim() ? task.parentId.trim() : null;

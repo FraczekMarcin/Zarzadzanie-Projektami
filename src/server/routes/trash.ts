@@ -1,5 +1,8 @@
 import express from 'express';
-import { recomputeProjectProgress } from '../../utils/progress.js';
+import {
+  reconcileLeafTasksConsistency,
+  recomputeProjectProgress,
+} from '../../utils/progress.js';
 import { getClientIp } from '../security.js';
 import { SessionStore } from '../sessions.js';
 import { SettingsService } from '../settings.js';
@@ -53,6 +56,7 @@ export function registerTrashRoutes(
       const restoredProjectId =
         result.type === 'task' ? result.task?.projectId : result.project?.id;
       if (restoredProjectId) {
+        reconcileLeafTasksConsistency(appState.tasks, { projectId: restoredProjectId });
         recomputeProjectProgress(appState, restoredProjectId, {
           weighting: settingsService.getEffectiveProgressWeighting(),
         });

@@ -510,7 +510,12 @@ export function useTaskActions({
     }
 
     const isParentTask = hasDirectSubtasks(tasks, taskId);
-    const progress = newStatus === 'done' ? 100 : task.progress;
+    const progress =
+      newStatus === 'done'
+        ? 100
+        : task.status === 'done' && task.progress === 100 && (newStatus as string) !== 'cancelled'
+          ? 99
+          : task.progress;
     const updated: Task = {
       ...task,
       status: newStatus,
@@ -558,7 +563,8 @@ export function useTaskActions({
     if (!task) return;
     if (hasDirectSubtasks(tasks, taskId)) return;
 
-    const status: TaskStatus = progress === 100 ? 'done' : task.status;
+    const status: TaskStatus =
+      progress === 100 && (task.status as string) !== 'cancelled' ? 'done' : task.status;
     const updated: Task = {
       ...task,
       progress,

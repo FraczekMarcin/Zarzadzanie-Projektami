@@ -17,6 +17,7 @@ import { logger } from '../logger.js';
 import { sanitizeImportedCompanies } from './companies.js';
 import {
   DEFAULT_PROGRESS_WEIGHTING,
+  reconcileLeafTasksConsistency,
   recomputeAllProjectsProgress,
 } from '../../utils/progress.js';
 
@@ -178,7 +179,9 @@ export function registerSystemRoutes(
       };
       stateStore.setAppState(nextState);
       stateStore.setUsers(nextUsers);
-      recomputeAllProjectsProgress(stateStore.ensureStateStructure(), {
+      const ensured = stateStore.ensureStateStructure();
+      reconcileLeafTasksConsistency(ensured.tasks);
+      recomputeAllProjectsProgress(ensured, {
         weighting: settingsService
           ? settingsService.getEffectiveProgressWeighting()
           : DEFAULT_PROGRESS_WEIGHTING,

@@ -29,7 +29,10 @@ import { createReminderService } from './reminders.js';
 import { registerReminderRoutes } from './routes/reminders.js';
 import { createWeeklySummaryService } from './weeklySummary.js';
 import { registerWeeklySummaryRoutes } from './routes/weeklySummary.js';
-import { recomputeAllProjectsProgress } from '../utils/progress.js';
+import {
+  reconcileLeafTasksConsistency,
+  recomputeAllProjectsProgress,
+} from '../utils/progress.js';
 import { setupStaticAndSpa } from './static.js';
 import { logger } from './logger.js';
 
@@ -47,10 +50,17 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
   const settingsService = createSettingsService({ config, stateStore });
   const bootState = stateStore.getAppState();
   if (bootState) {
-    const { changed } = recomputeAllProjectsProgress(stateStore.ensureStateStructure(), {
+    const ensuredBootState = stateStore.ensureStateStructure();
+    const { fixedCount } = reconcileLeafTasksConsistency(ensuredBootState.tasks);
+    if (fixedCount > 0) {
+      logger.info(
+        `[Server] Migracja spójności postępu i statusu zadań: naprawiono ${fixedCount} zadań liściowych.`
+      );
+    }
+    const { changed } = recomputeAllProjectsProgress(ensuredBootState, {
       weighting: settingsService.getEffectiveProgressWeighting(),
     });
-    if (changed && bootState.initialized) {
+    if ((fixedCount > 0 || changed) && bootState.initialized) {
       await stateStore.saveStateAtomicAsync();
     }
   }

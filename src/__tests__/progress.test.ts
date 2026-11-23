@@ -10,6 +10,8 @@ import {
   getSubtaskProgressSummary,
   getTaskWeight,
   hasDirectSubtasks,
+  reconcileLeafTaskConsistency,
+  reconcileLeafTasksConsistency,
   recomputeProjectProgress,
 } from '../utils/progress.js';
 import { validateAdminSettingsUpdate } from '../utils/settingsSchema.js';
@@ -536,3 +538,413 @@ describe('P65: Walidacja settingsSchema oraz pełna integracja API po stronie se
     expect(stateJson.state.projects.find((p: any) => p.id === projB.id).progress).toBe(100);
   });
 });
+
+describe('P69: Spójność postępu i statusu zadania (serwer, migracja, import, kosz)', () => {
+  let ctx: TestServerContext | null = null;
+
+  afterEach(async () => {
+    if (ctx) {
+      await ctx.close();
+      ctx = null;
+    }
+  });
+
+  it('jednostkowo: egzekwuje reguły dla liści, pomija cancelled oraz zadania nadrzędne', () => {
+    const tProgress100: any = { id: 'l1', status: 'to_do', progress: 100 };
+    const r1 = reconcileLeafTaskConsistency(tProgress100, { previousStatus: 'to_do', hasSubtasks: false });
+    expect(r1).toEqual({ changed: true, statusChangedToDone: true });
+    expect(tProgress100.status).toBe('done');
+
+    const tStatusDone: any = { id: 'l2', status: 'done', progress: 35 };
+    const r2 = reconcileLeafTaskConsistency(tStatusDone, { previousStatus: 'in_progress', hasSubtasks: false });
+    expect(r2).toEqual({ changed: true, statusChangedToDone: false });
+    expect(tProgress100.progress).toBe(100);
+    expect(tStatusDone.progress).toBe(100);
+
+    const tReopen: any = { id: 'l3', status: 'in_progress', progress: 100 };
+    const r3 = reconcileLeafTaskConsistency(tReopen, { previousStatus: 'done', hasSubtasks: false });
+    expect(r3).toEqual({ changed: true, statusChangedToDone: false });
+    expect(tReopen.status).toBe('in_progress');
+    expect(tReopen.progress).toBe(99);
+
+    const tCancelled: any = { id: 'l4', status: 'cancelled', progress: 100 };
+    const r4 = reconcileLeafTaskConsistency(tCancelled, { previousStatus: 'cancelled', hasSubtasks: false });
+    expect(r4).toEqual({ changed: false, statusChangedToDone: false });
+    expect(tCancelled.status).toBe('cancelled');
+
+    const tParent: any = { id: 'p1', status: 'in_progress', progress: 100 };
+    const r5 = reconcileLeafTaskConsistency(tParent, { previousStatus: 'in_progress', hasSubtasks: true });
+    expect(r5).toEqual({ changed: false, statusChangedToDone: false });
+    expect(tParent.status).toBe('in_progress');
+
+    const batch: any[] = [
+      { id: 'parent', projectId: 'p1', status: 'in_progress', progress: 0 },
+      { id: 'c1', projectId: 'p1', parentId: 'parent', status: 'to_do', progress: 100 },
+      { id: 'c2', projectId: 'p1', parentId: 'parent', status: 'done', progress: 20 },
+      { id: 'c3', projectId: 'p1', parentId: 'parent', status: 'cancelled', progress: 100 },
+    ];
+    const batchRes = reconcileLeafTasksConsistency(batch);
+    expect(batchRes.fixedCount).toBe(2);
+    expect(batch[0].status).toBe('in_progress');
+    expect(batch[1].status).toBe('done');
+    expect(batch[2].progress).toBe(100);
+    expect(batch[3].status).toBe('cancelled');
+  });
+
+  it('PATCH progress=100 ustawia done + wpis aktywności + 100 u rodzica, status done daje 100, done->in_progress daje 99, cancelled bez zmian', async () => {
+    const server = await startServer();
+    ctx = server;
+    const { user, cookie } = await setupAdmin(server.baseUrl);
+
+    const projRes = await fetch(`${server.baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({
+        name: 'Projekt Spójność P69',
+        ownerId: user.id,
+        status: 'active',
+        startDate: '2026-06-01',
+        dueDate: '2026-06-30',
+      }),
+    });
+    expect(projRes.status).toBe(201);
+    const project = (await projRes.json()).project;
+
+    const createTask = async (payload: Record<string, unknown>) => {
+      const res = await fetch(`${server.baseUrl}/api/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({
+          projectId: project.id,
+          startDate: '2026-06-01',
+          dueDate: '2026-06-05',
+          ...payload,
+        }),
+      });
+      expect(res.status).toBe(201);
+      return (await res.json()).task;
+    };
+
+    const parent = await createTask({ title: 'Etap nadrzędny', status: 'in_progress' });
+    const sub1 = await createTask({ title: 'Podzadanie A', parentId: parent.id, status: 'in_progress', progress: 40 });
+    const sub2 = await createTask({ title: 'Podzadanie B', parentId: parent.id, status: 'to_do', progress: 20 });
+    const cancelledTask = await createTask({ title: 'Anulowane', status: 'cancelled', progress: 30 });
+
+    // 1. status: 'done' bez podania progress ustawia progress: 100
+    const doneRes = await fetch(`${ctx.baseUrl}/api/tasks/${sub1.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ status: 'done' }),
+    });
+    expect(doneRes.status).toBe(200);
+    const doneTask = (await doneRes.json()).task;
+    expect(doneTask.status).toBe('done');
+    expect(doneTask.progress).toBe(100);
+
+    // 2. PATCH samym progress: 100 na sub2 ustawia status: 'done', dodaje wpis w activityLogs i ustawia 100 u rodzica
+    const p100Res = await fetch(`${ctx.baseUrl}/api/tasks/${sub2.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ progress: 100 }),
+    });
+    expect(p100Res.status).toBe(200);
+    const p100Task = (await p100Res.json()).task;
+    expect(p100Task.status).toBe('done');
+    expect(p100Task.progress).toBe(100);
+
+    let stateRes = await fetch(`${ctx.baseUrl}/api/state`, { headers: { Cookie: cookie } });
+    let stateJson = await stateRes.json();
+    expect(stateJson.state.tasks.find((t: any) => t.id === parent.id).progress).toBe(100);
+    expect(
+      stateJson.state.activityLogs.some(
+        (log: any) => log.taskId === sub2.id && String(log.action).includes('"done"')
+      )
+    ).toBe(true);
+
+    // 3. Zmiana statusu z 'done' na 'in_progress' (przy progress=100) ustawia progress: 99 i obniża postęp rodzica
+    const reopenRes = await fetch(`${ctx.baseUrl}/api/tasks/${sub2.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ status: 'in_progress' }),
+    });
+    expect(reopenRes.status).toBe(200);
+    const reopenedTask = (await reopenRes.json()).task;
+    expect(reopenedTask.status).toBe('in_progress');
+    expect(reopenedTask.progress).toBe(99);
+
+    stateRes = await fetch(`${ctx.baseUrl}/api/state`, { headers: { Cookie: cookie } });
+    stateJson = await stateRes.json();
+    expect(stateJson.state.tasks.find((t: any) => t.id === parent.id).progress).toBeLessThan(100);
+
+    // 4. Zadanie 'cancelled' z progress=100 pozostaje 'cancelled'
+    const cancelPatchRes = await fetch(`${ctx.baseUrl}/api/tasks/${cancelledTask.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ progress: 100 }),
+    });
+    expect(cancelPatchRes.status).toBe(200);
+    const cancelledAfter = (await cancelPatchRes.json()).task;
+    expect(cancelledAfter.status).toBe('cancelled');
+  });
+
+  it('naprawia niespójne zadania liściowe podczas migracji startowej z jednym wpisem w logu', async () => {
+    const preDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zp-p69-boot-'));
+    const stdoutChunks: string[] = [];
+    const origStdoutWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: any) => {
+      stdoutChunks.push(String(chunk));
+      return origStdoutWrite(chunk);
+    }) as any;
+
+    try {
+      const seedState = {
+        initialized: true,
+        revision: 3,
+        users: [
+          {
+            id: 'usr-1',
+            name: 'Admin',
+            email: 'admin@pracownia.pl',
+            role: 'admin',
+            initials: 'AD',
+            department: 'Biuro',
+            isApproved: true,
+            passwordHash: 'scrypt:salt:hash',
+          },
+        ],
+        companies: [],
+        projects: [
+          {
+            id: 'prj-m',
+            key: 'P-9',
+            name: 'Projekt Migracja',
+            status: 'active',
+            startDate: '2026-06-01',
+            dueDate: '2026-06-30',
+            durationDays: 30,
+            progress: 10,
+            revision: 1,
+          },
+        ],
+        tasks: [
+          {
+            id: 't-parent',
+            projectId: 'prj-m',
+            code: 'P-9-1',
+            title: 'Rodzic',
+            type: 'rysunek',
+            priority: 'normal',
+            status: 'done',
+            startDate: '2026-06-01',
+            dueDate: '2026-06-10',
+            durationDays: 10,
+            estimatedHours: 20,
+            progress: 10,
+            revision: 1,
+          },
+          {
+            id: 't-leaf-100',
+            projectId: 'prj-m',
+            parentId: 't-parent',
+            code: 'P-9-2',
+            title: 'Liść 100 bez done',
+            type: 'rysunek',
+            priority: 'normal',
+            status: 'in_progress',
+            startDate: '2026-06-01',
+            dueDate: '2026-06-05',
+            durationDays: 5,
+            estimatedHours: 10,
+            progress: 100,
+            revision: 1,
+          },
+          {
+            id: 't-leaf-done-low',
+            projectId: 'prj-m',
+            parentId: 't-parent',
+            code: 'P-9-3',
+            title: 'Liść done z niskim progress',
+            type: 'rysunek',
+            priority: 'normal',
+            status: 'done',
+            startDate: '2026-06-06',
+            dueDate: '2026-06-10',
+            durationDays: 5,
+            estimatedHours: 10,
+            progress: 40,
+            revision: 1,
+          },
+          {
+            id: 't-cancelled',
+            projectId: 'prj-m',
+            parentId: 't-parent',
+            code: 'P-9-4',
+            title: 'Anulowane 100',
+            type: 'rysunek',
+            priority: 'normal',
+            status: 'cancelled',
+            startDate: '2026-06-06',
+            dueDate: '2026-06-10',
+            durationDays: 5,
+            estimatedHours: 10,
+            progress: 100,
+            revision: 1,
+          },
+        ],
+        comments: [],
+        activityLogs: [],
+        trash: [],
+      };
+      fs.writeFileSync(path.join(preDataDir, 'app_state.json'), JSON.stringify(seedState, null, 2), 'utf8');
+
+      ctx = await startServer({ dataDir: preDataDir });
+
+      const diskState = JSON.parse(fs.readFileSync(path.join(preDataDir, 'app_state.json'), 'utf8'));
+      const leaf100 = diskState.tasks.find((t: any) => t.id === 't-leaf-100');
+      const leafDoneLow = diskState.tasks.find((t: any) => t.id === 't-leaf-done-low');
+      const cancelled = diskState.tasks.find((t: any) => t.id === 't-cancelled');
+      const parent = diskState.tasks.find((t: any) => t.id === 't-parent');
+      const proj = diskState.projects.find((p: any) => p.id === 'prj-m');
+
+      expect(leaf100.status).toBe('done');
+      expect(leaf100.progress).toBe(100);
+      expect(leafDoneLow.status).toBe('done');
+      expect(leafDoneLow.progress).toBe(100);
+      expect(cancelled.status).toBe('cancelled');
+      expect(parent.progress).toBe(100);
+      expect(proj.progress).toBe(100);
+
+      const migrationLogs = stdoutChunks.filter((line) =>
+        line.includes('Migracja spójności postępu i statusu zadań')
+      );
+      expect(migrationLogs).toHaveLength(1);
+      expect(migrationLogs[0]).toContain('2');
+    } finally {
+      process.stdout.write = origStdoutWrite;
+      if (ctx) {
+        await ctx.close();
+        ctx = null;
+      }
+      fs.rmSync(preDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('naprawia niespójne zadania podczas importu stanu (POST /api/state) oraz przywracania z kosza', async () => {
+    ctx = await startServer();
+    const { user, cookie } = await setupAdmin(ctx.baseUrl);
+
+    const importRes = await fetch(`${ctx.baseUrl}/api/state`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: cookie,
+        'If-Match': '*',
+      },
+      body: JSON.stringify({
+        projects: [
+          {
+            id: 'prj-imp',
+            key: 'IMP',
+            name: 'Import P69',
+            ownerId: user.id,
+            status: 'active',
+            startDate: '2026-06-01',
+            dueDate: '2026-06-30',
+            durationDays: 30,
+            progress: 0,
+            revision: 1,
+          },
+        ],
+        tasks: [
+          {
+            id: 'imp-parent',
+            projectId: 'prj-imp',
+            code: 'IMP-1',
+            title: 'Rodzic importu',
+            type: 'task',
+            priority: 'normal',
+            status: 'done',
+            startDate: '2026-06-01',
+            dueDate: '2026-06-10',
+            durationDays: 10,
+            progress: 0,
+            revision: 1,
+          },
+          {
+            id: 'imp-c1',
+            projectId: 'prj-imp',
+            parentId: 'imp-parent',
+            code: 'IMP-2',
+            title: 'Dziecko progress 100 / to_do',
+            type: 'task',
+            priority: 'normal',
+            status: 'to_do',
+            startDate: '2026-06-01',
+            dueDate: '2026-06-05',
+            durationDays: 5,
+            progress: 100,
+            revision: 1,
+          },
+          {
+            id: 'imp-c2',
+            projectId: 'prj-imp',
+            parentId: 'imp-parent',
+            code: 'IMP-3',
+            title: 'Dziecko done / progress 15',
+            type: 'task',
+            priority: 'normal',
+            status: 'done',
+            startDate: '2026-06-06',
+            dueDate: '2026-06-10',
+            durationDays: 5,
+            progress: 15,
+            revision: 1,
+          },
+          {
+            id: 'imp-cancelled',
+            projectId: 'prj-imp',
+            code: 'IMP-4',
+            title: 'Anulowane z importu',
+            type: 'task',
+            priority: 'normal',
+            status: 'cancelled',
+            startDate: '2026-06-01',
+            dueDate: '2026-06-02',
+            durationDays: 2,
+            progress: 100,
+            revision: 1,
+          },
+        ],
+      }),
+    });
+    expect(importRes.status).toBe(200);
+
+    const stateRes = await fetch(`${ctx.baseUrl}/api/state`, { headers: { Cookie: cookie } });
+    expect(stateRes.status).toBe(200);
+    const stateJson = await stateRes.json();
+
+    expect(stateJson.state.tasks.find((t: any) => t.id === 'imp-c1').status).toBe('done');
+    expect(stateJson.state.tasks.find((t: any) => t.id === 'imp-c2').progress).toBe(100);
+    expect(stateJson.state.tasks.find((t: any) => t.id === 'imp-cancelled').status).toBe('cancelled');
+    expect(stateJson.state.tasks.find((t: any) => t.id === 'imp-parent').progress).toBe(100);
+    expect(stateJson.state.projects.find((p: any) => p.id === 'prj-imp').progress).toBe(100);
+
+    // Weryfikacja przywracania z kosza
+    const delRes = await fetch(`${ctx.baseUrl}/api/tasks/imp-c1`, {
+      method: 'DELETE',
+      headers: { Cookie: cookie },
+    });
+    expect(delRes.status).toBe(200);
+    const trashId = (await delRes.json()).trashId;
+
+    const restoreRes = await fetch(`${ctx.baseUrl}/api/trash/${trashId}/restore`, {
+      method: 'POST',
+      headers: { Cookie: cookie },
+    });
+    expect(restoreRes.status).toBe(200);
+    const restoredJson = await restoreRes.json();
+    expect(restoredJson.restored.task.status).toBe('done');
+    expect(restoredJson.restored.task.progress).toBe(100);
+  });
+});
+

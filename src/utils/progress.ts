@@ -338,3 +338,117 @@ export function recomputeAllProjectsProgress(
   }
   return { changed };
 }
+
+export interface ReconcileLeafOptions {
+  previousStatus?: unknown;
+  hasSubtasks?: boolean;
+}
+
+export interface ReconcileLeafResult {
+  changed: boolean;
+  statusChangedToDone: boolean;
+}
+
+/**
+ * Zapewnia spójność statusu i postępu zadania liściowego (bez aktywnych podzadań):
+ * - zadania cancelled oraz zadania nadrzędne (hasSubtasks=true) nie są zmieniane;
+ * - zmiana statusu z 'done' na inny (nie 'cancelled') przy progress=100 ustawia progress na 99;
+ * - status 'done' ustawia progress na 100;
+ * - progress=100 i status inny niż 'done'/'cancelled' ustawia status na 'done'.
+ */
+export function reconcileLeafTaskConsistency(
+  task: { status?: unknown; progress?: unknown } | null | undefined,
+  options: ReconcileLeafOptions = {}
+): ReconcileLeafResult {
+  if (!task || options.hasSubtasks || isCancelledTask(task)) {
+    return { changed: false, statusChangedToDone: false };
+  }
+
+  const rawNum = Number(task.progress);
+  const clamped = Number.isFinite(rawNum)
+    ? Math.max(0, Math.min(100, Math.round(rawNum)))
+    : 0;
+
+  if (options.previousStatus === 'done' && task.status !== 'done') {
+    if (clamped === 100) {
+      const changed = task.progress !== 99;
+      task.progress = 99;
+      return { changed, statusChangedToDone: false };
+    }
+    if (typeof task.progress === 'number' && task.progress !== clamped) {
+      task.progress = clamped;
+      return { changed: true, statusChangedToDone: false };
+    }
+    return { changed: false, statusChangedToDone: false };
+  }
+
+  if (task.status === 'done') {
+    const changed = task.progress !== 100;
+    task.progress = 100;
+    return { changed, statusChangedToDone: false };
+  }
+
+  if (clamped === 100) {
+    task.status = 'done';
+    task.progress = 100;
+    return { changed: true, statusChangedToDone: true };
+  }
+
+  if (typeof task.progress === 'number' && task.progress !== clamped) {
+    task.progress = clamped;
+    return { changed: true, statusChangedToDone: false };
+  }
+
+  return { changed: false, statusChangedToDone: false };
+}
+
+/**
+ * Naprawia spójność statusu i postępu istniejących zadań liściowych w przekazanej tablicy
+ * (migracja startowa, import stanu, przywracanie z kosza).
+ * Zadania cancelled oraz zadania nadrzędne pozostają bez zmian.
+ */
+export function reconcileLeafTasksConsistency(
+  tasks: any[] | null | undefined,
+  options: { projectId?: string } = {}
+): { fixedCount: number; fixedTaskIds: string[] } {
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    return { fixedCount: 0, fixedTaskIds: [] };
+  }
+
+  const byId = new Map<string, ProgressTaskLike>();
+  for (const t of tasks) {
+    if (t && typeof t.id === 'string' && t.id) {
+      byId.set(t.id, t);
+    }
+  }
+
+  const parentIdsWithActiveChildren = new Set<string>();
+  for (const t of tasks) {
+    if (!t || !t.id || isCancelledTask(t)) continue;
+    const rawParentId = typeof t.parentId === 'string' ? t.parentId.trim() : '';
+    if (!rawParentId || rawParentId === t.id) continue;
+    const parent = byId.get(rawParentId);
+    if (parent && sameProjectScope(t, parent)) {
+      parentIdsWithActiveChildren.add(rawParentId);
+    }
+  }
+
+  const fixedTaskIds: string[] = [];
+  for (const task of tasks) {
+    if (!task || !task.id) continue;
+    if (options.projectId && task.projectId !== options.projectId) continue;
+    if (isCancelledTask(task)) continue;
+    if (parentIdsWithActiveChildren.has(task.id)) continue;
+
+    const { changed } = reconcileLeafTaskConsistency(task, { hasSubtasks: false });
+    if (changed) {
+      fixedTaskIds.push(task.id);
+    }
+  }
+
+  return {
+    fixedCount: fixedTaskIds.length,
+    fixedTaskIds,
+  };
+}
+
