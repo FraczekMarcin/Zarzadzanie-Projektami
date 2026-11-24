@@ -49,7 +49,6 @@ const DockerDeploymentModal = lazy(loadDockerDeploymentModal);
 const GitHubUpdateModal = lazy(loadGitHubUpdateModal);
 const GoogleCalendarSyncModal = lazy(loadGoogleCalendarSyncModal);
 import { useFocusTrap } from './utils/useFocusTrap';
-import { instantiateTasksFromTemplate } from './utils/projectTemplates';
 import { getNextProjectCode } from './utils/projectCode';
 import { downloadIcsFile } from './utils/calendar';
 import { getAutoBackupConfig, createAutoBackupSnapshot } from './utils/autoBackup';
@@ -658,80 +657,12 @@ export default function App() {
     },
   });
 
-  const createTasksFromTemplateSequentially = async (
-    selectedTemplate: ProjectTemplate,
-    targetProject: Project
-  ): Promise<Task[]> => {
-    if (!currentUser) return [];
-    const blueprintTasks = instantiateTasksFromTemplate(
-      selectedTemplate,
-      targetProject,
-      currentUser
-    );
-    if (blueprintTasks.length === 0) return [];
-
-    const tempIdToServerTask = new Map<string, Task>();
-    const pendingForwardBlockers: Array<{ tempId: string; tempBlockerIds: string[] }> = [];
-
-    for (const tt of blueprintTasks) {
-      const tempParentId = tt.parentId;
-      const remappedParentId = tempParentId
-        ? tempIdToServerTask.get(tempParentId)?.id
-        : undefined;
-
-      const origBlockers = tt.blockingTaskIds || tt.dependencies || [];
-      const mappedBlockers: string[] = [];
-      let hasUncreatedBlocker = false;
-      for (const bId of origBlockers) {
-        const srvBlocker = tempIdToServerTask.get(bId);
-        if (srvBlocker) {
-          mappedBlockers.push(srvBlocker.id);
-        } else {
-          hasUncreatedBlocker = true;
-        }
-      }
-
-      const { parentId: _dropParent, ...restTask } = tt;
-      const payload: Task = {
-        ...restTask,
-        ...(remappedParentId ? { parentId: remappedParentId } : {}),
-        blockingTaskIds: mappedBlockers,
-        dependencies: mappedBlockers,
-      };
-
-      const created = await createTaskOnServer(payload);
-      if (created) {
-        tempIdToServerTask.set(tt.id, created);
-        if (hasUncreatedBlocker) {
-          pendingForwardBlockers.push({ tempId: tt.id, tempBlockerIds: origBlockers });
-        }
-      }
-    }
-
-    for (const pending of pendingForwardBlockers) {
-      const createdTask = tempIdToServerTask.get(pending.tempId);
-      if (!createdTask) continue;
-      const resolvedBlockers = pending.tempBlockerIds
-        .map((bId) => tempIdToServerTask.get(bId)?.id)
-        .filter((id): id is string => Boolean(id && id !== createdTask.id));
-      if (resolvedBlockers.length > 0) {
-        await saveTaskPatchToServer(
-          createdTask.id,
-          {
-            blockingTaskIds: resolvedBlockers,
-            dependencies: resolvedBlockers,
-          },
-          createdTask.revision || 1
-        );
-      }
-    }
-
-    await fetchFreshState(false);
-    return Array.from(tempIdToServerTask.values());
-  };
-
   const handleAddProject = async (
-    newProjData: Omit<Project, 'id' | 'key'> & { key?: string },
+    newProjData: Omit<Project, 'id' | 'key'> & {
+      key?: string;
+      templateId?: string;
+      templateTaskKeys?: string[];
+    },
     selectedTemplate?: ProjectTemplate
   ) => {
     const trimmedKey = newProjData.key ? newProjData.key.trim().toUpperCase() : '';
@@ -747,33 +678,33 @@ export default function App() {
         projectNumbering.scope
       );
 
-    const payload: Omit<Project, 'id' | 'key'> & { id?: string; key?: string } = {
+    const payload: Omit<Project, 'id' | 'key'> & {
+      id?: string;
+      key?: string;
+      templateId?: string;
+      templateTaskKeys?: string[];
+    } = {
       ...newProjData,
       id: tempId,
       ...(trimmedKey ? { key: trimmedKey } : {}),
     };
 
-    const createdProject = await createProjectOnServer(payload);
-    if (!createdProject) {
+    const result = await createProjectOnServer(payload);
+    if (!result?.project) {
       return;
     }
 
     const finalProject: Project = {
-      ...createdProject,
-      key: createdProject.key || previewKey,
+      ...result.project,
+      key: result.project.key || previewKey,
     };
     setSelectedProjectId(finalProject.id);
 
-    // If template was selected, instantiate blueprint tasks sequentially
-    if (selectedTemplate && selectedTemplate.tasks && selectedTemplate.tasks.length > 0) {
-      const createdTasks = await createTasksFromTemplateSequentially(selectedTemplate, finalProject);
-      logActivity(
-        `${currentUser.name} zarejestrował projekt [${finalProject.key}] z szablonu "${selectedTemplate.name}" (${createdTasks.length} etapów)`,
-        undefined,
-        `Wygenerowano ${createdTasks.length} etapów w tym ${createdTasks.filter((t) => t.isOfficialDeadline).length} terminów urzędowych.`
-      );
+    const createdTasksCount = Array.isArray(result.tasks) ? result.tasks.length : 0;
+    if (selectedTemplate || newProjData.templateId) {
+      await fetchFreshState(false);
       setNotificationToast({
-        message: `Utworzono projekt [${finalProject.key}] z ${createdTasks.length} etapami z szablonu "${selectedTemplate.name}"!`,
+        message: `Utworzono projekt [${finalProject.key}] z ${createdTasksCount} zadaniami z szablonu "${selectedTemplate?.name || newProjData.templateId}"!`,
         type: 'success',
       });
     } else {
@@ -827,12 +758,12 @@ export default function App() {
 
   const handleProjectCreatedFromTender = async ({
     project,
+    tasks: createdTasksFromServer,
     revision,
-    selectedTemplate,
   }: {
     project: Project;
+    tasks?: Task[];
     revision?: number;
-    selectedTemplate?: ProjectTemplate;
   }) => {
     if (typeof revision === 'number') {
       applyRevision(revision);
@@ -842,13 +773,18 @@ export default function App() {
         ? prev.map((p) => (p.id === project.id ? project : p))
         : [...prev, project]
     );
+    if (Array.isArray(createdTasksFromServer) && createdTasksFromServer.length > 0) {
+      const createdIds = new Set(createdTasksFromServer.map((t) => t.id));
+      setTasks((prev) => [...createdTasksFromServer, ...prev.filter((t) => !createdIds.has(t.id))]);
+      await fetchFreshState(false);
+    }
     setSelectedProjectId(project.id);
 
-    if (selectedTemplate && selectedTemplate.tasks && selectedTemplate.tasks.length > 0) {
-      const createdTasks = await createTasksFromTemplateSequentially(selectedTemplate, project);
-      logActivity(
-        `${currentUser.name} utworzył projekt [${project.key}] z wygranego przetargu z szablonem "${selectedTemplate.name}" (${createdTasks.length} etapów)`
-      );
+    if (Array.isArray(createdTasksFromServer) && createdTasksFromServer.length > 0) {
+      setNotificationToast({
+        message: `Utworzono projekt [${project.key}] z przetargu (${createdTasksFromServer.length} zadań z szablonu).`,
+        type: 'success',
+      });
     } else {
       logActivity(`${currentUser.name} utworzył projekt [${project.key}] z wygranego przetargu: ${project.name}`);
     }

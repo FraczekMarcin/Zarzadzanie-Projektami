@@ -4,9 +4,32 @@ import path from 'path';
 import os from 'os';
 import http from 'http';
 import { createApp, CreateAppOptions } from '../../server.js';
-import type { Project, Task, User } from '../types/index.js';
+import type { Project, ProjectTemplate, Task, User } from '../types/index.js';
 import { DEFAULT_PROJECT_TEMPLATES } from '../data/defaultTemplates.js';
-import { instantiateTasksFromTemplate } from '../utils/projectTemplates.js';
+import {
+  computeTemplateSelectionSummary,
+  filterBlueprintsWithParentCascade,
+  instantiateTemplateForProject,
+} from '../utils/templateInstantiation.js';
+import {
+  addTemplateTask,
+  applyStartAfterPredecessor,
+  buildTreeOrderedTasks,
+  canReparentTemplateTask,
+  computeTemplateWarningsAndStats,
+  createDraftFromTemplate,
+  createEditorHistory,
+  deleteTemplateTaskSubtree,
+  duplicateTemplateTask,
+  getEligibleBlockerCandidates,
+  indentTemplateTask,
+  moveTemplateTaskSibling,
+  outdentTemplateTask,
+  pushEditorState,
+  redoEditorState,
+  undoEditorState,
+  wouldCreateBlockerCycle,
+} from '../utils/templateEditor.js';
 import {
   MAX_CUSTOM_TEMPLATES,
   MAX_TEMPLATE_HIERARCHY_DEPTH,
@@ -469,15 +492,7 @@ describe('Szablony projektów — walidacja, migracja i instancjonowanie', () =>
     }
   });
 
-  it('instantiateTasksFromTemplate używa numeru projektu, buduje hierarchię (rodzice przed dziećmi) i przypisuje role', () => {
-    const reporter: User = {
-      id: 'usr-rep',
-      name: 'Jan Zgłaszający',
-      email: 'jan@firma.pl',
-      initials: 'JZ',
-      role: 'project_manager',
-      department: 'Projektowanie',
-    };
+  it('instantiateTemplateForProject używa numeru projektu, buduje hierarchię (rodzice przed dziećmi), przypisuje role i kaskadowo pomija podzadania', () => {
     const project: Pick<Project, 'id' | 'key' | 'startDate' | 'ownerId'> = {
       id: 'prj-new',
       key: '2026-7_B',
@@ -485,59 +500,253 @@ describe('Szablony projektów — walidacja, migracja i instancjonowanie', () =>
       ownerId: 'usr-owner',
     };
 
-    const templateTasks = instantiateTasksFromTemplate(
-      {
-        id: 'tpl-hier',
-        name: 'Szablon hierarchiczny',
-        category: 'kubaturowe',
-        description: '',
-        defaultDurationDays: 30,
-        defaultPriority: 'normal',
-        builtIn: false,
-        isCustom: true,
-        tasks: [
-          // Celowo podzadanie przed rodzicem w tablicy źródłowej
-          {
-            key: 'sub',
-            title: 'Podzadanie',
-            description: '',
-            type: 'task',
-            priority: 'normal',
-            durationDays: 3,
-            offsetDays: 1,
-            parentKey: 'root',
-            blockerKeys: ['root'],
-            assigneeRole: 'reporter',
-          },
-          {
-            key: 'root',
-            title: 'Zadanie główne',
-            description: '',
-            type: 'task',
-            priority: 'high',
-            durationDays: 5,
-            offsetDays: 0,
-            assigneeRole: 'owner',
-          },
-        ],
-      },
+    const sampleTemplate: ProjectTemplate = {
+      id: 'tpl-hier',
+      name: 'Szablon hierarchiczny',
+      category: 'kubaturowe',
+      description: '',
+      defaultDurationDays: 30,
+      defaultPriority: 'normal',
+      builtIn: false,
+      isCustom: true,
+      tasks: [
+        // Celowo podzadanie przed rodzicem w tablicy źródłowej
+        {
+          key: 'sub',
+          title: 'Podzadanie',
+          description: '',
+          type: 'task',
+          priority: 'normal',
+          durationDays: 3,
+          offsetDays: 1,
+          parentKey: 'root',
+          blockerKeys: ['root'],
+          assigneeRole: 'reporter',
+          estimatedHours: 8,
+        },
+        {
+          key: 'root',
+          title: 'Zadanie główne',
+          description: '',
+          type: 'task',
+          priority: 'high',
+          durationDays: 5,
+          offsetDays: 0,
+          assigneeRole: 'owner',
+          estimatedHours: 16,
+        },
+      ],
+    };
+
+    const instRes = instantiateTemplateForProject({
+      template: sampleTemplate,
       project,
-      reporter
-    );
+      caller: { id: 'usr-rep', role: 'project_manager' },
+      existingProjectTasksCount: 0,
+    });
+    expect(instRes.ok).toBe(true);
+    if (!instRes.ok) return;
+    const templateTasks = instRes.tasks;
 
     expect(templateTasks).toHaveLength(2);
     // Rodzic musi znaleźć się przed podzadaniem
     expect(templateTasks[0].title).toBe('Zadanie główne');
     expect(templateTasks[1].title).toBe('Podzadanie');
 
-    expect(templateTasks[0].code.startsWith('2026-7_B-')).toBe(true);
-    expect(templateTasks[1].code.startsWith('2026-7_B-')).toBe(true);
+    expect(templateTasks[0].code).toBe('2026-7_B-01');
+    expect(templateTasks[1].code).toBe('2026-7_B-02');
     expect(templateTasks[0].assigneeId).toBe('usr-owner');
     expect(templateTasks[1].assigneeId).toBe('usr-rep');
     expect(templateTasks[1].parentId).toBe(templateTasks[0].id);
     expect(templateTasks[1].blockingTaskIds).toEqual([templateTasks[0].id]);
     expect(templateTasks[0].status).toBe('to_do');
     expect(templateTasks[1].status).toBe('blocked');
+    expect(templateTasks[0].progress).toBe(0);
+    expect(templateTasks[1].progress).toBe(0);
+
+    // Gdy odznaczony rodzic ('root'), podzadanie ('sub') także zostaje pominięte
+    expect(
+      filterBlueprintsWithParentCascade(sampleTemplate.tasks, new Set(['sub']))
+    ).toHaveLength(0);
+    const cascadeSkipped = instantiateTemplateForProject({
+      template: sampleTemplate,
+      project,
+      caller: { id: 'usr-rep', role: 'project_manager' },
+      templateTaskKeys: ['sub'],
+    });
+    expect(cascadeSkipped.ok).toBe(true);
+    if (cascadeSkipped.ok) {
+      expect(cascadeSkipped.tasks).toHaveLength(0);
+    }
+
+    const summary = computeTemplateSelectionSummary(
+      sampleTemplate.tasks,
+      '2026-06-01',
+      new Set(['root', 'sub'])
+    );
+    expect(summary).toEqual({
+      selectedCount: 2,
+      totalEstimatedHours: 24,
+      firstTaskDate: '2026-06-01',
+      lastTaskDate: '2026-06-05',
+    });
+  });
+
+  it('helpery edytora szablonu obsługują hierarchię, cykle blokad, Zacznij po zakończeniu, cofanie/ponawianie i ostrzeżenia', () => {
+    const baseTemplate: ProjectTemplate = {
+      id: 'tpl-ed',
+      name: 'Szablon edycji',
+      category: 'kubaturowe',
+      description: 'Opis',
+      defaultDurationDays: 10,
+      defaultPriority: 'normal',
+      builtIn: false,
+      isCustom: true,
+      tasks: [
+        {
+          key: 'a',
+          title: 'Etap A',
+          description: '',
+          type: 'task',
+          priority: 'normal',
+          durationDays: 5,
+          offsetDays: 0,
+        },
+        {
+          key: 'b',
+          title: 'Etap B',
+          description: '',
+          type: 'task',
+          priority: 'normal',
+          durationDays: 4,
+          offsetDays: 0,
+        },
+      ],
+    };
+
+    const draft0 = createDraftFromTemplate(baseTemplate);
+    let history = createEditorHistory(draft0);
+
+    // Dodaj podzadanie do Etapu A
+    const added = addTemplateTask(history.present.tasks, { parentKey: 'a' });
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+    expect(added.tasks).toHaveLength(3);
+    history = pushEditorState(history, { ...history.present, tasks: added.tasks });
+
+    // Wcięcie i cofnięcie wcięcia dla Etapu B (poprzednim rodzeństwem na poziomie głównym jest 'a')
+    const indented = indentTemplateTask(history.present.tasks, 'b');
+    expect(indented.ok).toBe(true);
+    if (!indented.ok) return;
+    const bTask = indented.tasks.find((t) => t.key === 'b')!;
+    expect(bTask.parentKey).toBe('a');
+    const outdented = outdentTemplateTask(indented.tasks, 'b');
+    expect(outdented.ok).toBe(true);
+    if (!outdented.ok) return;
+    expect(outdented.tasks.find((t) => t.key === 'b')!.parentKey).toBeUndefined();
+
+    // Przeniesienie w górę/dół
+    const moved = moveTemplateTaskSibling(outdented.tasks, 'b', 'up');
+    const orderedMoved = buildTreeOrderedTasks(moved);
+    expect(orderedMoved[0].task.key).toBe('b');
+
+    // Duplikacja poddrzewa A (z podzadaniem)
+    const dup = duplicateTemplateTask(history.present.tasks, 'a');
+    expect(dup.ok).toBe(true);
+    if (dup.ok) {
+      expect(dup.tasks.length).toBeGreaterThanOrEqual(4);
+    }
+
+    // Usunięcie poddrzewa A (rodzic + podzadanie)
+    const deleted = deleteTemplateTaskSubtree(history.present.tasks, 'a');
+    expect(deleted).toHaveLength(1);
+    expect(deleted[0].key).toBe('b');
+
+    // Undo/Redo przywraca stan sprzed dodania podzadania
+    history = undoEditorState(history);
+    expect(history.present.tasks).toHaveLength(2);
+    history = redoEditorState(history);
+    expect(history.present.tasks).toHaveLength(3);
+
+    // Cykle blokad i Zacznij po zakończeniu
+    const chain = applyStartAfterPredecessor(
+      [
+        {
+          key: 't1',
+          title: 'Krok 1',
+          description: '',
+          type: 'task',
+          priority: 'normal',
+          durationDays: 5,
+          offsetDays: 2,
+        },
+        {
+          key: 't2',
+          title: 'Krok 2',
+          description: '',
+          type: 'task',
+          priority: 'normal',
+          durationDays: 3,
+          offsetDays: 0,
+        },
+      ],
+      't2',
+      't1'
+    );
+    const t2After = chain.find((t) => t.key === 't2')!;
+    expect(t2After.offsetDays).toBe(7); // 2 + 5
+    expect(t2After.blockerKeys).toEqual(['t1']);
+
+    expect(wouldCreateBlockerCycle(chain, 't1', 't2')).toBe(true);
+    const eligibleForT1 = getEligibleBlockerCandidates(chain, 't1');
+    expect(eligibleForT1.map((t) => t.key)).toEqual([]);
+
+    // Ograniczenie głębokości w canReparentTemplateTask
+    const deep6 = Array.from({ length: MAX_TEMPLATE_HIERARCHY_DEPTH }, (_, i) => ({
+      key: `d${i + 1}`,
+      title: `D${i + 1}`,
+      description: '',
+      type: 'task' as const,
+      priority: 'normal' as const,
+      durationDays: 1,
+      offsetDays: 0,
+      ...(i > 0 ? { parentKey: `d${i}` } : {}),
+    }));
+    const extraChild = {
+      key: 'extra',
+      title: 'Extra',
+      description: '',
+      type: 'task' as const,
+      priority: 'normal' as const,
+      durationDays: 1,
+      offsetDays: 0,
+    };
+    expect(canReparentTemplateTask([...deep6, extraChild], 'extra', 'd6').ok).toBe(false);
+    expect(canReparentTemplateTask([...deep6, extraChild], 'extra', 'd5').ok).toBe(true);
+
+    // Ostrzeżenia walidacyjne w edytorze
+    const emptySummary = computeTemplateWarningsAndStats({
+      ...draft0,
+      tasks: [],
+    });
+    expect(emptySummary.warnings.some((w) => w.code === 'empty_template')).toBe(true);
+
+    const boundsSummary = computeTemplateWarningsAndStats({
+      defaultDurationDays: 5,
+      tasks: [
+        {
+          key: 'x',
+          title: '',
+          description: '',
+          type: 'task',
+          priority: 'normal',
+          durationDays: 4,
+          offsetDays: 4,
+        },
+      ],
+    });
+    expect(boundsSummary.warnings.some((w) => w.code === 'missing_title')).toBe(true);
+    expect(boundsSummary.warnings.some((w) => w.code === 'offset_out_of_bounds')).toBe(true);
   });
 });
 
@@ -863,5 +1072,213 @@ describe('Szablony projektów — API serwera, uprawnienia i trwałość', () =>
       }),
     });
     expect(overflowRes.status).toBe(400);
+  });
+
+  it('egzekwuje optymistyczną rewizję (If-Match / expectedRevision -> 409) przy PUT /api/templates/:id', async () => {
+    const server = ctx!;
+    const { cookie: adminCookie } = await setupAdmin(server.baseUrl);
+
+    const createRes = await fetch(`${server.baseUrl}/api/templates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        name: 'Szablon Rewizyjny',
+        category: 'kubaturowe',
+        tasks: [{ key: 'k1', title: 'Start', durationDays: 5, offsetDays: 0 }],
+      }),
+    });
+    expect(createRes.status).toBe(201);
+    const created = (await createRes.json()).template as ProjectTemplate;
+    expect(created.revision).toBe(1);
+
+    // Poprawna rewizja -> 200 i podbicie do 2
+    const okPut = await fetch(`${server.baseUrl}/api/templates/${created.id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: adminCookie,
+        'If-Match': '1',
+      },
+      body: JSON.stringify({
+        name: 'Szablon Rewizyjny v2',
+        category: 'kubaturowe',
+        tasks: [{ key: 'k1', title: 'Start v2', durationDays: 6, offsetDays: 0 }],
+      }),
+    });
+    expect(okPut.status).toBe(200);
+    const updatedV2 = (await okPut.json()).template as ProjectTemplate;
+    expect(updatedV2.revision).toBe(2);
+
+    // Przestarzała rewizja -> 409 Conflict ze stanem currentTemplate
+    const stalePut = await fetch(`${server.baseUrl}/api/templates/${created.id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: adminCookie,
+        'If-Match': '1',
+      },
+      body: JSON.stringify({
+        name: 'Nadpisanie ze starego okna',
+        category: 'kubaturowe',
+        tasks: [{ key: 'k1', title: 'Konflikt', durationDays: 3, offsetDays: 0 }],
+      }),
+    });
+    expect(stalePut.status).toBe(409);
+    const conflictData = await stalePut.json();
+    expect(conflictData.currentTemplate?.name).toBe('Szablon Rewizyjny v2');
+    expect(conflictData.currentTemplate?.revision).toBe(2);
+  });
+
+  it('POST /api/projects i POST /api/tenders/:id/create-project atomowo tworzą zadania z szablonu z kaskadą odznaczania i zwracają 404 dla błędnego templateId', async () => {
+    const server = ctx!;
+    const { user: admin, cookie: adminCookie } = await setupAdmin(server.baseUrl);
+    const pm = await createAndLoginUser(server.baseUrl, adminCookie, {
+      name: 'Kierownik Projektu',
+      email: 'pm.inst@firma.pl',
+      role: 'project_manager',
+      password: 'Kraków-Most-2026!',
+    });
+
+    // Spółka dla automatycznej numeracji projektów
+    const compRes = await fetch(`${server.baseUrl}/api/companies`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({ name: 'Biuro A', letter: 'A', vatPayer: true }),
+    });
+    expect(compRes.status).toBe(201);
+    const company = (await compRes.json()).company;
+
+    // Utwórz własny szablon ze strukturą:
+    // - rootA (owner, offset 0, duration 4)
+    //   - subA1 (reporter, offset 1, duration 2, blocker: rootA)
+    // - rootB (owner, offset 5, duration 3, blocker: rootA)
+    // - skippedParent (offset 0, duration 2)
+    //   - skippedChild (offset 1, duration 1) -> celowo przekażemy jego key przy odznaczonym skippedParent
+    const tplRes = await fetch(`${server.baseUrl}/api/templates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        name: 'Szablon Atomowy',
+        category: 'infrastruktura',
+        defaultDurationDays: 10,
+        tasks: [
+          { key: 'rootA', title: 'Etap A', durationDays: 4, offsetDays: 0, assigneeRole: 'owner' },
+          {
+            key: 'subA1',
+            title: 'Podetap A1',
+            durationDays: 2,
+            offsetDays: 1,
+            parentKey: 'rootA',
+            blockerKeys: ['rootA'],
+            assigneeRole: 'reporter',
+          },
+          {
+            key: 'rootB',
+            title: 'Etap B',
+            durationDays: 3,
+            offsetDays: 5,
+            blockerKeys: ['rootA'],
+            assigneeRole: 'none',
+          },
+          { key: 'skippedParent', title: 'Pominięty rodzic', durationDays: 2, offsetDays: 0 },
+          {
+            key: 'skippedChild',
+            title: 'Pominięte podzadanie',
+            durationDays: 1,
+            offsetDays: 1,
+            parentKey: 'skippedParent',
+          },
+        ],
+      }),
+    });
+    expect(tplRes.status).toBe(201);
+    const tpl = (await tplRes.json()).template as ProjectTemplate;
+
+    // Nieistniejący templateId -> 404 atomowo (bez utworzenia projektu)
+    const missingRes = await fetch(`${server.baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: pm.cookie },
+      body: JSON.stringify({
+        name: 'Projekt Nieudany',
+        companyId: company.id,
+        startDate: '2026-07-01',
+        templateId: 'tpl-nie-istnieje',
+      }),
+    });
+    expect(missingRes.status).toBe(404);
+
+    // Poprawne utworzenie projektu przez PM z odznaczonym skippedParent
+    const projRes = await fetch(`${server.baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: pm.cookie },
+      body: JSON.stringify({
+        name: 'Projekt z Szablonu',
+        companyId: company.id,
+        ownerId: admin.id,
+        startDate: '2026-07-01',
+        dueDate: '2026-07-31',
+        durationDays: 31,
+        templateId: tpl.id,
+        templateTaskKeys: ['rootA', 'subA1', 'rootB', 'skippedChild'],
+      }),
+    });
+    expect(projRes.status).toBe(201);
+    const projData = await projRes.json();
+    expect(projData.project.key).toMatch(/^\d{4}-1_A$/);
+    expect(projData.tasks).toHaveLength(3);
+
+    const tRootA = projData.tasks.find((t: Task) => t.title === 'Etap A') as Task;
+    const tSubA1 = projData.tasks.find((t: Task) => t.title === 'Podetap A1') as Task;
+    const tRootB = projData.tasks.find((t: Task) => t.title === 'Etap B') as Task;
+
+    expect(tRootA.code).toBe(`${projData.project.key}-01`);
+    expect(tRootA.code).not.toContain('ETP');
+    expect(tRootA.assigneeId).toBe(admin.id); // owner
+    expect(tRootA.status).toBe('to_do');
+    expect(tRootA.startDate).toBe('2026-07-01');
+    expect(tRootA.dueDate).toBe('2026-07-04');
+
+    expect(tSubA1.parentId).toBe(tRootA.id);
+    expect(tSubA1.assigneeId).toBe(pm.user.id); // reporter
+    expect(tSubA1.status).toBe('blocked');
+    expect(tSubA1.blockingTaskIds).toEqual([tRootA.id]);
+
+    expect(tRootB.assigneeId).toBeUndefined();
+    expect(tRootB.status).toBe('blocked');
+    expect(tRootB.startDate).toBe('2026-07-06');
+
+    // Przetarg wygrany przez naszą firmę -> create-project z templateId i templateTaskKeys
+    const tenderRes = await fetch(`${server.baseUrl}/api/tenders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        name: 'Przetarg Szablonowy',
+        contractingAuthority: 'Gmina Testowa',
+        resolutionDate: '2026-06-20',
+        status: 'resolved',
+        bidders: [{ id: 'b1', name: 'Biuro A', companyId: company.id, isOurs: true, price: 50000 }],
+        winnerBidderId: 'b1',
+      }),
+    });
+    expect(tenderRes.status).toBe(201);
+    const tender = (await tenderRes.json()).tender;
+
+    const fromTenderRes = await fetch(
+      `${server.baseUrl}/api/tenders/${tender.id}/create-project`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+        body: JSON.stringify({
+          startDate: '2026-08-01',
+          templateId: tpl.id,
+          templateTaskKeys: ['rootA', 'rootB'],
+        }),
+      }
+    );
+    expect(fromTenderRes.status).toBe(201);
+    const fromTenderData = await fromTenderRes.json();
+    expect(fromTenderData.tasks).toHaveLength(2);
+    expect(fromTenderData.tasks.every((t: Task) => t.code.startsWith(`${fromTenderData.project.key}-`))).toBe(true);
+    expect(fromTenderData.tasks.some((t: Task) => t.title === 'Podetap A1')).toBe(false);
   });
 });

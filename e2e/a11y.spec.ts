@@ -45,6 +45,7 @@ interface A11yViewScanResult {
 const SETTINGS_TABS: Array<{ key: string; name: string }> = [
   { key: 'settings-theme', name: 'Wygląd & Motyw' },
   { key: 'settings-variables', name: 'Zmienne & Terminy' },
+  { key: 'settings-templates', name: 'Szablony projektów' },
   { key: 'settings-companies', name: 'Firmy' },
   { key: 'settings-users', name: 'Użytkownicy & Zgody' },
   { key: 'settings-security', name: 'Dziennik bezpieczeństwa' },
@@ -612,7 +613,28 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
             settingsDialog.getByRole('heading', { name: 'Stan serwera i zajętość dysku', exact: true })
           ).toBeVisible();
         }
+        if (tabSpec.key === 'settings-templates') {
+          await expect(settingsDialog.getByText('Ładowanie szablonów...')).toHaveCount(0);
+          await expect(settingsDialog.getByRole('button', { name: 'Utwórz z projektu' })).toBeVisible();
+        }
         await scanView(page, scanResults, tabSpec.key, `Ustawienia: ${tabSpec.name}`, theme);
+
+        if (tabSpec.key === 'settings-templates') {
+          await settingsDialog.getByRole('button', { name: 'Duplikuj', exact: true }).first().click();
+          const editBtn = settingsDialog.getByRole('button', { name: 'Edytuj', exact: true }).first();
+          await expect(editBtn).toBeVisible();
+          await editBtn.click();
+
+          const templateEditorDialog = page.getByRole('dialog', { name: /Edytor szablonu:/i });
+          await expect(templateEditorDialog).toBeVisible();
+          await scanView(page, scanResults, 'template-editor-modal', 'Ustawienia: Edytor szablonu projektu', theme);
+          await templateEditorDialog.getByRole('button', { name: 'Zamknij edytor szablonu' }).click();
+          await expect(templateEditorDialog).toHaveCount(0);
+
+          await settingsDialog.getByRole('button', { name: 'Usuń', exact: true }).first().click();
+          await settingsDialog.getByRole('button', { name: 'Potwierdź usunięcie', exact: true }).click();
+          await expect(settingsDialog.getByRole('button', { name: 'Edytuj', exact: true })).toHaveCount(0);
+        }
       }
 
       // 9. Okno synchronizacji kalendarza (otwierane z aktywnej zakładki Kalendarz Google automatycznie zamyka Ustawienia)

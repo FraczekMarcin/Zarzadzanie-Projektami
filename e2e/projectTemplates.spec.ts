@@ -194,6 +194,24 @@ test.describe.serial('Szablony projektów — Ustawienia i współdzielenie mię
     await expect(fromProjectDialog).toBeHidden();
     await expect(settingsDialog.getByText('Wspólny Szablon Hali E2E', { exact: true })).toBeVisible();
 
+    // Edytuj świeżo utworzony szablon w nowym edytorze
+    const editBtn = settingsDialog.getByRole('button', { name: 'Edytuj', exact: true }).first();
+    await expect(editBtn).toBeVisible();
+    await editBtn.click();
+
+    const editorDialog = page.getByRole('dialog', { name: /Edytor szablonu: Wspólny Szablon Hali E2E/i });
+    await expect(editorDialog).toBeVisible();
+
+    await editorDialog.getByRole('button', { name: /Projekt budowlany konstrukcji/i }).first().click();
+    await editorDialog.getByLabel(/Tytuł zadania/i).fill('Projekt konstrukcji po edycji E2E');
+
+    const saveEditPromise = page.waitForResponse(
+      (res) => res.url().includes('/api/templates/') && res.request().method() === 'PUT'
+    );
+    await editorDialog.getByRole('button', { name: 'Zapisz zmiany' }).click();
+    expect((await saveEditPromise).status()).toBe(200);
+    await expect(editorDialog).toHaveCount(0);
+
     await settingsDialog.getByRole('button', { name: 'Zamknij', exact: true }).click();
 
     // Nowa, całkowicie czysta sesja przeglądarki (inny użytkownik: kierownik projektu)
@@ -215,14 +233,23 @@ test.describe.serial('Szablony projektów — Ustawienia i współdzielenie mię
         .getAttribute('value');
       expect(optionValue).toBeTruthy();
       await templateSelect.selectOption(optionValue!);
-      await newProjDialog.getByRole('button', { name: 'Zarejestruj projekt' }).click();
 
+      const templateChecklist = newProjDialog.getByRole('group', { name: 'Lista zadań z szablonu do utworzenia' });
+      await expect(templateChecklist).toBeVisible();
+      await expect(templateChecklist.getByText('Projekt konstrukcji po edycji E2E')).toBeVisible();
+
+      // Odznacz jedno podzadanie i sprawdź podsumowanie
+      const subCheckbox = templateChecklist.getByLabel(/Obliczenia statyczne fundamentów/i);
+      await subCheckbox.uncheck();
+      await expect(newProjDialog.getByTestId('template-selection-summary')).toContainText('1 zadań');
+
+      await newProjDialog.getByRole('button', { name: 'Zarejestruj projekt' }).click();
       await expect(newProjDialog).toBeHidden();
 
-      // Przejdź do widoku Drzewa zadań i sprawdź wygenerowane zadania z podzadaniem
+      // Przejdź do widoku Drzewa zadań i sprawdź wyedytowane zadanie oraz brak odznaczonego podzadania
       await freshPage.getByRole('button', { name: 'Drzewo zadań' }).click();
-      await expect(freshPage.getByText('Projekt budowlany konstrukcji')).toBeVisible();
-      await expect(freshPage.getByText('Obliczenia statyczne fundamentów')).toBeVisible();
+      await expect(freshPage.getByText('Projekt konstrukcji po edycji E2E')).toBeVisible();
+      await expect(freshPage.getByText('Obliczenia statyczne fundamentów')).toHaveCount(0);
     } finally {
       await freshContext.close();
     }

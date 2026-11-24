@@ -1,16 +1,19 @@
-import type {
-  Project,
-  ProjectTemplate,
-  ProjectTemplateSummary,
-  Task,
-  TemplateTaskBlueprint,
-  User,
-} from '../types';
+import type { ProjectTemplate, ProjectTemplateSummary } from '../types';
 import { DEFAULT_PROJECT_TEMPLATES } from '../data/defaultTemplates.js';
 import {
   migrateLegacyTemplate,
   type LegacyTemplateLike,
 } from './templateValidation.js';
+
+export class TemplateConflictError extends Error {
+  status = 409;
+  currentTemplate?: ProjectTemplate;
+  constructor(message: string, currentTemplate?: ProjectTemplate) {
+    super(message);
+    this.name = 'TemplateConflictError';
+    this.currentTemplate = currentTemplate;
+  }
+}
 
 export const LEGACY_TEMPLATES_STORAGE_KEY = 'oph_project_templates';
 
@@ -108,14 +111,31 @@ export async function createTemplateOnServer(
 
 export async function updateTemplateOnServer(
   templateId: string,
-  payload: Omit<ProjectTemplate, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'builtIn' | 'isCustom'>
+  payload: Omit<ProjectTemplate, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'builtIn' | 'isCustom'>,
+  options?: { expectedRevision?: number }
 ): Promise<{ template: ProjectTemplate; revision?: number }> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (typeof options?.expectedRevision === 'number') {
+    headers['If-Match'] = String(options.expectedRevision);
+  }
   const res = await fetch(`/api/templates/${encodeURIComponent(templateId)}`, {
     method: 'PUT',
     credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    headers,
+    body: JSON.stringify({
+      ...payload,
+      ...(typeof options?.expectedRevision === 'number'
+        ? { expectedRevision: options.expectedRevision }
+        : {}),
+    }),
   });
+  if (res.status === 409) {
+    const data = await res.json().catch(() => ({}));
+    throw new TemplateConflictError(
+      data?.error || 'Szablon został zmieniony przez innego użytkownika.',
+      data?.currentTemplate as ProjectTemplate | undefined
+    );
+  }
   if (!res.ok) {
     throw new Error(await readApiError(res, 'Nie udało się zaktualizować szablonu na serwerze.'));
   }
@@ -189,151 +209,4 @@ export async function createTemplateFromProjectOnServer(
     template: data.template as ProjectTemplate,
     revision: typeof data.revision === 'number' ? data.revision : undefined,
   };
-}
-
-function addDaysUtc(dateStr: string, days: number): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || '').trim());
-  if (!match) return dateStr;
-  const y = Number(match[1]);
-  const m = Number(match[2]);
-  const d = Number(match[3]);
-  const dt = new Date(Date.UTC(y, m - 1, d + days));
-  const yy = dt.getUTCFullYear();
-  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(dt.getUTCDate()).padStart(2, '0');
-  return `${yy}-${mm}-${dd}`;
-}
-
-function getBlueprintDepth(
-  byKey: ReadonlyMap<string, TemplateTaskBlueprint>,
-  key: string
-): number {
-  let depth = 1;
-  const visited = new Set<string>([key]);
-  let curr = byKey.get(key);
-  while (curr?.parentKey && !visited.has(curr.parentKey)) {
-    visited.add(curr.parentKey);
-    const parent = byKey.get(curr.parentKey);
-    if (!parent) break;
-    depth += 1;
-    curr = parent;
-  }
-  return depth;
-}
-
-/**
- * Zwraca listę zadań do utworzenia z szablonu w kolejności gwarantującej,
- * że każde zadanie nadrzędne (`parentId`) występuje przed swoimi podzadaniami.
- */
-export function instantiateTasksFromTemplate(
-  template: ProjectTemplate,
-  project: Pick<Project, 'id' | 'key' | 'startDate' | 'ownerId'>,
-  reporterUser: User
-): Task[];
-export function instantiateTasksFromTemplate(
-  template: ProjectTemplate,
-  newProjectId: string,
-  projectStartDate: string,
-  reporterUser: User,
-  options?: { projectKey?: string; ownerId?: string }
-): Task[];
-export function instantiateTasksFromTemplate(
-  template: ProjectTemplate,
-  projectOrId: Pick<Project, 'id' | 'key' | 'startDate' | 'ownerId'> | string,
-  startOrReporter: string | User,
-  maybeReporter?: User,
-  options?: { projectKey?: string; ownerId?: string }
-): Task[] {
-  const newProjectId = typeof projectOrId === 'string' ? projectOrId : projectOrId.id;
-  const projectStartDate =
-    typeof projectOrId === 'string'
-      ? (startOrReporter as string)
-      : projectOrId.startDate;
-  const reporterUser =
-    typeof projectOrId === 'string'
-      ? (maybeReporter as User)
-      : (startOrReporter as User);
-  const projectKey =
-    (typeof projectOrId === 'string' ? options?.projectKey : projectOrId.key)?.trim() || 'ZAD';
-  const ownerId =
-    typeof projectOrId === 'string' ? options?.ownerId : projectOrId.ownerId;
-
-  const blueprints = Array.isArray(template.tasks) ? template.tasks : [];
-  if (blueprints.length === 0) return [];
-
-  const byKey = new Map<string, TemplateTaskBlueprint>();
-  const keyToTaskIdMap = new Map<string, string>();
-  const keyToIndexMap = new Map<string, number>();
-
-  const seed = Date.now();
-  blueprints.forEach((bp, idx) => {
-    const key = bp.key || `t-${idx + 1}`;
-    byKey.set(key, bp);
-    keyToIndexMap.set(key, idx);
-    keyToTaskIdMap.set(key, `tsk-${seed}-${idx + 1}`);
-  });
-
-  // Sortowanie gwarantujące utworzenie zadań nadrzędnych przed podzadaniami
-  const orderedBlueprints = [...blueprints].sort((a, b) => {
-    const kA = a.key || '';
-    const kB = b.key || '';
-    const dA = getBlueprintDepth(byKey, kA);
-    const dB = getBlueprintDepth(byKey, kB);
-    if (dA !== dB) return dA - dB;
-    return (keyToIndexMap.get(kA) ?? 0) - (keyToIndexMap.get(kB) ?? 0);
-  });
-
-  const nowIso = new Date().toISOString();
-
-  return orderedBlueprints.map((bp, orderedIdx) => {
-    const key = bp.key || `t-${orderedIdx + 1}`;
-    const originalIdx = keyToIndexMap.get(key) ?? orderedIdx;
-    const taskId = keyToTaskIdMap.get(key)!;
-    const taskStart = addDaysUtc(projectStartDate, Math.max(0, bp.offsetDays || 0));
-    const durationDays = Math.max(1, bp.durationDays || 1);
-    const taskDue = addDaysUtc(taskStart, durationDays - 1);
-
-    const parentId = bp.parentKey ? keyToTaskIdMap.get(bp.parentKey) : undefined;
-
-    const mappedBlockers = (bp.blockerKeys || [])
-      .map((bKey) => keyToTaskIdMap.get(bKey))
-      .filter((id): id is string => Boolean(id && id !== taskId));
-
-    const isInitialTask = mappedBlockers.length === 0;
-
-    let assigneeId: string | undefined;
-    if (bp.assigneeRole === 'owner') {
-      assigneeId = ownerId || undefined;
-    } else if (bp.assigneeRole === 'reporter') {
-      assigneeId = reporterUser.id;
-    }
-
-    const task: Task = {
-      id: taskId,
-      projectId: newProjectId,
-      code: `${projectKey}-${String(originalIdx + 1).padStart(2, '0')}`,
-      title: bp.title,
-      description: bp.description || '',
-      type: bp.type,
-      priority: bp.priority,
-      status: isInitialTask ? 'to_do' : 'blocked',
-      reporterId: reporterUser.id,
-      ...(assigneeId ? { assigneeId } : {}),
-      ...(parentId ? { parentId } : {}),
-      startDate: taskStart,
-      dueDate: taskDue,
-      durationDays,
-      ...(bp.isOfficialDeadline ? { isOfficialDeadline: true } : {}),
-      ...(bp.estimatedHours !== undefined ? { estimatedHours: bp.estimatedHours } : {}),
-      spentHours: 0,
-      progress: 0,
-      blockingTaskIds: mappedBlockers,
-      dependencies: mappedBlockers,
-      tags: bp.tags || [],
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    };
-
-    return task;
-  });
 }

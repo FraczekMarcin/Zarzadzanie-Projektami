@@ -291,6 +291,7 @@ export interface ProjectTemplate {
   updatedAt?: string;
   createdBy?: string;
   sourceProjectId?: string;
+  revision?: number;
 }
 
 export interface ProjectTemplateSummary {
@@ -309,6 +310,7 @@ export interface ProjectTemplateSummary {
   updatedAt?: string;
   createdBy?: string;
   sourceProjectId?: string;
+  revision?: number;
 }
 
 export type TrashItemType = 'task' | 'project';

@@ -3,6 +3,16 @@ import { Project, Task, User, Priority, ProjectTemplate, ProjectTemplateSummary,
 import { downloadIcsFile } from '../utils/calendar';
 import { getNextProjectCode, isProjectCodeAvailable, isValidProjectCodeFormat } from '../utils/projectCode';
 import { fetchTemplatesList, fetchTemplateById } from '../utils/projectTemplates';
+import {
+  buildTreeOrderedTasks,
+  type OrderedTemplateTaskNode,
+} from '../utils/templateEditor';
+import {
+  addDaysUtc,
+  computeTemplateSelectionSummary,
+  filterBlueprintsWithParentCascade,
+  isValidIsoDateString,
+} from '../utils/templateInstantiation';
 import { ProjectDetailModal } from './ProjectDetailModal';
 import { FIELD_LIMITS, canEditFinance, canViewFinance } from '../utils/access';
 import { calcGrossFromNet, formatMoney } from '../utils/money';
@@ -89,7 +99,14 @@ interface ProjectsOverviewProps {
   users: User[];
   currentUser: User;
   onSelectProject: (projectId: string) => void;
-  onAddProject: (newProject: Omit<Project, 'id' | 'key'> & { key?: string }, selectedTemplate?: ProjectTemplate) => Promise<void> | void;
+  onAddProject: (
+    newProject: Omit<Project, 'id' | 'key'> & {
+      key?: string;
+      templateId?: string;
+      templateTaskKeys?: string[];
+    },
+    selectedTemplate?: ProjectTemplate
+  ) => Promise<void> | void;
   onUpdateProject?: (updatedProject: Project) => void;
   onUpdateProjectFinance?: (projectId: string, patch: Partial<Project>, expectedRevision?: number) => Promise<FinancePatchSaveResult>;
   onApplyFreshProject?: (freshProject: Project) => void;
@@ -125,6 +142,10 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   const [availableTemplates, setAvailableTemplates] = useState<ProjectTemplateSummary[]>([]);
   const templateDetailsRef = useRef<Record<string, ProjectTemplate>>({});
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('none');
+  const latestTemplateIdRef = useRef<string>('none');
+  const [selectedTemplateDetail, setSelectedTemplateDetail] = useState<ProjectTemplate | null>(null);
+  const [selectedTemplateTaskKeys, setSelectedTemplateTaskKeys] = useState<Set<string>>(() => new Set());
+  const [isLoadingTemplateDetail, setIsLoadingTemplateDetail] = useState(false);
   const [isSubmittingForm, setIsSubmittingForm] = useState(false);
 
   // Financials modal state
@@ -450,6 +471,15 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     }
 
     setSelectedTemplateId(initTemplate);
+    latestTemplateIdRef.current = initTemplate;
+    if (preselectedTemplate) {
+      setSelectedTemplateDetail(preselectedTemplate);
+      setSelectedTemplateTaskKeys(new Set(preselectedTemplate.tasks.map((t) => t.key)));
+    } else {
+      setSelectedTemplateDetail(null);
+      setSelectedTemplateTaskKeys(new Set());
+    }
+    setIsLoadingTemplateDetail(false);
     setName(initName);
     setDescription(initDesc);
     setPriority(initPriority);
@@ -496,9 +526,21 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setIsModalOpen(true);
   };
 
+  const applyLoadedTemplateDetail = (full: ProjectTemplate) => {
+    templateDetailsRef.current[full.id] = full;
+    setSelectedTemplateDetail(full);
+    setSelectedTemplateTaskKeys(new Set(full.tasks.map((t) => t.key)));
+  };
+
   const handleTemplateChange = (templateId: string) => {
     setSelectedTemplateId(templateId);
-    if (templateId === 'none') return;
+    latestTemplateIdRef.current = templateId;
+    if (templateId === 'none') {
+      setSelectedTemplateDetail(null);
+      setSelectedTemplateTaskKeys(new Set());
+      setIsLoadingTemplateDetail(false);
+      return;
+    }
     const tpl = availableTemplates.find((t) => t.id === templateId);
     if (tpl) {
       setName(tpl.name);
@@ -508,15 +550,74 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
       setDueDate(calculateDueDate(startDate, tpl.defaultDurationDays));
       if (tpl.defaultBudget) setBudget(tpl.defaultBudget);
     }
-    if (!templateDetailsRef.current[templateId] && currentUser.role !== 'viewer') {
+    const cached = templateDetailsRef.current[templateId];
+    if (cached) {
+      applyLoadedTemplateDetail(cached);
+      setIsLoadingTemplateDetail(false);
+      return;
+    }
+    setSelectedTemplateDetail(null);
+    setSelectedTemplateTaskKeys(new Set());
+    if (currentUser.role !== 'viewer') {
+      setIsLoadingTemplateDetail(true);
       fetchTemplateById(templateId)
         .then((full) => {
           templateDetailsRef.current[full.id] = full;
+          if (latestTemplateIdRef.current === templateId) {
+            applyLoadedTemplateDetail(full);
+          }
         })
         .catch(() => {
           // zostanie ponowione podczas zapisu projektu
+        })
+        .finally(() => {
+          if (latestTemplateIdRef.current === templateId) {
+            setIsLoadingTemplateDetail(false);
+          }
         });
     }
+  };
+
+  const orderedTemplateNodes = useMemo(
+    () => (selectedTemplateDetail ? buildTreeOrderedTasks(selectedTemplateDetail.tasks) : []),
+    [selectedTemplateDetail]
+  );
+
+  const templateSelectionSummary = useMemo(
+    () =>
+      selectedTemplateDetail
+        ? computeTemplateSelectionSummary(
+            selectedTemplateDetail.tasks,
+            startDate,
+            selectedTemplateTaskKeys
+          )
+        : null,
+    [selectedTemplateDetail, startDate, selectedTemplateTaskKeys]
+  );
+
+  const toggleTemplateTaskKey = (node: OrderedTemplateTaskNode, checked: boolean) => {
+    setSelectedTemplateTaskKeys((prev) => {
+      const next = new Set(prev);
+      if (!checked) {
+        next.delete(node.task.key);
+        for (const dKey of node.descendantKeys) {
+          next.delete(dKey);
+        }
+      } else {
+        next.add(node.task.key);
+        if (selectedTemplateDetail) {
+          const byKey = new Map(selectedTemplateDetail.tasks.map((t) => [t.key, t]));
+          const visited = new Set<string>([node.task.key]);
+          let currParent = node.task.parentKey;
+          while (currParent && !visited.has(currParent)) {
+            visited.add(currParent);
+            next.add(currParent);
+            currParent = byKey.get(currParent)?.parentKey;
+          }
+        }
+      }
+      return next;
+    });
   };
 
   const openEditModal = (project: Project) => {
@@ -653,10 +754,24 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
             ? projectCode.trim().toUpperCase()
             : undefined;
 
+        const templateTaskKeysPayload =
+          selectedTemplateId !== 'none' &&
+          template &&
+          selectedTemplateDetail?.id === template.id
+            ? filterBlueprintsWithParentCascade(
+                template.tasks,
+                selectedTemplateTaskKeys
+              ).map((t) => t.key)
+            : undefined;
+
         await onAddProject(
           {
             ...(customKeyPayload ? { key: customKeyPayload } : {}),
             ...(companyId ? { companyId } : {}),
+            ...(selectedTemplateId !== 'none' ? { templateId: selectedTemplateId } : {}),
+            ...(templateTaskKeysPayload !== undefined
+              ? { templateTaskKeys: templateTaskKeysPayload }
+              : {}),
             name,
             description,
             priority,
@@ -1471,6 +1586,143 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                       </option>
                     ))}
                   </select>
+
+                  {selectedTemplateId !== 'none' && (
+                    <div className="pt-2 border-t border-purple-200 dark:border-purple-800/80 space-y-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <label
+                            htmlFor="project-template-start-date"
+                            className="text-[11px] font-semibold text-purple-950 dark:text-purple-200"
+                          >
+                            Start harmonogramu szablonu:
+                          </label>
+                          <input
+                            id="project-template-start-date"
+                            type="date"
+                            value={startDate}
+                            onChange={(e) => handleStartDateChange(e.target.value)}
+                            className="bg-white dark:bg-slate-900 border border-purple-300 dark:border-purple-700 rounded px-2 py-1 text-[11px] font-mono text-slate-900 dark:text-white"
+                          />
+                        </div>
+
+                        {templateSelectionSummary && (
+                          <span
+                            data-testid="template-selection-summary"
+                            className="text-[11px] font-bold text-purple-950 dark:text-purple-100"
+                          >
+                            {templateSelectionSummary.selectedCount} zadań, {templateSelectionSummary.totalEstimatedHours} godzin
+                          </span>
+                        )}
+                      </div>
+
+                      {templateSelectionSummary?.firstTaskDate && templateSelectionSummary?.lastTaskDate && (
+                        <p className="text-[11px] text-purple-900 dark:text-purple-200">
+                          Start pierwszego zadania:{' '}
+                          <span className="font-mono font-semibold">{templateSelectionSummary.firstTaskDate}</span>
+                          {' · '}Koniec ostatniego:{' '}
+                          <span className="font-mono font-semibold">{templateSelectionSummary.lastTaskDate}</span>
+                        </p>
+                      )}
+
+                      {isLoadingTemplateDetail ? (
+                        <p role="status" className="text-[11px] text-purple-800 dark:text-purple-300">
+                          Wczytywanie struktury zadań szablonu...
+                        </p>
+                      ) : orderedTemplateNodes.length > 0 ? (
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-semibold text-purple-950 dark:text-purple-200">
+                              Zadania do utworzenia w projekcie:
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  selectedTemplateDetail &&
+                                  setSelectedTemplateTaskKeys(
+                                    new Set(selectedTemplateDetail.tasks.map((t) => t.key))
+                                  )
+                                }
+                                className="text-[11px] font-semibold text-purple-800 dark:text-purple-300 hover:underline"
+                              >
+                                Zaznacz wszystkie
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedTemplateTaskKeys(new Set())}
+                                className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:underline"
+                              >
+                                Odznacz wszystkie
+                              </button>
+                            </div>
+                          </div>
+
+                          <div
+                            tabIndex={0}
+                            role="group"
+                            aria-label="Lista zadań z szablonu do utworzenia"
+                            className="max-h-52 overflow-y-auto rounded-lg border border-purple-200 dark:border-purple-800 bg-white dark:bg-slate-900 divide-y divide-slate-100 dark:divide-slate-800 p-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-600"
+                          >
+                            {orderedTemplateNodes.map((node) => {
+                              const isChecked = selectedTemplateTaskKeys.has(node.task.key);
+                              const depthIdx = Math.min(5, Math.max(0, node.depth));
+                              const padClasses = ['pl-1', 'pl-5', 'pl-9', 'pl-12', 'pl-16', 'pl-20'] as const;
+                              const taskStart = isValidIsoDateString(startDate)
+                                ? addDaysUtc(startDate, node.task.offsetDays || 0)
+                                : `+${node.task.offsetDays || 0}d`;
+                              const taskEnd = isValidIsoDateString(startDate)
+                                ? addDaysUtc(
+                                    startDate,
+                                    (node.task.offsetDays || 0) + Math.max(1, node.task.durationDays || 1) - 1
+                                  )
+                                : `${node.task.durationDays}d`;
+
+                              return (
+                                <label
+                                  key={node.task.key}
+                                  className={`flex items-center justify-between gap-2 py-1.5 pr-2 ${padClasses[depthIdx]} rounded hover:bg-slate-50 dark:hover:bg-slate-800/70 cursor-pointer text-[11px]`}
+                                >
+                                  <span className="flex items-center gap-2 min-w-0">
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={(e) => toggleTemplateTaskKey(node, e.target.checked)}
+                                      className="rounded border-slate-400 dark:border-slate-600 text-sky-700 focus:ring-sky-600 shrink-0"
+                                    />
+                                    <span
+                                      className={`truncate font-medium ${
+                                        isChecked
+                                          ? 'text-slate-900 dark:text-slate-100'
+                                          : 'line-through text-slate-500 dark:text-slate-400'
+                                      }`}
+                                    >
+                                      {node.task.title}
+                                    </span>
+                                    {node.task.isOfficialDeadline && (
+                                      <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-rose-100 dark:bg-rose-950/70 text-rose-800 dark:text-rose-200 shrink-0">
+                                        Termin urzędowy
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span className="text-[10px] font-mono text-slate-600 dark:text-slate-300 shrink-0">
+                                    {taskStart}–{taskEnd} · {node.task.durationDays}d
+                                    {typeof node.task.estimatedHours === 'number'
+                                      ? ` · ${node.task.estimatedHours}h`
+                                      : ''}
+                                  </span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-purple-800 dark:text-purple-300">
+                          Wybrany szablon nie zawiera zadań początkowych.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1966,8 +2218,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
             isOpen={isTemplateManagerOpen}
             onClose={() => setIsTemplateManagerOpen(false)}
             onSelectTemplateToCreate={(tpl) => {
-              templateDetailsRef.current[tpl.id] = tpl;
+              applyLoadedTemplateDetail(tpl);
               setSelectedTemplateId(tpl.id);
+              latestTemplateIdRef.current = tpl.id;
               setName(tpl.name);
               setDescription(tpl.description);
               setPriority(tpl.defaultPriority);

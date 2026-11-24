@@ -105,6 +105,7 @@ export const CREATE_PROJECT_ALLOWED_KEYS = new Set<string>([
   'companyId',
   'force',
   'templateId',
+  'templateTaskKeys',
 ]);
 
 export interface ComputedBidder extends Bidder {
@@ -1151,6 +1152,7 @@ export interface BuildProjectFromTenderOptions {
   defaultCompanyId?: string;
   vatRates?: VatRateOption[];
   body?: Record<string, any>;
+  templateDurationDays?: number;
   todayIso?: string;
   idFactory?: () => string;
 }
@@ -1265,6 +1267,8 @@ export function buildProjectFromTender(
         error: 'Termin zakończenia (dueDate) nie może być wcześniejszy niż data rozpoczęcia (startDate).',
       };
     }
+  } else if (typeof opts.templateDurationDays === 'number' && opts.templateDurationDays >= 1) {
+    dueDate = addDaysIso(startDate, Math.max(0, Math.round(opts.templateDurationDays) - 1));
   } else {
     dueDate = addDaysIso(startDate, 30);
   }
@@ -1371,14 +1375,8 @@ export function buildProjectFromTender(
     revision: 1,
   };
 
-  let notice: string | undefined;
-  if (body.templateId !== undefined && body.templateId !== null && String(body.templateId).trim() !== '') {
-    notice = 'Szablony projektów po stronie serwera nie są jeszcze obsługiwane — parametr templateId został zignorowany.';
-  }
-
   return {
     ok: true,
     project,
-    ...(notice ? { notice } : {}),
   };
 }

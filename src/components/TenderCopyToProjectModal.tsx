@@ -1,9 +1,9 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { Company, Project, ProjectTemplate, ProjectTemplateSummary } from '../types';
+import type { Company, Project, ProjectTemplateSummary, Task } from '../types';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { useVariables } from '../hooks/useVariables';
-import { fetchTemplatesList, fetchTemplateById } from '../utils/projectTemplates';
+import { fetchTemplatesList } from '../utils/projectTemplates';
 import { getTodayIso } from '../utils/today';
 import { formatMoney } from '../utils/money';
 import {
@@ -22,8 +22,8 @@ interface TenderCopyToProjectModalProps {
   onProjectCreated: (result: {
     project: Project;
     tender: TenderDetail;
+    tasks?: Task[];
     revision?: number;
-    selectedTemplate?: ProjectTemplate;
   }) => void;
 }
 
@@ -205,20 +205,11 @@ export const TenderCopyToProjectModal: React.FC<TenderCopyToProjectModalProps> =
         return;
       }
 
-      let chosenTemplate: ProjectTemplate | undefined;
-      if (templateId !== 'none') {
-        try {
-          chosenTemplate = await fetchTemplateById(templateId);
-        } catch {
-          chosenTemplate = undefined;
-        }
-      }
-
       onProjectCreated({
         project: data.project as Project,
         tender: (data.tender as TenderDetail) || tender,
+        ...(Array.isArray(data.tasks) ? { tasks: data.tasks as Task[] } : {}),
         revision: typeof data.revision === 'number' ? data.revision : undefined,
-        selectedTemplate: chosenTemplate,
       });
       onClose();
     } catch (err: any) {

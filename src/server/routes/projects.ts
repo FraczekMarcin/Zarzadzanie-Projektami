@@ -16,6 +16,13 @@ import {
   isValidProjectCodeFormat,
 } from '../../utils/projectCode.js';
 import { recomputeProjectProgress } from '../../utils/progress.js';
+import type { ProjectTemplate, Task } from '../../types/index.js';
+import {
+  addDaysUtc,
+  instantiateTemplateForProject,
+  isValidIsoDateString,
+  resolveTemplateById,
+} from '../../utils/templateInstantiation.js';
 import { getClientIp } from '../security.js';
 import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
@@ -303,7 +310,48 @@ export function registerProjectRoutes(
         }
       }
 
+      const hasTemplateParam =
+        body.templateId !== undefined && body.templateId !== null && body.templateId !== '';
+      let resolvedTemplate: ProjectTemplate | undefined;
+      if (hasTemplateParam) {
+        if (typeof body.templateId !== 'string' || !body.templateId.trim()) {
+          return res.status(400).json({ error: 'Nieprawidłowy identyfikator szablonu (templateId).' });
+        }
+        resolvedTemplate = resolveTemplateById(appState, body.templateId.trim());
+        if (!resolvedTemplate) {
+          return res.status(404).json({
+            error: `Szablon o ID "${body.templateId.trim()}" nie został znaleziony.`,
+          });
+        }
+      }
+
+      if (body.startDate !== undefined && body.startDate !== null && body.startDate !== '') {
+        if (!isValidIsoDateString(body.startDate)) {
+          return res.status(400).json({
+            error: 'Nieprawidłowy format daty rozpoczęcia (startDate w formacie RRRR-MM-DD).',
+          });
+        }
+      }
+
       const now = new Date().toISOString();
+      const effectiveStartDate =
+        typeof allowed.startDate === 'string' && isValidIsoDateString(allowed.startDate)
+          ? allowed.startDate.trim()
+          : now.slice(0, 10);
+
+      const effectiveDurationDays =
+        typeof allowed.durationDays === 'number' && allowed.durationDays >= 1
+          ? allowed.durationDays
+          : resolvedTemplate
+          ? Math.max(1, resolvedTemplate.defaultDurationDays || 60)
+          : 30;
+
+      const effectiveDueDate =
+        typeof allowed.dueDate === 'string' && isValidIsoDateString(allowed.dueDate)
+          ? allowed.dueDate.trim()
+          : resolvedTemplate
+          ? addDaysUtc(effectiveStartDate, effectiveDurationDays - 1)
+          : now.slice(0, 10);
 
       const newProject: Record<string, any> = {
         ...allowed,
@@ -315,9 +363,9 @@ export function registerProjectRoutes(
         description: allowed.description || '',
         priority: allowed.priority || 'normal',
         status: allowed.status || 'planning',
-        startDate: allowed.startDate || now.slice(0, 10),
-        dueDate: allowed.dueDate || now.slice(0, 10),
-        durationDays: typeof allowed.durationDays === 'number' ? allowed.durationDays : 30,
+        startDate: effectiveStartDate,
+        dueDate: effectiveDueDate,
+        durationDays: effectiveDurationDays,
         progress: 0,
         color: allowed.color || '#3b82f6',
         revision: 1,
@@ -329,9 +377,74 @@ export function registerProjectRoutes(
         delete newProject.ownerId;
       }
 
-      appState.projects.push(newProject);
-      const newRev = stateStore.bumpStateRevision();
-      await stateStore.saveStateAtomicAsync();
+      let instantiatedTasks: Task[] = [];
+      if (resolvedTemplate) {
+        const instRes = instantiateTemplateForProject({
+          template: resolvedTemplate,
+          project: {
+            id: newProject.id,
+            key: newProject.key,
+            startDate: newProject.startDate,
+            ownerId: newProject.ownerId,
+          },
+          caller,
+          templateTaskKeys: body.templateTaskKeys,
+          existingProjectTasksCount: 0,
+          nowIso: now,
+        });
+        if (!instRes.ok) {
+          return res.status(instRes.status).json({ error: instRes.error });
+        }
+        instantiatedTasks = instRes.tasks;
+      }
+
+      const prevProjectsLen = appState.projects.length;
+      const prevTasks = Array.isArray(appState.tasks) ? [...appState.tasks] : [];
+      const prevLogs = Array.isArray(appState.activityLogs) ? [...appState.activityLogs] : [];
+      const prevRev = appState.revision || 0;
+
+      let newRev: number;
+      try {
+        appState.projects.push(newProject);
+        if (instantiatedTasks.length > 0) {
+          if (!Array.isArray(appState.tasks)) {
+            appState.tasks = [];
+          }
+          appState.tasks = [...instantiatedTasks, ...appState.tasks];
+        }
+
+        recomputeProjectProgress(appState, newProject.id, {
+          weighting: settingsService.getEffectiveProgressWeighting(),
+        });
+
+        if (resolvedTemplate) {
+          if (!Array.isArray(appState.activityLogs)) {
+            appState.activityLogs = [];
+          }
+          const actorName = caller?.name || caller?.email || caller?.id || 'Użytkownik';
+          const deadlineCount = instantiatedTasks.filter((t) => t.isOfficialDeadline).length;
+          appState.activityLogs.unshift({
+            id: `act-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
+            projectId: newProject.id,
+            userId: caller.id,
+            action: `${actorName} utworzył projekt [${newProject.key}] z szablonu "${resolvedTemplate.name}" (${instantiatedTasks.length} zadań)`,
+            timestamp: now,
+            details: `Wygenerowano ${instantiatedTasks.length} zadań (terminy urzędowe: ${deadlineCount}).`,
+          });
+          if (appState.activityLogs.length > 500) {
+            appState.activityLogs = appState.activityLogs.slice(0, 500);
+          }
+        }
+
+        newRev = stateStore.bumpStateRevision();
+        await stateStore.saveStateAtomicAsync();
+      } catch (saveErr) {
+        appState.projects.length = prevProjectsLen;
+        appState.tasks = prevTasks;
+        appState.activityLogs = prevLogs;
+        appState.revision = prevRev;
+        throw saveErr;
+      }
 
       const hasInitialFinance =
         (typeof newProject.projectValue === 'number' && newProject.projectValue > 0) ||
@@ -357,6 +470,7 @@ export function registerProjectRoutes(
       res.status(201).json({
         success: true,
         project: filterProjectForUser(newProject, caller),
+        ...(resolvedTemplate ? { tasks: instantiatedTasks } : {}),
         revision: newRev,
       });
     } catch (err: any) {

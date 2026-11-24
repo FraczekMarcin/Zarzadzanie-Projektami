@@ -8,7 +8,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import type { Company, Project, ProjectTemplate, User } from '../types';
+import type { Company, Project, ProjectTemplate, Task, User } from '../types';
 import type { NotificationToast } from '../hooks/useAuthSession';
 import { getTodayIso } from '../utils/today';
 import {
@@ -66,8 +66,8 @@ interface TendersViewProps {
   currentUser: User;
   onProjectCreated: (params: {
     project: Project;
+    tasks?: Task[];
     revision?: number;
-    selectedTemplate?: ProjectTemplate;
   }) => void;
   onOpenProject: (projectId: string) => void;
   onNotify?: (
@@ -295,13 +295,13 @@ export const TendersView: React.FC<TendersViewProps> = ({
   const handleProjectCreatedFromModal = (result: {
     project: Project;
     tender: TenderDetail;
+    tasks?: Task[];
     revision?: number;
-    selectedTemplate?: ProjectTemplate;
   }) => {
     onProjectCreated({
       project: result.project,
+      ...(result.tasks ? { tasks: result.tasks } : {}),
       revision: result.revision,
-      selectedTemplate: result.selectedTemplate,
     });
     if (detailTender && detailTender.id === result.tender.id) {
       setDetailTender(result.tender);

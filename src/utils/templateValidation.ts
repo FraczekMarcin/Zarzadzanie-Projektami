@@ -256,6 +256,7 @@ export function migrateLegacyTemplate(
     ...(typeof raw?.updatedAt === 'string' ? { updatedAt: raw.updatedAt } : {}),
     ...(typeof raw?.createdBy === 'string' ? { createdBy: raw.createdBy } : {}),
     ...(typeof raw?.sourceProjectId === 'string' ? { sourceProjectId: raw.sourceProjectId } : {}),
+    ...(typeof (raw as any)?.revision === 'number' ? { revision: (raw as any).revision } : { revision: 1 }),
   };
 }
 
@@ -277,6 +278,7 @@ export function toTemplateSummary(template: ProjectTemplate): ProjectTemplateSum
     ...(template.updatedAt !== undefined ? { updatedAt: template.updatedAt } : {}),
     ...(template.createdBy !== undefined ? { createdBy: template.createdBy } : {}),
     ...(template.sourceProjectId !== undefined ? { sourceProjectId: template.sourceProjectId } : {}),
+    revision: typeof template.revision === 'number' ? template.revision : 1,
   };
 }
 

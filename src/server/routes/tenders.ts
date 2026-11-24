@@ -13,7 +13,13 @@ import {
   toTenderDetail,
   validateTenderWritePayload,
 } from '../../utils/tenders.js';
-import type { Tender } from '../../types/index.js';
+import crypto from 'crypto';
+import type { ProjectTemplate, Task, Tender } from '../../types/index.js';
+import { normalizeProgressWeighting, recomputeProjectProgress } from '../../utils/progress.js';
+import {
+  instantiateTemplateForProject,
+  resolveTemplateById,
+} from '../../utils/templateInstantiation.js';
 import { getClientIp, SecurityContext } from '../security.js';
 import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
@@ -435,6 +441,28 @@ export function registerTenderRoutes(
           return { status: 404, payload: { error: `Przetarg o ID "${req.params.id}" nie został znaleziony.` } };
         }
 
+        const rawBody = req.body || {};
+        const hasTemplateParam =
+          rawBody.templateId !== undefined &&
+          rawBody.templateId !== null &&
+          rawBody.templateId !== '';
+        let resolvedTemplate: ProjectTemplate | undefined;
+        if (hasTemplateParam) {
+          if (typeof rawBody.templateId !== 'string' || !rawBody.templateId.trim()) {
+            return {
+              status: 400,
+              payload: { error: 'Nieprawidłowy identyfikator szablonu (templateId).' },
+            };
+          }
+          resolvedTemplate = resolveTemplateById(appState, rawBody.templateId.trim());
+          if (!resolvedTemplate) {
+            return {
+              status: 404,
+              payload: { error: `Szablon o ID "${rawBody.templateId.trim()}" nie został znaleziony.` },
+            };
+          }
+        }
+
         const buildResult = buildProjectFromTender({
           tender,
           callerId: caller.id,
@@ -445,7 +473,8 @@ export function registerTenderRoutes(
             appState.projectNumbering?.scope === 'company' ? 'company' : 'year',
           defaultCompanyId: appState.projectNumbering?.defaultCompanyId,
           vatRates: appState.variables?.vatRates,
-          body: req.body || {},
+          body: rawBody,
+          templateDurationDays: resolvedTemplate?.defaultDurationDays,
         });
 
         if (!buildResult.ok) {
@@ -458,16 +487,90 @@ export function registerTenderRoutes(
           };
         }
 
-        if (!Array.isArray(appState.projects)) {
-          appState.projects = [];
+        const nowIso = new Date().toISOString();
+        let instantiatedTasks: Task[] = [];
+        if (resolvedTemplate) {
+          const instRes = instantiateTemplateForProject({
+            template: resolvedTemplate,
+            project: {
+              id: buildResult.project.id,
+              key: buildResult.project.key,
+              startDate: buildResult.project.startDate,
+              ownerId: buildResult.project.ownerId,
+            },
+            caller,
+            templateTaskKeys: rawBody.templateTaskKeys,
+            existingProjectTasksCount: 0,
+            nowIso,
+          });
+          if (!instRes.ok) {
+            return { status: instRes.status, payload: { error: instRes.error } };
+          }
+          instantiatedTasks = instRes.tasks;
         }
-        appState.projects.push(buildResult.project);
-        tender.linkedProjectId = buildResult.project.id;
-        tender.revision = (tender.revision || 1) + 1;
-        tender.updatedAt = new Date().toISOString();
 
-        const newRev = stateStore.bumpStateRevision();
-        await stateStore.saveStateAtomicAsync();
+        const prevProjects = Array.isArray(appState.projects) ? [...appState.projects] : [];
+        const prevTasks = Array.isArray(appState.tasks) ? [...appState.tasks] : [];
+        const prevLogs = Array.isArray(appState.activityLogs) ? [...appState.activityLogs] : [];
+        const prevTenderSnapshot = {
+          linkedProjectId: tender.linkedProjectId,
+          revision: tender.revision,
+          updatedAt: tender.updatedAt,
+        };
+        const prevRev = appState.revision || 0;
+
+        let newRev: number;
+        try {
+          if (!Array.isArray(appState.projects)) {
+            appState.projects = [];
+          }
+          appState.projects.push(buildResult.project);
+          if (instantiatedTasks.length > 0) {
+            if (!Array.isArray(appState.tasks)) {
+              appState.tasks = [];
+            }
+            appState.tasks = [...instantiatedTasks, ...appState.tasks];
+          }
+
+          recomputeProjectProgress(appState, buildResult.project.id, {
+            weighting: normalizeProgressWeighting(appState.progressWeighting),
+          });
+
+          if (resolvedTemplate) {
+            if (!Array.isArray(appState.activityLogs)) {
+              appState.activityLogs = [];
+            }
+            const actorName = caller?.name || caller?.email || caller?.id || 'Użytkownik';
+            const deadlineCount = instantiatedTasks.filter((t) => t.isOfficialDeadline).length;
+            appState.activityLogs.unshift({
+              id: `act-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
+              projectId: buildResult.project.id,
+              userId: caller.id,
+              action: `${actorName} utworzył projekt [${buildResult.project.key}] z przetargu z szablonu "${resolvedTemplate.name}" (${instantiatedTasks.length} zadań)`,
+              timestamp: nowIso,
+              details: `Wygenerowano ${instantiatedTasks.length} zadań (terminy urzędowe: ${deadlineCount}).`,
+            });
+            if (appState.activityLogs.length > 500) {
+              appState.activityLogs = appState.activityLogs.slice(0, 500);
+            }
+          }
+
+          tender.linkedProjectId = buildResult.project.id;
+          tender.revision = (tender.revision || 1) + 1;
+          tender.updatedAt = nowIso;
+
+          newRev = stateStore.bumpStateRevision();
+          await stateStore.saveStateAtomicAsync();
+        } catch (saveErr) {
+          appState.projects = prevProjects;
+          appState.tasks = prevTasks;
+          appState.activityLogs = prevLogs;
+          tender.linkedProjectId = prevTenderSnapshot.linkedProjectId;
+          tender.revision = prevTenderSnapshot.revision;
+          tender.updatedAt = prevTenderSnapshot.updatedAt;
+          appState.revision = prevRev;
+          throw saveErr;
+        }
 
         await securityLogger
           .record('tender_project_created', {
@@ -478,9 +581,14 @@ export function registerTenderRoutes(
               tenderId: tender.id,
               projectId: buildResult.project.id,
               projectKey: buildResult.project.key,
+              ...(resolvedTemplate ? { templateId: resolvedTemplate.id, tasksCount: instantiatedTasks.length } : {}),
             },
           })
           .catch(() => {});
+
+        const successMessage = resolvedTemplate
+          ? `Utworzono projekt ${buildResult.project.key} z szablonu "${resolvedTemplate.name}" (${instantiatedTasks.length} zadań).`
+          : `Utworzono projekt ${buildResult.project.key}.`;
 
         return {
           status: 201,
@@ -488,10 +596,9 @@ export function registerTenderRoutes(
             success: true,
             project: filterProjectForUser(buildResult.project, caller),
             tender: toTenderDetail(tender),
+            ...(resolvedTemplate ? { tasks: instantiatedTasks } : {}),
+            message: successMessage,
             revision: newRev,
-            ...(buildResult.notice
-              ? { message: buildResult.notice, notice: buildResult.notice }
-              : {}),
           },
         };
       });

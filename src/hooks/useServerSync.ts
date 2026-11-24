@@ -319,8 +319,13 @@ export function useServerSync({
   }, [isAuthenticated]);
 
   const createProjectOnServer = async (
-    project: Omit<Project, 'id' | 'key'> & { id?: string; key?: string }
-  ): Promise<Project | null> => {
+    project: Omit<Project, 'id' | 'key'> & {
+      id?: string;
+      key?: string;
+      templateId?: string;
+      templateTaskKeys?: string[];
+    }
+  ): Promise<{ project: Project; tasks?: Task[] } | null> => {
     try {
       const res = await fetch('/api/projects', {
         method: 'POST',
@@ -338,6 +343,9 @@ export function useServerSync({
           applyRevision(data.revision);
         }
         if (data.project) {
+          const createdTasks: Task[] | undefined = Array.isArray(data.tasks)
+            ? (data.tasks as Task[])
+            : undefined;
           setProjects((prev) => {
             if (project.id && prev.some((p) => p.id === project.id)) {
               return prev.map((p) => (p.id === project.id ? { ...p, ...data.project } : p));
@@ -347,11 +355,21 @@ export function useServerSync({
             }
             return [...prev, data.project];
           });
-          if (project.id) {
-            setSelectedProjectId((prev) => (prev === project.id ? data.project.id : prev));
+          if (createdTasks && createdTasks.length > 0) {
+            setTasks((prev) => {
+              const createdIds = new Set(createdTasks.map((t) => t.id));
+              return [...createdTasks, ...prev.filter((t) => !createdIds.has(t.id))];
+            });
+          } else if (project.id) {
             setTasks((prev) => prev.map((t) => (t.projectId === project.id ? { ...t, projectId: data.project.id } : t)));
           }
-          return data.project as Project;
+          if (project.id) {
+            setSelectedProjectId((prev) => (prev === project.id ? data.project.id : prev));
+          }
+          return {
+            project: data.project as Project,
+            ...(createdTasks ? { tasks: createdTasks } : {}),
+          };
         }
         return null;
       } else {

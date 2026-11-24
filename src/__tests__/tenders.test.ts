@@ -5,6 +5,7 @@ import os from 'os';
 import http from 'http';
 import { createApp, CreateAppOptions } from '../../server.js';
 import type { Company, Tender } from '../types/index.js';
+import { DEFAULT_PROJECT_TEMPLATES } from '../data/defaultTemplates.js';
 import { normalizeStateStructure } from '../utils/stateStore.js';
 import {
   buildProjectFromTender,
@@ -937,12 +938,25 @@ describe('Integracyjne testy API /api/tenders', () => {
       ).json()
     ).tender;
 
+    // Nieznany templateId -> 404 atomowo (bez utworzenia projektu i bez powiązania przetargu)
+    const missingTplRes = await fetch(
+      `${ctx.baseUrl}/api/tenders/${wonTender.id}/create-project`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+        body: JSON.stringify({ startDate: '2026-11-25', templateId: 'tpl-non-existent' }),
+      }
+    );
+    expect(missingTplRes.status).toBe(404);
+
+    // Prawdziwy templateId -> 201 + wygenerowane zadania o standardowym kodzie projektu
+    const usedTemplate = DEFAULT_PROJECT_TEMPLATES[0];
     const createProjRes = await fetch(
       `${ctx.baseUrl}/api/tenders/${wonTender.id}/create-project`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
-        body: JSON.stringify({ startDate: '2026-11-25', templateId: 'tpl-ignored' }),
+        body: JSON.stringify({ startDate: '2026-11-25', templateId: usedTemplate.id }),
       }
     );
     expect(createProjRes.status).toBe(201);
@@ -956,6 +970,11 @@ describe('Integracyjne testy API /api/tenders', () => {
     expect(createdProjData.project.description).toContain('Projekt budowlany');
     expect(createdProjData.project.description).toContain('https://ezamowienia.gov.pl/s7');
     expect(createdProjData.tender.linkedProjectId).toBe(createdProjData.project.id);
+    expect(createdProjData.tasks).toHaveLength(usedTemplate.tasks.length);
+    for (const t of createdProjData.tasks) {
+      expect(t.code.startsWith(`${createdProjData.project.key}-`)).toBe(true);
+      expect(t.code).not.toContain('ETP');
+    }
     expect(createdProjData.message || createdProjData.notice).toBeTruthy();
 
     // Ponowne kopiowanie bez force -> 409

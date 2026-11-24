@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import type { Project, ProjectTemplateSummary, Task, User } from '../../types';
+import type { Project, ProjectTemplate, ProjectTemplateSummary, Task, User } from '../../types';
 import {
   MAX_CUSTOM_TEMPLATES,
   TEMPLATE_CATEGORY_LABELS,
@@ -9,10 +9,12 @@ import {
   createTemplateOnServer,
   deleteTemplateOnServer,
   duplicateTemplateOnServer,
+  fetchTemplateById,
   fetchTemplatesList,
   getLegacyLocalCustomTemplates,
 } from '../../utils/projectTemplates';
 import { CreateTemplateFromProjectModal } from './CreateTemplateFromProjectModal';
+import { TemplateEditorModal } from './TemplateEditorModal';
 import {
   AlertCircle,
   Building2,
@@ -47,6 +49,8 @@ export const ProjectTemplatesTab: React.FC<ProjectTemplatesTabProps> = ({
   const [templates, setTemplates] = useState<ProjectTemplateSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [loadingEditId, setLoadingEditId] = useState<string | null>(null);
+  const [editingTemplate, setEditingTemplate] = useState<ProjectTemplate | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [isFromProjectOpen, setIsFromProjectOpen] = useState(false);
 
@@ -184,6 +188,22 @@ export const ProjectTemplatesTab: React.FC<ProjectTemplatesTabProps> = ({
       });
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const handleOpenEditor = async (tpl: ProjectTemplateSummary) => {
+    setLoadingEditId(tpl.id);
+    setStatusMsg(null);
+    try {
+      const fullTemplate = await fetchTemplateById(tpl.id);
+      setEditingTemplate(fullTemplate);
+    } catch (err: any) {
+      setStatusMsg({
+        type: 'error',
+        text: err?.message || 'Nie udało się wczytać szablonu do edycji.',
+      });
+    } finally {
+      setLoadingEditId(null);
     }
   };
 
@@ -355,18 +375,12 @@ export const ProjectTemplatesTab: React.FC<ProjectTemplatesTabProps> = ({
                       <>
                         <button
                           type="button"
-                          disabled={isBusy}
-                          title="Szczegółowy edytor szablonów będzie dostępny w kolejnym zadaniu"
-                          onClick={() =>
-                            setStatusMsg({
-                              type: 'info',
-                              text: `Edytor zawartości szablonu "${tpl.name}" zostanie udostępniony w następnym zadaniu.`,
-                            })
-                          }
+                          disabled={isBusy || loadingEditId === tpl.id}
+                          onClick={() => handleOpenEditor(tpl)}
                           className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 text-xs font-semibold transition-colors"
                         >
                           <Edit3 className="w-3.5 h-3.5" aria-hidden="true" />
-                          <span>Edytuj</span>
+                          <span>{loadingEditId === tpl.id ? 'Wczytywanie...' : 'Edytuj'}</span>
                         </button>
 
                         <button
@@ -428,6 +442,21 @@ export const ProjectTemplatesTab: React.FC<ProjectTemplatesTabProps> = ({
           setStatusMsg({
             type: 'success',
             text: `Utworzono szablon "${created.name}" (${created.tasks.length} zadań).`,
+          });
+        }}
+      />
+
+      <TemplateEditorModal
+        isOpen={Boolean(editingTemplate)}
+        template={editingTemplate}
+        onClose={() => setEditingTemplate(null)}
+        onSaved={(updated) => {
+          setEditingTemplate(null);
+          void loadTemplates();
+          void onRefreshState?.();
+          setStatusMsg({
+            type: 'success',
+            text: `Zapisano zmiany w szablonie "${updated.name}" (${updated.tasks.length} zadań).`,
           });
         }}
       />

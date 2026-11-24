@@ -9,7 +9,7 @@ import {
   hasDirectSubtasks,
   type ProgressWeighting,
 } from '../utils/progress';
-import { canAccessProject } from '../utils/access';
+import { canAccessProject, generateTaskCode } from '../utils/access';
 import { canReparent, reconcileParentCompletionOnReparent } from '../utils/taskTree';
 
 interface UseTaskActionsParams {
@@ -445,8 +445,8 @@ export function useTaskActions({
       );
     } else {
       const targetProject = projects.find((p) => p.id === taskData.projectId) || projects[0];
-      const count = tasks.filter((t) => t.projectId === targetProject.id).length + 1;
-      const code = `${targetProject.key}-${String(count).padStart(2, '0')}`;
+      const existingProjectTasksCount = tasks.filter((t) => t.projectId === targetProject.id).length;
+      const code = generateTaskCode(targetProject.key, existingProjectTasksCount);
 
       const newTask: Task = {
         ...taskData,

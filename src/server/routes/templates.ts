@@ -145,6 +145,7 @@ export function registerTemplateRoutes(
         ...validation.data,
         isCustom: true,
         builtIn: false,
+        revision: 1,
         createdBy: caller.id,
         createdAt: nowIso,
         updatedAt: nowIso,
@@ -232,7 +233,11 @@ export function registerTemplateRoutes(
         });
       }
 
-      customTemplates.unshift(buildResult.template);
+      const createdTemplate: ProjectTemplate = {
+        ...buildResult.template,
+        revision: 1,
+      };
+      customTemplates.unshift(createdTemplate);
       appState.projectTemplates = customTemplates;
 
       const newRev = stateStore.bumpStateRevision();
@@ -309,6 +314,7 @@ export function registerTemplateRoutes(
         name: nameRes.name,
         isCustom: true,
         builtIn: false,
+        revision: 1,
         createdBy: caller.id,
         createdAt: nowIso,
         updatedAt: nowIso,
@@ -375,6 +381,22 @@ export function registerTemplateRoutes(
         return res.status(404).json({ error: `Szablon o ID "${req.params.id}" nie został znaleziony.` });
       }
 
+      const existing = customTemplates[idx];
+      const rawIfMatch =
+        req.headers['if-match'] ||
+        (req.body?.expectedRevision !== undefined ? String(req.body.expectedRevision) : null);
+      if (rawIfMatch !== null && rawIfMatch !== '') {
+        const cleanMatch = String(rawIfMatch).replace(/["W\/]/g, '').trim();
+        const currentRev = String(existing.revision !== undefined ? existing.revision : 1);
+        if (cleanMatch !== '*' && cleanMatch !== currentRev) {
+          return res.status(409).json({
+            error: 'Konflikt wersji szablonu (szablon został zmodyfikowany przez innego użytkownika).',
+            currentTemplate: cloneTemplate({ ...existing, builtIn: false, isCustom: true }),
+            revision: appState.revision,
+          });
+        }
+      }
+
       const validation = validateTemplateWritePayload(req.body);
       if (!validation.ok) {
         return res.status(400).json({
@@ -383,13 +405,13 @@ export function registerTemplateRoutes(
         });
       }
 
-      const existing = customTemplates[idx];
       const nowIso = new Date().toISOString();
       const updated: ProjectTemplate = {
         id: existing.id,
         ...validation.data,
         isCustom: true,
         builtIn: false,
+        revision: (typeof existing.revision === 'number' ? existing.revision : 1) + 1,
         createdBy: existing.createdBy || caller.id,
         createdAt: existing.createdAt || nowIso,
         updatedAt: nowIso,

@@ -636,6 +636,18 @@ export interface BuildNewTaskOptions {
 }
 
 /**
+ * Generuje standardowy kod zadania dla projektu w formacie `<KLUCZ_PROJEKTU>-<NN>`.
+ */
+export function generateTaskCode(projectKey: string, existingCount: number): string {
+  const safeKey = String(projectKey || 'ZAD').trim() || 'ZAD';
+  const safeCount =
+    typeof existingCount === 'number' && Number.isFinite(existingCount) && existingCount >= 0
+      ? Math.floor(existingCount)
+      : 0;
+  return `${safeKey}-${String(safeCount + 1).padStart(2, '0')}`;
+}
+
+/**
  * Czysta funkcja budująca rekord nowego zadania (Task).
  * Oczyszcza tytuł za pomocą whitelisty i limitów FIELD_LIMITS (title max 200).
  * Jeśli po trim tytuł jest pusty, rzuca błąd "Wymagany tytuł zadania.".
@@ -714,7 +726,7 @@ export function buildNewTaskRecord(
   const code =
     customCode ||
     allowed.code ||
-    `${projectKey}-${String(existingCount + 1).padStart(2, '0')}`;
+    generateTaskCode(projectKey, existingCount);
 
   return {
     ...allowed,
