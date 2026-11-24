@@ -217,6 +217,7 @@ export function filterStateForUser(
     serverSettings: _serverSettings,
     trash: _trash,
     tenders: _tenders,
+    projectTemplates: _projectTemplates,
     reminderState: _reminderState,
     weeklySummaryState: _weeklySummaryState,
     trustedDevices: _trustedDevices,

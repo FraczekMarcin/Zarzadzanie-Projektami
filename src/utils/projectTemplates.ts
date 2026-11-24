@@ -1,207 +1,339 @@
-import { Project, Task, User, ProjectTemplate, TemplateTaskBlueprint } from '../types';
-import { DEFAULT_PROJECT_TEMPLATES } from '../data/defaultTemplates';
+import type {
+  Project,
+  ProjectTemplate,
+  ProjectTemplateSummary,
+  Task,
+  TemplateTaskBlueprint,
+  User,
+} from '../types';
+import { DEFAULT_PROJECT_TEMPLATES } from '../data/defaultTemplates.js';
+import {
+  migrateLegacyTemplate,
+  type LegacyTemplateLike,
+} from './templateValidation.js';
 
-const TEMPLATES_STORAGE_KEY = 'oph_project_templates';
+export const LEGACY_TEMPLATES_STORAGE_KEY = 'oph_project_templates';
 
 /**
- * Loads all project templates: built-in defaults + administrator's custom templates
+ * Zwraca listę własnych szablonów zapisanych wcześniej w localStorage przeglądarki
+ * (po migracji z blockerIndices na key / blockerKeys).
  */
-export const loadAllProjectTemplates = (): ProjectTemplate[] => {
+export const getLegacyLocalCustomTemplates = (): ProjectTemplate[] => {
   try {
-    const customSaved = localStorage.getItem(TEMPLATES_STORAGE_KEY);
-    const customTemplates: ProjectTemplate[] = customSaved ? JSON.parse(customSaved) : [];
-    
-    // Ensure all default templates are present
-    const existingIds = new Set(customTemplates.map((t) => t.id));
-    const merged = [...customTemplates];
-
-    DEFAULT_PROJECT_TEMPLATES.forEach((def) => {
-      if (!existingIds.has(def.id)) {
-        merged.push(def);
-      }
-    });
-
-    return merged;
+    if (typeof localStorage === 'undefined') return [];
+    const rawSaved = localStorage.getItem(LEGACY_TEMPLATES_STORAGE_KEY);
+    if (!rawSaved) return [];
+    const parsed = JSON.parse(rawSaved);
+    if (!Array.isArray(parsed)) return [];
+    const builtInIds = new Set(DEFAULT_PROJECT_TEMPLATES.map((t) => t.id));
+    const result: ProjectTemplate[] = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== 'object') continue;
+      const legacy = item as LegacyTemplateLike;
+      const id = typeof legacy.id === 'string' ? legacy.id : '';
+      const isCustomEntry =
+        Boolean(legacy.isCustom) || id.startsWith('custom-') || !builtInIds.has(id);
+      if (!isCustomEntry || builtInIds.has(id)) continue;
+      result.push(migrateLegacyTemplate(legacy, { builtIn: false }));
+    }
+    return result;
   } catch {
-    return DEFAULT_PROJECT_TEMPLATES;
+    return [];
   }
 };
 
-/**
- * Saves a new custom template created by administrator
- */
-export const saveCustomProjectTemplate = (template: ProjectTemplate): void => {
+export const clearLegacyLocalCustomTemplates = (): void => {
   try {
-    const current = loadAllProjectTemplates();
-    const withoutExisting = current.filter((t) => t.id !== template.id);
-    const updated = [template, ...withoutExisting];
-    
-    // Only persist custom templates or overrides to localStorage
-    const toSave = updated.filter((t) => t.isCustom || t.id.startsWith('custom-'));
-    localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(toSave));
-  } catch (e) {
-    console.error('Error saving template:', e);
-  }
-};
-
-/**
- * Deletes a custom template
- */
-export const deleteCustomProjectTemplate = (templateId: string): void => {
-  try {
-    const current = loadAllProjectTemplates();
-    const updated = current.filter((t) => t.id !== templateId);
-    const toSave = updated.filter((t) => t.isCustom || t.id.startsWith('custom-'));
-    localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(toSave));
-  } catch (e) {
-    console.error('Error deleting template:', e);
-  }
-};
-
-/**
- * Helper to calculate date string + days offset
- */
-const addDays = (dateStr: string, days: number): string => {
-  try {
-    const d = new Date(dateStr + 'T00:00:00');
-    d.setDate(d.getDate() + days);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(LEGACY_TEMPLATES_STORAGE_KEY);
+    }
   } catch {
-    return dateStr;
+    // ignore storage errors
   }
 };
 
-/**
- * Helper to calculate difference in days between two dates
- */
-const diffDays = (date1: string, date2: string): number => {
+async function readApiError(res: Response, fallback: string): Promise<string> {
   try {
-    const d1 = new Date(date1 + 'T00:00:00').getTime();
-    const d2 = new Date(date2 + 'T00:00:00').getTime();
-    return Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
+    const data = await res.json();
+    if (data && typeof data.error === 'string' && data.error.trim()) {
+      return data.error;
+    }
   } catch {
-    return 0;
+    // ignore json error
   }
-};
+  return fallback;
+}
 
-/**
- * Converts an existing Project and its Tasks into a reusable ProjectTemplate
- */
-export const createTemplateFromExistingProject = (
-  project: Project,
-  projectTasks: Task[],
-  templateName: string,
-  category: ProjectTemplate['category'] = 'kubaturowe'
-): ProjectTemplate => {
-  // Sort tasks chronologically by start date
-  const sortedTasks = [...projectTasks].sort((a, b) => a.startDate.localeCompare(b.startDate));
-  const projStart = project.startDate || sortedTasks[0]?.startDate || '2026-10-01';
+export async function fetchTemplatesList(): Promise<ProjectTemplateSummary[]> {
+  const res = await fetch('/api/templates', { credentials: 'same-origin' });
+  if (!res.ok) {
+    throw new Error(await readApiError(res, 'Nie udało się pobrać listy szablonów projektów.'));
+  }
+  const data = await res.json();
+  return Array.isArray(data?.templates) ? data.templates : [];
+}
 
-  // Map task IDs to index in sorted array for blocker resolution
-  const idToIndexMap = new Map<string, number>();
-  sortedTasks.forEach((t, idx) => idToIndexMap.set(t.id, idx));
-
-  const blueprints: TemplateTaskBlueprint[] = sortedTasks.map((t) => {
-    const offset = Math.max(0, diffDays(projStart, t.startDate));
-    const duration = t.durationDays || Math.max(1, diffDays(t.startDate, t.dueDate) + 1);
-
-    const blockerIds = t.blockingTaskIds || t.dependencies || [];
-    const blockerIndices = blockerIds
-      .map((id) => idToIndexMap.get(id))
-      .filter((idx): idx is number => idx !== undefined);
-
-    return {
-      title: t.title,
-      description: t.description || '',
-      type: t.type,
-      priority: t.priority,
-      durationDays: duration,
-      offsetDays: offset,
-      isOfficialDeadline: !!t.isOfficialDeadline,
-      estimatedHours: t.estimatedHours,
-      tags: t.tags || [],
-      blockerIndices,
-    };
+export async function fetchTemplateById(templateId: string): Promise<ProjectTemplate> {
+  const res = await fetch(`/api/templates/${encodeURIComponent(templateId)}`, {
+    credentials: 'same-origin',
   });
+  if (!res.ok) {
+    throw new Error(await readApiError(res, 'Nie udało się pobrać szczegółów szablonu projektu.'));
+  }
+  const data = await res.json();
+  if (!data?.template) {
+    throw new Error('Brak danych szablonu w odpowiedzi serwera.');
+  }
+  return data.template as ProjectTemplate;
+}
 
-  const newTemplate: ProjectTemplate = {
-    id: `custom-${Date.now()}`,
-    name: templateName.trim() || `Szablon z projektu [${project.key}]`,
-    category,
-    description: `Szablon utworzony przez Administratora na bazie projektu [${project.key}] "${project.name}". Zawiera ${blueprints.length} etapów i powiązań.`,
-    defaultDurationDays: project.durationDays || 90,
-    defaultPriority: project.priority,
-    defaultBudget: project.budget,
-    tasks: blueprints,
-    isCustom: true,
-    createdAt: new Date().toISOString(),
+export async function createTemplateOnServer(
+  payload: Omit<ProjectTemplate, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'builtIn' | 'isCustom'>
+): Promise<{ template: ProjectTemplate; revision?: number }> {
+  const res = await fetch('/api/templates', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await readApiError(res, 'Nie udało się zapisać szablonu na serwerze.'));
+  }
+  const data = await res.json();
+  return {
+    template: data.template as ProjectTemplate,
+    revision: typeof data.revision === 'number' ? data.revision : undefined,
   };
+}
 
-  saveCustomProjectTemplate(newTemplate);
-  return newTemplate;
-};
+export async function updateTemplateOnServer(
+  templateId: string,
+  payload: Omit<ProjectTemplate, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'builtIn' | 'isCustom'>
+): Promise<{ template: ProjectTemplate; revision?: number }> {
+  const res = await fetch(`/api/templates/${encodeURIComponent(templateId)}`, {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await readApiError(res, 'Nie udało się zaktualizować szablonu na serwerze.'));
+  }
+  const data = await res.json();
+  return {
+    template: data.template as ProjectTemplate,
+    revision: typeof data.revision === 'number' ? data.revision : undefined,
+  };
+}
+
+export async function duplicateTemplateOnServer(
+  templateId: string,
+  name?: string
+): Promise<{ template: ProjectTemplate; revision?: number }> {
+  const res = await fetch(`/api/templates/${encodeURIComponent(templateId)}/duplicate`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(name ? { name } : {}),
+  });
+  if (!res.ok) {
+    throw new Error(await readApiError(res, 'Nie udało się zduplikować szablonu.'));
+  }
+  const data = await res.json();
+  return {
+    template: data.template as ProjectTemplate,
+    revision: typeof data.revision === 'number' ? data.revision : undefined,
+  };
+}
+
+export async function deleteTemplateOnServer(
+  templateId: string
+): Promise<{ revision?: number }> {
+  const res = await fetch(`/api/templates/${encodeURIComponent(templateId)}`, {
+    method: 'DELETE',
+    credentials: 'same-origin',
+  });
+  if (!res.ok) {
+    throw new Error(await readApiError(res, 'Nie udało się usunąć szablonu.'));
+  }
+  const data = await res.json();
+  return {
+    revision: typeof data.revision === 'number' ? data.revision : undefined,
+  };
+}
+
+export interface CreateTemplateFromProjectPayload {
+  name: string;
+  category: ProjectTemplate['category'];
+  description?: string;
+  selectedTaskIds?: string[];
+  skipCompleted?: boolean;
+  preserveAssigneeRoles?: boolean;
+}
+
+export async function createTemplateFromProjectOnServer(
+  projectId: string,
+  payload: CreateTemplateFromProjectPayload
+): Promise<{ template: ProjectTemplate; revision?: number }> {
+  const res = await fetch(`/api/templates/from-project/${encodeURIComponent(projectId)}`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await readApiError(res, 'Nie udało się utworzyć szablonu z projektu.'));
+  }
+  const data = await res.json();
+  return {
+    template: data.template as ProjectTemplate,
+    revision: typeof data.revision === 'number' ? data.revision : undefined,
+  };
+}
+
+function addDaysUtc(dateStr: string, days: number): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || '').trim());
+  if (!match) return dateStr;
+  const y = Number(match[1]);
+  const m = Number(match[2]);
+  const d = Number(match[3]);
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+function getBlueprintDepth(
+  byKey: ReadonlyMap<string, TemplateTaskBlueprint>,
+  key: string
+): number {
+  let depth = 1;
+  const visited = new Set<string>([key]);
+  let curr = byKey.get(key);
+  while (curr?.parentKey && !visited.has(curr.parentKey)) {
+    visited.add(curr.parentKey);
+    const parent = byKey.get(curr.parentKey);
+    if (!parent) break;
+    depth += 1;
+    curr = parent;
+  }
+  return depth;
+}
 
 /**
- * Instantiates an array of tasks for a new project from a selected template
+ * Zwraca listę zadań do utworzenia z szablonu w kolejności gwarantującej,
+ * że każde zadanie nadrzędne (`parentId`) występuje przed swoimi podzadaniami.
  */
-export const instantiateTasksFromTemplate = (
+export function instantiateTasksFromTemplate(
+  template: ProjectTemplate,
+  project: Pick<Project, 'id' | 'key' | 'startDate' | 'ownerId'>,
+  reporterUser: User
+): Task[];
+export function instantiateTasksFromTemplate(
   template: ProjectTemplate,
   newProjectId: string,
   projectStartDate: string,
-  reporterUser: User
-): Task[] => {
-  const generatedTasks: Task[] = [];
-  const indexToTaskIdMap = new Map<number, string>();
+  reporterUser: User,
+  options?: { projectKey?: string; ownerId?: string }
+): Task[];
+export function instantiateTasksFromTemplate(
+  template: ProjectTemplate,
+  projectOrId: Pick<Project, 'id' | 'key' | 'startDate' | 'ownerId'> | string,
+  startOrReporter: string | User,
+  maybeReporter?: User,
+  options?: { projectKey?: string; ownerId?: string }
+): Task[] {
+  const newProjectId = typeof projectOrId === 'string' ? projectOrId : projectOrId.id;
+  const projectStartDate =
+    typeof projectOrId === 'string'
+      ? (startOrReporter as string)
+      : projectOrId.startDate;
+  const reporterUser =
+    typeof projectOrId === 'string'
+      ? (maybeReporter as User)
+      : (startOrReporter as User);
+  const projectKey =
+    (typeof projectOrId === 'string' ? options?.projectKey : projectOrId.key)?.trim() || 'ZAD';
+  const ownerId =
+    typeof projectOrId === 'string' ? options?.ownerId : projectOrId.ownerId;
 
-  // First pass: create unique task IDs and map index
-  template.tasks.forEach((_, idx) => {
-    const taskId = `tsk-${Date.now()}-${idx + 1}`;
-    indexToTaskIdMap.set(idx, taskId);
+  const blueprints = Array.isArray(template.tasks) ? template.tasks : [];
+  if (blueprints.length === 0) return [];
+
+  const byKey = new Map<string, TemplateTaskBlueprint>();
+  const keyToTaskIdMap = new Map<string, string>();
+  const keyToIndexMap = new Map<string, number>();
+
+  const seed = Date.now();
+  blueprints.forEach((bp, idx) => {
+    const key = bp.key || `t-${idx + 1}`;
+    byKey.set(key, bp);
+    keyToIndexMap.set(key, idx);
+    keyToTaskIdMap.set(key, `tsk-${seed}-${idx + 1}`);
   });
 
-  // Second pass: instantiate full Task objects with relative dates and mapped blocker IDs
-  template.tasks.forEach((bp, idx) => {
-    const taskId = indexToTaskIdMap.get(idx)!;
-    const taskStart = addDays(projectStartDate, bp.offsetDays);
-    const taskDue = addDays(taskStart, Math.max(1, bp.durationDays) - 1);
+  // Sortowanie gwarantujące utworzenie zadań nadrzędnych przed podzadaniami
+  const orderedBlueprints = [...blueprints].sort((a, b) => {
+    const kA = a.key || '';
+    const kB = b.key || '';
+    const dA = getBlueprintDepth(byKey, kA);
+    const dB = getBlueprintDepth(byKey, kB);
+    if (dA !== dB) return dA - dB;
+    return (keyToIndexMap.get(kA) ?? 0) - (keyToIndexMap.get(kB) ?? 0);
+  });
 
-    // Map blocker indices to generated task IDs
-    const mappedBlockers = (bp.blockerIndices || [])
-      .map((bIdx) => indexToTaskIdMap.get(bIdx))
-      .filter((id): id is string => !!id);
+  const nowIso = new Date().toISOString();
+
+  return orderedBlueprints.map((bp, orderedIdx) => {
+    const key = bp.key || `t-${orderedIdx + 1}`;
+    const originalIdx = keyToIndexMap.get(key) ?? orderedIdx;
+    const taskId = keyToTaskIdMap.get(key)!;
+    const taskStart = addDaysUtc(projectStartDate, Math.max(0, bp.offsetDays || 0));
+    const durationDays = Math.max(1, bp.durationDays || 1);
+    const taskDue = addDaysUtc(taskStart, durationDays - 1);
+
+    const parentId = bp.parentKey ? keyToTaskIdMap.get(bp.parentKey) : undefined;
+
+    const mappedBlockers = (bp.blockerKeys || [])
+      .map((bKey) => keyToTaskIdMap.get(bKey))
+      .filter((id): id is string => Boolean(id && id !== taskId));
 
     const isInitialTask = mappedBlockers.length === 0;
+
+    let assigneeId: string | undefined;
+    if (bp.assigneeRole === 'owner') {
+      assigneeId = ownerId || undefined;
+    } else if (bp.assigneeRole === 'reporter') {
+      assigneeId = reporterUser.id;
+    }
 
     const task: Task = {
       id: taskId,
       projectId: newProjectId,
-      code: `ETP-${String(idx + 1).padStart(2, '0')}`,
+      code: `${projectKey}-${String(originalIdx + 1).padStart(2, '0')}`,
       title: bp.title,
-      description: bp.description,
+      description: bp.description || '',
       type: bp.type,
       priority: bp.priority,
       status: isInitialTask ? 'to_do' : 'blocked',
       reporterId: reporterUser.id,
-      assigneeId: reporterUser.id,
+      ...(assigneeId ? { assigneeId } : {}),
+      ...(parentId ? { parentId } : {}),
       startDate: taskStart,
       dueDate: taskDue,
-      durationDays: bp.durationDays,
-      isOfficialDeadline: bp.isOfficialDeadline,
-      estimatedHours: bp.estimatedHours,
+      durationDays,
+      ...(bp.isOfficialDeadline ? { isOfficialDeadline: true } : {}),
+      ...(bp.estimatedHours !== undefined ? { estimatedHours: bp.estimatedHours } : {}),
       spentHours: 0,
       progress: 0,
       blockingTaskIds: mappedBlockers,
       dependencies: mappedBlockers,
       tags: bp.tags || [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: nowIso,
+      updatedAt: nowIso,
     };
 
-    generatedTasks.push(task);
+    return task;
   });
-
-  return generatedTasks;
-};
+}

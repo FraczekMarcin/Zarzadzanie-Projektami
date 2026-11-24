@@ -1,6 +1,10 @@
-import { ProjectTemplate } from '../types';
+import type { ProjectTemplate } from '../types';
+import {
+  migrateLegacyTemplate,
+  type LegacyTemplateLike,
+} from '../utils/templateValidation.js';
 
-export const DEFAULT_PROJECT_TEMPLATES: ProjectTemplate[] = [
+const RAW_DEFAULT_PROJECT_TEMPLATES: LegacyTemplateLike[] = [
   {
     id: 'tpl-kubaturowy',
     name: 'Obiekt Kubaturowy (PZT + PAB + PT + PW + PnB)',
@@ -438,3 +442,7 @@ export const DEFAULT_PROJECT_TEMPLATES: ProjectTemplate[] = [
     ],
   },
 ];
+
+export const DEFAULT_PROJECT_TEMPLATES: ProjectTemplate[] = RAW_DEFAULT_PROJECT_TEMPLATES.map(
+  (tpl) => migrateLegacyTemplate(tpl, { builtIn: true })
+);

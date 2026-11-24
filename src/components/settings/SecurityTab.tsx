@@ -52,6 +52,9 @@ const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   tender_updated: 'Aktualizacja przetargu',
   tender_deleted: 'Usunięcie przetargu',
   tender_project_created: 'Utworzenie projektu z przetargu',
+  template_created: 'Utworzenie szablonu projektu',
+  template_updated: 'Aktualizacja szablonu projektu',
+  template_deleted: 'Usunięcie szablonu projektu',
 };
 
 export interface SecurityTabProps {

@@ -1,9 +1,9 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { Company, Project, ProjectTemplate } from '../types';
+import type { Company, Project, ProjectTemplate, ProjectTemplateSummary } from '../types';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { useVariables } from '../hooks/useVariables';
-import { loadAllProjectTemplates } from '../utils/projectTemplates';
+import { fetchTemplatesList, fetchTemplateById } from '../utils/projectTemplates';
 import { getTodayIso } from '../utils/today';
 import { formatMoney } from '../utils/money';
 import {
@@ -60,7 +60,22 @@ export const TenderCopyToProjectModal: React.FC<TenderCopyToProjectModalProps> =
     return 23;
   }, [vatRates]);
 
-  const templates = useMemo(() => (isOpen ? loadAllProjectTemplates() : []), [isOpen]);
+  const [templates, setTemplates] = useState<ProjectTemplateSummary[]>([]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    fetchTemplatesList()
+      .then((list) => {
+        if (!cancelled) setTemplates(list);
+      })
+      .catch(() => {
+        // zachowaj poprzednią listę
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   const [companyId, setCompanyId] = useState<string>('');
   const [vatRate, setVatRate] = useState<string>('23');
@@ -190,10 +205,14 @@ export const TenderCopyToProjectModal: React.FC<TenderCopyToProjectModalProps> =
         return;
       }
 
-      const chosenTemplate =
-        templateId !== 'none'
-          ? templates.find((t) => t.id === templateId)
-          : undefined;
+      let chosenTemplate: ProjectTemplate | undefined;
+      if (templateId !== 'none') {
+        try {
+          chosenTemplate = await fetchTemplateById(templateId);
+        } catch {
+          chosenTemplate = undefined;
+        }
+      }
 
       onProjectCreated({
         project: data.project as Project,
@@ -422,7 +441,7 @@ export const TenderCopyToProjectModal: React.FC<TenderCopyToProjectModalProps> =
                   <option value="none">— Bez szablonu (sam projekt) —</option>
                   {templates.map((tpl) => (
                     <option key={tpl.id} value={tpl.id}>
-                      {tpl.name} ({tpl.tasks.length} etapów)
+                      {tpl.name} ({tpl.taskCount} etapów)
                     </option>
                   ))}
                 </select>

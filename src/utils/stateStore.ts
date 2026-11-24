@@ -5,7 +5,7 @@ import { TrustedDeviceRecord } from './trustedDevices.js';
 import { normalizeVariablesState, ServerVariablesState } from './variablesSchema.js';
 import { logger } from '../server/logger.js';
 
-import type { Company, ProjectNumberingSettings, Tender } from '../types/index.js';
+import type { Company, ProjectNumberingSettings, ProjectTemplate, Tender } from '../types/index.js';
 
 export interface AppState {
   initialized?: boolean;
@@ -13,6 +13,7 @@ export interface AppState {
   tasks: any[];
   projects: any[];
   tenders?: Tender[];
+  projectTemplates?: ProjectTemplate[];
   companies?: Company[];
   projectNumbering?: ProjectNumberingSettings;
   users: any[];
@@ -41,6 +42,7 @@ export function normalizeStateStructure(raw?: any): AppState {
         tasks: [],
         projects: [],
         tenders: [],
+        projectTemplates: [],
         companies: [],
         projectNumbering: { scope: 'year' },
         users: [],
@@ -56,6 +58,7 @@ export function normalizeStateStructure(raw?: any): AppState {
   if (!Array.isArray(state.tasks)) state.tasks = [];
   if (!Array.isArray(state.projects)) state.projects = [];
   if (!Array.isArray(state.tenders)) state.tenders = [];
+  if (!Array.isArray(state.projectTemplates)) state.projectTemplates = [];
   if (!Array.isArray(state.companies)) state.companies = [];
   if (!state.projectNumbering || typeof state.projectNumbering !== 'object') {
     state.projectNumbering = { scope: 'year' };

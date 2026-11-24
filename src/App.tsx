@@ -568,6 +568,7 @@ export default function App() {
 
   const {
     createTaskOnServer,
+    saveTaskPatchToServer,
     restoreFromTrashById,
     processDependencyRules,
     handleSelectTask,
@@ -657,6 +658,78 @@ export default function App() {
     },
   });
 
+  const createTasksFromTemplateSequentially = async (
+    selectedTemplate: ProjectTemplate,
+    targetProject: Project
+  ): Promise<Task[]> => {
+    if (!currentUser) return [];
+    const blueprintTasks = instantiateTasksFromTemplate(
+      selectedTemplate,
+      targetProject,
+      currentUser
+    );
+    if (blueprintTasks.length === 0) return [];
+
+    const tempIdToServerTask = new Map<string, Task>();
+    const pendingForwardBlockers: Array<{ tempId: string; tempBlockerIds: string[] }> = [];
+
+    for (const tt of blueprintTasks) {
+      const tempParentId = tt.parentId;
+      const remappedParentId = tempParentId
+        ? tempIdToServerTask.get(tempParentId)?.id
+        : undefined;
+
+      const origBlockers = tt.blockingTaskIds || tt.dependencies || [];
+      const mappedBlockers: string[] = [];
+      let hasUncreatedBlocker = false;
+      for (const bId of origBlockers) {
+        const srvBlocker = tempIdToServerTask.get(bId);
+        if (srvBlocker) {
+          mappedBlockers.push(srvBlocker.id);
+        } else {
+          hasUncreatedBlocker = true;
+        }
+      }
+
+      const { parentId: _dropParent, ...restTask } = tt;
+      const payload: Task = {
+        ...restTask,
+        ...(remappedParentId ? { parentId: remappedParentId } : {}),
+        blockingTaskIds: mappedBlockers,
+        dependencies: mappedBlockers,
+      };
+
+      const created = await createTaskOnServer(payload);
+      if (created) {
+        tempIdToServerTask.set(tt.id, created);
+        if (hasUncreatedBlocker) {
+          pendingForwardBlockers.push({ tempId: tt.id, tempBlockerIds: origBlockers });
+        }
+      }
+    }
+
+    for (const pending of pendingForwardBlockers) {
+      const createdTask = tempIdToServerTask.get(pending.tempId);
+      if (!createdTask) continue;
+      const resolvedBlockers = pending.tempBlockerIds
+        .map((bId) => tempIdToServerTask.get(bId)?.id)
+        .filter((id): id is string => Boolean(id && id !== createdTask.id));
+      if (resolvedBlockers.length > 0) {
+        await saveTaskPatchToServer(
+          createdTask.id,
+          {
+            blockingTaskIds: resolvedBlockers,
+            dependencies: resolvedBlockers,
+          },
+          createdTask.revision || 1
+        );
+      }
+    }
+
+    await fetchFreshState(false);
+    return Array.from(tempIdToServerTask.values());
+  };
+
   const handleAddProject = async (
     newProjData: Omit<Project, 'id' | 'key'> & { key?: string },
     selectedTemplate?: ProjectTemplate
@@ -691,24 +764,16 @@ export default function App() {
     };
     setSelectedProjectId(finalProject.id);
 
-    // If template was selected, instantiate blueprint tasks
+    // If template was selected, instantiate blueprint tasks sequentially
     if (selectedTemplate && selectedTemplate.tasks && selectedTemplate.tasks.length > 0) {
-      const templateTasks = instantiateTasksFromTemplate(
-        selectedTemplate,
-        finalProject.id,
-        finalProject.startDate,
-        currentUser
-      );
-      const { updatedTasks } = processDependencyRules([...tasks, ...templateTasks]);
-      setTasks(updatedTasks);
-      templateTasks.forEach((tt) => createTaskOnServer(tt));
+      const createdTasks = await createTasksFromTemplateSequentially(selectedTemplate, finalProject);
       logActivity(
-        `${currentUser.name} zarejestrował projekt [${finalProject.key}] z szablonu "${selectedTemplate.name}" (${templateTasks.length} etapów)`,
+        `${currentUser.name} zarejestrował projekt [${finalProject.key}] z szablonu "${selectedTemplate.name}" (${createdTasks.length} etapów)`,
         undefined,
-        `Wygenerowano ${templateTasks.length} etapów w tym ${templateTasks.filter((t) => t.isOfficialDeadline).length} terminów urzędowych.`
+        `Wygenerowano ${createdTasks.length} etapów w tym ${createdTasks.filter((t) => t.isOfficialDeadline).length} terminów urzędowych.`
       );
       setNotificationToast({
-        message: `Utworzono projekt [${finalProject.key}] z ${templateTasks.length} etapami z szablonu "${selectedTemplate.name}"!`,
+        message: `Utworzono projekt [${finalProject.key}] z ${createdTasks.length} etapami z szablonu "${selectedTemplate.name}"!`,
         type: 'success',
       });
     } else {
@@ -760,7 +825,7 @@ export default function App() {
     );
   };
 
-  const handleProjectCreatedFromTender = ({
+  const handleProjectCreatedFromTender = async ({
     project,
     revision,
     selectedTemplate,
@@ -780,17 +845,9 @@ export default function App() {
     setSelectedProjectId(project.id);
 
     if (selectedTemplate && selectedTemplate.tasks && selectedTemplate.tasks.length > 0) {
-      const templateTasks = instantiateTasksFromTemplate(
-        selectedTemplate,
-        project.id,
-        project.startDate,
-        currentUser
-      );
-      const { updatedTasks } = processDependencyRules([...tasks, ...templateTasks]);
-      setTasks(updatedTasks);
-      templateTasks.forEach((tt) => createTaskOnServer(tt));
+      const createdTasks = await createTasksFromTemplateSequentially(selectedTemplate, project);
       logActivity(
-        `${currentUser.name} utworzył projekt [${project.key}] z wygranego przetargu z szablonem "${selectedTemplate.name}" (${templateTasks.length} etapów)`
+        `${currentUser.name} utworzył projekt [${project.key}] z wygranego przetargu z szablonem "${selectedTemplate.name}" (${createdTasks.length} etapów)`
       );
     } else {
       logActivity(`${currentUser.name} utworzył projekt [${project.key}] z wygranego przetargu: ${project.name}`);
@@ -1822,11 +1879,16 @@ export default function App() {
             onLogout={handleLogout}
             activityLogs={activityLogs}
             onOpenTemplateManager={() => {
-              setActiveView('projects');
-              setNotificationToast({
-                message: 'Otwarto widok projektów. Kliknij "Szablony projektów (Admin)", aby zarządzać szablonami pracowni.',
-                type: 'info',
-              });
+              setIsUserModalOpen(false);
+              if (currentUser?.role === 'admin') {
+                setSettingsTab('templates');
+                setIsSettingsModalOpen(true);
+              } else {
+                setNotificationToast({
+                  message: 'Zarządzanie szablonami projektów jest dostępne wyłącznie dla Administratora w Ustawieniach.',
+                  type: 'info',
+                });
+              }
             }}
           />
         </Suspense>
@@ -1840,6 +1902,7 @@ export default function App() {
             onClose={() => setIsSettingsModalOpen(false)}
             users={users}
             projects={projectsWithProgress}
+            tasks={sortedTasks}
             companies={companies}
             projectNumbering={projectNumbering}
             onRefreshState={() => fetchFreshState(false)}

@@ -14,12 +14,13 @@ import {
   KeyRound,
   Bell,
   Building2,
+  Layers,
 } from 'lucide-react';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { ThemeMode, getThemePreference, setThemePreference } from '../utils/theme';
 import { CURRENT_APP_VERSION } from '../data/dockerConfig';
 import { getAutoBackupConfig, saveAutoBackupConfig } from '../utils/autoBackup';
-import { User, Project, Company, ProjectNumberingSettings } from '../types';
+import { User, Project, Task, Company, ProjectNumberingSettings } from '../types';
 import { copyToClipboard } from '../utils/clipboard';
 import { useVariables } from '../hooks/useVariables';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
@@ -62,11 +63,15 @@ const NotificationsTab = lazy(() =>
 const CompaniesTab = lazy(() =>
   import('./settings/CompaniesTab').then((m) => ({ default: m.CompaniesTab }))
 );
+const ProjectTemplatesTab = lazy(() =>
+  import('./settings/ProjectTemplatesTab').then((m) => ({ default: m.ProjectTemplatesTab }))
+);
 
 export type SettingsTab =
   | 'theme'
   | 'variables'
   | 'companies'
+  | 'templates'
   | 'users'
   | 'security'
   | 'smtp'
@@ -82,6 +87,7 @@ interface SettingsModalProps {
   onClose: () => void;
   users: User[];
   projects: Project[];
+  tasks?: Task[];
   companies?: Company[];
   projectNumbering?: ProjectNumberingSettings;
   onRefreshState?: () => Promise<void> | void;
@@ -113,6 +119,7 @@ const SettingsModalContent: React.FC<SettingsModalProps> = ({
   onClose,
   users,
   projects,
+  tasks = [],
   companies = [],
   projectNumbering = { scope: 'year' },
   onRefreshState,
@@ -327,6 +334,26 @@ const SettingsModalContent: React.FC<SettingsModalProps> = ({
                   <span className={`text-[10px] font-mono ${activeTab === 'companies' ? 'text-sky-100' : 'text-slate-600 dark:text-slate-400'}`}>
                     {companies.length}
                   </span>
+                </button>
+              )}
+
+              {/* Project Templates Tab (Admin only) */}
+              {currentUser?.role === 'admin' && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === 'templates'}
+                  onClick={() => setActiveTab('templates')}
+                  className={`w-full px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-colors ${
+                    activeTab === 'templates'
+                      ? 'bg-sky-700 text-white shadow-xs'
+                      : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Layers className={`w-4 h-4 shrink-0 ${activeTab === 'templates' ? 'text-white' : 'text-purple-700 dark:text-purple-400'}`} aria-hidden="true" />
+                    <span>Szablony projektów</span>
+                  </div>
                 </button>
               )}
 
@@ -561,6 +588,16 @@ const SettingsModalContent: React.FC<SettingsModalProps> = ({
                   companies={companies}
                   projects={projects}
                   projectNumbering={projectNumbering}
+                  onRefreshState={onRefreshState}
+                />
+              )}
+
+              {activeTab === 'templates' && currentUser?.role === 'admin' && (
+                <ProjectTemplatesTab
+                  isOpen={isOpen}
+                  currentUser={currentUser}
+                  projects={projects}
+                  tasks={tasks}
                   onRefreshState={onRefreshState}
                 />
               )}

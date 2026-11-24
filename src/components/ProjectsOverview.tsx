@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
-import { Project, Task, User, Priority, ProjectTemplate, Company, ProjectNumberingSettings } from '../types';
+import { Project, Task, User, Priority, ProjectTemplate, ProjectTemplateSummary, Company, ProjectNumberingSettings } from '../types';
 import { downloadIcsFile } from '../utils/calendar';
 import { getNextProjectCode, isProjectCodeAvailable, isValidProjectCodeFormat } from '../utils/projectCode';
-import { loadAllProjectTemplates } from '../utils/projectTemplates';
+import { fetchTemplatesList, fetchTemplateById } from '../utils/projectTemplates';
 import { ProjectDetailModal } from './ProjectDetailModal';
 import { FIELD_LIMITS, canEditFinance, canViewFinance } from '../utils/access';
 import { calcGrossFromNet, formatMoney } from '../utils/money';
@@ -89,7 +89,7 @@ interface ProjectsOverviewProps {
   users: User[];
   currentUser: User;
   onSelectProject: (projectId: string) => void;
-  onAddProject: (newProject: Omit<Project, 'id' | 'key'> & { key?: string }, selectedTemplate?: ProjectTemplate) => void;
+  onAddProject: (newProject: Omit<Project, 'id' | 'key'> & { key?: string }, selectedTemplate?: ProjectTemplate) => Promise<void> | void;
   onUpdateProject?: (updatedProject: Project) => void;
   onUpdateProjectFinance?: (projectId: string, patch: Partial<Project>, expectedRevision?: number) => Promise<FinancePatchSaveResult>;
   onApplyFreshProject?: (freshProject: Project) => void;
@@ -122,8 +122,10 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
-  const [availableTemplates, setAvailableTemplates] = useState<ProjectTemplate[]>([]);
+  const [availableTemplates, setAvailableTemplates] = useState<ProjectTemplateSummary[]>([]);
+  const templateDetailsRef = useRef<Record<string, ProjectTemplate>>({});
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('none');
+  const [isSubmittingForm, setIsSubmittingForm] = useState(false);
 
   // Financials modal state
   const [financialsProject, setFinancialsProject] = useState<Project | null>(null);
@@ -291,8 +293,22 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   });
 
   useEffect(() => {
-    setAvailableTemplates(loadAllProjectTemplates());
-  }, [isModalOpen, isTemplateManagerOpen]);
+    if (!isModalOpen && !isTemplateManagerOpen) return;
+    if (currentUser.role === 'viewer') return;
+    let cancelled = false;
+    fetchTemplatesList()
+      .then((list) => {
+        if (!cancelled) {
+          setAvailableTemplates(list);
+        }
+      })
+      .catch(() => {
+        // zachowaj ostatnią znaną listę lub pustą w przypadku błędu
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isModalOpen, isTemplateManagerOpen, currentUser.role]);
 
   const activeCompanies = useMemo(
     () => companies.filter((c) => c.isActive).sort((a, b) => a.letter.localeCompare(b.letter)),
@@ -391,9 +407,6 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
       setUseAutoCode(false);
       setProjectCode(getNextProjectCode(projects));
     }
-    const templates = loadAllProjectTemplates();
-    setAvailableTemplates(templates);
-
     const today = getTodayIsoDate();
     let initTemplate = 'none';
     let initName = '';
@@ -405,6 +418,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     let initVal = 150000;
 
     if (preselectedTemplate) {
+      templateDetailsRef.current[preselectedTemplate.id] = preselectedTemplate;
       initTemplate = preselectedTemplate.id;
       initName = preselectedTemplate.name;
       initDesc = preselectedTemplate.description;
@@ -494,6 +508,15 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
       setDueDate(calculateDueDate(startDate, tpl.defaultDurationDays));
       if (tpl.defaultBudget) setBudget(tpl.defaultBudget);
     }
+    if (!templateDetailsRef.current[templateId] && currentUser.role !== 'viewer') {
+      fetchTemplateById(templateId)
+        .then((full) => {
+          templateDetailsRef.current[full.id] = full;
+        })
+        .catch(() => {
+          // zostanie ponowione podczas zapisu projektu
+        });
+    }
   };
 
   const openEditModal = (project: Project) => {
@@ -561,68 +584,36 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setIsModalOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isFormValid) return;
+    if (!isFormValid || isSubmittingForm) return;
 
-    if (clientName.trim()) {
-      registerClientIfNew(
-        {
-          name: clientName.trim(),
-          contactPerson: clientContactPerson.trim() || undefined,
-          phone: clientPhone.trim() || undefined,
-          email: clientEmail.trim() || undefined,
-          nip: clientNip.trim() || undefined,
-        },
-        { syncToServer: currentUser?.role === 'admin' }
-      );
-    }
+    setIsSubmittingForm(true);
+    try {
+      if (clientName.trim()) {
+        registerClientIfNew(
+          {
+            name: clientName.trim(),
+            contactPerson: clientContactPerson.trim() || undefined,
+            phone: clientPhone.trim() || undefined,
+            email: clientEmail.trim() || undefined,
+            nip: clientNip.trim() || undefined,
+          },
+          { syncToServer: currentUser?.role === 'admin' }
+        );
+      }
 
-    const valNet = Number(projectValue || 0);
-    const valGross = calcGrossFromNet(valNet, projectVatRate || 23);
-    const budgetStr = valNet > 0 ? `${formatMoney(valNet)} PLN` : budget;
+      const valNet = Number(projectValue || 0);
+      const valGross = calcGrossFromNet(valNet, projectVatRate || 23);
+      const budgetStr = valNet > 0 ? `${formatMoney(valNet)} PLN` : budget;
 
-    if (editingProject && onUpdateProject) {
-      onUpdateProject({
-        ...editingProject,
-        key: editingProject.key !== projectCode ? projectCode : editingProject.key,
-        ...(canEditSelectedProjectCompany
-          ? { companyId: companyId || undefined }
-          : {}),
-        name,
-        description,
-        priority,
-        status,
-        startDate,
-        dueDate,
-        durationDays,
-        budget: budgetStr,
-        projectValue: valNet,
-        projectValueGross: valGross,
-        projectVatRate,
-        ownerId: ownerId || undefined,
-        memberIds: selectedMemberIds,
-        clientName: clientName.trim() || undefined,
-        clientContactPerson: clientContactPerson.trim() || undefined,
-        clientPhone: clientPhone.trim() || undefined,
-        clientEmail: clientEmail.trim() || undefined,
-        clientNip: clientNip.trim() || undefined,
-        diskPath: diskPath.trim() || undefined,
-      });
-    } else {
-      const template = selectedTemplateId !== 'none'
-        ? availableTemplates.find((t) => t.id === selectedTemplateId)
-        : undefined;
-
-      const customKeyPayload =
-        activeCompanies.length === 0 || (!useAutoCode && isAdminOrPm && projectCode.trim())
-          ? projectCode.trim().toUpperCase()
-          : undefined;
-
-      onAddProject(
-        {
-          ...(customKeyPayload ? { key: customKeyPayload } : {}),
-          ...(companyId ? { companyId } : {}),
+      if (editingProject && onUpdateProject) {
+        onUpdateProject({
+          ...editingProject,
+          key: editingProject.key !== projectCode ? projectCode : editingProject.key,
+          ...(canEditSelectedProjectCompany
+            ? { companyId: companyId || undefined }
+            : {}),
           name,
           description,
           priority,
@@ -630,27 +621,73 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
           startDate,
           dueDate,
           durationDays,
-          progress: 0,
           budget: budgetStr,
           projectValue: valNet,
           projectValueGross: valGross,
           projectVatRate,
           ownerId: ownerId || undefined,
-          spentHours: 0,
           memberIds: selectedMemberIds,
-          color: '#0284c7',
           clientName: clientName.trim() || undefined,
           clientContactPerson: clientContactPerson.trim() || undefined,
           clientPhone: clientPhone.trim() || undefined,
           clientEmail: clientEmail.trim() || undefined,
           clientNip: clientNip.trim() || undefined,
           diskPath: diskPath.trim() || undefined,
-        },
-        template
-      );
-    }
+        });
+      } else {
+        let template: ProjectTemplate | undefined;
+        if (selectedTemplateId !== 'none') {
+          template = templateDetailsRef.current[selectedTemplateId];
+          if (!template) {
+            try {
+              template = await fetchTemplateById(selectedTemplateId);
+              templateDetailsRef.current[selectedTemplateId] = template;
+            } catch {
+              template = undefined;
+            }
+          }
+        }
 
-    setIsModalOpen(false);
+        const customKeyPayload =
+          activeCompanies.length === 0 || (!useAutoCode && isAdminOrPm && projectCode.trim())
+            ? projectCode.trim().toUpperCase()
+            : undefined;
+
+        await onAddProject(
+          {
+            ...(customKeyPayload ? { key: customKeyPayload } : {}),
+            ...(companyId ? { companyId } : {}),
+            name,
+            description,
+            priority,
+            status,
+            startDate,
+            dueDate,
+            durationDays,
+            progress: 0,
+            budget: budgetStr,
+            projectValue: valNet,
+            projectValueGross: valGross,
+            projectVatRate,
+            ownerId: ownerId || undefined,
+            spentHours: 0,
+            memberIds: selectedMemberIds,
+            color: '#0284c7',
+            clientName: clientName.trim() || undefined,
+            clientContactPerson: clientContactPerson.trim() || undefined,
+            clientPhone: clientPhone.trim() || undefined,
+            clientEmail: clientEmail.trim() || undefined,
+            clientNip: clientNip.trim() || undefined,
+            diskPath: diskPath.trim() || undefined,
+          },
+          template
+        );
+      }
+
+      setIsModalOpen(false);
+    } finally {
+      setIsSubmittingForm(false);
+    }
   };
 
   const handleRequestArchive = (project: Project) => {
@@ -1407,11 +1444,18 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
               {/* TEMPLATE PICKER - only when creating new project */}
               {!editingProject && (
                 <div className="p-3 bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900/50 rounded-lg space-y-2">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <label htmlFor="project-template-select" className="font-bold text-purple-950 dark:text-purple-200 flex items-center gap-1.5">
                       <Layers className="w-4 h-4 text-purple-700 dark:text-purple-400" aria-hidden="true" />
                       <span>Użyj gotowego szablonu procesu</span>
                     </label>
+                    <button
+                      type="button"
+                      onClick={() => setIsTemplateManagerOpen(true)}
+                      className="text-[11px] font-semibold text-purple-800 dark:text-purple-300 hover:underline"
+                    >
+                      Podgląd katalogu
+                    </button>
                   </div>
 
                   <select
@@ -1423,7 +1467,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                     <option value="none">-- Czysty projekt (dodaj zadania ręcznie) --</option>
                     {availableTemplates.map((tpl) => (
                       <option key={tpl.id} value={tpl.id}>
-                        {tpl.name} ({tpl.tasks.length} zadań · {tpl.defaultDurationDays} dni)
+                        {tpl.name} ({tpl.taskCount} zadań · {tpl.defaultDurationDays} dni)
                       </option>
                     ))}
                   </select>
@@ -1896,10 +1940,14 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={!isFormValid}
+                  disabled={!isFormValid || isSubmittingForm}
                   className="bg-sky-700 hover:bg-sky-600 disabled:opacity-50 text-white font-semibold px-4 py-2 rounded shadow-xs"
                 >
-                  {editingProject ? 'Zapisz zmiany w projekcie' : 'Zarejestruj projekt'}
+                  {isSubmittingForm
+                    ? 'Zapisywanie...'
+                    : editingProject
+                    ? 'Zapisz zmiany w projekcie'
+                    : 'Zarejestruj projekt'}
                 </button>
               </div>
             </form>
@@ -1910,6 +1958,25 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
             onConfirm={confirmProjectDiscard}
           />
         </div>
+      )}
+
+      {isTemplateManagerOpen && (
+        <Suspense fallback={null}>
+          <AdminTemplateManagerModal
+            isOpen={isTemplateManagerOpen}
+            onClose={() => setIsTemplateManagerOpen(false)}
+            onSelectTemplateToCreate={(tpl) => {
+              templateDetailsRef.current[tpl.id] = tpl;
+              setSelectedTemplateId(tpl.id);
+              setName(tpl.name);
+              setDescription(tpl.description);
+              setPriority(tpl.defaultPriority);
+              setDurationDays(tpl.defaultDurationDays);
+              setDueDate(calculateDueDate(startDate, tpl.defaultDurationDays));
+              if (tpl.defaultBudget) setBudget(tpl.defaultBudget);
+            }}
+          />
+        </Suspense>
       )}
     </div>
   );

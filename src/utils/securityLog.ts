@@ -49,7 +49,10 @@ export type SecurityEventType =
   | 'tender_created'
   | 'tender_updated'
   | 'tender_deleted'
-  | 'tender_project_created';
+  | 'tender_project_created'
+  | 'template_created'
+  | 'template_updated'
+  | 'template_deleted';
 
 export type LoginFailureReason =
   | 'bad_password'
@@ -208,6 +211,9 @@ export const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   tender_updated: 'Aktualizacja przetargu',
   tender_deleted: 'Usunięcie przetargu',
   tender_project_created: 'Utworzenie projektu z przetargu',
+  template_created: 'Utworzenie szablonu projektu',
+  template_updated: 'Aktualizacja szablonu projektu',
+  template_deleted: 'Usunięcie szablonu projektu',
 };
 
 /**

@@ -250,7 +250,18 @@ export interface Comment {
   createdAt: string;
 }
 
+export type TemplateAssigneeRole = 'owner' | 'reporter' | 'none';
+
+export type TemplateCategory =
+  | 'kubaturowe'
+  | 'mieszkaniowe'
+  | 'przemyslowe'
+  | 'infrastruktura'
+  | 'przebudowa'
+  | 'ogolne';
+
 export interface TemplateTaskBlueprint {
+  key: string;
   title: string;
   description: string;
   type: TaskType;
@@ -260,20 +271,44 @@ export interface TemplateTaskBlueprint {
   isOfficialDeadline?: boolean;
   estimatedHours?: number;
   tags?: string[];
-  blockerIndices?: number[];
+  parentKey?: string;
+  blockerKeys?: string[];
+  assigneeRole?: TemplateAssigneeRole;
 }
 
 export interface ProjectTemplate {
   id: string;
   name: string;
-  category: 'kubaturowe' | 'mieszkaniowe' | 'przemyslowe' | 'infrastruktura' | 'przebudowa' | 'ogolne';
+  category: TemplateCategory;
   description: string;
   defaultDurationDays: number;
   defaultPriority: Priority;
   defaultBudget?: string;
   tasks: TemplateTaskBlueprint[];
   isCustom?: boolean;
+  builtIn?: boolean;
   createdAt?: string;
+  updatedAt?: string;
+  createdBy?: string;
+  sourceProjectId?: string;
+}
+
+export interface ProjectTemplateSummary {
+  id: string;
+  name: string;
+  category: TemplateCategory;
+  description: string;
+  defaultDurationDays: number;
+  defaultPriority: Priority;
+  defaultBudget?: string;
+  taskCount: number;
+  officialDeadlineCount: number;
+  builtIn: boolean;
+  isCustom?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  createdBy?: string;
+  sourceProjectId?: string;
 }
 
 export type TrashItemType = 'task' | 'project';

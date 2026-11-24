@@ -173,7 +173,7 @@ export function useTaskActions({
     }, 500);
   };
 
-  const createTaskOnServer = async (task: Task) => {
+  const createTaskOnServer = async (task: Task): Promise<Task | null> => {
     try {
       const res = await fetch('/api/tasks', {
         method: 'POST',
@@ -186,7 +186,7 @@ export function useTaskActions({
         if (!deviceAuth.ok) {
           setIsAuthenticated(false);
         }
-        return;
+        return null;
       }
       if (res.ok) {
         const data = await res.json();
@@ -194,17 +194,27 @@ export function useTaskActions({
           applyRevision(data.revision);
         }
         if (data.task) {
-          setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, ...data.task } : t)));
+          setTasks((prev) =>
+            prev.some((t) => t.id === task.id || t.id === data.task.id)
+              ? prev.map((t) =>
+                  t.id === task.id || t.id === data.task.id ? { ...t, ...data.task } : t
+                )
+              : [data.task, ...prev]
+          );
+          return data.task as Task;
         }
+        return null;
       } else {
         const errData = await res.json().catch(() => ({}));
         setNotificationToast({
           message: errData.error || 'Nie udało się zapisać nowego zadania na serwerze.',
           type: 'error',
         });
+        return null;
       }
     } catch (err) {
       console.warn('Błąd tworzenia zadania na serwerze:', err);
+      return null;
     }
   };
 
@@ -844,6 +854,7 @@ export function useTaskActions({
 
   return {
     createTaskOnServer,
+    saveTaskPatchToServer,
     restoreFromTrashById,
     processDependencyRules,
     handleSelectTask,
