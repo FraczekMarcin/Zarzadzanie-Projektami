@@ -17,10 +17,10 @@ jobs:
 
     steps:
       - name: Pobierz kod źródłowy (Checkout)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Konfiguracja Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: 'npm'
@@ -125,10 +125,10 @@ jobs:
 
     steps:
       - name: Pobierz kod źródłowy (Checkout)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Konfiguracja Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: 'npm'
@@ -155,7 +155,7 @@ jobs:
 
       - name: Prześlij raport dostępności (Axe WCAG)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: a11y-report
           path: test-results/a11y-report.json
@@ -163,7 +163,7 @@ jobs:
 
       - name: Prześlij raport HTML i ślady Playwright w razie błędu
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: |

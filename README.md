@@ -660,6 +660,8 @@ npm install
 npm run dev
 ```
 
+Lokalne testy przeglądarkowe E2E nie wymagają ręcznie uruchomionego serwera — po zbudowaniu aplikacji (`npm run build`) i jednorazowej instalacji Chromium (`npm run e2e:install`) uruchom je poleceniem `npm run test:e2e` (szczegóły w sekcji poniżej).
+
 ---
 
 ## 🧪 Testy end-to-end (Playwright)

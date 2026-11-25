@@ -213,17 +213,17 @@ test.describe.serial('P66: Przesuwanie zadań w drzewie (E2E)', () => {
     await expect(rowTargetB).toBeVisible();
 
     // Rozpocznij drag i najedź na potomka -> niedostępne, brak wywołania PATCH
-    await handleParentA.dispatchEvent('dragstart', {
-      dataTransfer: new DataTransfer(),
-    });
-    await rowChildA.dispatchEvent('dragover');
+    const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+    await handleParentA.dispatchEvent('dragstart', { dataTransfer });
+    await rowChildA.dispatchEvent('dragover', { dataTransfer });
     await expect(rowChildA).toHaveAttribute('aria-disabled', 'true');
     await expect(page.getByText(/Niedostępne:/i)).toBeVisible();
 
     // Najedź na prawidłowy cel Gałąź B -> widoczny wskaźnik 'Jako podzadanie: <kod>'
-    await rowTargetB.dispatchEvent('dragover');
+    await rowTargetB.dispatchEvent('dragover', { dataTransfer });
     await expect(page.getByText(`Jako podzadanie: ${taskTargetB.code}`)).toBeVisible();
-    await handleParentA.dispatchEvent('dragend');
+    await handleParentA.dispatchEvent('dragend', { dataTransfer });
+    await dataTransfer.dispose();
 
     // 2. Przenieś zadanie Podzadanie A1 pod Gałąź B za pomocą klawiatury / przycisku "Przenieś"
     await page.getByRole('button', { name: `Przenieś zadanie ${taskChildA.code}` }).click();
