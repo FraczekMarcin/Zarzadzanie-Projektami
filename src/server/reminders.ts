@@ -213,7 +213,14 @@ export function createReminderService(deps: {
           isValidEmail(u.email)
       );
 
-      const digests: UserDigest[] = buildDigests(tasks, projects, users, currentMs, settings);
+      const digests: UserDigest[] = buildDigests(
+        tasks,
+        projects,
+        users,
+        currentMs,
+        settings,
+        appState.variables?.projectStatuses
+      );
       const digestUserIds = new Set(digests.map((d) => d.user.id));
 
       // Liczba pominiętych obejmuje aktywnych użytkowników bez zadań w oknie lub z wyłączonymi przypomnieniami
@@ -358,7 +365,14 @@ export function createReminderService(deps: {
       emailReminders: true,
     };
 
-    const digests = buildDigests(tasks, projects, [previewUser], currentMs, settings);
+    const digests = buildDigests(
+      tasks,
+      projects,
+      [previewUser],
+      currentMs,
+      settings,
+      appState.variables?.projectStatuses
+    );
     if (digests.length > 0) {
       const digest = digests[0];
       const rendered = renderDigestEmail(digest, settings.appBaseUrl);

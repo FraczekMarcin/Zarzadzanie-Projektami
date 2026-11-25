@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   KeyRound,
   CheckCircle2,
@@ -15,6 +15,13 @@ import { TwoFactorManager } from '../TwoFactorManager';
 import { PasswordRequirementsChecklist } from '../PasswordRequirementsChecklist';
 import { TrustedDevicesSection } from '../TrustedDevicesSection';
 import { useSettingsTabDirty } from './SettingsDirtyContext';
+import { FormError } from '../FormError';
+import {
+  FormSubmitResult,
+  normalizeSubmitError,
+  parseApiErrorResponse,
+  useFormSubmit,
+} from '../../hooks/useFormSubmit';
 
 export interface UsersTabProps {
   isOpen: boolean;
@@ -27,7 +34,11 @@ export interface UsersTabProps {
   onRejectUser?: (userId: string) => void;
   onUserUpdated?: (updated: Partial<User>) => void;
   onRefreshUsers?: () => void;
-  onUpdateUserPassword?: (userId: string, newPass: string, currentPass?: string) => Promise<boolean | void> | void;
+  onUpdateUserPassword?: (
+    userId: string,
+    newPass: string,
+    currentPass?: string
+  ) => Promise<FormSubmitResult | boolean | void> | void;
 }
 
 export const UsersTab: React.FC<UsersTabProps> = ({
@@ -47,16 +58,25 @@ export const UsersTab: React.FC<UsersTabProps> = ({
   const [settingsCurrentPassword, setSettingsCurrentPassword] = useState('');
   const [settingsNewPassword, setSettingsNewPassword] = useState('');
   const [settingsConfirmPassword, setSettingsConfirmPassword] = useState('');
-  const [settingsPwError, setSettingsPwError] = useState<string | null>(null);
   const [settingsPwSuccess, setSettingsPwSuccess] = useState(false);
-  const [isChangingSettingsPassword, setIsChangingSettingsPassword] = useState(false);
+  const pwSubmit = useFormSubmit();
 
   const [activeSessions, setActiveSessions] = useState<PublicSession[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   const [sessionActionError, setSessionActionError] = useState<string | null>(null);
   const [sessionActionSuccess, setSessionActionSuccess] = useState<string | null>(null);
   const [isRevokingOthers, setIsRevokingOthers] = useState(false);
+  const [revokingSessionId, setRevokingSessionId] = useState<string | null>(null);
   const [adminDevicesTarget, setAdminDevicesTarget] = useState<User | null>(null);
+  const sessionActionLockRef = useRef(false);
+  const sessionErrorAlertRef = useRef<HTMLDivElement | null>(null);
+
+  const reportSessionError = (message: string) => {
+    setSessionActionError(message);
+    if (typeof window !== 'undefined') {
+      window.requestAnimationFrame(() => sessionErrorAlertRef.current?.focus());
+    }
+  };
 
   const loadSessions = async () => {
     setIsLoadingSessions(true);
@@ -66,9 +86,12 @@ export const UsersTab: React.FC<UsersTabProps> = ({
       if (res.ok) {
         const data = await res.json();
         setActiveSessions(Array.isArray(data.sessions) ? data.sessions : (Array.isArray(data) ? data : []));
+      } else {
+        const parsed = await parseApiErrorResponse(res, 'Nie udało się pobrać listy sesji.');
+        reportSessionError(parsed.error);
       }
-    } catch (err: any) {
-      console.error('Błąd pobierania sesji:', err);
+    } catch (err: unknown) {
+      reportSessionError(normalizeSubmitError(err, 'Błąd połączenia z serwerem.').error);
     } finally {
       setIsLoadingSessions(false);
     }
@@ -95,10 +118,10 @@ export const UsersTab: React.FC<UsersTabProps> = ({
   const handleSettingsPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
-    setSettingsPwError(null);
+    pwSubmit.clearError();
 
     if (!settingsCurrentPassword) {
-      setSettingsPwError('Wprowadź dotychczasowe hasło.');
+      pwSubmit.setValidationError('Wprowadź dotychczasowe hasło.', 'currentPassword');
       return;
     }
 
@@ -107,23 +130,32 @@ export const UsersTab: React.FC<UsersTabProps> = ({
       email: currentUser.email,
     });
     if (!pwCheck.ok) {
-      setSettingsPwError(pwCheck.errors.join(' '));
+      pwSubmit.setValidationError(pwCheck.errors.join(' '), 'newPassword');
       return;
     }
 
     if (settingsNewPassword !== settingsConfirmPassword) {
-      setSettingsPwError('Nowe hasła nie są identyczne.');
+      pwSubmit.setValidationError('Nowe hasła nie są identyczne.', 'confirmPassword');
       return;
     }
 
-    setIsChangingSettingsPassword(true);
-    try {
-      if (onUpdateUserPassword) {
-        const res = await onUpdateUserPassword(currentUser.id, settingsNewPassword, settingsCurrentPassword);
-        if (res === false) {
-          return;
+    const result = await pwSubmit.submit(
+      async () => {
+        if (onUpdateUserPassword) {
+          const res = await onUpdateUserPassword(
+            currentUser.id,
+            settingsNewPassword,
+            settingsCurrentPassword
+          );
+          if (res === false) {
+            return { ok: false, error: 'Nie udało się zmienić hasła.' };
+          }
+          if (res && typeof res === 'object' && 'ok' in res) {
+            return res;
+          }
+          return { ok: true };
         }
-      } else {
+
         const res = await fetch(`/api/users/${currentUser.id}/password`, {
           method: 'POST',
           credentials: 'same-origin',
@@ -134,22 +166,32 @@ export const UsersTab: React.FC<UsersTabProps> = ({
           }),
         });
         if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          setSettingsPwError(data.error || 'Nie udało się zmienić hasła.');
-          return;
+          const parsed = await parseApiErrorResponse(res, 'Nie udało się zmienić hasła.');
+          return {
+            ok: false,
+            status: res.status,
+            error: parsed.error,
+            field: parsed.field,
+          };
         }
-      }
+        return { ok: true, status: res.status };
+      },
+      { fallbackError: 'Nie udało się zmienić hasła.' }
+    );
+
+    if (result.ok) {
       setSettingsPwSuccess(true);
       setSettingsCurrentPassword('');
       setSettingsNewPassword('');
       setSettingsConfirmPassword('');
       setTimeout(() => setSettingsPwSuccess(false), 3000);
-    } finally {
-      setIsChangingSettingsPassword(false);
     }
   };
 
   const handleRevokeSession = async (sessionId: string) => {
+    if (sessionActionLockRef.current) return;
+    sessionActionLockRef.current = true;
+    setRevokingSessionId(sessionId);
     setSessionActionError(null);
     setSessionActionSuccess(null);
     try {
@@ -157,20 +199,25 @@ export const UsersTab: React.FC<UsersTabProps> = ({
         method: 'DELETE',
         credentials: 'same-origin',
       });
-      const data = await res.json();
       if (!res.ok) {
-        setSessionActionError(data.error || 'Błąd unieważniania sesji');
+        const parsed = await parseApiErrorResponse(res, 'Błąd unieważniania sesji');
+        reportSessionError(parsed.error);
       } else {
         setSessionActionSuccess('Sesja została pomyślnie unieważniona.');
         await loadSessions();
       }
-    } catch (err: any) {
-      setSessionActionError(err.message || 'Błąd połączenia z serwerem');
+    } catch (err: unknown) {
+      reportSessionError(normalizeSubmitError(err, 'Błąd połączenia z serwerem').error);
+    } finally {
+      sessionActionLockRef.current = false;
+      setRevokingSessionId(null);
     }
   };
 
   const handleRevokeOtherSessions = async () => {
+    if (sessionActionLockRef.current) return;
     if (!window.confirm('Czy na pewno chcesz wylogować wszystkie inne aktywne sesje?')) return;
+    sessionActionLockRef.current = true;
     setIsRevokingOthers(true);
     setSessionActionError(null);
     setSessionActionSuccess(null);
@@ -179,24 +226,27 @@ export const UsersTab: React.FC<UsersTabProps> = ({
         method: 'POST',
         credentials: 'same-origin',
       });
-      const data = await res.json();
       if (!res.ok) {
-        setSessionActionError(data.error || 'Błąd unieważniania pozostałych sesji');
+        const parsed = await parseApiErrorResponse(res, 'Błąd unieważniania pozostałych sesji');
+        reportSessionError(parsed.error);
       } else {
         setSessionActionSuccess('Wszystkie inne sesje zostały pomyślnie wylogowane.');
         await loadSessions();
       }
-    } catch (err: any) {
-      setSessionActionError(err.message || 'Błąd połączenia z serwerem');
+    } catch (err: unknown) {
+      reportSessionError(normalizeSubmitError(err, 'Błąd połączenia z serwerem').error);
     } finally {
+      sessionActionLockRef.current = false;
       setIsRevokingOthers(false);
     }
   };
 
   const handleAdminRevokeAllUserSessions = async (userId: string, userName: string) => {
+    if (sessionActionLockRef.current) return;
     if (!window.confirm(`Czy na pewno chcesz zakończyć wszystkie sesje użytkownika ${userName}? Użytkownik zostanie natychmiast wylogowany ze wszystkich urządzeń.`)) {
       return;
     }
+    sessionActionLockRef.current = true;
     setSessionActionError(null);
     setSessionActionSuccess(null);
     try {
@@ -204,19 +254,21 @@ export const UsersTab: React.FC<UsersTabProps> = ({
         method: 'DELETE',
         credentials: 'same-origin',
       });
-      const data = await res.json();
       if (res.ok) {
         setSessionActionSuccess(`Pomyślnie zakończono sesje użytkownika ${userName}.`);
         if (userId === currentUser?.id) {
           window.location.reload();
         } else {
-          loadSessions();
+          await loadSessions();
         }
       } else {
-        setSessionActionError(data.error || 'Błąd kończenia sesji użytkownika');
+        const parsed = await parseApiErrorResponse(res, 'Błąd kończenia sesji użytkownika');
+        reportSessionError(parsed.error);
       }
-    } catch (err: any) {
-      setSessionActionError(err.message || 'Błąd połączenia z serwerem');
+    } catch (err: unknown) {
+      reportSessionError(normalizeSubmitError(err, 'Błąd połączenia z serwerem').error);
+    } finally {
+      sessionActionLockRef.current = false;
     }
   };
 
@@ -259,11 +311,12 @@ export const UsersTab: React.FC<UsersTabProps> = ({
             </div>
           )}
 
-          {settingsPwError && (
-            <div role="alert" className="p-2.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 rounded text-xs">
-              {settingsPwError}
-            </div>
-          )}
+          <FormError
+            id="settings-password-error"
+            error={pwSubmit.submitError}
+            alertRef={pwSubmit.alertRef}
+            onDismiss={pwSubmit.clearError}
+          />
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
@@ -277,8 +330,9 @@ export const UsersTab: React.FC<UsersTabProps> = ({
                 value={settingsCurrentPassword}
                 onChange={(e) => {
                   setSettingsCurrentPassword(e.target.value);
-                  setSettingsPwError(null);
+                  pwSubmit.clearError();
                 }}
+                {...pwSubmit.getFieldA11yProps('currentPassword', 'settings-password-error')}
                 placeholder="Aktualne hasło"
                 className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono"
               />
@@ -297,8 +351,9 @@ export const UsersTab: React.FC<UsersTabProps> = ({
                 value={settingsNewPassword}
                 onChange={(e) => {
                   setSettingsNewPassword(e.target.value);
-                  setSettingsPwError(null);
+                  pwSubmit.clearError();
                 }}
+                {...pwSubmit.getFieldA11yProps('newPassword', 'settings-password-error')}
                 placeholder="Nowe hasło"
                 className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono"
               />
@@ -317,8 +372,9 @@ export const UsersTab: React.FC<UsersTabProps> = ({
                 value={settingsConfirmPassword}
                 onChange={(e) => {
                   setSettingsConfirmPassword(e.target.value);
-                  setSettingsPwError(null);
+                  pwSubmit.clearError();
                 }}
+                {...pwSubmit.getFieldA11yProps('confirmPassword', 'settings-password-error')}
                 placeholder="Powtórz nowe hasło"
                 className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono"
               />
@@ -340,7 +396,7 @@ export const UsersTab: React.FC<UsersTabProps> = ({
             <button
               type="submit"
               disabled={
-                isChangingSettingsPassword ||
+                pwSubmit.isSubmitting ||
                 !settingsCurrentPassword ||
                 !validatePassword(settingsNewPassword, {
                   name: currentUser.name,
@@ -350,7 +406,7 @@ export const UsersTab: React.FC<UsersTabProps> = ({
               }
               className="px-4 py-1.5 bg-sky-700 hover:bg-sky-800 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-xs font-semibold transition-colors"
             >
-              {isChangingSettingsPassword ? 'Zapisywanie...' : 'Zmień hasło'}
+              {pwSubmit.isSubmitting ? 'Zapisywanie...' : 'Zmień hasło'}
             </button>
           </div>
         </form>
@@ -580,8 +636,12 @@ export const UsersTab: React.FC<UsersTabProps> = ({
         </div>
 
         {sessionActionError && (
-          <div role="alert" className="p-3 bg-rose-50 dark:bg-rose-950/40 border-b border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs">
-            {sessionActionError}
+          <div className="p-3 border-b border-rose-200 dark:border-rose-800 bg-rose-50/50 dark:bg-rose-950/20">
+            <FormError
+              error={sessionActionError}
+              alertRef={sessionErrorAlertRef}
+              onDismiss={() => setSessionActionError(null)}
+            />
           </div>
         )}
 
@@ -644,11 +704,12 @@ export const UsersTab: React.FC<UsersTabProps> = ({
                       ) : (
                         <button
                           type="button"
+                          disabled={isRevokingOthers || revokingSessionId === session.id}
                           onClick={() => handleRevokeSession(session.id)}
-                          className="px-2.5 py-1 text-[11px] font-semibold text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded border border-rose-200 dark:border-rose-900 transition-colors"
+                          className="px-2.5 py-1 text-[11px] font-semibold text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded border border-rose-200 dark:border-rose-900 transition-colors disabled:opacity-50"
                           title="Unieważnij tę sesję"
                         >
-                          Wyloguj
+                          {revokingSessionId === session.id ? 'Wylogowywanie...' : 'Wyloguj'}
                         </button>
                       )}
                     </td>

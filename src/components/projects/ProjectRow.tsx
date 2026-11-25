@@ -1,6 +1,8 @@
 import React from 'react';
 import { Company, Project, Task, User } from '../../types';
 import { canViewFinance } from '../../utils/access';
+import { isProjectStatusClosed } from '../../utils/projectMeta';
+import { useVariables } from '../../hooks/useVariables';
 import { Archive } from 'lucide-react';
 import { ProjectActions } from './ProjectActions';
 import {
@@ -44,13 +46,14 @@ export const ProjectRow: React.FC<ProjectRowProps> = ({
   onRestore,
   onDelete,
 }) => {
-  const statusMeta = getProjectStatusMeta(project.status);
-  const priorityMeta = getProjectPriorityMeta(project.priority);
+  const { projectStatuses, projectPriorities } = useVariables();
+  const statusMeta = getProjectStatusMeta(project.status, projectStatuses);
+  const priorityMeta = getProjectPriorityMeta(project.priority, projectPriorities);
   const metrics = getProjectTaskMetrics(tasks, project.id, todayIso);
   const canSeeClient = canViewFinance(currentUser, project);
   const isDueOverdue =
     !project.isArchived &&
-    project.status !== 'completed' &&
+    !isProjectStatusClosed(project.status, projectStatuses) &&
     Boolean(project.dueDate) &&
     project.dueDate < todayIso;
   const clampedProgress = Math.min(100, Math.max(0, project.progress || 0));

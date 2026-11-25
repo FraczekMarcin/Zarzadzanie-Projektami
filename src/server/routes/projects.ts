@@ -16,6 +16,12 @@ import {
   isValidProjectCodeFormat,
 } from '../../utils/projectCode.js';
 import { recomputeProjectProgress } from '../../utils/progress.js';
+import {
+  getDefaultProjectPriorityId,
+  getDefaultProjectStatusId,
+  normalizeProjectPriorities,
+  normalizeProjectStatuses,
+} from '../../utils/projectMeta.js';
 import type { ProjectTemplate, Task } from '../../types/index.js';
 import {
   addDaysUtc,
@@ -234,6 +240,33 @@ export function registerProjectRoutes(
         return res.status(400).json({ error: 'Wybór aktywnej firmy jest wymagany.' });
       }
 
+      const configuredStatuses = normalizeProjectStatuses(appState.variables?.projectStatuses);
+      const configuredPriorities = normalizeProjectPriorities(appState.variables?.projectPriorities);
+
+      let resolvedStatus = getDefaultProjectStatusId(configuredStatuses);
+      if (body.status !== undefined && body.status !== null && body.status !== '') {
+        const rawStatus = typeof body.status === 'string' ? body.status.trim() : '';
+        if (!rawStatus || !configuredStatuses.some((s) => s.id === rawStatus)) {
+          return res.status(400).json({
+            error: 'Wybrany stan projektu nie istnieje w konfiguracji.',
+            field: 'status',
+          });
+        }
+        resolvedStatus = rawStatus;
+      }
+
+      let resolvedPriority = getDefaultProjectPriorityId(configuredPriorities);
+      if (body.priority !== undefined && body.priority !== null && body.priority !== '') {
+        const rawPriority = typeof body.priority === 'string' ? body.priority.trim() : '';
+        if (!rawPriority || !configuredPriorities.some((p) => p.id === rawPriority)) {
+          return res.status(400).json({
+            error: 'Wybrany priorytet projektu nie istnieje w konfiguracji.',
+            field: 'priority',
+          });
+        }
+        resolvedPriority = rawPriority;
+      }
+
       const financeValidation = validateProjectFinanceFields(allowed, undefined, {
         company: selectedCompany,
       });
@@ -361,8 +394,8 @@ export function registerProjectRoutes(
         name: sanitizedName,
         memberIds: members,
         description: allowed.description || '',
-        priority: allowed.priority || 'normal',
-        status: allowed.status || 'planning',
+        priority: resolvedPriority,
+        status: resolvedStatus,
         startDate: effectiveStartDate,
         dueDate: effectiveDueDate,
         durationDays: effectiveDurationDays,
@@ -375,6 +408,16 @@ export function registerProjectRoutes(
       }
       if (!newProject.ownerId) {
         delete newProject.ownerId;
+      }
+      if (newProject.projectValue === null || newProject.projectValue === undefined) {
+        delete newProject.projectValue;
+        delete newProject.projectValueGross;
+      }
+      if (newProject.projectValueGross === null || newProject.projectValueGross === undefined) {
+        delete newProject.projectValueGross;
+      }
+      if (newProject.budget === null || newProject.budget === undefined || newProject.budget === '') {
+        delete newProject.budget;
       }
 
       let instantiatedTasks: Task[] = [];
@@ -589,6 +632,31 @@ export function registerProjectRoutes(
         }
       }
 
+      const configuredStatuses = normalizeProjectStatuses(appState.variables?.projectStatuses);
+      const configuredPriorities = normalizeProjectPriorities(appState.variables?.projectPriorities);
+
+      if (Object.prototype.hasOwnProperty.call(patch, 'status')) {
+        const rawStatus = typeof patch.status === 'string' ? patch.status.trim() : '';
+        if (!rawStatus || !configuredStatuses.some((s) => s.id === rawStatus)) {
+          return res.status(400).json({
+            error: 'Wybrany stan projektu nie istnieje w konfiguracji.',
+            field: 'status',
+          });
+        }
+        allowedUpdates.status = rawStatus;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
+        const rawPriority = typeof patch.priority === 'string' ? patch.priority.trim() : '';
+        if (!rawPriority || !configuredPriorities.some((p) => p.id === rawPriority)) {
+          return res.status(400).json({
+            error: 'Wybrany priorytet projektu nie istnieje w konfiguracji.',
+            field: 'priority',
+          });
+        }
+        allowedUpdates.priority = rawPriority;
+      }
+
       const financeValidation = validateProjectFinanceFields(allowedUpdates, project, {
         company: targetCompany,
       });
@@ -656,6 +724,14 @@ export function registerProjectRoutes(
       for (const [key, value] of Object.entries(allowedUpdates)) {
         if ((key === 'companyId' || key === 'ownerId') && value === undefined) {
           delete project[key];
+        } else if (
+          (key === 'projectValue' || key === 'projectValueGross' || key === 'budget') &&
+          (value === null || value === undefined || value === '')
+        ) {
+          delete project[key];
+          if (key === 'projectValue') {
+            delete project.projectValueGross;
+          }
         } else {
           project[key] = value;
         }

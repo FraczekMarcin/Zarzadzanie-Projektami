@@ -23,6 +23,8 @@ import {
   TRUSTED_DEVICE_DAYS_MIN,
 } from '../../utils/settingsSchema';
 import type { ProgressWeighting } from '../../utils/progress';
+import { normalizeSubmitError, parseApiErrorResponse, useFormSubmit } from '../../hooks/useFormSubmit';
+import { FormError } from '../FormError';
 import { useSettingsTabDirty } from './SettingsDirtyContext';
 
 interface AdminSystemResponse {
@@ -93,9 +95,9 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({
   const [progressWeighting, setProgressWeighting] = useState<ProgressWeighting>('estimate');
   const [currentPassword, setCurrentPassword] = useState('');
 
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveSubmit = useFormSubmit();
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const saveErrorId = 'access-save-error';
 
   const applyResponseToForm = (payload: AdminSettingsResponse) => {
     setData(payload);
@@ -124,10 +126,14 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({
         fetch('/api/admin/settings', { credentials: 'same-origin' }),
         fetch('/api/admin/system', { credentials: 'same-origin' }).catch(() => null),
       ]);
-      const json = await settingsRes.json().catch(() => ({}));
       if (!settingsRes.ok) {
-        setLoadError(json.error || 'Nie udało się pobrać ustawień dostępu i sesji.');
+        const parsed = await parseApiErrorResponse(
+          settingsRes,
+          'Nie udało się pobrać ustawień dostępu i sesji.'
+        );
+        setLoadError(parsed.error);
       } else {
+        const json = await settingsRes.json();
         applyResponseToForm(json as AdminSettingsResponse);
       }
       if (systemRes && systemRes.ok) {
@@ -136,8 +142,8 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({
           setSystemStatus(sysJson as AdminSystemResponse);
         }
       }
-    } catch (err: any) {
-      setLoadError(err?.message || 'Błąd połączenia z serwerem.');
+    } catch (err: unknown) {
+      setLoadError(normalizeSubmitError(err, 'Błąd połączenia z serwerem.').error);
     } finally {
       setIsLoading(false);
     }
@@ -175,11 +181,14 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({
     e.preventDefault();
     if (!data) return;
 
-    setSaveError(null);
+    saveSubmit.clearError();
     setSaveSuccess(null);
 
     if (!currentPassword) {
-      setSaveError('Podaj aktualne hasło administratora, aby zapisać ustawienia.');
+      saveSubmit.setValidationError(
+        'Podaj aktualne hasło administratora, aby zapisać ustawienia.',
+        'currentPassword'
+      );
       return;
     }
 
@@ -196,8 +205,9 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({
     if (!data.sessions.idleMinutes.locked) {
       const parsedIdle = Number(idleMinutes.trim());
       if (!Number.isInteger(parsedIdle) || parsedIdle < SESSION_IDLE_MIN || parsedIdle > SESSION_IDLE_MAX) {
-        setSaveError(
-          `Czas bezczynności sesji musi być liczbą całkowitą z zakresu od ${SESSION_IDLE_MIN} do ${SESSION_IDLE_MAX} minut.`
+        saveSubmit.setValidationError(
+          `Czas bezczynności sesji musi być liczbą całkowitą z zakresu od ${SESSION_IDLE_MIN} do ${SESSION_IDLE_MAX} minut.`,
+          'sessions.idleMinutes'
         );
         return;
       }
@@ -212,8 +222,9 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({
         parsedMax < SESSION_MAX_HOURS_MIN ||
         parsedMax > SESSION_MAX_HOURS_MAX
       ) {
-        setSaveError(
-          `Maksymalny czas trwania sesji musi być liczbą całkowitą z zakresu od ${SESSION_MAX_HOURS_MIN} do ${SESSION_MAX_HOURS_MAX} godzin.`
+        saveSubmit.setValidationError(
+          `Maksymalny czas trwania sesji musi być liczbą całkowitą z zakresu od ${SESSION_MAX_HOURS_MIN} do ${SESSION_MAX_HOURS_MAX} godzin.`,
+          'sessions.maxHours'
         );
         return;
       }
@@ -222,8 +233,9 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({
     }
 
     if (effectiveIdle > effectiveMax * 60) {
-      setSaveError(
-        'Czas bezczynności sesji (w minutach) nie może przekraczać maksymalnego czasu trwania sesji.'
+      saveSubmit.setValidationError(
+        'Czas bezczynności sesji (w minutach) nie może przekraczać maksymalnego czasu trwania sesji.',
+        'sessions.idleMinutes'
       );
       return;
     }
@@ -239,8 +251,9 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({
         parsedRetention < TRASH_RETENTION_MIN ||
         parsedRetention > TRASH_RETENTION_MAX
       ) {
-        setSaveError(
-          `Okres przechowywania w koszu musi być liczbą całkowitą z zakresu od ${TRASH_RETENTION_MIN} do ${TRASH_RETENTION_MAX} dni.`
+        saveSubmit.setValidationError(
+          `Okres przechowywania w koszu musi być liczbą całkowitą z zakresu od ${TRASH_RETENTION_MIN} do ${TRASH_RETENTION_MAX} dni.`,
+          'trash.retentionDays'
         );
         return;
       }
@@ -259,8 +272,9 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({
           parsedDays < TRUSTED_DEVICE_DAYS_MIN ||
           parsedDays > TRUSTED_DEVICE_DAYS_MAX
         ) {
-          setSaveError(
-            `Okres zaufania urządzenia musi być liczbą całkowitą z zakresu od ${TRUSTED_DEVICE_DAYS_MIN} do ${TRUSTED_DEVICE_DAYS_MAX} dni.`
+          saveSubmit.setValidationError(
+            `Okres zaufania urządzenia musi być liczbą całkowitą z zakresu od ${TRUSTED_DEVICE_DAYS_MIN} do ${TRUSTED_DEVICE_DAYS_MAX} dni.`,
+            'trustedDevices.days'
           );
           return;
         }
@@ -278,36 +292,38 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({
       body.progress = { weighting: progressWeighting };
     }
 
-    setIsSaving(true);
-    try {
-      const res = await fetch('/api/admin/settings', {
-        method: 'PUT',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setSaveError(json.error || 'Nie udało się zapisać ustawień dostępu i sesji.');
-        return;
-      }
-      if (json.settings) {
-        applyResponseToForm(json.settings as AdminSettingsResponse);
-      }
-      if (Array.isArray(json.changedFields) && json.changedFields.includes('progress.weighting')) {
-        await onRefreshState?.();
-      }
-      setCurrentPassword('');
-      setSaveSuccess(
-        Array.isArray(json.changedFields) && json.changedFields.length > 0
-          ? 'Ustawienia dostępu i sesji zostały zapisane i obowiązują natychmiast.'
-          : 'Brak nowych zmian do zapisania.'
-      );
-    } catch (err: any) {
-      setSaveError(err?.message || 'Błąd połączenia z serwerem.');
-    } finally {
-      setIsSaving(false);
-    }
+    await saveSubmit.submit(
+      async () => {
+        const res = await fetch('/api/admin/settings', {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const parsed = await parseApiErrorResponse(
+            res,
+            'Nie udało się zapisać ustawień dostępu i sesji.'
+          );
+          return { ok: false, status: res.status, ...parsed };
+        }
+        const json = await res.json().catch(() => ({}));
+        if (json.settings) {
+          applyResponseToForm(json.settings as AdminSettingsResponse);
+        }
+        if (Array.isArray(json.changedFields) && json.changedFields.includes('progress.weighting')) {
+          await onRefreshState?.();
+        }
+        setCurrentPassword('');
+        setSaveSuccess(
+          Array.isArray(json.changedFields) && json.changedFields.length > 0
+            ? 'Ustawienia dostępu i sesji zostały zapisane i obowiązują natychmiast.'
+            : 'Brak nowych zmian do zapisania.'
+        );
+        return { ok: true };
+      },
+      { fallbackError: 'Nie udało się zapisać ustawień dostępu i sesji.' }
+    );
   };
 
   const renderEnvLockNote = (envVar?: string) => (
@@ -407,6 +423,7 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({
                   value={idleMinutes}
                   onChange={(e) => setIdleMinutes(e.target.value)}
                   disabled={data.sessions.idleMinutes.locked}
+                  {...saveSubmit.getFieldA11yProps('sessions.idleMinutes', saveErrorId)}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs disabled:opacity-60 disabled:bg-slate-100 dark:disabled:bg-slate-800"
                 />
                 <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
@@ -428,6 +445,7 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({
                   value={maxHours}
                   onChange={(e) => setMaxHours(e.target.value)}
                   disabled={data.sessions.maxHours.locked}
+                  {...saveSubmit.getFieldA11yProps('sessions.maxHours', saveErrorId)}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs disabled:opacity-60 disabled:bg-slate-100 dark:disabled:bg-slate-800"
                 />
                 <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
@@ -449,6 +467,7 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({
                     value={trashRetentionDays}
                     onChange={(e) => setTrashRetentionDays(e.target.value)}
                     disabled={data.trash.retentionDays.locked}
+                    {...saveSubmit.getFieldA11yProps('trash.retentionDays', saveErrorId)}
                     className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs disabled:opacity-60 disabled:bg-slate-100 dark:disabled:bg-slate-800"
                   />
                   <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
@@ -506,6 +525,7 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({
                       value={trustedDeviceDays}
                       onChange={(e) => setTrustedDeviceDays(e.target.value)}
                       disabled={data.trustedDevices.days.locked}
+                      {...saveSubmit.getFieldA11yProps('trustedDevices.days', saveErrorId)}
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs disabled:opacity-60 disabled:bg-slate-100 dark:disabled:bg-slate-800"
                     />
                     <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
@@ -579,16 +599,17 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({
                   onChange={(e) => setCurrentPassword(e.target.value)}
                   autoComplete="current-password"
                   placeholder="Wpisz swoje aktualne hasło logowania"
+                  {...saveSubmit.getFieldA11yProps('currentPassword', saveErrorId)}
                   className="w-full sm:max-w-sm px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs"
                 />
               </div>
 
-              {saveError && (
-                <div role="alert" className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
-                  <span>{saveError}</span>
-                </div>
-              )}
+              <FormError
+                id={saveErrorId}
+                error={saveSubmit.submitError}
+                alertRef={saveSubmit.alertRef}
+                onDismiss={saveSubmit.clearError}
+              />
 
               {saveSuccess && (
                 <div role="status" className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-2">
@@ -600,11 +621,11 @@ export const AccessSessionsTab: React.FC<AccessSessionsTabProps> = ({
               <div className="flex items-center justify-end">
                 <button
                   type="submit"
-                  disabled={isSaving}
+                  disabled={saveSubmit.isSubmitting}
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-700 hover:bg-sky-800 disabled:opacity-60 text-white text-xs font-semibold shadow-xs transition-colors"
                 >
                   <Save className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>{isSaving ? 'Zapisywanie...' : 'Zapisz'}</span>
+                  <span>{saveSubmit.isSubmitting ? 'Zapisywanie...' : 'Zapisz'}</span>
                 </button>
               </div>
             </div>

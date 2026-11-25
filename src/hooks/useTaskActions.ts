@@ -11,6 +11,11 @@ import {
 } from '../utils/progress';
 import { canAccessProject, generateTaskCode } from '../utils/access';
 import { canReparent, reconcileParentCompletionOnReparent } from '../utils/taskTree';
+import {
+  normalizeSubmitError,
+  parseApiErrorResponse,
+  type FormSubmitResult,
+} from './useFormSubmit';
 
 interface UseTaskActionsParams {
   tasks: Task[];
@@ -90,7 +95,12 @@ export function useTaskActions({
     }
   };
 
-  const saveTaskPatchToServer = async (taskId: string, patch: Partial<Task>, baseRevision?: number, retryCount = 0): Promise<void> => {
+  const saveTaskPatchToServer = async (
+    taskId: string,
+    patch: Partial<Task>,
+    baseRevision?: number,
+    retryCount = 0
+  ): Promise<FormSubmitResult<Task>> => {
     try {
       const targetRev = baseRevision !== undefined ? baseRevision : 1;
       const res = await fetch(`/api/tasks/${taskId}`, {
@@ -105,15 +115,22 @@ export function useTaskActions({
 
       if (res.status === 401) {
         const deviceAuth = await attemptSilentDeviceLogin();
+        if (deviceAuth.ok && retryCount === 0) {
+          return saveTaskPatchToServer(taskId, patch, baseRevision, retryCount + 1);
+        }
         if (!deviceAuth.ok) {
           setIsAuthenticated(false);
         }
-        return;
+        return {
+          ok: false,
+          status: 401,
+          error: 'Sesja wygasła. Zaloguj się ponownie.',
+        };
       }
 
       if (res.status === 409) {
         // Obsługa 409 Conflict: pobranie aktualnego zasobu, scalenie lokalnych zmian i ponowienie
-        const conflictData = await res.json();
+        const conflictData = await res.json().catch(() => ({}));
         const currentTask: Task = conflictData.currentTask;
         if (currentTask && retryCount < 3) {
           // Last-write-wins dla edytowanego pola
@@ -122,9 +139,20 @@ export function useTaskActions({
             message: 'Zadanie zostało zmienione przez innego użytkownika, zastosowano Twoją wersję',
             type: 'info',
           });
-          await saveTaskPatchToServer(taskId, mergedPatch, currentTask.revision || 1, retryCount + 1);
-          return;
+          return await saveTaskPatchToServer(
+            taskId,
+            mergedPatch,
+            currentTask.revision || 1,
+            retryCount + 1
+          );
         }
+        return {
+          ok: false,
+          status: 409,
+          error:
+            conflictData?.error ||
+            'Konflikt wersji zadania. Odśwież dane i spróbuj ponownie.',
+        };
       }
 
       if (res.ok) {
@@ -138,15 +166,38 @@ export function useTaskActions({
             prev && prev.id === taskId ? { ...prev, ...data.task } : prev
           );
         }
+        return {
+          ok: true,
+          status: res.status,
+          data: data.task as Task | undefined,
+        };
       } else {
-        const errData = await res.json().catch(() => ({}));
+        const parsed = await parseApiErrorResponse(
+          res,
+          'Nie udało się zapisać zmian zadania na serwerze.'
+        );
         setNotificationToast({
-          message: errData.error || 'Nie udało się zapisać zmian zadania na serwerze.',
+          message: parsed.error,
           type: 'error',
         });
+        return {
+          ok: false,
+          status: res.status,
+          error: parsed.error,
+          field: parsed.field,
+        };
       }
     } catch (err) {
       console.warn('Błąd zapisu zadania do API:', err);
+      const normalized = normalizeSubmitError(
+        err,
+        'Nie udało się zapisać zmian zadania na serwerze.'
+      );
+      return {
+        ok: false,
+        error: normalized.error,
+        field: normalized.field,
+      };
     }
   };
 
@@ -168,12 +219,15 @@ export function useTaskActions({
       const queued = taskPatchDebounceTimers.current.get(taskId);
       taskPatchDebounceTimers.current.delete(taskId);
       if (queued) {
-        saveTaskPatchToServer(taskId, queued.patch, queued.baseRevision);
+        void saveTaskPatchToServer(taskId, queued.patch, queued.baseRevision);
       }
     }, 500);
   };
 
-  const createTaskOnServer = async (task: Task): Promise<Task | null> => {
+  const createTaskOnServer = async (
+    task: Task,
+    retryCount = 0
+  ): Promise<FormSubmitResult<Task>> => {
     try {
       const res = await fetch('/api/tasks', {
         method: 'POST',
@@ -183,10 +237,17 @@ export function useTaskActions({
       });
       if (res.status === 401) {
         const deviceAuth = await attemptSilentDeviceLogin();
+        if (deviceAuth.ok && retryCount === 0) {
+          return createTaskOnServer(task, retryCount + 1);
+        }
         if (!deviceAuth.ok) {
           setIsAuthenticated(false);
         }
-        return null;
+        return {
+          ok: false,
+          status: 401,
+          error: 'Sesja wygasła. Zaloguj się ponownie.',
+        };
       }
       if (res.ok) {
         const data = await res.json();
@@ -201,20 +262,44 @@ export function useTaskActions({
                 )
               : [data.task, ...prev]
           );
-          return data.task as Task;
+          return {
+            ok: true,
+            status: res.status,
+            data: data.task as Task,
+          };
         }
-        return null;
+        return {
+          ok: false,
+          status: res.status,
+          error: 'Nieprawidłowa odpowiedź serwera podczas tworzenia zadania.',
+        };
       } else {
-        const errData = await res.json().catch(() => ({}));
+        const parsed = await parseApiErrorResponse(
+          res,
+          'Nie udało się zapisać nowego zadania na serwerze.'
+        );
         setNotificationToast({
-          message: errData.error || 'Nie udało się zapisać nowego zadania na serwerze.',
+          message: parsed.error,
           type: 'error',
         });
-        return null;
+        return {
+          ok: false,
+          status: res.status,
+          error: parsed.error,
+          field: parsed.field,
+        };
       }
     } catch (err) {
       console.warn('Błąd tworzenia zadania na serwerze:', err);
-      return null;
+      const normalized = normalizeSubmitError(
+        err,
+        'Nie udało się zapisać nowego zadania na serwerze.'
+      );
+      return {
+        ok: false,
+        error: normalized.error,
+        field: normalized.field,
+      };
     }
   };
 
@@ -262,7 +347,10 @@ export function useTaskActions({
     }
   };
 
-  const createCommentOnServer = async (comment: Comment) => {
+  const createCommentOnServer = async (
+    comment: Comment,
+    retryCount = 0
+  ): Promise<FormSubmitResult<Comment>> => {
     try {
       const res = await fetch('/api/comments', {
         method: 'POST',
@@ -272,25 +360,55 @@ export function useTaskActions({
       });
       if (res.status === 401) {
         const deviceAuth = await attemptSilentDeviceLogin();
+        if (deviceAuth.ok && retryCount === 0) {
+          return createCommentOnServer(comment, retryCount + 1);
+        }
         if (!deviceAuth.ok) {
           setIsAuthenticated(false);
         }
-        return;
+        return {
+          ok: false,
+          status: 401,
+          error: 'Sesja wygasła. Zaloguj się ponownie.',
+        };
       }
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (typeof data.revision === 'number') {
           applyRevision(data.revision);
         }
+        return {
+          ok: true,
+          status: res.status,
+          data: (data?.comment as Comment | undefined) || comment,
+        };
       } else {
-        const errData = await res.json().catch(() => ({}));
+        const parsed = await parseApiErrorResponse(
+          res,
+          'Nie udało się zapisać komentarza na serwerze.'
+        );
         setNotificationToast({
-          message: errData.error || 'Nie udało się zapisać komentarza na serwerze.',
+          message: parsed.error,
           type: 'error',
         });
+        return {
+          ok: false,
+          status: res.status,
+          error: parsed.error,
+          field: parsed.field,
+        };
       }
     } catch (err) {
       console.warn('Błąd dodawania komentarza na serwerze:', err);
+      const normalized = normalizeSubmitError(
+        err,
+        'Nie udało się zapisać komentarza na serwerze.'
+      );
+      return {
+        ok: false,
+        error: normalized.error,
+        field: normalized.field,
+      };
     }
   };
 
@@ -420,54 +538,108 @@ export function useTaskActions({
   };
 
   // Task actions
-  const handleSaveTask = (taskData: Omit<Task, 'id' | 'code' | 'createdAt' | 'updatedAt'>) => {
-    let newTaskList: Task[];
+  const handleSaveTask = async (
+    taskData: Omit<Task, 'id' | 'code' | 'createdAt' | 'updatedAt'>
+  ): Promise<FormSubmitResult<Task>> => {
+    const currentTasks = tasksRef.current;
+    let savedTask: Task;
 
     if (editingTask) {
-      const isParentTask = hasDirectSubtasks(tasks, editingTask.id);
+      const isParentTask = hasDirectSubtasks(currentTasks, editingTask.id);
       const patchToSend: Partial<Task> = isParentTask
         ? (() => {
             const { progress: _omitProgress, ...rest } = taskData;
             return rest;
           })()
         : taskData;
-      const updated: Task = {
+
+      const queued = taskPatchDebounceTimers.current.get(editingTask.id);
+      if (queued) {
+        clearTimeout(queued.timer);
+        taskPatchDebounceTimers.current.delete(editingTask.id);
+      }
+      const mergedPatch: Partial<Task> = queued
+        ? { ...queued.patch, ...patchToSend }
+        : patchToSend;
+      const baseRevision = queued?.baseRevision ?? (editingTask.revision || 1);
+
+      const result = await saveTaskPatchToServer(editingTask.id, mergedPatch, baseRevision);
+      if (!result.ok) {
+        return result;
+      }
+
+      savedTask = result.data || {
         ...editingTask,
-        ...patchToSend,
+        ...mergedPatch,
         updatedAt: new Date().toISOString(),
       };
-      newTaskList = tasks.map((t) => (t.id === editingTask.id ? updated : t));
-      queueTaskPatch(editingTask.id, patchToSend, editingTask.revision || 1);
+      const newTaskList = tasksRef.current.map((t) =>
+        t.id === editingTask.id ? { ...t, ...savedTask } : t
+      );
+      const { updatedTasks, triggeredEvents } = processDependencyRules(newTaskList);
+      setTasks(updatedTasks);
+
       logActivity(
-        `${currentUser.name} zaktualizował zadanie [${editingTask.code}]: ${updated.title}`,
+        `${currentUser.name} zaktualizował zadanie [${editingTask.code}]: ${savedTask.title}`,
         editingTask.id,
-        `Status: ${updated.status}, Czas trwania: ${updated.durationDays} dni, Priorytet: ${updated.priority}`
+        `Status: ${savedTask.status}, Czas trwania: ${savedTask.durationDays} dni, Priorytet: ${savedTask.priority}`
       );
-    } else {
-      const targetProject = projects.find((p) => p.id === taskData.projectId) || projects[0];
-      const existingProjectTasksCount = tasks.filter((t) => t.projectId === targetProject.id).length;
-      const code = generateTaskCode(targetProject.key, existingProjectTasksCount);
 
-      const newTask: Task = {
-        ...taskData,
-        id: `tsk-${Date.now()}`,
-        code,
-        revision: 1,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
+      if (triggeredEvents.length > 0) {
+        triggeredEvents.forEach((evt) => logActivity(evt));
+        setNotificationToast({ message: triggeredEvents[0], type: 'success' });
+      }
 
-      newTaskList = [newTask, ...tasks];
-      createTaskOnServer(newTask);
-      logActivity(
-        `${currentUser.name} utworzył nowe zadanie [${code}]: ${newTask.title}`,
-        newTask.id,
-        `Czas: ${newTask.durationDays} dni, Priorytet: ${newTask.priority}`
-      );
+      if (selectedTaskDetail) {
+        const refreshed = updatedTasks.find((t) => t.id === selectedTaskDetail.id);
+        if (refreshed) handleSelectTask(refreshed);
+      }
+
+      setEditingTask(null);
+      return { ok: true, status: result.status, data: savedTask };
     }
+
+    const targetProject = projects.find((p) => p.id === taskData.projectId) || projects[0];
+    if (!targetProject) {
+      return {
+        ok: false,
+        error: 'Nie znaleziono wybranego projektu.',
+        field: 'projectId',
+      };
+    }
+    const existingProjectTasksCount = currentTasks.filter(
+      (t) => t.projectId === targetProject.id
+    ).length;
+    const code = generateTaskCode(targetProject.key, existingProjectTasksCount);
+
+    const newTask: Task = {
+      ...taskData,
+      id: `tsk-${Date.now()}`,
+      code,
+      revision: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const result = await createTaskOnServer(newTask);
+    if (!result.ok || !result.data) {
+      return result;
+    }
+
+    savedTask = result.data;
+    const latestTasks = tasksRef.current;
+    const newTaskList = latestTasks.some((t) => t.id === savedTask.id)
+      ? latestTasks.map((t) => (t.id === savedTask.id ? { ...t, ...savedTask } : t))
+      : [savedTask, ...latestTasks];
 
     const { updatedTasks, triggeredEvents } = processDependencyRules(newTaskList);
     setTasks(updatedTasks);
+
+    logActivity(
+      `${currentUser.name} utworzył nowe zadanie [${savedTask.code || code}]: ${savedTask.title}`,
+      savedTask.id,
+      `Czas: ${savedTask.durationDays} dni, Priorytet: ${savedTask.priority}`
+    );
 
     if (triggeredEvents.length > 0) {
       triggeredEvents.forEach((evt) => logActivity(evt));
@@ -480,6 +652,7 @@ export function useTaskActions({
     }
 
     setEditingTask(null);
+    return { ok: true, status: result.status, data: savedTask };
   };
 
   const handleDeleteTask = (taskId: string) => {
@@ -839,7 +1012,10 @@ export function useTaskActions({
     }
   };
 
-  const handleAddComment = (taskId: string, content: string) => {
+  const handleAddComment = async (
+    taskId: string,
+    content: string
+  ): Promise<FormSubmitResult<Comment>> => {
     const newComment: Comment = {
       id: `com-${Date.now()}`,
       taskId,
@@ -847,9 +1023,14 @@ export function useTaskActions({
       content,
       createdAt: new Date().toISOString(),
     };
-    setComments((prev) => [...prev, newComment]);
-    createCommentOnServer(newComment);
+    const result = await createCommentOnServer(newComment);
+    if (!result.ok) {
+      return result;
+    }
+    const savedComment = result.data || newComment;
+    setComments((prev) => [...prev, savedComment]);
     logActivity(`${currentUser.name} dodał komentarz do zadania`, taskId, content);
+    return { ok: true, status: result.status, data: savedComment };
   };
 
   return {

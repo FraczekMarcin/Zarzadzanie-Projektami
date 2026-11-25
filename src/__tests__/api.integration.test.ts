@@ -1245,5 +1245,111 @@ describe('Integracyjne testy API (server.ts)', () => {
     expect(types).toContain('google_sync_started');
     expect(types).toContain('google_sync_completed');
   });
+
+  it('P76 Projekty API: walidacja status/priority z variables, domyślny stan/priorytet, czyszczenie wartości (null) i stawka VAT 0%', async () => {
+    ctx = await startTestServer();
+    const { cookie: adminCookie } = await setupAdmin(ctx.baseUrl);
+
+    // 1. Zaktualizuj słowniki stanów i priorytetów (własny domyślny stan i priorytet)
+    const varsRes = await fetch(`${ctx.baseUrl}/api/admin/variables`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        projectStatuses: [
+          { id: 'planning', label: 'Planowanie', color: 'sky', order: 1, isDefault: false, isClosed: false, isSystem: true },
+          { id: 'active', label: 'Aktywny', color: 'emerald', order: 2, isDefault: true, isClosed: false, isSystem: true },
+          { id: 'on_hold', label: 'Wstrzymany', color: 'amber', order: 3, isDefault: false, isClosed: false, isSystem: true },
+          { id: 'completed', label: 'Zakończony', color: 'slate', order: 4, isDefault: false, isClosed: true, isSystem: true },
+          { id: 'cancelled', label: 'Anulowany', color: 'rose', order: 5, isDefault: false, isClosed: true },
+        ],
+        projectPriorities: [
+          { id: 'low', label: 'Niski', color: 'slate', order: 1, isDefault: false, isSystem: true },
+          { id: 'normal', label: 'Normalny', color: 'sky', order: 2, isDefault: false, isSystem: true },
+          { id: 'high', label: 'Wysoki', color: 'orange', order: 3, isDefault: true, isSystem: true },
+          { id: 'critical', label: 'Krytyczny', color: 'rose', order: 4, isDefault: false, isSystem: true },
+        ],
+      }),
+    });
+    expect(varsRes.status).toBe(200);
+
+    // 2. Odrzuć nieznany status / priority -> 400 + field
+    const badStatusRes = await fetch(`${ctx.baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({ key: '2026-1_A', name: 'Zły status', status: 'nie_istnieje' }),
+    });
+    expect(badStatusRes.status).toBe(400);
+    expect((await badStatusRes.json()).field).toBe('status');
+
+    const badPriorityRes = await fetch(`${ctx.baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({ key: '2026-2_A', name: 'Zły priorytet', priority: 'nie_istnieje' }),
+    });
+    expect(badPriorityRes.status).toBe(400);
+    expect((await badPriorityRes.json()).field).toBe('priority');
+
+    // 3. Odrzuć niespójną kwotę brutto przy 0% VAT
+    const badZeroVatRes = await fetch(`${ctx.baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        key: '2026-3_A',
+        name: 'Zły VAT 0%',
+        projectValue: 10000,
+        projectValueGross: 12300,
+        projectVatRate: 0,
+      }),
+    });
+    expect(badZeroVatRes.status).toBe(400);
+    expect((await badZeroVatRes.json()).field).toBe('projectValueGross');
+
+    // 4. Pominięty status i priorytet dostaje wartość domyślną ze słownika; VAT 0% (10000/10000) zapisuje się poprawnie
+    const createRes = await fetch(`${ctx.baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        key: '2026-4_A',
+        name: 'Projekt 0% VAT i domyślne',
+        projectValue: 10000,
+        projectValueGross: 10000,
+        projectVatRate: 0,
+        budget: '10 000 PLN netto',
+      }),
+    });
+    expect(createRes.status).toBe(201);
+    const created = (await createRes.json()).project;
+    expect(created.status).toBe('active');
+    expect(created.priority).toBe('high');
+    expect(created.projectVatRate).toBe(0);
+    expect(created.projectValue).toBe(10000);
+    expect(created.projectValueGross).toBe(10000);
+
+    // 5. PATCH odrzuca nieznany status / priority i czyści wartość po wysłaniu null
+    const badPatchStatus = await fetch(`${ctx.baseUrl}/api/projects/${created.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({ status: 'bogus' }),
+    });
+    expect(badPatchStatus.status).toBe(400);
+    expect((await badPatchStatus.json()).field).toBe('status');
+
+    const clearRes = await fetch(`${ctx.baseUrl}/api/projects/${created.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        status: 'cancelled',
+        projectValue: null,
+        projectValueGross: null,
+        budget: null,
+      }),
+    });
+    expect(clearRes.status).toBe(200);
+    const cleared = (await clearRes.json()).project;
+    expect(cleared.status).toBe('cancelled');
+    expect(cleared.projectValue).toBeUndefined();
+    expect(cleared.projectValueGross).toBeUndefined();
+    expect(cleared.budget).toBeUndefined();
+  });
 });
 

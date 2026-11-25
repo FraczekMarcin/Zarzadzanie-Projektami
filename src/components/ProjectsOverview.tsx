@@ -17,7 +17,16 @@ import { ProjectDetailModal } from './ProjectDetailModal';
 import { FIELD_LIMITS, canEditFinance, canViewFinance } from '../utils/access';
 import { calcGrossFromNet, formatMoney } from '../utils/money';
 import { getTodayIso } from '../utils/today';
+import {
+  getDefaultProjectPriorityId,
+  getDefaultProjectStatusId,
+  getOrderedProjectPriorities,
+  getOrderedProjectStatuses,
+  isProjectStatusClosed,
+} from '../utils/projectMeta';
 import type { FinancePatchSaveResult } from '../hooks/useServerSync';
+import { useFormSubmit, type FormSubmitResult } from '../hooks/useFormSubmit';
+import { FormError } from './FormError';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { DiscardChangesModal } from './DiscardChangesModal';
@@ -106,8 +115,10 @@ interface ProjectsOverviewProps {
       templateTaskKeys?: string[];
     },
     selectedTemplate?: ProjectTemplate
-  ) => Promise<void> | void;
-  onUpdateProject?: (updatedProject: Project) => void;
+  ) => Promise<FormSubmitResult<{ project: Project; tasks?: Task[] }> | void> | void;
+  onUpdateProject?: (
+    updatedProject: Project
+  ) => Promise<FormSubmitResult<Project> | void> | void;
   onUpdateProjectFinance?: (projectId: string, patch: Partial<Project>, expectedRevision?: number) => Promise<FinancePatchSaveResult>;
   onApplyFreshProject?: (freshProject: Project) => void;
   onDeleteProject?: (projectId: string) => void;
@@ -135,7 +146,39 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   pendingDetailProjectId = null,
   onConsumePendingDetailProject,
 }) => {
-  const { clients: availableClients, vatRates: availableVatRates } = useVariables();
+  const {
+    clients: availableClients,
+    vatRates: availableVatRates,
+    projectStatuses,
+    projectPriorities,
+  } = useVariables();
+  const orderedStatuses = useMemo(
+    () => getOrderedProjectStatuses(projectStatuses),
+    [projectStatuses]
+  );
+  const orderedPriorities = useMemo(
+    () => getOrderedProjectPriorities(projectPriorities),
+    [projectPriorities]
+  );
+  const defaultStatusId = useMemo(
+    () => getDefaultProjectStatusId(projectStatuses),
+    [projectStatuses]
+  );
+  const defaultPriorityId = useMemo(
+    () => getDefaultProjectPriorityId(projectPriorities),
+    [projectPriorities]
+  );
+  const defaultNonExemptVatRate = useMemo(() => {
+    const defNonExempt = availableVatRates.find(
+      (v) => v.isDefault && !v.isExempt && (v.value ?? v.rate) > 0
+    );
+    if (defNonExempt) return defNonExempt.value ?? defNonExempt.rate;
+    const rate23 = availableVatRates.find((v) => !v.isExempt && (v.value ?? v.rate) === 23);
+    if (rate23) return rate23.value ?? rate23.rate;
+    const anyNonExempt = availableVatRates.find((v) => !v.isExempt);
+    return anyNonExempt ? (anyNonExempt.value ?? anyNonExempt.rate) : 23;
+  }, [availableVatRates]);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
@@ -146,7 +189,15 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   const [selectedTemplateDetail, setSelectedTemplateDetail] = useState<ProjectTemplate | null>(null);
   const [selectedTemplateTaskKeys, setSelectedTemplateTaskKeys] = useState<Set<string>>(() => new Set());
   const [isLoadingTemplateDetail, setIsLoadingTemplateDetail] = useState(false);
-  const [isSubmittingForm, setIsSubmittingForm] = useState(false);
+  const {
+    isSubmitting: isSubmittingForm,
+    submitError,
+    alertRef: formErrorAlertRef,
+    submit: submitProjectForm,
+    clearError: clearSubmitError,
+    setValidationError: setFormValidationError,
+    getFieldA11yProps,
+  } = useFormSubmit();
 
   // Financials modal state
   const [financialsProject, setFinancialsProject] = useState<Project | null>(null);
@@ -176,11 +227,13 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     onConsumePendingDetailProject?.();
   }, [pendingDetailProjectId, projects, onConsumePendingDetailProject]);
 
-  // Admin archive confirmation modal
+  // Admin archive confirmation modal & restore error state
   const [projectToArchive, setProjectToArchive] = useState<{
     project: Project;
     incompleteCount: number;
   } | null>(null);
+  const archiveSubmit = useFormSubmit<Project>();
+  const restoreSubmit = useFormSubmit<Project>();
 
   // Form fields
   const [projectCode, setProjectCode] = useState('');
@@ -188,13 +241,13 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   const [useAutoCode, setUseAutoCode] = useState<boolean>(true);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [priority, setPriority] = useState<Priority>('normal');
-  const [status, setStatus] = useState<'active' | 'planning' | 'on_hold' | 'completed'>('active');
+  const [priority, setPriority] = useState<Project['priority']>(() => getDefaultProjectPriorityId());
+  const [status, setStatus] = useState<Project['status']>(() => getDefaultProjectStatusId());
   const [startDate, setStartDate] = useState(getTodayIsoDate);
   const [durationDays, setDurationDays] = useState<number>(60);
   const [dueDate, setDueDate] = useState(() => calculateDueDate(getTodayIsoDate(), 60));
-  const [budget, setBudget] = useState('100 000 PLN');
-  const [projectValue, setProjectValue] = useState<number>(100000);
+  const [budget, setBudget] = useState('');
+  const [projectValueStr, setProjectValueStr] = useState<string>('');
   const [projectVatRate, setProjectVatRate] = useState<number>(23);
   const [ownerId, setOwnerId] = useState<string>('');
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>(['usr-1', 'usr-2']);
@@ -220,13 +273,13 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     projectCode: string;
     name: string;
     description: string;
-    priority: Priority;
+    priority: Project['priority'];
     status: string;
     startDate: string;
     durationDays: number;
     dueDate: string;
     budget: string;
-    projectValue: number;
+    projectValueStr: string;
     projectVatRate: number;
     ownerId: string;
     selectedMemberIds: string[];
@@ -250,7 +303,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     durationDays,
     dueDate,
     budget,
-    projectValue,
+    projectValueStr,
     projectVatRate,
     ownerId,
     selectedMemberIds,
@@ -269,6 +322,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     isOpen: Boolean(projectToArchive),
     mode: 'form',
     panelRef: archiveModalRef,
+    disabled: archiveSubmit.isSubmitting,
     onDismiss: () => setProjectToArchive(null),
   });
 
@@ -292,12 +346,14 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     panelRef: formModalRef,
     onDismiss: () => setIsModalOpen(false),
     isDirty: isProjectFormDirty,
+    disabled: isSubmittingForm,
     cancelButtonRef: formCancelRef,
   });
 
   useFocusTrap({
     isOpen: Boolean(projectToArchive),
     containerRef: archiveModalRef,
+    disableEscape: archiveSubmit.isSubmitting,
     onClose: () => setProjectToArchive(null),
   });
 
@@ -396,7 +452,14 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setDurationDays(calculateDays(startDate, newEnd));
   };
 
+  const getInitialVatForCompany = (cid: string): number => {
+    const comp = cid ? companies.find((c) => c.id === cid) : undefined;
+    if (comp?.vatPayer === false) return 0;
+    return defaultNonExemptVatRate;
+  };
+
   const openCreateModal = (preselectedTemplate?: ProjectTemplate) => {
+    clearSubmitError();
     setEditingProject(null);
     const defaultCompany =
       projectNumbering.defaultCompanyId &&
@@ -432,22 +495,23 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     let initTemplate = 'none';
     let initName = '';
     let initDesc = '';
-    let initPriority: Priority = 'normal';
+    let initPriority: Project['priority'] = defaultPriorityId;
+    const initStatus = defaultStatusId;
     let initDur = 60;
     let initDue = calculateDueDate(today, 60);
-    let initBudget = '150 000 PLN';
-    let initVal = 150000;
+    let initBudget = '';
+    const initValStr = '';
+    const initVat = getInitialVatForCompany(defaultCompany);
 
     if (preselectedTemplate) {
       templateDetailsRef.current[preselectedTemplate.id] = preselectedTemplate;
       initTemplate = preselectedTemplate.id;
       initName = preselectedTemplate.name;
       initDesc = preselectedTemplate.description;
-      initPriority = preselectedTemplate.defaultPriority;
+      initPriority = preselectedTemplate.defaultPriority || defaultPriorityId;
       initDur = preselectedTemplate.defaultDurationDays;
       initDue = calculateDueDate(today, preselectedTemplate.defaultDurationDays);
-      initBudget = preselectedTemplate.defaultBudget || '180 000 PLN';
-      initVal = 180000;
+      initBudget = preselectedTemplate.defaultBudget || '';
     }
 
     let initCode = '';
@@ -483,13 +547,13 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setName(initName);
     setDescription(initDesc);
     setPriority(initPriority);
-    setStatus('active');
+    setStatus(initStatus);
     setStartDate(today);
     setDurationDays(initDur);
     setDueDate(initDue);
     setBudget(initBudget);
-    setProjectValue(initVal);
-    setProjectVatRate(23);
+    setProjectValueStr(initValStr);
+    setProjectVatRate(initVat);
     setClientName('');
     setClientContactPerson('');
     setClientPhone('');
@@ -506,13 +570,13 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         name: initName,
         description: initDesc,
         priority: initPriority,
-        status: 'active',
+        status: initStatus,
         startDate: today,
         durationDays: initDur,
         dueDate: initDue,
         budget: initBudget,
-        projectValue: initVal,
-        projectVatRate: 23,
+        projectValueStr: initValStr,
+        projectVatRate: initVat,
         ownerId: '',
         selectedMemberIds: ['usr-1', 'usr-2'],
         clientName: '',
@@ -621,12 +685,22 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   };
 
   const openEditModal = (project: Project) => {
+    clearSubmitError();
     setEditingProject(project);
     const initCompany = project.companyId || '';
+    const initCompObj = initCompany ? companies.find((c) => c.id === initCompany) : undefined;
     const initDur = project.durationDays || 30;
     const initBudget = project.budget || '';
-    const initVal = project.projectValue || 100000;
-    const initVat = project.projectVatRate !== undefined ? project.projectVatRate : 23;
+    const initValStr =
+      project.projectValue !== undefined && project.projectValue !== null
+        ? String(project.projectValue)
+        : '';
+    const initVat =
+      initCompObj?.vatPayer === false
+        ? 0
+        : project.projectVatRate !== undefined
+        ? project.projectVatRate
+        : defaultNonExemptVatRate;
     const initOwner = project.ownerId || '';
     const initMembers = project.memberIds || [];
     const initClientName = project.clientName || '';
@@ -647,7 +721,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setDurationDays(initDur);
     setDueDate(project.dueDate);
     setBudget(initBudget);
-    setProjectValue(initVal);
+    setProjectValueStr(initValStr);
     setProjectVatRate(initVat);
     setOwnerId(initOwner);
     setSelectedMemberIds(initMembers);
@@ -670,7 +744,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         durationDays: initDur,
         dueDate: project.dueDate,
         budget: initBudget,
-        projectValue: initVal,
+        projectValueStr: initValStr,
         projectVatRate: initVat,
         ownerId: initOwner,
         selectedMemberIds: initMembers,
@@ -685,87 +759,123 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setIsModalOpen(true);
   };
 
+  const selectedCompanyObj = companyId
+    ? companies.find((c) => c.id === companyId)
+    : undefined;
+  const isSelectedCompanyVatExempt = selectedCompanyObj?.vatPayer === false;
+  const effectiveVatRate = isSelectedCompanyVatExempt ? 0 : projectVatRate;
+
+  const trimmedValueInput = projectValueStr.trim();
+  const parsedProjectValue =
+    trimmedValueInput === '' ? null : Number(trimmedValueInput.replace(',', '.'));
+  const hasValidProjectValue =
+    parsedProjectValue !== null &&
+    Number.isFinite(parsedProjectValue) &&
+    parsedProjectValue >= 0;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isFormValid || isSubmittingForm) return;
+    if (isSubmittingForm) return;
+    if (!name.trim()) {
+      setFormValidationError('Nazwa projektu jest wymagana.', 'name');
+      return;
+    }
+    if (requiresCompanySelection && !companyId) {
+      setFormValidationError('Wybierz firmę prowadzącą projekt.', 'companyId');
+      return;
+    }
+    if (!isCodeFormatValid || !isCodeAvailable) {
+      setFormValidationError('Podaj poprawny i dostępny kod projektu.', 'key');
+      return;
+    }
+    if (trimmedValueInput !== '' && !hasValidProjectValue) {
+      setFormValidationError('Kwota netto projektu musi być liczbą nieujemną.', 'projectValue');
+      return;
+    }
 
-    setIsSubmittingForm(true);
-    try {
-      if (clientName.trim()) {
-        registerClientIfNew(
-          {
-            name: clientName.trim(),
-            contactPerson: clientContactPerson.trim() || undefined,
-            phone: clientPhone.trim() || undefined,
-            email: clientEmail.trim() || undefined,
-            nip: clientNip.trim() || undefined,
-          },
-          { syncToServer: currentUser?.role === 'admin' }
-        );
-      }
+    const result = await submitProjectForm(
+      async () => {
+        const valNet = hasValidProjectValue && parsedProjectValue !== null ? parsedProjectValue : undefined;
+        const valGross =
+          valNet !== undefined ? calcGrossFromNet(valNet, effectiveVatRate) : undefined;
+        const budgetStr =
+          valNet !== undefined
+            ? `${formatMoney(valNet)} PLN`
+            : budget.trim()
+            ? budget.trim()
+            : undefined;
 
-      const valNet = Number(projectValue || 0);
-      const valGross = calcGrossFromNet(valNet, projectVatRate || 23);
-      const budgetStr = valNet > 0 ? `${formatMoney(valNet)} PLN` : budget;
-
-      if (editingProject && onUpdateProject) {
-        onUpdateProject({
-          ...editingProject,
-          key: editingProject.key !== projectCode ? projectCode : editingProject.key,
-          ...(canEditSelectedProjectCompany
-            ? { companyId: companyId || undefined }
-            : {}),
-          name,
-          description,
-          priority,
-          status,
-          startDate,
-          dueDate,
-          durationDays,
-          budget: budgetStr,
-          projectValue: valNet,
-          projectValueGross: valGross,
-          projectVatRate,
-          ownerId: ownerId || undefined,
-          memberIds: selectedMemberIds,
-          clientName: clientName.trim() || undefined,
-          clientContactPerson: clientContactPerson.trim() || undefined,
-          clientPhone: clientPhone.trim() || undefined,
-          clientEmail: clientEmail.trim() || undefined,
-          clientNip: clientNip.trim() || undefined,
-          diskPath: diskPath.trim() || undefined,
-        });
-      } else {
-        let template: ProjectTemplate | undefined;
-        if (selectedTemplateId !== 'none') {
-          template = templateDetailsRef.current[selectedTemplateId];
-          if (!template) {
-            try {
-              template = await fetchTemplateById(selectedTemplateId);
-              templateDetailsRef.current[selectedTemplateId] = template;
-            } catch {
-              template = undefined;
+        let res: FormSubmitResult | void;
+        if (editingProject && onUpdateProject) {
+          const updatedPayload: Project = {
+            ...editingProject,
+            key: editingProject.key !== projectCode ? projectCode : editingProject.key,
+            ...(canEditSelectedProjectCompany
+              ? { companyId: companyId || undefined }
+              : {}),
+            name,
+            description,
+            priority,
+            status,
+            startDate,
+            dueDate,
+            durationDays,
+            projectVatRate: effectiveVatRate,
+            ...(valNet !== undefined
+              ? {
+                  budget: budgetStr,
+                  projectValue: valNet,
+                  projectValueGross: valGross,
+                }
+              : {
+                  budget: null as unknown as undefined,
+                  projectValue: null as unknown as undefined,
+                  projectValueGross: null as unknown as undefined,
+                }),
+            ownerId: ownerId || undefined,
+            memberIds: selectedMemberIds,
+            clientName: clientName.trim() || undefined,
+            clientContactPerson: clientContactPerson.trim() || undefined,
+            clientPhone: clientPhone.trim() || undefined,
+            clientEmail: clientEmail.trim() || undefined,
+            clientNip: clientNip.trim() || undefined,
+            diskPath: diskPath.trim() || undefined,
+          };
+          res = await onUpdateProject(updatedPayload);
+        } else {
+          let template: ProjectTemplate | undefined;
+          if (selectedTemplateId !== 'none') {
+            template = templateDetailsRef.current[selectedTemplateId];
+            if (!template) {
+              try {
+                template = await fetchTemplateById(selectedTemplateId);
+                templateDetailsRef.current[selectedTemplateId] = template;
+              } catch {
+                template = undefined;
+              }
             }
           }
-        }
 
-        const customKeyPayload =
-          activeCompanies.length === 0 || (!useAutoCode && isAdminOrPm && projectCode.trim())
-            ? projectCode.trim().toUpperCase()
-            : undefined;
+          const customKeyPayload =
+            activeCompanies.length === 0 || (!useAutoCode && isAdminOrPm && projectCode.trim())
+              ? projectCode.trim().toUpperCase()
+              : undefined;
 
-        const templateTaskKeysPayload =
-          selectedTemplateId !== 'none' &&
-          template &&
-          selectedTemplateDetail?.id === template.id
-            ? filterBlueprintsWithParentCascade(
-                template.tasks,
-                selectedTemplateTaskKeys
-              ).map((t) => t.key)
-            : undefined;
+          const templateTaskKeysPayload =
+            selectedTemplateId !== 'none' &&
+            template &&
+            selectedTemplateDetail?.id === template.id
+              ? filterBlueprintsWithParentCascade(
+                  template.tasks,
+                  selectedTemplateTaskKeys
+                ).map((t) => t.key)
+              : undefined;
 
-        await onAddProject(
-          {
+          const createPayload: Omit<Project, 'id' | 'key'> & {
+            key?: string;
+            templateId?: string;
+            templateTaskKeys?: string[];
+          } = {
             ...(customKeyPayload ? { key: customKeyPayload } : {}),
             ...(companyId ? { companyId } : {}),
             ...(selectedTemplateId !== 'none' ? { templateId: selectedTemplateId } : {}),
@@ -780,10 +890,11 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
             dueDate,
             durationDays,
             progress: 0,
-            budget: budgetStr,
-            projectValue: valNet,
-            projectValueGross: valGross,
-            projectVatRate,
+            ...(budgetStr ? { budget: budgetStr } : {}),
+            ...(valNet !== undefined
+              ? { projectValue: valNet, projectValueGross: valGross }
+              : {}),
+            projectVatRate: effectiveVatRate,
             ownerId: ownerId || undefined,
             spentHours: 0,
             memberIds: selectedMemberIds,
@@ -794,42 +905,79 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
             clientEmail: clientEmail.trim() || undefined,
             clientNip: clientNip.trim() || undefined,
             diskPath: diskPath.trim() || undefined,
-          },
-          template
-        );
-      }
+          };
 
+          res = await onAddProject(createPayload, template);
+        }
+
+        if (res && typeof res === 'object' && 'ok' in res && !res.ok) {
+          return res;
+        }
+
+        if (clientName.trim()) {
+          registerClientIfNew(
+            {
+              name: clientName.trim(),
+              contactPerson: clientContactPerson.trim() || undefined,
+              phone: clientPhone.trim() || undefined,
+              email: clientEmail.trim() || undefined,
+              nip: clientNip.trim() || undefined,
+            },
+            { syncToServer: currentUser?.role === 'admin' }
+          );
+        }
+
+        return { ok: true };
+      },
+      { fallbackError: 'Nie udało się zapisać projektu na serwerze.' }
+    );
+
+    if (result.ok) {
       setIsModalOpen(false);
-    } finally {
-      setIsSubmittingForm(false);
     }
   };
 
   const handleRequestArchive = (project: Project) => {
+    archiveSubmit.clearError();
     const projectTasks = tasks.filter((t) => t.projectId === project.id);
     const incompleteCount = projectTasks.filter((t) => t.status !== 'done').length;
     setProjectToArchive({ project, incompleteCount });
   };
 
-  const handleConfirmArchive = () => {
+  const handleConfirmArchive = async () => {
     if (!projectToArchive || !onUpdateProject) return;
-    onUpdateProject({
-      ...projectToArchive.project,
-      isArchived: true,
-      archivedAt: new Date().toISOString(),
-      archivedBy: currentUser.name,
-    });
-    setProjectToArchive(null);
+    const targetProject = projectToArchive.project;
+    const res = await archiveSubmit.submit(
+      () =>
+        Promise.resolve(
+          onUpdateProject({
+            ...targetProject,
+            isArchived: true,
+            archivedAt: new Date().toISOString(),
+            archivedBy: currentUser.name,
+          })
+        ),
+      { fallbackError: 'Nie udało się zarchiwizować projektu na serwerze.' }
+    );
+    if (res.ok) {
+      setProjectToArchive(null);
+    }
   };
 
-  const handleRestoreProject = (project: Project) => {
+  const handleRestoreProject = async (project: Project) => {
     if (!onUpdateProject) return;
-    onUpdateProject({
-      ...project,
-      isArchived: false,
-      archivedAt: undefined,
-      archivedBy: undefined,
-    });
+    await restoreSubmit.submit(
+      () =>
+        Promise.resolve(
+          onUpdateProject({
+            ...project,
+            isArchived: false,
+            archivedAt: undefined,
+            archivedBy: undefined,
+          })
+        ),
+      { fallbackError: 'Nie udało się przywrócić projektu z archiwum.' }
+    );
   };
 
   const toggleMember = (userId: string) => {
@@ -866,9 +1014,12 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   const completedProjectsCount = useMemo(() => {
     return activeProjects.filter((p) => {
       const pTasks = tasks.filter((t) => t.projectId === p.id);
-      return p.status === 'completed' || (pTasks.length > 0 && pTasks.every((t) => t.status === 'done'));
+      return (
+        isProjectStatusClosed(p.status, projectStatuses) ||
+        (pTasks.length > 0 && pTasks.every((t) => t.status === 'done'))
+      );
     }).length;
-  }, [activeProjects, tasks]);
+  }, [activeProjects, tasks, projectStatuses]);
 
   const displayedProjects = useMemo(() => {
     let list = activeTab === 'active' ? activeProjects : archivedProjects;
@@ -891,12 +1042,15 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
       } else if (projectStatusFilter === 'completed') {
         list = list.filter((p) => {
           const pTasks = tasks.filter((t) => t.projectId === p.id);
-          return p.status === 'completed' || (pTasks.length > 0 && pTasks.every((t) => t.status === 'done'));
+          return (
+            isProjectStatusClosed(p.status, projectStatuses) ||
+            (pTasks.length > 0 && pTasks.every((t) => t.status === 'done'))
+          );
         });
       }
     }
     return list;
-  }, [activeTab, activeProjects, archivedProjects, projectStatusFilter, tasks]);
+  }, [activeTab, activeProjects, archivedProjects, projectStatusFilter, tasks, projectStatuses]);
 
   const todayIso = getTodayIso();
 
@@ -910,8 +1064,21 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         tasks,
         currentUser,
         todayIso,
+        projectStatuses,
+        projectPriorities,
       }),
-    [displayedProjects, sortKey, sortDir, companies, users, tasks, currentUser, todayIso]
+    [
+      displayedProjects,
+      sortKey,
+      sortDir,
+      companies,
+      users,
+      tasks,
+      currentUser,
+      todayIso,
+      projectStatuses,
+      projectPriorities,
+    ]
   );
 
   const showClientColumn = useMemo(
@@ -1009,6 +1176,12 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
           </button>
         </div>
       </div>
+
+      <FormError
+        error={restoreSubmit.submitError}
+        alertRef={restoreSubmit.alertRef}
+        onDismiss={restoreSubmit.clearError}
+      />
 
       {/* Tabs: Aktywne projekty vs Projekty archiwalne */}
       <div className="space-y-3">
@@ -1373,9 +1546,16 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
               onApplyFreshProject?.(fresh);
               setFinancialsProject(fresh);
             }}
-            onSaveProject={(updated) => {
-              if (onUpdateProject) onUpdateProject(updated);
-              setFinancialsProject(null);
+            onSaveProject={async (updated) => {
+              if (!onUpdateProject) {
+                setFinancialsProject(null);
+                return { ok: true };
+              }
+              const res = await onUpdateProject(updated);
+              if (!res || res.ok) {
+                setFinancialsProject(null);
+              }
+              return res;
             }}
           />
         </Suspense>
@@ -1444,20 +1624,28 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
               </p>
             )}
 
+            <FormError
+              error={archiveSubmit.submitError}
+              alertRef={archiveSubmit.alertRef}
+              onDismiss={archiveSubmit.clearError}
+            />
+
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800 text-xs">
               <button
                 type="button"
+                disabled={archiveSubmit.isSubmitting}
                 onClick={() => setProjectToArchive(null)}
-                className="px-3.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 rounded font-semibold transition-colors"
+                className="px-3.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 disabled:opacity-50 text-slate-700 dark:text-slate-300 rounded font-semibold transition-colors"
               >
                 Anuluj
               </button>
               <button
                 type="button"
+                disabled={archiveSubmit.isSubmitting}
                 onClick={handleConfirmArchive}
-                className="px-4 py-1.5 bg-purple-700 hover:bg-purple-600 text-white rounded font-semibold transition-colors shadow-xs"
+                className="px-4 py-1.5 bg-purple-700 hover:bg-purple-600 disabled:opacity-50 text-white rounded font-semibold transition-colors shadow-xs"
               >
-                Potwierdź archiwizację
+                {archiveSubmit.isSubmitting ? 'Archiwizowanie...' : 'Potwierdź archiwizację'}
               </button>
             </div>
           </div>
@@ -1556,6 +1744,13 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
             </div>
 
             <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4 flex-1 text-xs">
+              <FormError
+                id="project-form-error"
+                error={submitError}
+                alertRef={formErrorAlertRef}
+                onDismiss={clearSubmitError}
+              />
+
               {/* TEMPLATE PICKER - only when creating new project */}
               {!editingProject && (
                 <div className="p-3 bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900/50 rounded-lg space-y-2">
@@ -1737,9 +1932,21 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                     value={companyId}
                     required={!editingProject && activeCompanies.length > 0}
                     disabled={Boolean(editingProject && !canEditSelectedProjectCompany)}
+                    {...getFieldA11yProps('companyId', 'project-form-error')}
                     onChange={(e) => {
                       const nextCid = e.target.value;
+                      const prevComp = companyId
+                        ? companies.find((c) => c.id === companyId)
+                        : undefined;
+                      const nextComp = nextCid
+                        ? companies.find((c) => c.id === nextCid)
+                        : undefined;
                       setCompanyId(nextCid);
+                      if (nextComp?.vatPayer === false) {
+                        setProjectVatRate(0);
+                      } else if (!editingProject || prevComp?.vatPayer === false || projectVatRate === 0) {
+                        setProjectVatRate(defaultNonExemptVatRate);
+                      }
                       // Przy edycji zmiana firmy NIE zmienia wydanego numeru projektu
                     }}
                     className="w-full bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-800 rounded px-3 py-2 text-xs font-semibold text-slate-900 dark:text-white disabled:opacity-60"
@@ -1893,9 +2100,56 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   maxLength={FIELD_LIMITS.name}
+                  {...getFieldA11yProps('name', 'project-form-error')}
                   placeholder="np. Budynek Usługowo-Biurowy Kat. XIV"
                   className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-3 py-2 text-xs text-slate-900 dark:text-white"
                 />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="project-status-select" className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Stan projektu
+                  </label>
+                  <select
+                    id="project-status-select"
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value)}
+                    {...getFieldA11yProps('status', 'project-form-error')}
+                    className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-3 py-2 text-xs text-slate-900 dark:text-white"
+                  >
+                    {orderedStatuses.map((st) => (
+                      <option key={st.id} value={st.id}>
+                        {st.label}
+                      </option>
+                    ))}
+                    {!orderedStatuses.some((st) => st.id === status) && status && (
+                      <option value={status}>{status}</option>
+                    )}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="project-priority-select" className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Priorytet projektu
+                  </label>
+                  <select
+                    id="project-priority-select"
+                    value={priority}
+                    onChange={(e) => setPriority(e.target.value)}
+                    {...getFieldA11yProps('priority', 'project-form-error')}
+                    className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-3 py-2 text-xs text-slate-900 dark:text-white"
+                  >
+                    {orderedPriorities.map((pr) => (
+                      <option key={pr.id} value={pr.id}>
+                        {pr.label}
+                      </option>
+                    ))}
+                    {!orderedPriorities.some((pr) => pr.id === priority) && priority && (
+                      <option value={priority}>{priority}</option>
+                    )}
+                  </select>
+                </div>
               </div>
 
               <div>
@@ -2089,15 +2343,16 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div>
-                    <label htmlFor="project-value-net" className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Kwota netto (PLN) *</label>
+                    <label htmlFor="project-value-net" className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Kwota netto (PLN)</label>
                     <input
                       id="project-value-net"
                       type="number"
                       min="0"
                       step="0.01"
-                      value={projectValue}
-                      onChange={(e) => setProjectValue(Number(e.target.value))}
-                      placeholder="np. 150000"
+                      value={projectValueStr}
+                      onChange={(e) => setProjectValueStr(e.target.value)}
+                      {...getFieldA11yProps('projectValue', 'project-form-error')}
+                      placeholder="0,00"
                       className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono font-bold"
                     />
                   </div>
@@ -2105,15 +2360,22 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                     <label htmlFor="project-vat-rate" className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">Stawka VAT</label>
                     <select
                       id="project-vat-rate"
-                      value={projectVatRate}
+                      value={effectiveVatRate}
+                      disabled={isSelectedCompanyVatExempt || isSubmittingForm}
                       onChange={(e) => setProjectVatRate(Number(e.target.value))}
-                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+                      {...getFieldA11yProps('projectVatRate', 'project-form-error')}
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white disabled:opacity-60"
                     >
                       {availableVatRates.map((v) => (
                         <option key={v.id} value={v.value ?? v.rate}>
                           {v.label}
                         </option>
                       ))}
+                      {!availableVatRates.some((v) => (v.value ?? v.rate) === effectiveVatRate) && (
+                        <option value={effectiveVatRate}>
+                          {effectiveVatRate === 0 ? '0% (ZW)' : `${effectiveVatRate}%`}
+                        </option>
+                      )}
                     </select>
                   </div>
                   <div>
@@ -2122,11 +2384,21 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                       id="project-value-gross"
                       type="text"
                       disabled
-                      value={`${formatMoney(calcGrossFromNet(projectValue, projectVatRate))} zł`}
+                      placeholder="0,00 zł"
+                      value={
+                        hasValidProjectValue && parsedProjectValue !== null
+                          ? `${formatMoney(calcGrossFromNet(parsedProjectValue, effectiveVatRate))} zł`
+                          : ''
+                      }
                       className="w-full bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 font-mono font-bold"
                     />
                   </div>
                 </div>
+                {isSelectedCompanyVatExempt && (
+                  <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                    Wybrana firma jest zwolniona z VAT — obowiązuje stawka 0% (ZW).
+                  </p>
+                )}
               </div>
 
               {/* Project Owner (uprawnienia finansowe) */}

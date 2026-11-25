@@ -9,6 +9,8 @@ import { normalizeStateStructure } from '../utils/stateStore.js';
 import {
   DEFAULT_CLIENTS,
   DEFAULT_DEADLINE_WARNING_DAYS,
+  DEFAULT_PROJECT_PRIORITIES,
+  DEFAULT_PROJECT_STATUSES,
   DEFAULT_TASK_TYPES,
   DEFAULT_VAT_RATES,
 } from '../utils/variablesSchema.js';
@@ -163,6 +165,8 @@ describe('P54: Zmienne systemowe na serwerze, RBAC, walidacja, migracja i czyszc
     expect(legacyState.variables?.vatRates).toEqual(DEFAULT_VAT_RATES);
     expect(legacyState.variables?.clients).toEqual(DEFAULT_CLIENTS);
     expect(legacyState.variables?.taskTypes).toEqual(DEFAULT_TASK_TYPES);
+    expect(legacyState.variables?.projectStatuses).toEqual(DEFAULT_PROJECT_STATUSES);
+    expect(legacyState.variables?.projectPriorities).toEqual(DEFAULT_PROJECT_PRIORITIES);
   });
 
   it('filterStateForUser ukrywa listę klientów dla ról innych niż admin i project_manager oraz usuwa variables dla niezalogowanych', () => {
@@ -182,11 +186,14 @@ describe('P54: Zmienne systemowe na serwerze, RBAC, walidacja, migracja i czyszc
     expect(adminFiltered.variables.clients).toHaveLength(DEFAULT_CLIENTS.length);
     expect(adminFiltered.variables.vatRates).toHaveLength(DEFAULT_VAT_RATES.length);
     expect(adminFiltered.variables.taskTypes).toHaveLength(DEFAULT_TASK_TYPES.length);
+    expect(adminFiltered.variables.projectStatuses).toHaveLength(DEFAULT_PROJECT_STATUSES.length);
+    expect(adminFiltered.variables.projectPriorities).toHaveLength(DEFAULT_PROJECT_PRIORITIES.length);
     expect(adminFiltered.variables.deadlineWarningDays).toBe(3);
 
     const pmFiltered = filterStateForUser(baseState, { id: 'u2', role: 'project_manager' });
     expect(pmFiltered.variables.clients).toHaveLength(DEFAULT_CLIENTS.length);
     expect(pmFiltered.variables.vatRates).toHaveLength(DEFAULT_VAT_RATES.length);
+    expect(pmFiltered.variables.projectStatuses).toHaveLength(DEFAULT_PROJECT_STATUSES.length);
 
     const devFiltered = filterStateForUser(baseState, { id: 'u3', role: 'developer' });
     expect(devFiltered.variables).toBeDefined();
@@ -194,11 +201,14 @@ describe('P54: Zmienne systemowe na serwerze, RBAC, walidacja, migracja i czyszc
     expect(devFiltered.variables.clients).toBeUndefined();
     expect(devFiltered.variables.vatRates).toHaveLength(DEFAULT_VAT_RATES.length);
     expect(devFiltered.variables.taskTypes).toHaveLength(DEFAULT_TASK_TYPES.length);
+    expect(devFiltered.variables.projectStatuses).toHaveLength(DEFAULT_PROJECT_STATUSES.length);
+    expect(devFiltered.variables.projectPriorities).toHaveLength(DEFAULT_PROJECT_PRIORITIES.length);
     expect(devFiltered.variables.deadlineWarningDays).toBe(3);
 
     const viewerFiltered = filterStateForUser(baseState, { id: 'u4', role: 'viewer' });
     expect('clients' in viewerFiltered.variables).toBe(false);
     expect(viewerFiltered.variables.vatRates).toHaveLength(DEFAULT_VAT_RATES.length);
+    expect(viewerFiltered.variables.projectStatuses).toHaveLength(DEFAULT_PROJECT_STATUSES.length);
   });
 
   it('GET /api/state i PUT /api/admin/variables egzekwują RBAC, kontrolę Origin oraz zachowują variables przy POST /api/state', async () => {
@@ -459,5 +469,143 @@ describe('P54: Zmienne systemowe na serwerze, RBAC, walidacja, migracja i czyszc
     expect(getTaskTypes()[0].name).toBe('Nadzór');
     expect(getDeadlineWarningDays()).toBe(9);
     expect(getClients()).toEqual([]);
+  });
+
+  it('P76: PUT /api/admin/variables waliduje projectStatuses i projectPriorities oraz zwraca 409 przy próbie usunięcia używanej pozycji', async () => {
+    ctx = await startServer();
+    const { cookie: adminCookie } = await setupAdmin(ctx.baseUrl);
+
+    const expectBadVars = async (payload: unknown) => {
+      const res = await fetch(`${ctx!.baseUrl}/api/admin/variables`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+        body: JSON.stringify(payload),
+      });
+      expect(res.status).toBe(400);
+    };
+
+    // Pusta lista, przekroczony limit 20, etykieta > 40 znaków, duplikat etykiety, zły kolor, brak domyślnego, usunięcie pozycji systemowej
+    await expectBadVars({ projectStatuses: [] });
+    await expectBadVars({
+      projectStatuses: Array.from({ length: 21 }, (_, i) => ({
+        id: `s${i}`,
+        label: `Stan ${i}`,
+        color: 'sky',
+        order: i + 1,
+        isDefault: i === 0,
+      })),
+    });
+    await expectBadVars({
+      projectStatuses: [
+        ...DEFAULT_PROJECT_STATUSES.slice(0, 3),
+        {
+          id: 'completed',
+          label: 'X'.repeat(41),
+          color: 'slate',
+          order: 4,
+          isDefault: false,
+          isClosed: true,
+        },
+      ],
+    });
+    await expectBadVars({
+      projectStatuses: [
+        ...DEFAULT_PROJECT_STATUSES,
+        { id: 'dup', label: 'aktywny', color: 'sky', order: 5, isDefault: false, isClosed: false },
+      ],
+    });
+    await expectBadVars({
+      projectStatuses: [
+        ...DEFAULT_PROJECT_STATUSES,
+        { id: 'bad_col', label: 'Zły kolor', color: 'neon', order: 5, isDefault: false, isClosed: false },
+      ],
+    });
+    await expectBadVars({
+      projectStatuses: DEFAULT_PROJECT_STATUSES.map((s) => ({ ...s, isDefault: false })),
+    });
+    // Usunięcie systemowego stanu 'planning'
+    await expectBadVars({
+      projectStatuses: DEFAULT_PROJECT_STATUSES.filter((s) => s.id !== 'planning').map((s, idx) => ({
+        ...s,
+        isDefault: idx === 0,
+      })),
+    });
+
+    // Priorytety: brak domyślnego, duplikat nazwy bez względu na wielkość liter, brak systemowego
+    await expectBadVars({ projectPriorities: [] });
+    await expectBadVars({
+      projectPriorities: [
+        ...DEFAULT_PROJECT_PRIORITIES,
+        { id: 'dup_p', label: 'WYSOKI', color: 'amber', order: 5, isDefault: false },
+      ],
+    });
+    await expectBadVars({
+      projectPriorities: DEFAULT_PROJECT_PRIORITIES.filter((p) => p.id !== 'low'),
+    });
+
+    // Dodaj niestandardowy stan i priorytet
+    const customStatus = {
+      id: 'cancelled',
+      label: 'Anulowany',
+      color: 'rose',
+      order: 5,
+      isDefault: false,
+      isClosed: true,
+    };
+    const customPriority = {
+      id: 'strategic',
+      label: 'Strategiczny',
+      color: 'purple',
+      order: 5,
+      isDefault: false,
+    };
+    const addRes = await fetch(`${ctx.baseUrl}/api/admin/variables`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        projectStatuses: [...DEFAULT_PROJECT_STATUSES, customStatus],
+        projectPriorities: [...DEFAULT_PROJECT_PRIORITIES, customPriority],
+      }),
+    });
+    expect(addRes.status).toBe(200);
+
+    // Utwórz projekt korzystający z obu niestandardowych pozycji
+    const projRes = await fetch(`${ctx.baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        key: '2026-1_A',
+        name: 'Projekt na niestandardowych słownikach',
+        status: 'cancelled',
+        priority: 'strategic',
+      }),
+    });
+    expect(projRes.status).toBe(201);
+
+    // Próba usunięcia używanego stanu -> 409
+    const delUsedStatusRes = await fetch(`${ctx.baseUrl}/api/admin/variables`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        projectStatuses: DEFAULT_PROJECT_STATUSES,
+      }),
+    });
+    expect(delUsedStatusRes.status).toBe(409);
+    const delUsedStatusJson = await delUsedStatusRes.json();
+    expect(delUsedStatusJson.field).toBe('projectStatuses');
+    expect(delUsedStatusJson.inUseProjects).toBeGreaterThanOrEqual(1);
+
+    // Próba usunięcia używanego priorytetu -> 409
+    const delUsedPriorityRes = await fetch(`${ctx.baseUrl}/api/admin/variables`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        projectPriorities: DEFAULT_PROJECT_PRIORITIES,
+      }),
+    });
+    expect(delUsedPriorityRes.status).toBe(409);
+    const delUsedPriorityJson = await delUsedPriorityRes.json();
+    expect(delUsedPriorityJson.field).toBe('projectPriorities');
+    expect(delUsedPriorityJson.inUseProjects).toBeGreaterThanOrEqual(1);
   });
 });

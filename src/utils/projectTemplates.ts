@@ -4,12 +4,23 @@ import {
   migrateLegacyTemplate,
   type LegacyTemplateLike,
 } from './templateValidation.js';
+import { parseApiErrorResponse } from '../hooks/useFormSubmit';
 
-export class TemplateConflictError extends Error {
-  status = 409;
+export class TemplateApiError extends Error {
+  status: number;
+  field?: string;
+  constructor(message: string, status: number, field?: string) {
+    super(message);
+    this.name = 'TemplateApiError';
+    this.status = status;
+    this.field = field;
+  }
+}
+
+export class TemplateConflictError extends TemplateApiError {
   currentTemplate?: ProjectTemplate;
   constructor(message: string, currentTemplate?: ProjectTemplate) {
-    super(message);
+    super(message, 409);
     this.name = 'TemplateConflictError';
     this.currentTemplate = currentTemplate;
   }
@@ -55,22 +66,15 @@ export const clearLegacyLocalCustomTemplates = (): void => {
   }
 };
 
-async function readApiError(res: Response, fallback: string): Promise<string> {
-  try {
-    const data = await res.json();
-    if (data && typeof data.error === 'string' && data.error.trim()) {
-      return data.error;
-    }
-  } catch {
-    // ignore json error
-  }
-  return fallback;
+async function createApiError(res: Response, fallback: string): Promise<TemplateApiError> {
+  const parsed = await parseApiErrorResponse(res, fallback);
+  return new TemplateApiError(parsed.error, res.status, parsed.field);
 }
 
 export async function fetchTemplatesList(): Promise<ProjectTemplateSummary[]> {
   const res = await fetch('/api/templates', { credentials: 'same-origin' });
   if (!res.ok) {
-    throw new Error(await readApiError(res, 'Nie udało się pobrać listy szablonów projektów.'));
+    throw await createApiError(res, 'Nie udało się pobrać listy szablonów projektów.');
   }
   const data = await res.json();
   return Array.isArray(data?.templates) ? data.templates : [];
@@ -81,7 +85,7 @@ export async function fetchTemplateById(templateId: string): Promise<ProjectTemp
     credentials: 'same-origin',
   });
   if (!res.ok) {
-    throw new Error(await readApiError(res, 'Nie udało się pobrać szczegółów szablonu projektu.'));
+    throw await createApiError(res, 'Nie udało się pobrać szczegółów szablonu projektu.');
   }
   const data = await res.json();
   if (!data?.template) {
@@ -100,7 +104,7 @@ export async function createTemplateOnServer(
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    throw new Error(await readApiError(res, 'Nie udało się zapisać szablonu na serwerze.'));
+    throw await createApiError(res, 'Nie udało się zapisać szablonu na serwerze.');
   }
   const data = await res.json();
   return {
@@ -130,14 +134,22 @@ export async function updateTemplateOnServer(
     }),
   });
   if (res.status === 409) {
-    const data = await res.json().catch(() => ({}));
-    throw new TemplateConflictError(
-      data?.error || 'Szablon został zmieniony przez innego użytkownika.',
-      data?.currentTemplate as ProjectTemplate | undefined
+    const clone = res.clone();
+    const data = await clone.json().catch(() => null);
+    if (data && (data.currentTemplate || typeof data.error === 'string')) {
+      throw new TemplateConflictError(
+        data.error || 'Szablon został zmieniony przez innego użytkownika.',
+        data.currentTemplate as ProjectTemplate | undefined
+      );
+    }
+    const parsed = await parseApiErrorResponse(
+      res,
+      'Szablon został zmieniony przez innego użytkownika.'
     );
+    throw new TemplateConflictError(parsed.error);
   }
   if (!res.ok) {
-    throw new Error(await readApiError(res, 'Nie udało się zaktualizować szablonu na serwerze.'));
+    throw await createApiError(res, 'Nie udało się zaktualizować szablonu na serwerze.');
   }
   const data = await res.json();
   return {
@@ -157,7 +169,7 @@ export async function duplicateTemplateOnServer(
     body: JSON.stringify(name ? { name } : {}),
   });
   if (!res.ok) {
-    throw new Error(await readApiError(res, 'Nie udało się zduplikować szablonu.'));
+    throw await createApiError(res, 'Nie udało się zduplikować szablonu.');
   }
   const data = await res.json();
   return {
@@ -174,7 +186,7 @@ export async function deleteTemplateOnServer(
     credentials: 'same-origin',
   });
   if (!res.ok) {
-    throw new Error(await readApiError(res, 'Nie udało się usunąć szablonu.'));
+    throw await createApiError(res, 'Nie udało się usunąć szablonu.');
   }
   const data = await res.json();
   return {
@@ -202,7 +214,7 @@ export async function createTemplateFromProjectOnServer(
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    throw new Error(await readApiError(res, 'Nie udało się utworzyć szablonu z projektu.'));
+    throw await createApiError(res, 'Nie udało się utworzyć szablonu z projektu.');
   }
   const data = await res.json();
   return {

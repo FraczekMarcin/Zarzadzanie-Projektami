@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Laptop, Trash2, RefreshCw } from 'lucide-react';
 import type { PublicTrustedDevice } from '../utils/trustedDevices';
+import { FormError } from './FormError';
+import { normalizeSubmitError, parseApiErrorResponse } from '../hooks/useFormSubmit';
 
 export interface TrustedDevicesSectionProps {
   isOpen: boolean;
@@ -16,27 +18,41 @@ export const TrustedDevicesSection: React.FC<TrustedDevicesSectionProps> = ({
   const [devices, setDevices] = useState<PublicTrustedDevice[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isRevokingAll, setIsRevokingAll] = useState(false);
+  const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const revokeLockRef = useRef(false);
+  const errorAlertRef = useRef<HTMLDivElement | null>(null);
 
   const isAdminTarget = Boolean(targetUserId);
   const baseUrl = isAdminTarget
     ? `/api/users/${encodeURIComponent(targetUserId!)}/devices`
     : '/api/auth/devices';
 
+  const reportError = (message: string) => {
+    setError(message);
+    if (typeof window !== 'undefined') {
+      window.requestAnimationFrame(() => errorAlertRef.current?.focus());
+    }
+  };
+
   const loadDevices = async () => {
     setIsLoading(true);
     setError(null);
     try {
       const res = await fetch(baseUrl, { credentials: 'same-origin' });
-      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error || 'Nie udało się pobrać listy zaufanych urządzeń.');
+        const parsed = await parseApiErrorResponse(
+          res,
+          'Nie udało się pobrać listy zaufanych urządzeń.'
+        );
+        reportError(parsed.error);
         return;
       }
+      const data = await res.json().catch(() => ({}));
       setDevices(Array.isArray(data.devices) ? data.devices : []);
-    } catch (err: any) {
-      setError(err?.message || 'Błąd połączenia z serwerem.');
+    } catch (err: unknown) {
+      reportError(normalizeSubmitError(err, 'Błąd połączenia z serwerem.').error);
     } finally {
       setIsLoading(false);
     }
@@ -49,6 +65,9 @@ export const TrustedDevicesSection: React.FC<TrustedDevicesSectionProps> = ({
   }, [isOpen, targetUserId]);
 
   const handleRevokeOne = async (deviceId: string) => {
+    if (revokeLockRef.current) return;
+    revokeLockRef.current = true;
+    setRevokingDeviceId(deviceId);
     setError(null);
     setSuccess(null);
     try {
@@ -56,24 +75,32 @@ export const TrustedDevicesSection: React.FC<TrustedDevicesSectionProps> = ({
         method: 'DELETE',
         credentials: 'same-origin',
       });
-      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error || 'Nie udało się usunąć zaufania dla urządzenia.');
+        const parsed = await parseApiErrorResponse(
+          res,
+          'Nie udało się usunąć zaufania dla urządzenia.'
+        );
+        reportError(parsed.error);
         return;
       }
       setSuccess('Usunięto zaufanie dla wybranego urządzenia.');
       await loadDevices();
-    } catch (err: any) {
-      setError(err?.message || 'Błąd połączenia z serwerem.');
+    } catch (err: unknown) {
+      reportError(normalizeSubmitError(err, 'Błąd połączenia z serwerem.').error);
+    } finally {
+      revokeLockRef.current = false;
+      setRevokingDeviceId(null);
     }
   };
 
   const handleRevokeAll = async () => {
+    if (revokeLockRef.current) return;
     const confirmMsg = isAdminTarget
       ? `Czy na pewno chcesz usunąć wszystkie zaufane urządzenia użytkownika ${targetUserName || targetUserId}?`
       : 'Czy na pewno chcesz usunąć wszystkie zaufane urządzenia dla swojego konta? Przy kolejnym otwarciu aplikacji będzie wymagane hasło.';
     if (!window.confirm(confirmMsg)) return;
 
+    revokeLockRef.current = true;
     setIsRevokingAll(true);
     setError(null);
     setSuccess(null);
@@ -82,16 +109,20 @@ export const TrustedDevicesSection: React.FC<TrustedDevicesSectionProps> = ({
         method: 'DELETE',
         credentials: 'same-origin',
       });
-      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error || 'Nie udało się usunąć zaufanych urządzeń.');
+        const parsed = await parseApiErrorResponse(
+          res,
+          'Nie udało się usunąć zaufanych urządzeń.'
+        );
+        reportError(parsed.error);
         return;
       }
       setSuccess('Usunięto wszystkie zaufane urządzenia.');
       await loadDevices();
-    } catch (err: any) {
-      setError(err?.message || 'Błąd połączenia z serwerem.');
+    } catch (err: unknown) {
+      reportError(normalizeSubmitError(err, 'Błąd połączenia z serwerem.').error);
     } finally {
+      revokeLockRef.current = false;
       setIsRevokingAll(false);
     }
   };
@@ -122,8 +153,8 @@ export const TrustedDevicesSection: React.FC<TrustedDevicesSectionProps> = ({
           <button
             type="button"
             onClick={loadDevices}
-            disabled={isLoading}
-            className="px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1"
+            disabled={isLoading || isRevokingAll}
+            className="px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1 disabled:opacity-50"
           >
             <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
             <span>Odśwież</span>
@@ -133,8 +164,8 @@ export const TrustedDevicesSection: React.FC<TrustedDevicesSectionProps> = ({
             <button
               type="button"
               onClick={handleRevokeAll}
-              disabled={isRevokingAll}
-              className="px-3 py-1 text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 rounded hover:bg-rose-100 dark:hover:bg-rose-900 transition-colors flex items-center gap-1.5"
+              disabled={isRevokingAll || revokingDeviceId !== null}
+              className="px-3 py-1 text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 rounded hover:bg-rose-100 dark:hover:bg-rose-900 transition-colors flex items-center gap-1.5 disabled:opacity-50"
             >
               <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
               <span>{isRevokingAll ? 'Usuwanie...' : 'Usuń wszystkie'}</span>
@@ -144,8 +175,8 @@ export const TrustedDevicesSection: React.FC<TrustedDevicesSectionProps> = ({
       </div>
 
       {error && (
-        <div role="alert" className="p-3 bg-rose-50 dark:bg-rose-950/40 border-b border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs">
-          {error}
+        <div className="p-3 border-b border-rose-200 dark:border-rose-800 bg-rose-50/50 dark:bg-rose-950/20">
+          <FormError error={error} alertRef={errorAlertRef} onDismiss={() => setError(null)} />
         </div>
       )}
 
@@ -210,11 +241,12 @@ export const TrustedDevicesSection: React.FC<TrustedDevicesSectionProps> = ({
                   <td className="py-2.5 px-3 text-right">
                     <button
                       type="button"
+                      disabled={isRevokingAll || revokingDeviceId === device.id}
                       onClick={() => handleRevokeOne(device.id)}
-                      className="px-2.5 py-1 text-[11px] font-semibold text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded border border-rose-200 dark:border-rose-900 transition-colors"
+                      className="px-2.5 py-1 text-[11px] font-semibold text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded border border-rose-200 dark:border-rose-900 transition-colors disabled:opacity-50"
                       title="Usuń zaufanie dla tego urządzenia"
                     >
-                      Usuń zaufanie
+                      {revokingDeviceId === device.id ? 'Usuwanie...' : 'Usuń zaufanie'}
                     </button>
                   </td>
                 </tr>

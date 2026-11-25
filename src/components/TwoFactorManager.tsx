@@ -8,7 +8,6 @@ import {
   QrCode,
   Copy,
   Check,
-  AlertCircle,
   Eye,
   EyeOff,
   Lock,
@@ -16,6 +15,8 @@ import {
 } from 'lucide-react';
 import { generateQrCodeDataUrl, formatSecretKey } from '../utils/authSecurity';
 import { copyToClipboard } from '../utils/clipboard';
+import { FormError } from './FormError';
+import { parseApiErrorResponse, useFormSubmit } from '../hooks/useFormSubmit';
 
 interface TwoFactorManagerProps {
   currentUser: User | null;
@@ -33,8 +34,7 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
   const [passwordInput, setPasswordInput] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [currentTotpCode, setCurrentTotpCode] = useState(''); // required if already enabled
-  const [setupError, setSetupError] = useState<string | null>(null);
-  const [isSubmittingSetup, setIsSubmittingSetup] = useState(false);
+  const setupSubmit = useFormSubmit();
 
   // Step 2 data
   const [generatedSecret, setGeneratedSecret] = useState('');
@@ -48,8 +48,7 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
   const [isDisableOpen, setIsDisableOpen] = useState(false);
   const [disablePassword, setDisablePassword] = useState('');
   const [disableCode, setDisableCode] = useState('');
-  const [disableError, setDisableError] = useState<string | null>(null);
-  const [isSubmittingDisable, setIsSubmittingDisable] = useState(false);
+  const disableSubmit = useFormSubmit();
   const baseId = useId();
 
   if (!currentUser) return null;
@@ -63,97 +62,115 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
     setStep(1);
     setPasswordInput('');
     setCurrentTotpCode('');
-    setSetupError(null);
+    setupSubmit.clearError();
     setTestCodeInput('');
   };
 
   // Submit Step 1: verifies password and generates secret + 10 backup codes
   const handleSubmitStep1 = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSetupError(null);
+    setupSubmit.clearError();
 
     if (!passwordInput) {
-      setSetupError('Wprowadź swoje aktualne hasło.');
+      setupSubmit.setValidationError('Wprowadź swoje aktualne hasło.', 'currentPassword');
       return;
     }
     if (is2FAEnabled && !currentTotpCode) {
-      setSetupError('Wprowadź aktualny 6-cyfrowy kod z Google Authenticator lub kod zapasowy.');
+      setupSubmit.setValidationError(
+        'Wprowadź aktualny 6-cyfrowy kod z Google Authenticator lub kod zapasowy.',
+        'code'
+      );
       return;
     }
 
-    setIsSubmittingSetup(true);
-    try {
-      const res = await fetch(`/api/users/${currentUser.id}/2fa/setup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-          currentPassword: passwordInput,
-          code: is2FAEnabled ? currentTotpCode.trim() : undefined,
-        }),
-      });
+    await setupSubmit.submit(
+      async () => {
+        const res = await fetch(`/api/users/${currentUser.id}/2fa/setup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            currentPassword: passwordInput,
+            code: is2FAEnabled ? currentTotpCode.trim() : undefined,
+          }),
+        });
 
-      const data = await res.json();
-      if (!res.ok) {
-        setSetupError(data.error || 'Błąd inicjalizacji konfiguracji 2FA.');
-        setIsSubmittingSetup(false);
-        return;
-      }
+        if (!res.ok) {
+          const parsed = await parseApiErrorResponse(
+            res,
+            'Błąd inicjalizacji konfiguracji 2FA.'
+          );
+          return {
+            ok: false,
+            status: res.status,
+            error: parsed.error,
+            field: parsed.field,
+          };
+        }
 
-      setGeneratedSecret(data.secret);
-      setBackupCodes(data.backupCodes || []);
+        const data = await res.json();
+        setGeneratedSecret(data.secret);
+        setBackupCodes(data.backupCodes || []);
 
-      // Generowanie kodu QR lokalnie (zero połączeń zewnętrznych)
-      const qrUrl = await generateQrCodeDataUrl(data.otpAuthUrl);
-      setQrCodeDataUrl(qrUrl);
+        // Generowanie kodu QR lokalnie (zero połączeń zewnętrznych)
+        const qrUrl = await generateQrCodeDataUrl(data.otpAuthUrl);
+        setQrCodeDataUrl(qrUrl);
 
-      setStep(2);
-    } catch {
-      setSetupError('Błąd połączenia z serwerem.');
-    } finally {
-      setIsSubmittingSetup(false);
-    }
+        setStep(2);
+        return { ok: true, status: res.status };
+      },
+      { fallbackError: 'Błąd połączenia z serwerem.' }
+    );
   };
 
   // Submit Step 2: verifies 6-digit test code from app and enables 2FA
   const handleSubmitStep2 = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSetupError(null);
+    setupSubmit.clearError();
 
     const cleanCode = testCodeInput.replace(/[\s-]/g, '').trim();
     if (!/^\d{6}$/.test(cleanCode)) {
-      setSetupError('Wprowadź poprawny 6-cyfrowy kod weryfikacyjny wygenerowany przez aplikację.');
+      setupSubmit.setValidationError(
+        'Wprowadź poprawny 6-cyfrowy kod weryfikacyjny wygenerowany przez aplikację.',
+        'code'
+      );
       return;
     }
 
-    setIsSubmittingSetup(true);
-    try {
-      const res = await fetch(`/api/users/${currentUser.id}/2fa/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-          code: cleanCode,
-        }),
-      });
+    await setupSubmit.submit(
+      async () => {
+        const res = await fetch(`/api/users/${currentUser.id}/2fa/confirm`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            code: cleanCode,
+          }),
+        });
 
-      const data = await res.json();
-      if (!res.ok) {
-        setSetupError(data.error || 'Nieprawidłowy kod weryfikacyjny.');
-        setIsSubmittingSetup(false);
-        return;
-      }
+        if (!res.ok) {
+          const parsed = await parseApiErrorResponse(
+            res,
+            'Nieprawidłowy kod weryfikacyjny.'
+          );
+          return {
+            ok: false,
+            status: res.status,
+            error: parsed.error,
+            field: parsed.field,
+          };
+        }
 
-      if (onUserUpdated) {
-        onUserUpdated({ twoFactorEnabled: true, backupCodesCount: data.backupCodesCount || 10 });
-      }
+        const data = await res.json();
+        if (onUserUpdated) {
+          onUserUpdated({ twoFactorEnabled: true, backupCodesCount: data.backupCodesCount || 10 });
+        }
 
-      setStep(3);
-    } catch {
-      setSetupError('Błąd połączenia z serwerem podczas potwierdzania 2FA.');
-    } finally {
-      setIsSubmittingSetup(false);
-    }
+        setStep(3);
+        return { ok: true, status: res.status };
+      },
+      { fallbackError: 'Błąd połączenia z serwerem podczas potwierdzania 2FA.' }
+    );
   };
 
   // Close wizard after step 3
@@ -164,6 +181,7 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
     setTestCodeInput('');
     setGeneratedSecret('');
     setBackupCodes([]);
+    setupSubmit.clearError();
   };
 
   // Copy Secret Key
@@ -190,48 +208,56 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
   // Submit Disable 2FA
   const handleSubmitDisable = async (e: React.FormEvent) => {
     e.preventDefault();
-    setDisableError(null);
+    disableSubmit.clearError();
 
     if (!disablePassword) {
-      setDisableError('Wprowadź swoje hasło do konta.');
+      disableSubmit.setValidationError('Wprowadź swoje hasło do konta.', 'currentPassword');
       return;
     }
     if (!disableCode) {
-      setDisableError('Wprowadź 6-cyfrowy kod z Google Authenticator lub jednorazowy kod zapasowy.');
+      disableSubmit.setValidationError(
+        'Wprowadź 6-cyfrowy kod z Google Authenticator lub jednorazowy kod zapasowy.',
+        'code'
+      );
       return;
     }
 
-    setIsSubmittingDisable(true);
-    try {
-      const res = await fetch(`/api/users/${currentUser.id}/2fa/disable`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-          currentPassword: disablePassword,
-          code: disableCode.trim(),
-        }),
-      });
+    await disableSubmit.submit(
+      async () => {
+        const res = await fetch(`/api/users/${currentUser.id}/2fa/disable`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            currentPassword: disablePassword,
+            code: disableCode.trim(),
+          }),
+        });
 
-      const data = await res.json();
-      if (!res.ok) {
-        setDisableError(data.error || 'Błąd podczas wyłączania 2FA.');
-        setIsSubmittingDisable(false);
-        return;
-      }
+        if (!res.ok) {
+          const parsed = await parseApiErrorResponse(
+            res,
+            'Błąd podczas wyłączania 2FA.'
+          );
+          return {
+            ok: false,
+            status: res.status,
+            error: parsed.error,
+            field: parsed.field,
+          };
+        }
 
-      if (onUserUpdated) {
-        onUserUpdated({ twoFactorEnabled: false, backupCodesCount: 0 });
-      }
+        if (onUserUpdated) {
+          onUserUpdated({ twoFactorEnabled: false, backupCodesCount: 0 });
+        }
 
-      setIsDisableOpen(false);
-      setDisablePassword('');
-      setDisableCode('');
-    } catch {
-      setDisableError('Błąd połączenia z serwerem.');
-    } finally {
-      setIsSubmittingDisable(false);
-    }
+        setIsDisableOpen(false);
+        setDisablePassword('');
+        setDisableCode('');
+        return { ok: true, status: res.status };
+      },
+      { fallbackError: 'Błąd połączenia z serwerem.' }
+    );
   };
 
   return (
@@ -277,7 +303,7 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
                 type="button"
                 onClick={() => {
                   setIsDisableOpen(true);
-                  setDisableError(null);
+                  disableSubmit.clearError();
                 }}
                 className="px-3 py-1.5 rounded-lg border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-xs font-semibold transition-colors flex items-center gap-1.5"
               >
@@ -364,12 +390,12 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
                 Aby skonfigurować aplikację uwierzytelniającą, potwierdź swoją tożsamość wprowadzając aktualne hasło do konta.
               </p>
 
-              {setupError && (
-                <div role="alert" aria-live="assertive" className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
-                  <span>{setupError}</span>
-                </div>
-              )}
+              <FormError
+                id={`${baseId}-setup-error`}
+                error={setupSubmit.submitError}
+                alertRef={setupSubmit.alertRef}
+                onDismiss={setupSubmit.clearError}
+              />
 
               <div>
                 <label htmlFor={`${baseId}-pwd`} className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -380,8 +406,12 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
                     id={`${baseId}-pwd`}
                     type={showPassword ? 'text' : 'password'}
                     value={passwordInput}
-                    onChange={(e) => setPasswordInput(e.target.value)}
+                    onChange={(e) => {
+                      setPasswordInput(e.target.value);
+                      setupSubmit.clearError();
+                    }}
                     required
+                    {...setupSubmit.getFieldA11yProps('currentPassword', `${baseId}-setup-error`)}
                     placeholder="Wpisz swoje hasło"
                     className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white pr-9 focus:ring-2 focus:ring-sky-500 focus:outline-hidden"
                   />
@@ -405,7 +435,11 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
                     id={`${baseId}-cur-totp`}
                     type="text"
                     value={currentTotpCode}
-                    onChange={(e) => setCurrentTotpCode(e.target.value)}
+                    onChange={(e) => {
+                      setCurrentTotpCode(e.target.value);
+                      setupSubmit.clearError();
+                    }}
+                    {...setupSubmit.getFieldA11yProps('code', `${baseId}-setup-error`)}
                     placeholder="6 cyfr lub XXXXX-XXXXX"
                     className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white font-mono focus:ring-2 focus:ring-sky-500 focus:outline-hidden"
                   />
@@ -415,11 +449,11 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
               <div className="flex gap-2 pt-1">
                 <button
                   type="submit"
-                  disabled={isSubmittingSetup || !passwordInput}
+                  disabled={setupSubmit.isSubmitting || !passwordInput}
                   className="px-4 py-2 bg-sky-700 hover:bg-sky-800 disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors flex items-center gap-2"
                 >
                   <Lock className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>{isSubmittingSetup ? 'Weryfikacja...' : 'Dalej: Wygeneruj kod QR'}</span>
+                  <span>{setupSubmit.isSubmitting ? 'Weryfikacja...' : 'Dalej: Wygeneruj kod QR'}</span>
                 </button>
               </div>
             </form>
@@ -481,12 +515,12 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
                     )}
                   </div>
 
-                  {setupError && (
-                    <div role="alert" aria-live="assertive" className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
-                      <span>{setupError}</span>
-                    </div>
-                  )}
+                  <FormError
+                    id={`${baseId}-confirm-error`}
+                    error={setupSubmit.submitError}
+                    alertRef={setupSubmit.alertRef}
+                    onDismiss={setupSubmit.clearError}
+                  />
 
                   <div>
                     <label htmlFor={`${baseId}-test-code`} className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
@@ -498,7 +532,11 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
                       maxLength={6}
                       autoFocus
                       value={testCodeInput}
-                      onChange={(e) => setTestCodeInput(e.target.value.replace(/\D/g, ''))}
+                      onChange={(e) => {
+                        setTestCodeInput(e.target.value.replace(/\D/g, ''));
+                        setupSubmit.clearError();
+                      }}
+                      {...setupSubmit.getFieldA11yProps('code', `${baseId}-confirm-error`)}
                       placeholder="000000"
                       className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-center text-lg font-mono font-bold tracking-widest text-slate-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:outline-hidden"
                     />
@@ -507,11 +545,11 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
                   <div className="flex gap-2 pt-1">
                     <button
                       type="submit"
-                      disabled={isSubmittingSetup || testCodeInput.length !== 6}
+                      disabled={setupSubmit.isSubmitting || testCodeInput.length !== 6}
                       className="w-full py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors flex items-center justify-center gap-2"
                     >
                       <ShieldCheck className="w-4 h-4" aria-hidden="true" />
-                      <span>{isSubmittingSetup ? 'Sprawdzanie kodu...' : 'Zatwierdź i włącz 2FA'}</span>
+                      <span>{setupSubmit.isSubmitting ? 'Sprawdzanie kodu...' : 'Zatwierdź i włącz 2FA'}</span>
                     </button>
                   </div>
                 </div>
@@ -592,12 +630,12 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
             Wyłączenie 2FA wymaga podania Twojego hasła oraz aktualnego kodu z aplikacji Google Authenticator (lub kodu zapasowego).
           </p>
 
-          {disableError && (
-            <div role="alert" aria-live="assertive" className="p-2.5 rounded-lg bg-rose-100 dark:bg-rose-900/60 text-rose-800 dark:text-rose-200 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
-              <span>{disableError}</span>
-            </div>
-          )}
+          <FormError
+            id={`${baseId}-disable-error`}
+            error={disableSubmit.submitError}
+            alertRef={disableSubmit.alertRef}
+            onDismiss={disableSubmit.clearError}
+          />
 
           <div>
             <label htmlFor={`${baseId}-dis-pwd`} className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -608,7 +646,11 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
               type="password"
               required
               value={disablePassword}
-              onChange={(e) => setDisablePassword(e.target.value)}
+              onChange={(e) => {
+                setDisablePassword(e.target.value);
+                disableSubmit.clearError();
+              }}
+              {...disableSubmit.getFieldA11yProps('currentPassword', `${baseId}-disable-error`)}
               placeholder="Wprowadź hasło"
               className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-rose-500 focus:outline-hidden"
             />
@@ -623,7 +665,11 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
               type="text"
               required
               value={disableCode}
-              onChange={(e) => setDisableCode(e.target.value)}
+              onChange={(e) => {
+                setDisableCode(e.target.value);
+                disableSubmit.clearError();
+              }}
+              {...disableSubmit.getFieldA11yProps('code', `${baseId}-disable-error`)}
               placeholder="6 cyfr lub XXXXX-XXXXX"
               className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white font-mono focus:ring-2 focus:ring-rose-500 focus:outline-hidden"
             />
@@ -632,16 +678,17 @@ export const TwoFactorManager: React.FC<TwoFactorManagerProps> = ({
           <div className="flex gap-2 pt-1">
             <button
               type="submit"
-              disabled={isSubmittingDisable || !disablePassword || !disableCode}
+              disabled={disableSubmit.isSubmitting || !disablePassword || !disableCode}
               className="px-4 py-2 bg-rose-700 hover:bg-rose-800 disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors flex items-center gap-1.5"
             >
               <ShieldAlert className="w-3.5 h-3.5" aria-hidden="true" />
-              <span>{isSubmittingDisable ? 'Wyłączanie...' : 'Wyłącz 2FA'}</span>
+              <span>{disableSubmit.isSubmitting ? 'Wyłączanie...' : 'Wyłącz 2FA'}</span>
             </button>
             <button
               type="button"
+              disabled={disableSubmit.isSubmitting}
               onClick={() => setIsDisableOpen(false)}
-              className="px-3 py-2 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 text-xs font-semibold rounded-lg transition-colors"
+              className="px-3 py-2 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
             >
               Anuluj
             </button>

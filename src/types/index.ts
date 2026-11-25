@@ -117,14 +117,46 @@ export interface ProjectNumberingSettings {
   defaultCompanyId?: string;
 }
 
+export type ProjectMetaColorKey =
+  | 'sky'
+  | 'emerald'
+  | 'amber'
+  | 'orange'
+  | 'rose'
+  | 'indigo'
+  | 'purple'
+  | 'slate';
+
+export interface ProjectStatusOption {
+  id: string;
+  label: string;
+  color: ProjectMetaColorKey;
+  order: number;
+  isDefault: boolean;
+  isClosed: boolean;
+  isSystem?: boolean;
+}
+
+export interface ProjectPriorityOption {
+  id: string;
+  label: string;
+  color: ProjectMetaColorKey;
+  order: number;
+  isDefault: boolean;
+  isSystem?: boolean;
+}
+
+export type ProjectStatusId = 'active' | 'planning' | 'on_hold' | 'completed' | string;
+export type ProjectPriorityId = Priority | string;
+
 export interface Project {
   id: string;
   key: string;
   companyId?: string;
   name: string;
   description: string;
-  priority: Priority;
-  status: 'active' | 'planning' | 'on_hold' | 'completed';
+  priority: ProjectPriorityId;
+  status: ProjectStatusId;
   startDate: string;
   dueDate: string;
   durationDays: number; // Project duration in days

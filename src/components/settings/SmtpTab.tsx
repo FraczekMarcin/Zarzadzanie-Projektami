@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import type { User } from '../../types';
 import type { AdminSettingsResponse, SmtpEncryption } from '../../utils/settingsSchema';
+import { normalizeSubmitError, parseApiErrorResponse, useFormSubmit } from '../../hooks/useFormSubmit';
+import { FormError } from '../FormError';
 import { useSettingsTabDirty } from './SettingsDirtyContext';
 
 export interface SmtpTabProps {
@@ -37,14 +39,13 @@ export const SmtpTab: React.FC<SmtpTabProps> = ({ isOpen, currentUser }) => {
   const [allowSelfSigned, setAllowSelfSigned] = useState(false);
 
   const [currentPassword, setCurrentPassword] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveSubmit = useFormSubmit();
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const saveErrorId = 'smtp-save-error';
 
   // Test wysyłki SMTP
   const [testRecipient, setTestRecipient] = useState(currentUser?.email || '');
-  const [isTesting, setIsTesting] = useState(false);
-  const [testError, setTestError] = useState<string | null>(null);
+  const testSubmit = useFormSubmit();
   const [testSuccess, setTestSuccess] = useState<string | null>(null);
 
   const applyResponseToForm = (payload: AdminSettingsResponse) => {
@@ -66,14 +67,18 @@ export const SmtpTab: React.FC<SmtpTabProps> = ({ isOpen, currentUser }) => {
     setLoadError(null);
     try {
       const res = await fetch('/api/admin/settings', { credentials: 'same-origin' });
-      const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setLoadError(json.error || 'Nie udało się pobrać ustawień poczty SMTP.');
+        const parsed = await parseApiErrorResponse(
+          res,
+          'Nie udało się pobrać ustawień poczty SMTP.'
+        );
+        setLoadError(parsed.error);
         return;
       }
+      const json = await res.json();
       applyResponseToForm(json as AdminSettingsResponse);
-    } catch (err: any) {
-      setLoadError(err?.message || 'Błąd połączenia z serwerem.');
+    } catch (err: unknown) {
+      setLoadError(normalizeSubmitError(err, 'Błąd połączenia z serwerem.').error);
     } finally {
       setIsLoading(false);
     }
@@ -112,11 +117,14 @@ export const SmtpTab: React.FC<SmtpTabProps> = ({ isOpen, currentUser }) => {
     e.preventDefault();
     if (!data) return;
 
-    setSaveError(null);
+    saveSubmit.clearError();
     setSaveSuccess(null);
 
     if (!currentPassword) {
-      setSaveError('Podaj aktualne hasło administratora, aby zapisać ustawienia.');
+      saveSubmit.setValidationError(
+        'Podaj aktualne hasło administratora, aby zapisać ustawienia.',
+        'currentPassword'
+      );
       return;
     }
 
@@ -125,7 +133,10 @@ export const SmtpTab: React.FC<SmtpTabProps> = ({ isOpen, currentUser }) => {
     if (!data.smtp.port.locked) {
       const parsedPort = Number(port.trim());
       if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
-        setSaveError('Port SMTP musi być liczbą całkowitą z zakresu od 1 do 65535.');
+        saveSubmit.setValidationError(
+          'Port SMTP musi być liczbą całkowitą z zakresu od 1 do 65535.',
+          'smtp.port'
+        );
         return;
       }
       smtpPatch.port = parsedPort;
@@ -143,62 +154,65 @@ export const SmtpTab: React.FC<SmtpTabProps> = ({ isOpen, currentUser }) => {
     if (!data.smtp.fromAddress.locked) smtpPatch.fromAddress = fromAddress.trim();
     if (!data.smtp.allowSelfSigned.locked) smtpPatch.allowSelfSigned = allowSelfSigned;
 
-    setIsSaving(true);
-    try {
-      const res = await fetch('/api/admin/settings', {
-        method: 'PUT',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          currentPassword,
-          smtp: smtpPatch,
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setSaveError(json.error || 'Nie udało się zapisać konfiguracji SMTP.');
-        return;
-      }
-      if (json.settings) {
-        applyResponseToForm(json.settings as AdminSettingsResponse);
-      }
-      setCurrentPassword('');
-      setSaveSuccess(
-        Array.isArray(json.changedFields) && json.changedFields.length > 0
-          ? 'Konfiguracja poczty SMTP została zapisana i obowiązuje natychmiast.'
-          : 'Brak nowych zmian do zapisania.'
-      );
-    } catch (err: any) {
-      setSaveError(err?.message || 'Błąd połączenia z serwerem.');
-    } finally {
-      setIsSaving(false);
-    }
+    await saveSubmit.submit(
+      async () => {
+        const res = await fetch('/api/admin/settings', {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            currentPassword,
+            smtp: smtpPatch,
+          }),
+        });
+        if (!res.ok) {
+          const parsed = await parseApiErrorResponse(
+            res,
+            'Nie udało się zapisać konfiguracji SMTP.'
+          );
+          return { ok: false, status: res.status, ...parsed };
+        }
+        const json = await res.json().catch(() => ({}));
+        if (json.settings) {
+          applyResponseToForm(json.settings as AdminSettingsResponse);
+        }
+        setCurrentPassword('');
+        setSaveSuccess(
+          Array.isArray(json.changedFields) && json.changedFields.length > 0
+            ? 'Konfiguracja poczty SMTP została zapisana i obowiązuje natychmiast.'
+            : 'Brak nowych zmian do zapisania.'
+        );
+        return { ok: true };
+      },
+      { fallbackError: 'Nie udało się zapisać konfiguracji SMTP.' }
+    );
   };
 
   const handleSendTestMail = async () => {
-    setTestError(null);
     setTestSuccess(null);
-    setIsTesting(true);
-    try {
-      const res = await fetch('/api/admin/settings/smtp-test', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: testRecipient.trim() || undefined,
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setTestError(json.error || 'Nie udało się wysłać wiadomości testowej SMTP.');
-        return;
-      }
-      setTestSuccess(json.message || 'Wiadomość testowa została pomyślnie wysłana.');
-    } catch (err: any) {
-      setTestError(err?.message || 'Błąd połączenia z serwerem.');
-    } finally {
-      setIsTesting(false);
-    }
+    await testSubmit.submit(
+      async () => {
+        const res = await fetch('/api/admin/settings/smtp-test', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: testRecipient.trim() || undefined,
+          }),
+        });
+        if (!res.ok) {
+          const parsed = await parseApiErrorResponse(
+            res,
+            'Nie udało się wysłać wiadomości testowej SMTP.'
+          );
+          return { ok: false, status: res.status, ...parsed };
+        }
+        const json = await res.json().catch(() => ({}));
+        setTestSuccess(json.message || 'Wiadomość testowa została pomyślnie wysłana.');
+        return { ok: true };
+      },
+      { fallbackError: 'Nie udało się wysłać wiadomości testowej SMTP.' }
+    );
   };
 
   const renderEnvLockNote = (envVar?: string) => (
@@ -308,6 +322,7 @@ export const SmtpTab: React.FC<SmtpTabProps> = ({ isOpen, currentUser }) => {
                   value={port}
                   onChange={(e) => setPort(e.target.value)}
                   disabled={data.smtp.port.locked}
+                  {...saveSubmit.getFieldA11yProps('smtp.port', saveErrorId)}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs disabled:opacity-60 disabled:bg-slate-100 dark:disabled:bg-slate-800"
                 />
                 {data.smtp.port.locked && renderEnvLockNote(data.smtp.port.envVar)}
@@ -463,16 +478,17 @@ export const SmtpTab: React.FC<SmtpTabProps> = ({ isOpen, currentUser }) => {
                   onChange={(e) => setCurrentPassword(e.target.value)}
                   autoComplete="current-password"
                   placeholder="Wpisz swoje aktualne hasło logowania"
+                  {...saveSubmit.getFieldA11yProps('currentPassword', saveErrorId)}
                   className="w-full sm:max-w-sm px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs"
                 />
               </div>
 
-              {saveError && (
-                <div role="alert" className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
-                  <span>{saveError}</span>
-                </div>
-              )}
+              <FormError
+                id={saveErrorId}
+                error={saveSubmit.submitError}
+                alertRef={saveSubmit.alertRef}
+                onDismiss={saveSubmit.clearError}
+              />
 
               {saveSuccess && (
                 <div role="status" className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-2">
@@ -484,11 +500,11 @@ export const SmtpTab: React.FC<SmtpTabProps> = ({ isOpen, currentUser }) => {
               <div className="flex items-center justify-end">
                 <button
                   type="submit"
-                  disabled={isSaving}
+                  disabled={saveSubmit.isSubmitting}
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-700 hover:bg-sky-800 disabled:opacity-60 text-white text-xs font-semibold shadow-xs transition-colors"
                 >
                   <Save className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>{isSaving ? 'Zapisywanie...' : 'Zapisz'}</span>
+                  <span>{saveSubmit.isSubmitting ? 'Zapisywanie...' : 'Zapisz'}</span>
                 </button>
               </div>
             </div>
@@ -523,20 +539,19 @@ export const SmtpTab: React.FC<SmtpTabProps> = ({ isOpen, currentUser }) => {
               <button
                 type="button"
                 onClick={handleSendTestMail}
-                disabled={isTesting || !data.smtp.configured}
+                disabled={testSubmit.isSubmitting || !data.smtp.configured}
                 className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 disabled:opacity-50 text-white text-xs font-semibold border border-slate-700 transition-colors"
               >
                 <Send className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>{isTesting ? 'Wysyłanie...' : 'Wyślij wiadomość testową'}</span>
+                <span>{testSubmit.isSubmitting ? 'Wysyłanie...' : 'Wyślij wiadomość testową'}</span>
               </button>
             </div>
 
-            {testError && (
-              <div role="alert" className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
-                <span>{testError}</span>
-              </div>
-            )}
+            <FormError
+              error={testSubmit.submitError}
+              alertRef={testSubmit.alertRef}
+              onDismiss={testSubmit.clearError}
+            />
 
             {testSuccess && (
               <div role="status" className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-2">

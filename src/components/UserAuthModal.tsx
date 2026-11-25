@@ -27,6 +27,12 @@ import { TrustedDevicesSection } from './TrustedDevicesSection';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { DiscardChangesModal } from './DiscardChangesModal';
+import { FormError } from './FormError';
+import {
+  FormSubmitResult,
+  parseApiErrorResponse,
+  useFormSubmit,
+} from '../hooks/useFormSubmit';
 
 interface UserAuthModalProps {
   isOpen: boolean;
@@ -34,10 +40,16 @@ interface UserAuthModalProps {
   currentUser: User | null;
   users: User[];
   onSwitchUser: (user: User) => void;
-  onAddUser: (newUser: Omit<User, 'id' | 'initials'>) => void;
+  onAddUser: (
+    newUser: Omit<User, 'id' | 'initials'>
+  ) => Promise<FormSubmitResult<User> | boolean | void> | void;
   onDeleteUser?: (userId: string) => void;
   onDeleteDemoUsers?: () => void;
-  onUpdateUserPassword?: (userId: string, newPass: string, currentPass?: string) => void;
+  onUpdateUserPassword?: (
+    userId: string,
+    newPass: string,
+    currentPass?: string
+  ) => Promise<FormSubmitResult | boolean | void> | void;
   onUserUpdated?: (updated: Partial<User>) => void;
   onLogout?: () => void;
   activityLogs: ActivityLog[];
@@ -57,14 +69,13 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
   onUserUpdated,
   onLogout,
   activityLogs,
-  onOpenTemplateManager,
+  onOpenTemplateManager: _onOpenTemplateManager,
 }) => {
   const [activeTab, setActiveTab] = useState<'switch' | 'new_user' | 'password' | '2fa' | 'devices' | 'logs'>('switch');
 
   // Password verification for switching
   const [targetUser, setTargetUser] = useState<User | null>(null);
   const [enteredPassword, setEnteredPassword] = useState('');
-  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
 
   // New user form state
@@ -79,6 +90,12 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordChangeSuccess, setPasswordChangeSuccess] = useState(false);
+
+  const loginSubmit = useFormSubmit();
+  const createUserSubmit = useFormSubmit<User>();
+  const changePwSubmit = useFormSubmit();
+  const isAnySubmitting =
+    loginSubmit.isSubmitting || createUserSubmit.isSubmitting || changePwSubmit.isSubmitting;
 
   // Delete confirmation
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
@@ -106,8 +123,11 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
   );
 
   const handleDiscardAuth = () => {
+    if (isAnySubmitting) return;
     setEnteredPassword('');
-    setPasswordError(null);
+    loginSubmit.clearError();
+    createUserSubmit.clearError();
+    changePwSubmit.clearError();
     setName('');
     setEmail('');
     setPassword('');
@@ -153,67 +173,97 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
     if (currentUser && u.id === currentUser.id) return;
     setTargetUser(u);
     setEnteredPassword('');
-    setPasswordError(null);
+    loginSubmit.clearError();
   };
 
   const handleConfirmLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!targetUser) return;
+    loginSubmit.clearError();
 
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ email: targetUser.email, password: enteredPassword }),
-      });
-      if (res.ok) {
-        onSwitchUser(targetUser);
-        setTargetUser(null);
-        setEnteredPassword('');
-        setPasswordError(null);
-        onClose();
-      } else {
-        const data = await res.json().catch(() => ({}));
-        setPasswordError(data.error || 'Nieprawidłowy adres e-mail lub hasło.');
-      }
-    } catch {
-      setPasswordError('Błąd połączenia z serwerem podczas logowania.');
+    const result = await loginSubmit.submit(
+      async () => {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ email: targetUser.email, password: enteredPassword }),
+        });
+        if (!res.ok) {
+          const parsed = await parseApiErrorResponse(
+            res,
+            'Nieprawidłowy adres e-mail lub hasło.'
+          );
+          return {
+            ok: false,
+            status: res.status,
+            error: parsed.error,
+            field: parsed.field,
+          };
+        }
+        return { ok: true, status: res.status };
+      },
+      { fallbackError: 'Błąd połączenia z serwerem podczas logowania.' }
+    );
+
+    if (result.ok) {
+      onSwitchUser(targetUser);
+      setTargetUser(null);
+      setEnteredPassword('');
+      onClose();
     }
   };
 
-  const handleCreateUser = (e: React.FormEvent) => {
+  const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !email.trim()) return;
-
-    const pwCheck = validatePassword(password, { name, email });
-    if (!pwCheck.ok) {
-      setPasswordError(pwCheck.errors.join(' '));
+    createUserSubmit.clearError();
+    if (!name.trim() || !email.trim()) {
+      createUserSubmit.setValidationError('Wypełnij wymagane pola imię i nazwisko oraz e-mail.');
       return;
     }
 
-    onAddUser({
-      name: name.trim(),
-      email: email.trim(),
-      role,
-      department: department.trim(),
-      password,
-      isDemo: false,
-    });
+    const pwCheck = validatePassword(password, { name, email });
+    if (!pwCheck.ok) {
+      createUserSubmit.setValidationError(pwCheck.errors.join(' '), 'password');
+      return;
+    }
 
-    setName('');
-    setEmail('');
-    setPassword('');
-    setPasswordError(null);
-    setActiveTab('switch');
+    const result = await createUserSubmit.submit(
+      async () => {
+        const res = await onAddUser({
+          name: name.trim(),
+          email: email.trim(),
+          role,
+          department: department.trim(),
+          password,
+          isDemo: false,
+        });
+        if (res === false) {
+          return { ok: false, error: 'Nie udało się dodać użytkownika.' };
+        }
+        if (res && typeof res === 'object' && 'ok' in res) {
+          return res;
+        }
+        return { ok: true };
+      },
+      { fallbackError: 'Nie udało się dodać użytkownika.' }
+    );
+
+    if (result.ok) {
+      setName('');
+      setEmail('');
+      setPassword('');
+      setActiveTab('switch');
+    }
   };
 
-  const handleChangePassword = (e: React.FormEvent) => {
+  const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser || !onUpdateUserPassword) return;
+    changePwSubmit.clearError();
 
     if (!currentPassword) {
-      setPasswordError('Wprowadź dotychczasowe hasło');
+      changePwSubmit.setValidationError('Wprowadź dotychczasowe hasło', 'currentPassword');
       return;
     }
 
@@ -222,20 +272,35 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
       email: currentUser.email,
     });
     if (!pwCheck.ok) {
-      setPasswordError(pwCheck.errors.join(' '));
+      changePwSubmit.setValidationError(pwCheck.errors.join(' '), 'newPassword');
       return;
     }
     if (newPassword !== confirmPassword) {
-      setPasswordError('Nowe hasła nie są identyczne');
+      changePwSubmit.setValidationError('Nowe hasła nie są identyczne', 'confirmPassword');
       return;
     }
 
-    onUpdateUserPassword(currentUser.id, newPassword, currentPassword);
-    setPasswordChangeSuccess(true);
-    setCurrentPassword('');
-    setNewPassword('');
-    setConfirmPassword('');
-    setTimeout(() => setPasswordChangeSuccess(false), 3000);
+    const result = await changePwSubmit.submit(
+      async () => {
+        const res = await onUpdateUserPassword(currentUser.id, newPassword, currentPassword);
+        if (res === false) {
+          return { ok: false, error: 'Nie udało się zmienić hasła.' };
+        }
+        if (res && typeof res === 'object' && 'ok' in res) {
+          return res;
+        }
+        return { ok: true };
+      },
+      { fallbackError: 'Nie udało się zmienić hasła.' }
+    );
+
+    if (result.ok) {
+      setPasswordChangeSuccess(true);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setTimeout(() => setPasswordChangeSuccess(false), 3000);
+    }
   };
 
   const handleToggleEmailReminders = async (nextVal: boolean) => {
@@ -250,11 +315,15 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailReminders: nextVal }),
       });
-      const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setEmailPrefError(json.error || 'Nie udało się zapisać preferencji powiadomień.');
+        const parsed = await parseApiErrorResponse(
+          res,
+          'Nie udało się zapisać preferencji powiadomień.'
+        );
+        setEmailPrefError(parsed.error);
         return;
       }
+      const json = await res.json().catch(() => ({}));
       onUserUpdated?.({
         emailReminders:
           typeof json.user?.emailReminders === 'boolean' ? json.user.emailReminders : nextVal,
@@ -283,11 +352,15 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ weeklySummary: nextVal }),
       });
-      const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setWeeklyPrefError(json.error || 'Nie udało się zapisać preferencji podsumowania tygodniowego.');
+        const parsed = await parseApiErrorResponse(
+          res,
+          'Nie udało się zapisać preferencji podsumowania tygodniowego.'
+        );
+        setWeeklyPrefError(parsed.error);
         return;
       }
+      const json = await res.json().catch(() => ({}));
       onUserUpdated?.({
         weeklySummary:
           typeof json.user?.weeklySummary === 'boolean' ? json.user.weeklySummary : nextVal,
@@ -612,12 +685,13 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                   </div>
                   <button
                     type="button"
+                    disabled={loginSubmit.isSubmitting}
                     onClick={() => {
                       setTargetUser(null);
                       setEnteredPassword('');
-                      setPasswordError(null);
+                      loginSubmit.clearError();
                     }}
-                    className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 p-1"
+                    className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 p-1 disabled:opacity-50"
                   >
                     Anuluj
                   </button>
@@ -636,8 +710,9 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                       value={enteredPassword}
                       onChange={(e) => {
                         setEnteredPassword(e.target.value);
-                        setPasswordError(null);
+                        loginSubmit.clearError();
                       }}
+                      {...loginSubmit.getFieldA11yProps('password', `${baseId}-switch-error`)}
                       placeholder="Wprowadź hasło"
                       className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-md px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 pr-9 font-mono"
                     />
@@ -650,12 +725,13 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                       {showPassword ? <EyeOff className="w-3.5 h-3.5" aria-hidden="true" /> : <Eye className="w-3.5 h-3.5" aria-hidden="true" />}
                     </button>
                   </div>
-                  {passwordError && (
-                    <p role="alert" className="text-[11px] text-rose-700 dark:text-rose-400 mt-1 font-medium flex items-center gap-1">
-                      <AlertCircle className="w-3.5 h-3.5" aria-hidden="true" />
-                      {passwordError}
-                    </p>
-                  )}
+                  <FormError
+                    id={`${baseId}-switch-error`}
+                    error={loginSubmit.submitError}
+                    alertRef={loginSubmit.alertRef}
+                    onDismiss={loginSubmit.clearError}
+                    className="mt-2"
+                  />
                   <p className="text-[10px] text-slate-600 dark:text-slate-400 mt-1">
                     🔒 Bezpieczne logowanie: wymagane hasło przy każdej zmianie konta projektanta.
                   </p>
@@ -664,17 +740,19 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                 <div className="flex items-center justify-end gap-2 pt-1">
                   <button
                     type="button"
+                    disabled={loginSubmit.isSubmitting}
                     onClick={() => setTargetUser(null)}
-                    className="px-3 py-1.5 rounded text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="px-3 py-1.5 rounded text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50"
                   >
                     Wróć
                   </button>
                   <button
                     type="submit"
-                    className="flex items-center gap-1.5 px-4 py-1.5 bg-sky-700 hover:bg-sky-800 text-white rounded text-xs font-semibold shadow-xs transition-colors"
+                    disabled={loginSubmit.isSubmitting}
+                    className="flex items-center gap-1.5 px-4 py-1.5 bg-sky-700 hover:bg-sky-800 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-xs font-semibold shadow-xs transition-colors"
                   >
                     <LogIn className="w-3.5 h-3.5" aria-hidden="true" />
-                    <span>Zaloguj jako {targetUser.name.split(' ')[0]}</span>
+                    <span>{loginSubmit.isSubmitting ? 'Logowanie...' : `Zaloguj jako ${targetUser.name.split(' ')[0]}`}</span>
                   </button>
                 </div>
               </form>
@@ -766,6 +844,13 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
         {/* Tab 2: Register New User */}
         {activeTab === 'new_user' && (
           <form onSubmit={handleCreateUser} className="p-6 overflow-y-auto space-y-4 flex-1 text-xs">
+            <FormError
+              id={`${baseId}-new-error`}
+              error={createUserSubmit.submitError}
+              alertRef={createUserSubmit.alertRef}
+              onDismiss={createUserSubmit.clearError}
+            />
+
             <div>
               <label htmlFor={`${baseId}-new-name`} className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Imię i nazwisko *</label>
               <input
@@ -773,7 +858,11 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                 type="text"
                 required
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  createUserSubmit.clearError();
+                }}
+                {...createUserSubmit.getFieldA11yProps('name', `${baseId}-new-error`)}
                 placeholder="np. inż. Jan Kowalski"
                 className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500"
               />
@@ -786,7 +875,11 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                 type="email"
                 required
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  createUserSubmit.clearError();
+                }}
+                {...createUserSubmit.getFieldA11yProps('email', `${baseId}-new-error`)}
                 placeholder="j.kowalski@twojadomena.pl"
                 className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500"
               />
@@ -833,15 +926,13 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);
-                  setPasswordError(null);
+                  createUserSubmit.clearError();
                 }}
+                {...createUserSubmit.getFieldA11yProps('password', `${baseId}-new-error`)}
                 placeholder="Wpisz hasło do logowania (12–128 znaków)"
                 className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
               />
               <PasswordRequirementsChecklist password={password} context={{ name, email }} />
-              {passwordError && (
-                <p role="alert" className="text-rose-700 dark:text-rose-400 text-[11px] font-medium mt-1">{passwordError}</p>
-              )}
               <span className="text-[10px] text-slate-600 dark:text-slate-400 mt-1 block">
                 Użytkownik będzie musiał podać to hasło podczas logowania.
               </span>
@@ -850,10 +941,10 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
             <div className="pt-2 flex justify-end">
               <button
                 type="submit"
-                disabled={!validatePassword(password, { name, email }).ok}
+                disabled={createUserSubmit.isSubmitting || !validatePassword(password, { name, email }).ok}
                 className="bg-slate-900 dark:bg-sky-600 hover:bg-slate-800 dark:hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded text-xs transition-colors"
               >
-                Zarejestruj i utwórz konto
+                {createUserSubmit.isSubmitting ? 'Tworzenie konta...' : 'Zarejestruj i utwórz konto'}
               </button>
             </div>
           </form>
@@ -875,6 +966,13 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
               </div>
             )}
 
+            <FormError
+              id={`${baseId}-pw-error`}
+              error={changePwSubmit.submitError}
+              alertRef={changePwSubmit.alertRef}
+              onDismiss={changePwSubmit.clearError}
+            />
+
             <div>
               <label htmlFor={`${baseId}-cur-pass`} className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 Dotychczasowe hasło *
@@ -886,8 +984,9 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                 value={currentPassword}
                 onChange={(e) => {
                   setCurrentPassword(e.target.value);
-                  setPasswordError(null);
+                  changePwSubmit.clearError();
                 }}
+                {...changePwSubmit.getFieldA11yProps('currentPassword', `${baseId}-pw-error`)}
                 placeholder="Wpisz swoje aktualne hasło"
                 className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-hidden focus:ring-1 focus:ring-sky-500 font-mono"
               />
@@ -906,8 +1005,9 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                 value={newPassword}
                 onChange={(e) => {
                   setNewPassword(e.target.value);
-                  setPasswordError(null);
+                  changePwSubmit.clearError();
                 }}
+                {...changePwSubmit.getFieldA11yProps('newPassword', `${baseId}-pw-error`)}
                 placeholder="Wpisz nowe hasło (12–128 znaków)"
                 className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
               />
@@ -928,8 +1028,9 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                 value={confirmPassword}
                 onChange={(e) => {
                   setConfirmPassword(e.target.value);
-                  setPasswordError(null);
+                  changePwSubmit.clearError();
                 }}
+                {...changePwSubmit.getFieldA11yProps('confirmPassword', `${baseId}-pw-error`)}
                 placeholder="Wpisz ponownie nowe hasło"
                 className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
               />
@@ -938,21 +1039,18 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
               )}
             </div>
 
-            {passwordError && (
-              <p role="alert" className="text-rose-700 dark:text-rose-400 text-xs font-medium">{passwordError}</p>
-            )}
-
             <div className="pt-2 flex justify-end">
               <button
                 type="submit"
                 disabled={
+                  changePwSubmit.isSubmitting ||
                   !currentPassword ||
                   !validatePassword(newPassword, { name: currentUser.name, email: currentUser.email }).ok ||
                   newPassword !== confirmPassword
                 }
                 className="bg-sky-700 hover:bg-sky-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded text-xs transition-colors"
               >
-                Zapisz nowe hasło
+                {changePwSubmit.isSubmitting ? 'Zapisywanie...' : 'Zapisz nowe hasło'}
               </button>
             </div>
           </form>

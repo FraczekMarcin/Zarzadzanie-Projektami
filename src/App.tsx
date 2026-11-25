@@ -7,6 +7,7 @@ import { useServerSync } from './hooks/useServerSync';
 import { useTaskActions } from './hooks/useTaskActions';
 import { useDeepLink } from './hooks/useDeepLink';
 import { useDismissOnOutsideClick } from './hooks/useDismissOnOutsideClick';
+import type { FormSubmitResult } from './hooks/useFormSubmit';
 
 // Leniwe ładowanie widoków oraz ciężkich modali/szuflad (optymalizacja początkowego rozmiaru paczki)
 const loadLoginGate = () => import('./components/LoginGate').then((m) => ({ default: m.LoginGate }));
@@ -664,7 +665,7 @@ export default function App() {
       templateTaskKeys?: string[];
     },
     selectedTemplate?: ProjectTemplate
-  ) => {
+  ): Promise<FormSubmitResult<{ project: Project; tasks?: Task[] }>> => {
     const trimmedKey = newProjData.key ? newProjData.key.trim().toUpperCase() : '';
     const tempId = `prj-${Date.now()}`;
     const previewKey =
@@ -690,8 +691,13 @@ export default function App() {
     };
 
     const result = await createProjectOnServer(payload);
-    if (!result?.project) {
-      return;
+    if (!result.ok || !result.project) {
+      return {
+        ok: false,
+        status: result.status,
+        error: result.error || 'Nie udało się zapisać nowego projektu na serwerze.',
+        field: result.field,
+      };
     }
 
     const finalProject: Project = {
@@ -714,12 +720,30 @@ export default function App() {
         type: 'success',
       });
     }
+    return {
+      ok: true,
+      status: result.status,
+      data: { project: finalProject, ...(result.tasks ? { tasks: result.tasks } : {}) },
+    };
   };
 
-  const handleUpdateProject = (updatedProject: Project) => {
-    setProjects((prev) => prev.map((p) => (p.id === updatedProject.id ? updatedProject : p)));
-    patchProjectOnServer(updatedProject.id, updatedProject, updatedProject.revision || 1);
-    logActivity(`${currentUser.name} zaktualizował projekt [${updatedProject.key}]: ${updatedProject.name}`);
+  const handleUpdateProject = async (updatedProject: Project): Promise<FormSubmitResult<Project>> => {
+    const result = await patchProjectOnServer(
+      updatedProject.id,
+      updatedProject,
+      updatedProject.revision || 1
+    );
+    if (!result.ok) {
+      return {
+        ok: false,
+        status: result.status,
+        error: result.error || 'Nie udało się zapisać zmian projektu na serwerze.',
+        field: result.field,
+      };
+    }
+    const saved = result.project || updatedProject;
+    logActivity(`${currentUser.name} zaktualizował projekt [${saved.key}]: ${saved.name}`);
+    return { ok: true, status: result.status, data: saved };
   };
 
   const handleUpdateProjectFinance = async (

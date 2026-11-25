@@ -8,8 +8,10 @@ import {
 import { createTemplateFromProjectOnServer } from '../../utils/projectTemplates';
 import { useFocusTrap } from '../../utils/useFocusTrap';
 import { useDismissOnOutsideClick } from '../../hooks/useDismissOnOutsideClick';
+import { useFormSubmit } from '../../hooks/useFormSubmit';
 import { DiscardChangesModal } from '../DiscardChangesModal';
-import { AlertCircle, Building2, CheckSquare, Layers, X } from 'lucide-react';
+import { FormError } from '../FormError';
+import { Building2, CheckSquare, Layers, X } from 'lucide-react';
 
 interface CreateTemplateFromProjectModalProps {
   isOpen: boolean;
@@ -119,8 +121,8 @@ export const CreateTemplateFromProjectModal: React.FC<CreateTemplateFromProjectM
   const [skipCompleted, setSkipCompleted] = useState<boolean>(false);
   const [preserveAssigneeRoles, setPreserveAssigneeRoles] = useState<boolean>(false);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const createSubmit = useFormSubmit();
+  const errorAlertId = `${uid}-error`;
 
   const projectTasks = useMemo(
     () => tasks.filter((t) => t.projectId === selectedProjectId),
@@ -150,8 +152,8 @@ export const CreateTemplateFromProjectModal: React.FC<CreateTemplateFromProjectM
     setDescription('');
     setSkipCompleted(false);
     setPreserveAssigneeRoles(false);
-    setErrorMsg(null);
-  }, [isOpen, effectiveProjects, tasks]);
+    createSubmit.clearError();
+  }, [isOpen, effectiveProjects, tasks, createSubmit.clearError]);
 
   const handleProjectChange = (nextProjectId: string) => {
     setSelectedProjectId(nextProjectId);
@@ -161,7 +163,7 @@ export const CreateTemplateFromProjectModal: React.FC<CreateTemplateFromProjectM
     }
     const nextTasks = tasks.filter((t) => t.projectId === nextProjectId);
     setSelectedTaskIds(new Set(nextTasks.map((t) => t.id)));
-    setErrorMsg(null);
+    createSubmit.clearError();
   };
 
   const isDirty = Boolean(
@@ -184,10 +186,10 @@ export const CreateTemplateFromProjectModal: React.FC<CreateTemplateFromProjectM
     mode: 'form',
     panelRef: modalRef,
     onDismiss: () => {
-      if (!isSubmitting) onClose();
+      if (!createSubmit.isSubmitting) onClose();
     },
     isDirty,
-    disabled: isSubmitting,
+    disabled: createSubmit.isSubmitting,
     cancelButtonRef: cancelRef,
   });
 
@@ -195,9 +197,9 @@ export const CreateTemplateFromProjectModal: React.FC<CreateTemplateFromProjectM
     isOpen,
     containerRef: modalRef,
     onClose: () => {
-      if (!isSubmitting) requestClose();
+      if (!createSubmit.isSubmitting) requestClose();
     },
-    disableEscape: isSubmitting,
+    disableEscape: createSubmit.isSubmitting,
   });
 
   if (!isOpen) return null;
@@ -231,38 +233,37 @@ export const CreateTemplateFromProjectModal: React.FC<CreateTemplateFromProjectM
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorMsg(null);
+    createSubmit.clearError();
 
     if (!selectedProjectId) {
-      setErrorMsg('Wybierz projekt źródłowy.');
+      createSubmit.setValidationError('Wybierz projekt źródłowy.', 'projectId');
       return;
     }
     if (!name.trim()) {
-      setErrorMsg('Podaj nazwę nowego szablonu.');
+      createSubmit.setValidationError('Podaj nazwę nowego szablonu.', 'name');
       return;
     }
     if (effectiveSelectedTaskIds.length === 0) {
-      setErrorMsg('Wybierz co najmniej jedno zadanie do zapisania w szablonie.');
+      createSubmit.setValidationError('Wybierz co najmniej jedno zadanie do zapisania w szablonie.');
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      const res = await createTemplateFromProjectOnServer(selectedProjectId, {
-        name: name.trim(),
-        category,
-        ...(description.trim() ? { description: description.trim() } : {}),
-        selectedTaskIds: Array.from(selectedTaskIds),
-        skipCompleted,
-        preserveAssigneeRoles,
-      });
-      onCreated(res.template);
-      onClose();
-    } catch (err: any) {
-      setErrorMsg(err?.message || 'Nie udało się utworzyć szablonu z projektu.');
-    } finally {
-      setIsSubmitting(false);
-    }
+    await createSubmit.submit(
+      async () => {
+        const res = await createTemplateFromProjectOnServer(selectedProjectId, {
+          name: name.trim(),
+          category,
+          ...(description.trim() ? { description: description.trim() } : {}),
+          selectedTaskIds: Array.from(selectedTaskIds),
+          skipCompleted,
+          preserveAssigneeRoles,
+        });
+        onCreated(res.template);
+        onClose();
+        return { ok: true };
+      },
+      { fallbackError: 'Nie udało się utworzyć szablonu z projektu.' }
+    );
   };
 
   return (
@@ -293,7 +294,7 @@ export const CreateTemplateFromProjectModal: React.FC<CreateTemplateFromProjectM
           </div>
           <button
             type="button"
-            disabled={isSubmitting}
+            disabled={createSubmit.isSubmitting}
             onClick={requestClose}
             aria-label="Zamknij okno tworzenia szablonu z projektu"
             className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
@@ -303,15 +304,12 @@ export const CreateTemplateFromProjectModal: React.FC<CreateTemplateFromProjectM
         </div>
 
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 space-y-4">
-          {errorMsg && (
-            <div
-              role="alert"
-              className="p-3 rounded-lg border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/50 text-rose-900 dark:text-rose-200 flex items-center gap-2"
-            >
-              <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
-              <span>{errorMsg}</span>
-            </div>
-          )}
+          <FormError
+            id={errorAlertId}
+            error={createSubmit.submitError}
+            alertRef={createSubmit.alertRef}
+            onDismiss={createSubmit.clearError}
+          />
 
           {effectiveProjects.length === 0 ? (
             <div className="p-4 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200">
@@ -327,6 +325,7 @@ export const CreateTemplateFromProjectModal: React.FC<CreateTemplateFromProjectM
                   id={`${uid}-project`}
                   value={selectedProjectId}
                   onChange={(e) => handleProjectChange(e.target.value)}
+                  {...createSubmit.getFieldA11yProps('projectId', errorAlertId)}
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-500"
                 >
                   {effectiveProjects.map((p) => {
@@ -355,6 +354,7 @@ export const CreateTemplateFromProjectModal: React.FC<CreateTemplateFromProjectM
                       setName(e.target.value);
                       setNameEditedManually(true);
                     }}
+                    {...createSubmit.getFieldA11yProps('name', errorAlertId)}
                     placeholder="np. Standard Obiektu Kubaturowego"
                     className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-500"
                   />
@@ -514,7 +514,7 @@ export const CreateTemplateFromProjectModal: React.FC<CreateTemplateFromProjectM
             <button
               ref={cancelRef}
               type="button"
-              disabled={isSubmitting}
+              disabled={createSubmit.isSubmitting}
               onClick={requestClose}
               className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 font-semibold transition-colors"
             >
@@ -522,11 +522,11 @@ export const CreateTemplateFromProjectModal: React.FC<CreateTemplateFromProjectM
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || effectiveProjects.length === 0 || effectiveSelectedTaskIds.length === 0}
+              disabled={createSubmit.isSubmitting || effectiveProjects.length === 0 || effectiveSelectedTaskIds.length === 0}
               className="px-4 py-2 rounded-lg bg-sky-700 hover:bg-sky-800 disabled:opacity-50 text-white font-semibold flex items-center gap-1.5 transition-colors"
             >
               <Layers className="w-3.5 h-3.5" aria-hidden="true" />
-              <span>{isSubmitting ? 'Zapisywanie...' : 'Utwórz szablon'}</span>
+              <span>{createSubmit.isSubmitting ? 'Zapisywanie...' : 'Utwórz szablon'}</span>
             </button>
           </div>
         </form>

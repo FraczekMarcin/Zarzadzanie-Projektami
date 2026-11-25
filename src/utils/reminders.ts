@@ -1,5 +1,6 @@
-import type { Project, Task, User } from '../types/index.js';
+import type { Project, ProjectStatusOption, Task, User } from '../types/index.js';
 import { PRIORITY_LABELS, STATUS_LABELS } from './labels.js';
+import { isProjectStatusClosed } from './projectMeta.js';
 
 export const ALLOWED_REMINDER_DAYS: readonly number[] = [0, 1, 2, 3, 7] as const;
 
@@ -182,7 +183,8 @@ export function buildDigests(
   projects: Project[],
   users: User[],
   now: Date | number,
-  settings: ReminderSettings
+  settings: ReminderSettings,
+  projectStatuses?: ProjectStatusOption[] | null
 ): UserDigest[] {
   const safeTz = isValidIanaTimezone(settings.timezone) ? settings.timezone.trim() : 'Europe/Warsaw';
   const todayStr = localDateString(now, safeTz);
@@ -191,7 +193,7 @@ export function buildDigests(
 
   const projectMap = new Map<string, Project>();
   for (const p of projects || []) {
-    if (!p || !p.id || p.isArchived) continue;
+    if (!p || !p.id || p.isArchived || isProjectStatusClosed(p.status, projectStatuses)) continue;
     projectMap.set(p.id, p);
   }
 

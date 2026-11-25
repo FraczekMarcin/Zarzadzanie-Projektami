@@ -103,7 +103,11 @@ interface SettingsModalProps {
   onRejectUser?: (userId: string) => void;
   onUserUpdated?: (updated: Partial<User>) => void;
   onRefreshUsers?: () => void;
-  onUpdateUserPassword?: (userId: string, newPass: string, currentPass?: string) => Promise<boolean | void> | void;
+  onUpdateUserPassword?: (
+    userId: string,
+    newPass: string,
+    currentPass?: string
+  ) => Promise<import('../hooks/useFormSubmit').FormSubmitResult | boolean | void> | void;
   initialTab?: SettingsTab;
 }
 
@@ -578,6 +582,7 @@ const SettingsModalContent: React.FC<SettingsModalProps> = ({
                 <VariablesTab
                   isOpen={isOpen}
                   currentUser={currentUser}
+                  projects={projects}
                 />
               )}
 

@@ -9,7 +9,9 @@ import type {
 import { useDismissOnOutsideClick } from '../../hooks/useDismissOnOutsideClick';
 import { useFocusTrap } from '../../utils/useFocusTrap';
 import { useVariables } from '../../hooks/useVariables';
+import { useFormSubmit } from '../../hooks/useFormSubmit';
 import { DiscardChangesModal } from '../DiscardChangesModal';
+import { FormError } from '../FormError';
 import {
   TEMPLATE_CATEGORIES,
   TEMPLATE_CATEGORY_LABELS,
@@ -115,9 +117,9 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
   const [pendingDeleteKey, setPendingDeleteKey] = useState<string | null>(null);
   const [tagsText, setTagsText] = useState<string>('');
   const [showTimeline, setShowTimeline] = useState<boolean>(true);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const saveSubmit = useFormSubmit();
+  const errorAlertId = `${uid}-error`;
   const [conflictTemplate, setConflictTemplate] = useState<ProjectTemplate | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
 
   // Drag & drop (HTML5 + dotykowy pointer fallback)
   const [draggedKey, setDraggedKey] = useState<string | null>(null);
@@ -132,7 +134,7 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
     const ordered = buildTreeOrderedTasks(initialDraft.tasks);
     setSelectedTaskKey(ordered[0]?.task.key ?? null);
     setPendingDeleteKey(null);
-    setErrorMsg(null);
+    saveSubmit.clearError();
     setConflictTemplate(null);
     setDraggedKey(null);
     setDropTargetKey(null);
@@ -176,9 +178,9 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
     mode: 'form',
     panelRef,
     onDismiss: () => {
-      if (!isSaving) onClose();
+      if (!saveSubmit.isSubmitting) onClose();
     },
-    disabled: isSaving,
+    disabled: saveSubmit.isSubmitting,
     isDirty,
     cancelButtonRef,
   });
@@ -187,21 +189,21 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
     isOpen: isOpen && Boolean(template),
     containerRef: panelRef,
     onClose: requestClose,
-    disableEscape: isSaving,
+    disableEscape: saveSubmit.isSubmitting,
   });
 
   const commitDraft = (updater: (curr: TemplateEditorDraft) => TemplateEditorDraft) => {
-    setErrorMsg(null);
+    saveSubmit.clearError();
     setHistory((prev) => pushEditorState(prev, updater(prev.present)));
   };
 
   const handleUndo = () => {
-    setErrorMsg(null);
+    saveSubmit.clearError();
     setHistory((prev) => undoEditorState(prev));
   };
 
   const handleRedo = () => {
-    setErrorMsg(null);
+    saveSubmit.clearError();
     setHistory((prev) => redoEditorState(prev));
   };
 
@@ -218,7 +220,7 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
   const handleAddRootTask = () => {
     const res = addTemplateTask(draft.tasks, { afterKey: selectedTaskKey || undefined });
     if (!res.ok) {
-      setErrorMsg(res.error);
+      saveSubmit.setValidationError(res.error);
       return;
     }
     commitDraft((curr) => ({ ...curr, tasks: res.tasks }));
@@ -229,7 +231,7 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
     if (!selectedTaskKey) return;
     const res = addTemplateTask(draft.tasks, { parentKey: selectedTaskKey });
     if (!res.ok) {
-      setErrorMsg(res.error);
+      saveSubmit.setValidationError(res.error);
       return;
     }
     commitDraft((curr) => ({ ...curr, tasks: res.tasks }));
@@ -239,7 +241,7 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
   const handleDuplicateTask = (key: string) => {
     const res = duplicateTemplateTask(draft.tasks, key);
     if (!res.ok) {
-      setErrorMsg(res.error);
+      saveSubmit.setValidationError(res.error);
       return;
     }
     commitDraft((curr) => ({ ...curr, tasks: res.tasks }));
@@ -264,7 +266,7 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
   const handleIndentTask = (key: string) => {
     const res = indentTemplateTask(draft.tasks, key);
     if (!res.ok) {
-      setErrorMsg(res.error);
+      saveSubmit.setValidationError(res.error);
       return;
     }
     commitDraft((curr) => ({ ...curr, tasks: res.tasks }));
@@ -273,7 +275,7 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
   const handleOutdentTask = (key: string) => {
     const res = outdentTemplateTask(draft.tasks, key);
     if (!res.ok) {
-      setErrorMsg(res.error);
+      saveSubmit.setValidationError(res.error);
       return;
     }
     commitDraft((curr) => ({ ...curr, tasks: res.tasks }));
@@ -285,12 +287,12 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
     if (!sourceKey || sourceKey === targetParentKey) return;
     const check = canReparentTemplateTask(draft.tasks, sourceKey, targetParentKey);
     if (!check.ok) {
-      setErrorMsg(check.error);
+      saveSubmit.setValidationError(check.error);
       return;
     }
     const res = reparentTemplateTask(draft.tasks, sourceKey, targetParentKey);
     if (!res.ok) {
-      setErrorMsg(res.error);
+      saveSubmit.setValidationError(res.error);
       return;
     }
     commitDraft((curr) => ({ ...curr, tasks: res.tasks }));
@@ -345,7 +347,7 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!template || isSaving) return;
+    if (!template) return;
 
     const payload = {
       name: draft.name.trim(),
@@ -366,31 +368,29 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
 
     const localValidation = validateTemplateWritePayload(payload);
     if (!localValidation.ok) {
-      setErrorMsg(localValidation.error);
+      saveSubmit.setValidationError(localValidation.error);
       return;
     }
 
-    setIsSaving(true);
-    setErrorMsg(null);
     setConflictTemplate(null);
-    try {
-      const res = await updateTemplateOnServer(template.id, payload, {
-        expectedRevision,
-      });
-      onSaved(res.template, res.revision);
-      onClose();
-    } catch (err: any) {
-      if (err instanceof TemplateConflictError) {
-        setErrorMsg(err.message);
-        if (err.currentTemplate) {
-          setConflictTemplate(err.currentTemplate);
+    await saveSubmit.submit(
+      async () => {
+        try {
+          const res = await updateTemplateOnServer(template.id, payload, {
+            expectedRevision,
+          });
+          onSaved(res.template, res.revision);
+          onClose();
+          return { ok: true };
+        } catch (err: unknown) {
+          if (err instanceof TemplateConflictError && err.currentTemplate) {
+            setConflictTemplate(err.currentTemplate);
+          }
+          throw err;
         }
-      } else {
-        setErrorMsg(err?.message || 'Nie udało się zapisać zmian szablonu.');
-      }
-    } finally {
-      setIsSaving(false);
-    }
+      },
+      { fallbackError: 'Nie udało się zapisać zmian szablonu.' }
+    );
   };
 
   if (!isOpen || !template) return null;
@@ -453,7 +453,7 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
             <button
               type="button"
               onClick={handleUndo}
-              disabled={history.past.length === 0 || isSaving}
+              disabled={history.past.length === 0 || saveSubmit.isSubmitting}
               aria-label="Cofnij zmianę w edytorze"
               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-45 font-semibold transition-colors"
             >
@@ -463,7 +463,7 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
             <button
               type="button"
               onClick={handleRedo}
-              disabled={history.future.length === 0 || isSaving}
+              disabled={history.future.length === 0 || saveSubmit.isSubmitting}
               aria-label="Ponów zmianę w edytorze"
               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-45 font-semibold transition-colors"
             >
@@ -472,7 +472,7 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
             </button>
             <button
               type="button"
-              disabled={isSaving}
+              disabled={saveSubmit.isSubmitting}
               onClick={requestClose}
               aria-label="Zamknij edytor szablonu"
               className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800 transition-colors"
@@ -489,23 +489,24 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
             className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-600"
           >
             {/* Komunikaty błędów i konfliktu 409 */}
-            {errorMsg && (
-              <div
-                role="alert"
-                className="p-3 rounded-lg border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/60 text-rose-900 dark:text-rose-200 flex flex-wrap items-center justify-between gap-2"
-              >
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
-                  <span>{errorMsg}</span>
-                </div>
+            {saveSubmit.submitError && (
+              <div className="space-y-2">
+                <FormError
+                  id={errorAlertId}
+                  error={saveSubmit.submitError}
+                  alertRef={saveSubmit.alertRef}
+                  onDismiss={saveSubmit.clearError}
+                />
                 {conflictTemplate && (
-                  <button
-                    type="button"
-                    onClick={() => loadTemplateIntoEditor(conflictTemplate)}
-                    className="px-3 py-1 rounded bg-rose-700 hover:bg-rose-800 text-white font-semibold"
-                  >
-                    Załaduj najnowszą wersję z serwera
-                  </button>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => loadTemplateIntoEditor(conflictTemplate)}
+                      className="px-3 py-1.5 rounded-lg bg-rose-700 hover:bg-rose-800 text-white font-semibold"
+                    >
+                      Załaduj najnowszą wersję z serwera
+                    </button>
+                  </div>
                 )}
               </div>
             )}
@@ -524,6 +525,7 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
                     maxLength={200}
                     value={draft.name}
                     onChange={(e) => commitDraft((curr) => ({ ...curr, name: e.target.value }))}
+                    {...saveSubmit.getFieldA11yProps('name', errorAlertId)}
                     className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500"
                   />
                 </div>
@@ -1314,7 +1316,7 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
               <button
                 ref={cancelButtonRef}
                 type="button"
-                disabled={isSaving}
+                disabled={saveSubmit.isSubmitting}
                 onClick={requestClose}
                 className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 font-semibold transition-colors"
               >
@@ -1322,11 +1324,11 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
               </button>
               <button
                 type="submit"
-                disabled={isSaving}
+                disabled={saveSubmit.isSubmitting}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-700 hover:bg-sky-800 disabled:opacity-55 text-white font-semibold shadow-xs transition-colors"
               >
                 <Save className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>{isSaving ? 'Zapisywanie...' : 'Zapisz zmiany'}</span>
+                <span>{saveSubmit.isSubmitting ? 'Zapisywanie...' : 'Zapisz zmiany'}</span>
               </button>
             </div>
           </div>

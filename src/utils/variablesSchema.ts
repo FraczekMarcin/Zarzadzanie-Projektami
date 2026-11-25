@@ -1,4 +1,19 @@
+import type { ProjectPriorityOption, ProjectStatusOption } from '../types/index.js';
 import { hasForbiddenKeys } from './access.js';
+import {
+  DEFAULT_PROJECT_PRIORITIES,
+  DEFAULT_PROJECT_STATUSES,
+  PROJECT_META_ID_MAX,
+  PROJECT_META_LABEL_MAX,
+  PROJECT_META_MAX_ITEMS,
+  SYSTEM_PROJECT_PRIORITY_IDS,
+  SYSTEM_PROJECT_STATUS_IDS,
+  VALID_PROJECT_META_COLORS,
+  normalizeProjectPriorities,
+  normalizeProjectStatuses,
+} from './projectMeta.js';
+
+export { DEFAULT_PROJECT_PRIORITIES, DEFAULT_PROJECT_STATUSES };
 
 export interface ClientRecord {
   id: string;
@@ -38,6 +53,8 @@ export interface ServerVariablesState {
   vatRates: VatRateOption[];
   clients: ClientRecord[];
   taskTypes: TaskTypeDefinition[];
+  projectStatuses: ProjectStatusOption[];
+  projectPriorities: ProjectPriorityOption[];
   deadlineWarningDays: number;
   initialized: boolean;
 }
@@ -130,6 +147,10 @@ export const VARIABLES_LIMITS = {
   taskTypeNameMax: 50,
   taskTypeIdMax: 50,
   taskTypeDescMax: 200,
+  projectStatusesMax: PROJECT_META_MAX_ITEMS,
+  projectPrioritiesMax: PROJECT_META_MAX_ITEMS,
+  projectMetaLabelMax: PROJECT_META_LABEL_MAX,
+  projectMetaIdMax: PROJECT_META_ID_MAX,
   deadlineWarningDaysMin: 0,
   deadlineWarningDaysMax: 30,
 } as const;
@@ -150,6 +171,8 @@ export function createDefaultVariablesState(): ServerVariablesState {
     vatRates: DEFAULT_VAT_RATES.map((v) => ({ ...v })),
     clients: DEFAULT_CLIENTS.map((c) => ({ ...c })),
     taskTypes: DEFAULT_TASK_TYPES.map((t) => ({ ...t })),
+    projectStatuses: DEFAULT_PROJECT_STATUSES.map((s) => ({ ...s })),
+    projectPriorities: DEFAULT_PROJECT_PRIORITIES.map((p) => ({ ...p })),
     deadlineWarningDays: DEFAULT_DEADLINE_WARNING_DAYS,
     initialized: false,
   };
@@ -197,6 +220,9 @@ export function normalizeVariablesState(raw: any): ServerVariablesState {
         })
     : defaults.taskTypes;
 
+  const projectStatuses = normalizeProjectStatuses(raw.projectStatuses);
+  const projectPriorities = normalizeProjectPriorities(raw.projectPriorities);
+
   const deadlineWarningDays =
     typeof raw.deadlineWarningDays === 'number' &&
     Number.isInteger(raw.deadlineWarningDays) &&
@@ -211,6 +237,8 @@ export function normalizeVariablesState(raw: any): ServerVariablesState {
     vatRates,
     clients,
     taskTypes,
+    projectStatuses,
+    projectPriorities,
     deadlineWarningDays,
     initialized,
   };
@@ -237,9 +265,18 @@ export function validateVariablesUpdate(body: any): VariablesValidationResult {
   const hasVatRates = body.vatRates !== undefined;
   const hasClients = body.clients !== undefined;
   const hasTaskTypes = body.taskTypes !== undefined;
+  const hasProjectStatuses = body.projectStatuses !== undefined;
+  const hasProjectPriorities = body.projectPriorities !== undefined;
   const hasDeadlineDays = body.deadlineWarningDays !== undefined;
 
-  if (!hasVatRates && !hasClients && !hasTaskTypes && !hasDeadlineDays) {
+  if (
+    !hasVatRates &&
+    !hasClients &&
+    !hasTaskTypes &&
+    !hasProjectStatuses &&
+    !hasProjectPriorities &&
+    !hasDeadlineDays
+  ) {
     return {
       ok: false,
       errors: ['Brak sekcji zmiennych systemowych do zapisania.'],
@@ -521,7 +558,218 @@ export function validateVariablesUpdate(body: any): VariablesValidationResult {
     }
   }
 
-  // 4. Walidacja liczby dni ostrzeżenia o terminie
+  // 4. Walidacja stanów projektów
+  if (hasProjectStatuses) {
+    if (!Array.isArray(body.projectStatuses)) {
+      errors.push('Pole projectStatuses musi być tablicą.');
+    } else if (body.projectStatuses.length === 0) {
+      errors.push('Lista stanów projektów nie może być pusta.');
+    } else if (body.projectStatuses.length > VARIABLES_LIMITS.projectStatusesMax) {
+      errors.push(
+        `Lista stanów projektów może zawierać maksymalnie ${VARIABLES_LIMITS.projectStatusesMax} pozycji.`
+      );
+    } else {
+      const normalizedStatuses: ProjectStatusOption[] = [];
+      const seenIds = new Set<string>();
+      const seenLabels = new Set<string>();
+      let defaultCount = 0;
+
+      for (let i = 0; i < body.projectStatuses.length; i++) {
+        const item = body.projectStatuses[i];
+        if (!item || typeof item !== 'object' || Array.isArray(item) || hasForbiddenKeys(item)) {
+          errors.push(`Nieprawidłowy format stanu projektu na pozycji ${i + 1}.`);
+          break;
+        }
+
+        const rawId = typeof item.id === 'string' ? item.id.trim() : '';
+        if (!rawId) {
+          errors.push('Każdy stan projektu musi posiadać identyfikator (id).');
+          break;
+        }
+        if (rawId.length > VARIABLES_LIMITS.projectMetaIdMax) {
+          errors.push(
+            `Identyfikator stanu projektu nie może przekraczać ${VARIABLES_LIMITS.projectMetaIdMax} znaków.`
+          );
+          break;
+        }
+        if (seenIds.has(rawId)) {
+          errors.push(`Duplikat identyfikatora stanu projektu "${rawId}".`);
+          break;
+        }
+        seenIds.add(rawId);
+
+        if (typeof item.label !== 'string' || !item.label.trim()) {
+          errors.push('Etykieta stanu projektu nie może być pusta.');
+          break;
+        }
+        const label = item.label.trim();
+        if (label.length > VARIABLES_LIMITS.projectMetaLabelMax) {
+          errors.push(
+            `Etykieta stanu projektu nie może przekraczać ${VARIABLES_LIMITS.projectMetaLabelMax} znaków.`
+          );
+          break;
+        }
+        const labelKey = label.toLowerCase();
+        if (seenLabels.has(labelKey)) {
+          errors.push(`Etykieta stanu projektu "${label}" musi być unikalna.`);
+          break;
+        }
+        seenLabels.add(labelKey);
+
+        const color =
+          item.color === undefined || item.color === null ? 'slate' : item.color;
+        if (typeof color !== 'string' || !VALID_PROJECT_META_COLORS.has(color as any)) {
+          errors.push(`Nieprawidłowy kolor stanu projektu "${label}".`);
+          break;
+        }
+
+        const order = item.order === undefined ? i + 1 : item.order;
+        if (typeof order !== 'number' || !Number.isInteger(order)) {
+          errors.push(`Kolejność stanu projektu "${label}" musi być liczbą całkowitą.`);
+          break;
+        }
+
+        const isDefault = Boolean(item.isDefault);
+        if (isDefault) defaultCount += 1;
+
+        const isSystem = SYSTEM_PROJECT_STATUS_IDS.has(rawId);
+        const rec: ProjectStatusOption = {
+          id: rawId,
+          label,
+          color: color as ProjectStatusOption['color'],
+          order,
+          isDefault,
+          isClosed: Boolean(item.isClosed),
+          ...(isSystem ? { isSystem: true } : {}),
+        };
+        normalizedStatuses.push(rec);
+      }
+
+      if (errors.length === 0) {
+        for (const sysId of SYSTEM_PROJECT_STATUS_IDS) {
+          if (!seenIds.has(sysId)) {
+            errors.push(`Nie można usunąć systemowego stanu projektu "${sysId}".`);
+            break;
+          }
+        }
+      }
+      if (errors.length === 0 && defaultCount !== 1) {
+        errors.push('Dokładnie jeden stan projektu musi być ustawiony jako domyślny.');
+      }
+      if (errors.length === 0) {
+        patch.projectStatuses = normalizedStatuses.sort(
+          (a, b) => a.order - b.order || a.label.localeCompare(b.label, 'pl')
+        );
+      }
+    }
+  }
+
+  // 5. Walidacja priorytetów projektów
+  if (hasProjectPriorities) {
+    if (!Array.isArray(body.projectPriorities)) {
+      errors.push('Pole projectPriorities musi być tablicą.');
+    } else if (body.projectPriorities.length === 0) {
+      errors.push('Lista priorytetów projektów nie może być pusta.');
+    } else if (body.projectPriorities.length > VARIABLES_LIMITS.projectPrioritiesMax) {
+      errors.push(
+        `Lista priorytetów projektów może zawierać maksymalnie ${VARIABLES_LIMITS.projectPrioritiesMax} pozycji.`
+      );
+    } else {
+      const normalizedPriorities: ProjectPriorityOption[] = [];
+      const seenIds = new Set<string>();
+      const seenLabels = new Set<string>();
+      let defaultCount = 0;
+
+      for (let i = 0; i < body.projectPriorities.length; i++) {
+        const item = body.projectPriorities[i];
+        if (!item || typeof item !== 'object' || Array.isArray(item) || hasForbiddenKeys(item)) {
+          errors.push(`Nieprawidłowy format priorytetu projektu na pozycji ${i + 1}.`);
+          break;
+        }
+
+        const rawId = typeof item.id === 'string' ? item.id.trim() : '';
+        if (!rawId) {
+          errors.push('Każdy priorytet projektu musi posiadać identyfikator (id).');
+          break;
+        }
+        if (rawId.length > VARIABLES_LIMITS.projectMetaIdMax) {
+          errors.push(
+            `Identyfikator priorytetu projektu nie może przekraczać ${VARIABLES_LIMITS.projectMetaIdMax} znaków.`
+          );
+          break;
+        }
+        if (seenIds.has(rawId)) {
+          errors.push(`Duplikat identyfikatora priorytetu projektu "${rawId}".`);
+          break;
+        }
+        seenIds.add(rawId);
+
+        if (typeof item.label !== 'string' || !item.label.trim()) {
+          errors.push('Etykieta priorytetu projektu nie może być pusta.');
+          break;
+        }
+        const label = item.label.trim();
+        if (label.length > VARIABLES_LIMITS.projectMetaLabelMax) {
+          errors.push(
+            `Etykieta priorytetu projektu nie może przekraczać ${VARIABLES_LIMITS.projectMetaLabelMax} znaków.`
+          );
+          break;
+        }
+        const labelKey = label.toLowerCase();
+        if (seenLabels.has(labelKey)) {
+          errors.push(`Etykieta priorytetu projektu "${label}" musi być unikalna.`);
+          break;
+        }
+        seenLabels.add(labelKey);
+
+        const color =
+          item.color === undefined || item.color === null ? 'slate' : item.color;
+        if (typeof color !== 'string' || !VALID_PROJECT_META_COLORS.has(color as any)) {
+          errors.push(`Nieprawidłowy kolor priorytetu projektu "${label}".`);
+          break;
+        }
+
+        const order = item.order === undefined ? i + 1 : item.order;
+        if (typeof order !== 'number' || !Number.isInteger(order)) {
+          errors.push(`Kolejność priorytetu projektu "${label}" musi być liczbą całkowitą.`);
+          break;
+        }
+
+        const isDefault = Boolean(item.isDefault);
+        if (isDefault) defaultCount += 1;
+
+        const isSystem = SYSTEM_PROJECT_PRIORITY_IDS.has(rawId);
+        const rec: ProjectPriorityOption = {
+          id: rawId,
+          label,
+          color: color as ProjectPriorityOption['color'],
+          order,
+          isDefault,
+          ...(isSystem ? { isSystem: true } : {}),
+        };
+        normalizedPriorities.push(rec);
+      }
+
+      if (errors.length === 0) {
+        for (const sysId of SYSTEM_PROJECT_PRIORITY_IDS) {
+          if (!seenIds.has(sysId)) {
+            errors.push(`Nie można usunąć systemowego priorytetu projektu "${sysId}".`);
+            break;
+          }
+        }
+      }
+      if (errors.length === 0 && defaultCount !== 1) {
+        errors.push('Dokładnie jeden priorytet projektu musi być ustawiony jako domyślny.');
+      }
+      if (errors.length === 0) {
+        patch.projectPriorities = normalizedPriorities.sort(
+          (a, b) => a.order - b.order || a.label.localeCompare(b.label, 'pl')
+        );
+      }
+    }
+  }
+
+  // 6. Walidacja liczby dni ostrzeżenia o terminie
   if (hasDeadlineDays) {
     const days = body.deadlineWarningDays;
     if (

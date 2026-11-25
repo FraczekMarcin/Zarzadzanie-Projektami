@@ -1,4 +1,12 @@
-import type { Company, CostCategory, CostItem, PaymentTranche, Project, QuotationItem } from '../types/index.js';
+import type {
+  Company,
+  CostCategory,
+  CostItem,
+  PaymentTranche,
+  Project,
+  ProjectStatusOption,
+  QuotationItem,
+} from '../types/index.js';
 import {
   addMoney,
   calcGrossFromNet,
@@ -11,6 +19,7 @@ import {
   subtractMoney,
   toGrosze,
 } from './money.js';
+import { isProjectStatusClosed } from './projectMeta.js';
 import { getTodayIso } from './today.js';
 export {
   validateProjectFinanceFields,
@@ -84,6 +93,7 @@ export type ProjectFinanceCompanyInput = Pick<Company, 'vatPayer' | 'vatExemptio
 
 export interface ComputeProjectFinanceOptions {
   todayIso?: string;
+  projectStatuses?: ProjectStatusOption[] | null;
 }
 
 export function computeProjectFinance(
@@ -215,7 +225,7 @@ export function computeProjectFinance(
   const isBasePaid =
     project.isBaseContractPaid !== undefined
       ? Boolean(project.isBaseContractPaid)
-      : project.status === 'completed';
+      : isProjectStatusClosed(project.status, options?.projectStatuses);
 
   const paidRevenueQuotesNet = addMoney(
     ...revenueQuotes

@@ -11,10 +11,16 @@ import type {
   User,
 } from '../types';
 import type { FinancePatchSaveResult } from '../hooks/useServerSync';
+import type { FormSubmitResult } from '../hooks/useFormSubmit';
 import { canEditFinance } from '../utils/access';
 import { isPaymentOverdue } from '../utils/finance';
 import { calcGrossFromNet } from '../utils/money';
 import { getTodayIso } from '../utils/today';
+import {
+  getOrderedProjectStatuses,
+  isProjectStatusClosed,
+  resolveProjectStatus,
+} from '../utils/projectMeta';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { useVariables } from '../hooks/useVariables';
@@ -67,13 +73,6 @@ const ProjectFinancialsModal = lazy(() =>
 
 const PAGE_SIZE = 50;
 
-const PROJECT_STATUS_LABELS: Record<Project['status'], string> = {
-  planning: 'Planowany',
-  active: 'Aktywny',
-  on_hold: 'Wstrzymany',
-  completed: 'Zakończony',
-};
-
 const QUOTATION_STATUS_LABELS: Record<QuotationItem['status'], string> = {
   draft: 'Szkic',
   sent: 'Wysłana',
@@ -103,7 +102,9 @@ interface EconomyViewProps {
     expectedRevision?: number
   ) => Promise<FinancePatchSaveResult>;
   onApplyFreshProject?: (freshProject: Project, revision?: number) => void;
-  onUpdateProject?: (updatedProject: Project) => void;
+  onUpdateProject?: (
+    updatedProject: Project
+  ) => Promise<FormSubmitResult<Project> | void> | void;
   onTaskCreatedFromEconomy?: (createdTask: Task, revision?: number) => void;
   onUpdateTaskStatus?: (taskId: string, newStatus: TaskStatus) => void | Promise<void>;
   onOpenTask?: (task: Task) => void;
@@ -124,7 +125,11 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
   onOpenTask,
   onNotify,
 }) => {
-  const { taskTypes } = useVariables();
+  const { taskTypes, projectStatuses } = useVariables();
+  const orderedProjectStatuses = useMemo(
+    () => getOrderedProjectStatuses(projectStatuses),
+    [projectStatuses]
+  );
   const uidPrefix = useId();
   const todayIso = getTodayIso();
 
@@ -230,8 +235,8 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
   }, [users]);
 
   const baseRows = useMemo(
-    () => buildEconomyRows(projects, companies, currentUser, todayIso),
-    [projects, companies, currentUser, todayIso]
+    () => buildEconomyRows(projects, companies, currentUser, todayIso, projectStatuses),
+    [projects, companies, currentUser, todayIso, projectStatuses]
   );
 
   const availableYears = useMemo(() => getAvailableEconomyYears(baseRows), [baseRows]);
@@ -337,7 +342,7 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
   };
 
   const handleExportCsv = () => {
-    const csvContent = exportEconomyCsv(sortedRows, amountMode);
+    const csvContent = exportEconomyCsv(sortedRows, amountMode, projectStatuses);
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -762,7 +767,7 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
     const isBasePaid =
       project.isBaseContractPaid !== undefined
         ? Boolean(project.isBaseContractPaid)
-        : project.status === 'completed';
+        : isProjectStatusClosed(project.status, projectStatuses);
 
     const tranches = project.paymentTranches || [];
     const quotations = project.quotations || [];
@@ -809,7 +814,7 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
                   </span>
                 )}
                 <span className="text-xs px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium">
-                  {PROJECT_STATUS_LABELS[project.status] || project.status}
+                  {resolveProjectStatus(project.status, projectStatuses).label}
                 </span>
                 {project.isArchived && (
                   <span className="text-xs px-2 py-0.5 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-200 font-semibold">
@@ -908,7 +913,13 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
               Wartość projektu ({summary.isVatExempt ? 'ZW' : amountMode === 'gross' ? 'brutto' : 'netto'})
             </div>
             <div className="text-lg font-bold text-slate-900 dark:text-white mt-1 tabular-nums">
-              {formatPln(valProject)}
+              {selectedDetailRow.hasProjectValue ? (
+                formatPln(valProject)
+              ) : (
+                <span className="text-sm font-normal italic text-slate-500 dark:text-slate-400">
+                  brak wartości
+                </span>
+              )}
             </div>
           </div>
 
@@ -1631,9 +1642,16 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
               onRefreshProject={(fresh) => {
                 onApplyFreshProject?.(fresh);
               }}
-              onSaveProject={(updated) => {
-                onUpdateProject?.(updated);
-                setFinancialsModalState(null);
+              onSaveProject={async (updated) => {
+                if (!onUpdateProject) {
+                  setFinancialsModalState(null);
+                  return { ok: true };
+                }
+                const res = await onUpdateProject(updated);
+                if (!res || res.ok) {
+                  setFinancialsModalState(null);
+                }
+                return res;
               }}
               onItemsMarkedPaid={handlePromptCloseTasksFromModal}
             />
@@ -1836,10 +1854,11 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
               className="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100"
             >
               <option value="all">Wszystkie statusy</option>
-              <option value="planning">Planowany</option>
-              <option value="active">Aktywny</option>
-              <option value="on_hold">Wstrzymany</option>
-              <option value="completed">Zakończony</option>
+              {orderedProjectStatuses.map((st) => (
+                <option key={st.id} value={st.id}>
+                  {st.label}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -2045,7 +2064,13 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
                         {row.clientNameDisplay}
                       </td>
                       <td className="px-3 py-2.5 text-right tabular-nums font-medium text-slate-900 dark:text-slate-100 whitespace-nowrap">
-                        {formatPln(val)}
+                        {row.hasProjectValue ? (
+                          formatPln(val)
+                        ) : (
+                          <span className="text-slate-500 dark:text-slate-400 italic font-normal">
+                            brak wartości
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 text-right tabular-nums font-medium text-slate-900 dark:text-slate-100 whitespace-nowrap">
                         <div>{formatPln(cost)}</div>

@@ -4,6 +4,16 @@ import type { NotificationToast } from './useAuthSession';
 import { attemptSilentDeviceLogin } from '../utils/deviceLoginClient';
 import { setServerVariables } from '../utils/variableSettings';
 import { normalizeProgressWeighting, ProgressWeighting } from '../utils/progress';
+import { normalizeSubmitError, parseApiErrorResponse } from './useFormSubmit';
+
+export interface ProjectMutationResult {
+  ok: boolean;
+  status?: number;
+  project?: Project;
+  tasks?: Task[];
+  error?: string;
+  field?: string;
+}
 
 export interface FinancePatchSaveResult {
   ok: boolean;
@@ -325,7 +335,7 @@ export function useServerSync({
       templateId?: string;
       templateTaskKeys?: string[];
     }
-  ): Promise<{ project: Project; tasks?: Task[] } | null> => {
+  ): Promise<ProjectMutationResult> => {
     try {
       const res = await fetch('/api/projects', {
         method: 'POST',
@@ -335,7 +345,11 @@ export function useServerSync({
       });
       if (res.status === 401) {
         setIsAuthenticated(false);
-        return null;
+        return {
+          ok: false,
+          status: 401,
+          error: 'Sesja wygasła. Zaloguj się ponownie.',
+        };
       }
       if (res.ok) {
         const data = await res.json();
@@ -361,32 +375,58 @@ export function useServerSync({
               return [...createdTasks, ...prev.filter((t) => !createdIds.has(t.id))];
             });
           } else if (project.id) {
-            setTasks((prev) => prev.map((t) => (t.projectId === project.id ? { ...t, projectId: data.project.id } : t)));
+            setTasks((prev) =>
+              prev.map((t) => (t.projectId === project.id ? { ...t, projectId: data.project.id } : t))
+            );
           }
           if (project.id) {
             setSelectedProjectId((prev) => (prev === project.id ? data.project.id : prev));
           }
           return {
+            ok: true,
+            status: res.status,
             project: data.project as Project,
             ...(createdTasks ? { tasks: createdTasks } : {}),
           };
         }
-        return null;
+        return {
+          ok: false,
+          status: res.status,
+          error: 'Nie udało się zapisać nowego projektu na serwerze.',
+        };
       } else {
-        const errData = await res.json().catch(() => ({}));
-        setNotificationToast({
-          message: errData.error || 'Nie udało się zapisać nowego projektu na serwerze.',
-          type: 'error',
-        });
-        return null;
+        const parsed = await parseApiErrorResponse(
+          res,
+          'Nie udało się zapisać nowego projektu na serwerze.'
+        );
+        return {
+          ok: false,
+          status: res.status,
+          error: parsed.error,
+          field: parsed.field,
+        };
       }
     } catch (err) {
       console.warn('Błąd tworzenia projektu na serwerze:', err);
-      return null;
+      const normalized = normalizeSubmitError(
+        err,
+        'Nie udało się zapisać nowego projektu na serwerze.'
+      );
+      return {
+        ok: false,
+        status: 0,
+        error: normalized.error,
+        field: normalized.field,
+      };
     }
   };
 
-  const patchProjectOnServer = async (projectId: string, patch: Partial<Project>, expectedRevision?: number, retryCount = 0) => {
+  const patchProjectOnServer = async (
+    projectId: string,
+    patch: Partial<Project>,
+    expectedRevision?: number,
+    retryCount = 0
+  ): Promise<ProjectMutationResult> => {
     try {
       const res = await fetch(`/api/projects/${projectId}`, {
         method: 'PATCH',
@@ -399,18 +439,32 @@ export function useServerSync({
       });
       if (res.status === 401) {
         setIsAuthenticated(false);
-        return;
+        return {
+          ok: false,
+          status: 401,
+          error: 'Sesja wygasła. Zaloguj się ponownie.',
+        };
       }
       if (res.status === 409) {
-        const conflict = await res.json();
+        const conflict = await res.json().catch(() => ({}));
         if (conflict.currentProject && retryCount < 3) {
           setNotificationToast({
             message: 'Projekt został zmieniony przez innego użytkownika, zastosowano Twoją wersję',
             type: 'info',
           });
-          await patchProjectOnServer(projectId, patch, conflict.currentProject.revision || 1, retryCount + 1);
-          return;
+          return await patchProjectOnServer(
+            projectId,
+            patch,
+            conflict.currentProject.revision || 1,
+            retryCount + 1
+          );
         }
+        return {
+          ok: false,
+          status: 409,
+          error: conflict.error || 'Konflikt wersji projektu.',
+          field: typeof conflict.field === 'string' ? conflict.field : undefined,
+        };
       }
       if (res.ok) {
         const data = await res.json();
@@ -420,15 +474,35 @@ export function useServerSync({
         if (data.project) {
           setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, ...data.project } : p)));
         }
+        return {
+          ok: true,
+          status: res.status,
+          project: data.project as Project | undefined,
+        };
       } else {
-        const errData = await res.json().catch(() => ({}));
-        setNotificationToast({
-          message: errData.error || 'Nie udało się zapisać zmian projektu na serwerze.',
-          type: 'error',
-        });
+        const parsed = await parseApiErrorResponse(
+          res,
+          'Nie udało się zapisać zmian projektu na serwerze.'
+        );
+        return {
+          ok: false,
+          status: res.status,
+          error: parsed.error,
+          field: parsed.field,
+        };
       }
     } catch (err) {
       console.warn('Błąd aktualizacji projektu na serwerze:', err);
+      const normalized = normalizeSubmitError(
+        err,
+        'Nie udało się zapisać zmian projektu na serwerze.'
+      );
+      return {
+        ok: false,
+        status: 0,
+        error: normalized.error,
+        field: normalized.field,
+      };
     }
   };
 

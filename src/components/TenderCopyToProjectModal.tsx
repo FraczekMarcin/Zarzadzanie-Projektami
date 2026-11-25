@@ -3,6 +3,8 @@ import type { Company, Project, ProjectTemplateSummary, Task } from '../types';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { useVariables } from '../hooks/useVariables';
+import { parseApiErrorResponse, useFormSubmit } from '../hooks/useFormSubmit';
+import { FormError } from './FormError';
 import { fetchTemplatesList } from '../utils/projectTemplates';
 import { getTodayIso } from '../utils/today';
 import { formatMoney } from '../utils/money';
@@ -82,8 +84,8 @@ export const TenderCopyToProjectModal: React.FC<TenderCopyToProjectModalProps> =
   const [startDate, setStartDate] = useState<string>(() => getTodayIso());
   const [dueDate, setDueDate] = useState<string>('');
   const [templateId, setTemplateId] = useState<string>('none');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const copySubmit = useFormSubmit();
+  const errorAlertId = `${uid}-error`;
   const [duplicateConflict, setDuplicateConflict] = useState<{
     message: string;
     existingProjectKey?: string;
@@ -101,18 +103,18 @@ export const TenderCopyToProjectModal: React.FC<TenderCopyToProjectModalProps> =
     setStartDate(getTodayIso());
     setDueDate('');
     setTemplateId('none');
-    setErrorMsg(null);
+    copySubmit.clearError();
     setDuplicateConflict(null);
-  }, [isOpen, tender, activeCompanies, defaultVatRate]);
+  }, [isOpen, tender, activeCompanies, defaultVatRate, copySubmit.clearError]);
 
   const { backdropProps, flashClassName } = useDismissOnOutsideClick({
     isOpen: isOpen && Boolean(tender),
     mode: 'form',
     panelRef,
     onDismiss: () => {
-      if (!isSubmitting) onClose();
+      if (!copySubmit.isSubmitting) onClose();
     },
-    disabled: isSubmitting,
+    disabled: copySubmit.isSubmitting,
     cancelButtonRef: cancelRef,
   });
 
@@ -120,9 +122,9 @@ export const TenderCopyToProjectModal: React.FC<TenderCopyToProjectModalProps> =
     isOpen: isOpen && Boolean(tender),
     containerRef: panelRef,
     onClose: () => {
-      if (!isSubmitting) onClose();
+      if (!copySubmit.isSubmitting) onClose();
     },
-    disableEscape: isSubmitting,
+    disableEscape: copySubmit.isSubmitting,
   });
 
   const selectedCompany = useMemo(
@@ -142,20 +144,20 @@ export const TenderCopyToProjectModal: React.FC<TenderCopyToProjectModalProps> =
   const vatOptions = vatRates.filter((v) => !v.isExempt);
 
   const submitCreateProject = async (force: boolean) => {
-    setErrorMsg(null);
+    copySubmit.clearError();
 
     if (!startDate || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
-      setErrorMsg('Podaj prawidłową datę rozpoczęcia projektu (RRRR-MM-DD).');
+      copySubmit.setValidationError('Podaj prawidłową datę rozpoczęcia projektu (RRRR-MM-DD).', 'startDate');
       return;
     }
 
     if (dueDate.trim()) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate.trim())) {
-        setErrorMsg('Podaj prawidłowy termin zakończenia (RRRR-MM-DD).');
+        copySubmit.setValidationError('Podaj prawidłowy termin zakończenia (RRRR-MM-DD).', 'dueDate');
         return;
       }
       if (dueDate.trim() < startDate) {
-        setErrorMsg('Termin zakończenia nie może być wcześniejszy niż data rozpoczęcia.');
+        copySubmit.setValidationError('Termin zakończenia nie może być wcześniejszy niż data rozpoczęcia.', 'dueDate');
         return;
       }
     }
@@ -164,59 +166,65 @@ export const TenderCopyToProjectModal: React.FC<TenderCopyToProjectModalProps> =
     if (!isVatExempt) {
       const normalizedVat = Number(vatRate.replace(',', '.').trim());
       if (!Number.isFinite(normalizedVat) || normalizedVat < 0 || normalizedVat > 100) {
-        setErrorMsg('Podaj prawidłową stawkę VAT z zakresu 0–100%.');
+        copySubmit.setValidationError('Podaj prawidłową stawkę VAT z zakresu 0–100%.', 'vatRate');
         return;
       }
       numericVat = Math.round(normalizedVat * 100) / 100;
     }
 
-    setIsSubmitting(true);
-    try {
-      const body: Record<string, unknown> = {
-        startDate,
-        ...(dueDate.trim() ? { dueDate: dueDate.trim() } : {}),
-        ...(companyId ? { companyId } : {}),
-        ...(numericVat !== undefined ? { vatRate: numericVat } : {}),
-        ...(templateId !== 'none' ? { templateId } : {}),
-        ...(force ? { force: true } : {}),
-      };
+    await copySubmit.submit(
+      async () => {
+        const body: Record<string, unknown> = {
+          startDate,
+          ...(dueDate.trim() ? { dueDate: dueDate.trim() } : {}),
+          ...(companyId ? { companyId } : {}),
+          ...(numericVat !== undefined ? { vatRate: numericVat } : {}),
+          ...(templateId !== 'none' ? { templateId } : {}),
+          ...(force ? { force: true } : {}),
+        };
 
-      const res = await fetch(`/api/tenders/${tender.id}/create-project`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      const data = await res.json().catch(() => ({}));
-
-      if (res.status === 409 && !force && data?.existingProjectId) {
-        setDuplicateConflict({
-          message:
-            data.error ||
-            `Z tego przetargu utworzono już projekt ${data.existingProjectKey || ''}.`,
-          existingProjectKey: data.existingProjectKey,
+        const res = await fetch(`/api/tenders/${tender.id}/create-project`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
         });
-        return;
-      }
 
-      if (!res.ok || !data?.project) {
-        setErrorMsg(data?.error || 'Nie udało się utworzyć projektu z przetargu.');
-        return;
-      }
+        if (res.status === 409 && !force) {
+          const clone = res.clone();
+          const conflictData = await clone.json().catch(() => null);
+          if (conflictData?.existingProjectId) {
+            setDuplicateConflict({
+              message:
+                conflictData.error ||
+                `Z tego przetargu utworzono już projekt ${conflictData.existingProjectKey || ''}.`,
+              existingProjectKey: conflictData.existingProjectKey,
+            });
+            return { ok: true };
+          }
+        }
 
-      onProjectCreated({
-        project: data.project as Project,
-        tender: (data.tender as TenderDetail) || tender,
-        ...(Array.isArray(data.tasks) ? { tasks: data.tasks as Task[] } : {}),
-        revision: typeof data.revision === 'number' ? data.revision : undefined,
-      });
-      onClose();
-    } catch (err: any) {
-      setErrorMsg(err?.message || 'Błąd połączenia z serwerem podczas tworzenia projektu.');
-    } finally {
-      setIsSubmitting(false);
-    }
+        if (!res.ok) {
+          const parsed = await parseApiErrorResponse(res, 'Nie udało się utworzyć projektu z przetargu.');
+          return { ok: false, status: res.status, ...parsed };
+        }
+
+        const data = await res.json().catch(() => null);
+        if (!data?.project) {
+          return { ok: false, error: 'Nie udało się utworzyć projektu z przetargu.' };
+        }
+
+        onProjectCreated({
+          project: data.project as Project,
+          tender: (data.tender as TenderDetail) || tender,
+          ...(Array.isArray(data.tasks) ? { tasks: data.tasks as Task[] } : {}),
+          revision: typeof data.revision === 'number' ? data.revision : undefined,
+        });
+        onClose();
+        return { ok: true };
+      },
+      { fallbackError: 'Nie udało się utworzyć projektu z przetargu.' }
+    );
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -245,7 +253,7 @@ export const TenderCopyToProjectModal: React.FC<TenderCopyToProjectModalProps> =
           </div>
           <button
             type="button"
-            disabled={isSubmitting}
+            disabled={copySubmit.isSubmitting}
             onClick={onClose}
             aria-label="Zamknij okno kopiowania do projektu"
             className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800 transition-colors"
@@ -294,25 +302,22 @@ export const TenderCopyToProjectModal: React.FC<TenderCopyToProjectModalProps> =
               <div className="flex justify-end">
                 <button
                   type="button"
-                  disabled={isSubmitting}
+                  disabled={copySubmit.isSubmitting}
                   onClick={() => submitCreateProject(true)}
-                  className="px-3 py-1.5 rounded-lg bg-amber-700 hover:bg-amber-800 text-white font-semibold transition-colors"
+                  className="px-3 py-1.5 rounded-lg bg-amber-700 hover:bg-amber-800 disabled:opacity-60 text-white font-semibold transition-colors"
                 >
-                  {isSubmitting ? 'Tworzenie...' : 'Potwierdź utworzenie kolejnego projektu'}
+                  {copySubmit.isSubmitting ? 'Tworzenie...' : 'Potwierdź utworzenie kolejnego projektu'}
                 </button>
               </div>
             </div>
           )}
 
-          {errorMsg && (
-            <div
-              role="alert"
-              className="rounded-lg border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/50 text-rose-900 dark:text-rose-200 px-3 py-2 flex items-center gap-2"
-            >
-              <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
-              <span>{errorMsg}</span>
-            </div>
-          )}
+          <FormError
+            id={errorAlertId}
+            error={copySubmit.submitError}
+            alertRef={copySubmit.alertRef}
+            onDismiss={copySubmit.clearError}
+          />
 
           <div className="space-y-3">
             {activeCompanies.length > 0 && (
@@ -325,6 +330,7 @@ export const TenderCopyToProjectModal: React.FC<TenderCopyToProjectModalProps> =
                     id={`${uid}-company`}
                     value={companyId}
                     onChange={(e) => setCompanyId(e.target.value)}
+                    {...copySubmit.getFieldA11yProps('companyId', errorAlertId)}
                     className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500"
                   >
                     <option value="">— Bez przypisanej firmy (numeracja RRRR-NN) —</option>
@@ -362,6 +368,7 @@ export const TenderCopyToProjectModal: React.FC<TenderCopyToProjectModalProps> =
                     id={`${uid}-vat`}
                     value={vatRate}
                     onChange={(e) => setVatRate(e.target.value)}
+                    {...copySubmit.getFieldA11yProps('vatRate', errorAlertId)}
                     className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-3 py-1.5 font-mono focus:outline-none focus:ring-2 focus:ring-sky-500"
                   >
                     {vatOptions.map((opt) => {
@@ -383,6 +390,7 @@ export const TenderCopyToProjectModal: React.FC<TenderCopyToProjectModalProps> =
                     inputMode="decimal"
                     value={vatRate}
                     onChange={(e) => setVatRate(e.target.value)}
+                    {...copySubmit.getFieldA11yProps('vatRate', errorAlertId)}
                     className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-3 py-1.5 font-mono focus:outline-none focus:ring-2 focus:ring-sky-500"
                   />
                 )}
@@ -399,6 +407,7 @@ export const TenderCopyToProjectModal: React.FC<TenderCopyToProjectModalProps> =
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
+                  {...copySubmit.getFieldA11yProps('startDate', errorAlertId)}
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-2.5 py-1.5 font-mono focus:outline-none focus:ring-2 focus:ring-sky-500"
                 />
               </div>
@@ -413,6 +422,7 @@ export const TenderCopyToProjectModal: React.FC<TenderCopyToProjectModalProps> =
                   value={dueDate}
                   min={startDate}
                   onChange={(e) => setDueDate(e.target.value)}
+                  {...copySubmit.getFieldA11yProps('dueDate', errorAlertId)}
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-2.5 py-1.5 font-mono focus:outline-none focus:ring-2 focus:ring-sky-500"
                 />
               </div>
@@ -427,6 +437,7 @@ export const TenderCopyToProjectModal: React.FC<TenderCopyToProjectModalProps> =
                   id={`${uid}-tpl`}
                   value={templateId}
                   onChange={(e) => setTemplateId(e.target.value)}
+                  {...copySubmit.getFieldA11yProps('templateId', errorAlertId)}
                   className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500"
                 >
                   <option value="none">— Bez szablonu (sam projekt) —</option>
@@ -444,7 +455,7 @@ export const TenderCopyToProjectModal: React.FC<TenderCopyToProjectModalProps> =
             <button
               ref={cancelRef}
               type="button"
-              disabled={isSubmitting}
+              disabled={copySubmit.isSubmitting}
               onClick={onClose}
               className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 font-semibold transition-colors"
             >
@@ -452,10 +463,10 @@ export const TenderCopyToProjectModal: React.FC<TenderCopyToProjectModalProps> =
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={copySubmit.isSubmitting}
               className="px-4 py-2 rounded-lg bg-sky-700 hover:bg-sky-800 disabled:opacity-60 text-white font-semibold transition-colors"
             >
-              {isSubmitting ? 'Tworzenie...' : 'Utwórz projekt'}
+              {copySubmit.isSubmitting ? 'Tworzenie...' : 'Utwórz projekt'}
             </button>
           </div>
         </form>

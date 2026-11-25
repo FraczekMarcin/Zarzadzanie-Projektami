@@ -236,11 +236,13 @@ export function validateProjectFinanceFields(
 
   if (patch.projectValueGross !== undefined && patch.projectValueGross !== null) {
     const netValue =
-      patch.projectValue !== undefined && patch.projectValue !== null
-        ? patch.projectValue
-        : typeof existingProject?.projectValue === 'number'
-          ? existingProject.projectValue
-          : 0;
+      patch.projectValue === null
+        ? 0
+        : patch.projectValue !== undefined
+          ? patch.projectValue
+          : typeof existingProject?.projectValue === 'number'
+            ? existingProject.projectValue
+            : 0;
     const grossCheck = validateExpectedGross(netValue, patch.projectValueGross, effectiveProjectVatRate);
     const exemptGrossCheck = isCompanyVatExempt
       ? validateExpectedGross(netValue, patch.projectValueGross, 0)

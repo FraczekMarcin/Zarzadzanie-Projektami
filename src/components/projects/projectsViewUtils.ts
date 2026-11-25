@@ -1,5 +1,14 @@
-import type { Company, Priority, Project, Task, User } from '../../types';
+import type {
+  Company,
+  Priority,
+  Project,
+  ProjectPriorityOption,
+  ProjectStatusOption,
+  Task,
+  User,
+} from '../../types';
 import { canViewFinance } from '../../utils/access';
+import { resolveProjectPriority, resolveProjectStatus } from '../../utils/projectMeta';
 
 export const PROJECTS_VIEW_PREF_KEY = 'oph_pref_projects_view';
 
@@ -38,76 +47,36 @@ export function saveProjectsViewPref(mode: ProjectsViewMode): void {
   }
 }
 
-export function getProjectStatusMeta(status: Project['status']): {
+export function getProjectStatusMeta(
+  status: Project['status'],
+  projectStatuses?: ProjectStatusOption[] | null
+): {
   label: string;
   badgeClass: string;
+  isClosed: boolean;
 } {
-  switch (status) {
-    case 'active':
-      return {
-        label: 'Aktywny',
-        badgeClass:
-          'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800',
-      };
-    case 'planning':
-      return {
-        label: 'Planowanie',
-        badgeClass:
-          'bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800',
-      };
-    case 'on_hold':
-      return {
-        label: 'Wstrzymany',
-        badgeClass:
-          'bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800',
-      };
-    case 'completed':
-      return {
-        label: 'Ukończony',
-        badgeClass:
-          'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700',
-      };
-    default:
-      return {
-        label: status,
-        badgeClass:
-          'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700',
-      };
-  }
+  const resolved = resolveProjectStatus(status, projectStatuses);
+  return {
+    label: resolved.label,
+    badgeClass: resolved.badgeClass,
+    isClosed: resolved.isClosed,
+  };
 }
 
-export function getProjectPriorityMeta(priority: Priority): {
+export function getProjectPriorityMeta(
+  priority: Project['priority'],
+  projectPriorities?: ProjectPriorityOption[] | null
+): {
   label: string;
   weight: number;
   className: string;
 } {
-  switch (priority) {
-    case 'critical':
-      return {
-        label: 'Krytyczny',
-        weight: 4,
-        className: 'text-rose-700 dark:text-rose-400 font-bold',
-      };
-    case 'high':
-      return {
-        label: 'Wysoki',
-        weight: 3,
-        className: 'text-amber-700 dark:text-amber-400 font-semibold',
-      };
-    case 'normal':
-      return {
-        label: 'Normalny',
-        weight: 2,
-        className: 'text-sky-700 dark:text-sky-400 font-medium',
-      };
-    case 'low':
-    default:
-      return {
-        label: 'Niski',
-        weight: 1,
-        className: 'text-slate-600 dark:text-slate-400 font-normal',
-      };
-  }
+  const resolved = resolveProjectPriority(priority, projectPriorities);
+  return {
+    label: resolved.label,
+    weight: resolved.order,
+    className: resolved.textClass,
+  };
 }
 
 export interface ProjectTaskMetrics {
@@ -162,13 +131,25 @@ export interface SortProjectsListOptions {
   tasks: Task[];
   currentUser: Pick<User, 'id' | 'role'> | null | undefined;
   todayIso: string;
+  projectStatuses?: ProjectStatusOption[] | null;
+  projectPriorities?: ProjectPriorityOption[] | null;
 }
 
 export function sortProjectsList(
   projects: Project[],
   options: SortProjectsListOptions
 ): Project[] {
-  const { sortKey, sortDir, companies, users, tasks, currentUser, todayIso } = options;
+  const {
+    sortKey,
+    sortDir,
+    companies,
+    users,
+    tasks,
+    currentUser,
+    todayIso,
+    projectStatuses,
+    projectPriorities,
+  } = options;
   if (!sortKey) return [...projects];
 
   const companyById = new Map(companies.map((c) => [c.id, c]));
@@ -212,14 +193,14 @@ export function sortProjectsList(
         break;
       }
       case 'status': {
-        const labelA = getProjectStatusMeta(a.status).label;
-        const labelB = getProjectStatusMeta(b.status).label;
+        const labelA = getProjectStatusMeta(a.status, projectStatuses).label;
+        const labelB = getProjectStatusMeta(b.status, projectStatuses).label;
         cmp = labelA.localeCompare(labelB, 'pl', { sensitivity: 'base' });
         break;
       }
       case 'priority': {
-        const wA = getProjectPriorityMeta(a.priority).weight;
-        const wB = getProjectPriorityMeta(b.priority).weight;
+        const wA = getProjectPriorityMeta(a.priority, projectPriorities).weight;
+        const wB = getProjectPriorityMeta(b.priority, projectPriorities).weight;
         cmp = wA - wB;
         break;
       }

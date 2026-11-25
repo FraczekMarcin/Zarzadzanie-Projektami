@@ -31,12 +31,21 @@ import { copyToClipboard } from '../utils/clipboard';
 import { validatePassword } from '../utils/passwordPolicy';
 import { setHasTrustedDeviceCookie } from '../utils/deviceLoginClient';
 import { PasswordRequirementsChecklist } from './PasswordRequirementsChecklist';
+import { FormError } from './FormError';
+import {
+  FormSubmitResult,
+  parseApiErrorResponse,
+  useFormSubmit,
+} from '../hooks/useFormSubmit';
 
 interface LoginGateProps {
   users: User[];
   onLogin: (user: User) => void;
   onRegister?: (newUser: Omit<User, 'id' | 'initials'>) => void;
-  onUpdateUserPassword?: (userId: string, newPass: string) => Promise<boolean | void> | void;
+  onUpdateUserPassword?: (
+    userId: string,
+    newPass: string
+  ) => Promise<FormSubmitResult | boolean | void> | void;
   onRefreshUsers?: () => Promise<void> | void;
   setupRequired?: boolean;
 }
@@ -44,7 +53,7 @@ interface LoginGateProps {
 export const LoginGate: React.FC<LoginGateProps> = ({
   users,
   onLogin,
-  onUpdateUserPassword,
+  onUpdateUserPassword: _onUpdateUserPassword,
   onRefreshUsers,
   setupRequired: propSetupRequired,
 }) => {
@@ -63,8 +72,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
   const [adminSetupToken, setAdminSetupToken] = useState('');
   const [requireSetupToken, setRequireSetupToken] = useState(false);
   const [allowSelfRegistration, setAllowSelfRegistration] = useState(true);
-  const [adminSetupError, setAdminSetupError] = useState<string | null>(null);
-  const [isAdminSubmitting, setIsAdminSubmitting] = useState(false);
+  const adminSetupSubmit = useFormSubmit();
 
   // Step for 2FA
   const [authStep, setAuthStep] = useState<'credentials' | '2fa'>('credentials');
@@ -79,8 +87,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
     enabled: true,
     days: 30,
   });
-  const [loginError, setLoginError] = useState<string | null>(null);
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const loginSubmit = useFormSubmit();
 
   // Email Password Recovery state (Strict SMTP)
   const [isSmtpConfigured, setIsSmtpConfigured] = useState<boolean | null>(null);
@@ -90,9 +97,8 @@ export const LoginGate: React.FC<LoginGateProps> = ({
   const [recoveryVerifiedTicket, setRecoveryVerifiedTicket] = useState('');
   const [newRecoveryPass, setNewRecoveryPass] = useState('');
   const [confirmRecoveryPass, setConfirmRecoveryPass] = useState('');
-  const [recoveryError, setRecoveryError] = useState<string | null>(null);
   const [recoveryInfoMsg, setRecoveryInfoMsg] = useState<string | null>(null);
-  const [isRecoveryLoading, setIsRecoveryLoading] = useState(false);
+  const recoverySubmit = useFormSubmit();
 
   // Register form state
   const [regName, setRegName] = useState('');
@@ -107,8 +113,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
   const [registeredQrDataUrl, setRegisteredQrDataUrl] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
   const [copiedCodes, setCopiedCodes] = useState(false);
-  const [regError, setRegError] = useState<string | null>(null);
-  const [isRegistering, setIsRegistering] = useState(false);
+  const registerSubmit = useFormSubmit();
 
   // Sync propSetupRequired if updated externally
   useEffect(() => {
@@ -194,335 +199,360 @@ export const LoginGate: React.FC<LoginGateProps> = ({
   // Initial Admin Setup Submission
   const handleAdminSetupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setAdminSetupError(null);
+    adminSetupSubmit.clearError();
 
     const pwCheck = validatePassword(adminPassword, { name: adminName, email: adminEmail });
     if (!pwCheck.ok) {
-      setAdminSetupError(pwCheck.errors.join(' '));
+      adminSetupSubmit.setValidationError(pwCheck.errors.join(' '), 'password');
       return;
     }
     if (adminPassword !== adminConfirmPassword) {
-      setAdminSetupError('Hasła nie są identyczne.');
+      adminSetupSubmit.setValidationError('Hasła nie są identyczne.', 'confirmPassword');
       return;
     }
     if (requireSetupToken && !adminSetupToken.trim()) {
-      setAdminSetupError('Wymagany jest token instalacyjny (SETUP_TOKEN).');
+      adminSetupSubmit.setValidationError('Wymagany jest token instalacyjny (SETUP_TOKEN).', 'setupToken');
       return;
     }
 
-    setIsAdminSubmitting(true);
-    try {
-      const res = await fetch('/api/auth/setup-admin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-          name: adminName.trim(),
-          email: adminEmail.trim(),
-          department: adminDepartment.trim() || 'Główny Architekt & Zarząd Pracowni',
-          password: adminPassword,
-          setupToken: requireSetupToken ? adminSetupToken.trim() : undefined,
-        }),
-      });
+    await adminSetupSubmit.submit(
+      async () => {
+        const res = await fetch('/api/auth/setup-admin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            name: adminName.trim(),
+            email: adminEmail.trim(),
+            department: adminDepartment.trim() || 'Główny Architekt & Zarząd Pracowni',
+            password: adminPassword,
+            setupToken: requireSetupToken ? adminSetupToken.trim() : undefined,
+          }),
+        });
 
-      const data = await res.json();
-      if (!res.ok) {
-        setAdminSetupError(data.error || 'Nie udało się utworzyć konta administratora.');
-        setIsAdminSubmitting(false);
-        return;
-      }
+        if (!res.ok) {
+          const parsed = await parseApiErrorResponse(
+            res,
+            'Nie udało się utworzyć konta administratora.'
+          );
+          return {
+            ok: false,
+            status: res.status,
+            error: parsed.error,
+            field: parsed.field,
+          };
+        }
 
-      setSetupRequired(false);
-      if (onRefreshUsers) await onRefreshUsers();
-      onLogin(data.user);
-    } catch {
-      setAdminSetupError('Błąd połączenia z serwerem podczas konfiguracji administratora.');
-    } finally {
-      setIsAdminSubmitting(false);
-    }
+        const data = await res.json();
+        setSetupRequired(false);
+        if (onRefreshUsers) await onRefreshUsers();
+        onLogin(data.user);
+        return { ok: true, status: res.status };
+      },
+      { fallbackError: 'Błąd połączenia z serwerem podczas konfiguracji administratora.' }
+    );
   };
 
   // Login submission using server-side scrypt authentication
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoginError(null);
+    loginSubmit.clearError();
 
     const cleanEmail = loginEmail.trim().toLowerCase();
     if (!cleanEmail) {
-      setLoginError('Wprowadź adres e-mail.');
+      loginSubmit.setValidationError('Wprowadź adres e-mail.', 'email');
       return;
     }
 
-    setIsLoggingIn(true);
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-          email: cleanEmail,
-          password,
-          trustDevice: trustedDevicesConfig.enabled ? trustDevice : false,
-        }),
-      });
+    await loginSubmit.submit(
+      async () => {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            email: cleanEmail,
+            password,
+            trustDevice: trustedDevicesConfig.enabled ? trustDevice : false,
+          }),
+        });
 
-      const data = await res.json();
+        if (!res.ok) {
+          const fallback =
+            res.status === 429
+              ? 'Zbyt wiele nieudanych prób logowania. Konto lub adres IP zablokowany na 15 minut.'
+              : 'Nieprawidłowy adres e-mail lub hasło.';
+          const parsed = await parseApiErrorResponse(res, fallback);
+          return {
+            ok: false,
+            status: res.status,
+            error: parsed.error,
+            field: parsed.field,
+          };
+        }
 
-      if (res.status === 429) {
-        setLoginError(data.error || 'Zbyt wiele nieudanych prób logowania. Konto lub adres IP zablokowany na 15 minut.');
-        setIsLoggingIn(false);
-        return;
-      }
+        const data = await res.json();
 
-      if (!res.ok) {
-        setLoginError(data.error || 'Nieprawidłowy adres e-mail lub hasło.');
-        setIsLoggingIn(false);
-        return;
-      }
+        // If 2FA is required by server
+        if (data.require2FA) {
+          setPendingLoginEmail(cleanEmail);
+          setAuthStep('2fa');
+          setTotpInput('');
+          return { ok: true, status: res.status };
+        }
 
-      // If 2FA is required by server
-      if (data.require2FA) {
-        setPendingLoginEmail(cleanEmail);
-        setAuthStep('2fa');
-        setTotpInput('');
-        setIsLoggingIn(false);
-        return;
-      }
-
-      // Login success
-      setHasTrustedDeviceCookie(data.trustDevice === true);
-      onLogin(data.user);
-    } catch {
-      setLoginError('Błąd połączenia z serwerem logowania.');
-    } finally {
-      setIsLoggingIn(false);
-    }
+        // Login success
+        setHasTrustedDeviceCookie(data.trustDevice === true);
+        onLogin(data.user);
+        return { ok: true, status: res.status };
+      },
+      { fallbackError: 'Błąd połączenia z serwerem logowania.' }
+    );
   };
 
   // 2FA Verification via Server (strictly RFC 6238 or one of 8 backup codes)
   const handleTotpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoginError(null);
+    loginSubmit.clearError();
 
     const cleanEmail = pendingLoginEmail || loginEmail.trim().toLowerCase();
     if (!cleanEmail) return;
 
-    setIsLoggingIn(true);
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-          email: cleanEmail,
-          password,
-          totpCode: totpInput.trim(),
-          trustDevice: trustedDevicesConfig.enabled ? trustDevice : false,
-        }),
-      });
+    await loginSubmit.submit(
+      async () => {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            email: cleanEmail,
+            password,
+            totpCode: totpInput.trim(),
+            trustDevice: trustedDevicesConfig.enabled ? trustDevice : false,
+          }),
+        });
 
-      const data = await res.json();
+        if (!res.ok) {
+          const fallback =
+            res.status === 429
+              ? 'Zbyt wiele nieudanych prób logowania. Konto lub adres IP zablokowany na 15 minut.'
+              : 'Nieprawidłowy 6-cyfrowy kod 2FA lub kod zapasowy.';
+          const parsed = await parseApiErrorResponse(res, fallback);
+          return {
+            ok: false,
+            status: res.status,
+            error: parsed.error,
+            field: parsed.field,
+          };
+        }
 
-      if (res.status === 429) {
-        setLoginError(data.error || 'Zbyt wiele nieudanych prób logowania. Konto lub adres IP zablokowany na 15 minut.');
-        setIsLoggingIn(false);
-        return;
-      }
-
-      if (!res.ok) {
-        setLoginError(data.error || 'Nieprawidłowy 6-cyfrowy kod 2FA lub kod zapasowy.');
-        setIsLoggingIn(false);
-        return;
-      }
-
-      setHasTrustedDeviceCookie(data.trustDevice === true);
-      onLogin(data.user);
-    } catch {
-      setLoginError('Błąd połączenia z serwerem podczas weryfikacji 2FA.');
-    } finally {
-      setIsLoggingIn(false);
-    }
+        const data = await res.json();
+        setHasTrustedDeviceCookie(data.trustDevice === true);
+        onLogin(data.user);
+        return { ok: true, status: res.status };
+      },
+      { fallbackError: 'Błąd połączenia z serwerem podczas weryfikacji 2FA.' }
+    );
   };
 
   // Registration submission via Server API (Server generates secret + 8 backup codes)
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setRegError(null);
-    if (!regName.trim() || !regEmail.trim()) return;
-
-    const pwCheck = validatePassword(regPassword, { name: regName, email: regEmail });
-    if (!pwCheck.ok) {
-      setRegError(pwCheck.errors.join(' '));
+    registerSubmit.clearError();
+    if (!regName.trim() || !regEmail.trim()) {
+      registerSubmit.setValidationError('Wypełnij wymagane pola imię i nazwisko oraz adres e-mail.');
       return;
     }
 
-    setIsRegistering(true);
-
-    try {
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-          name: regName.trim(),
-          email: regEmail.trim(),
-          role: regRole,
-          department: regDepartment.trim(),
-          password: regPassword,
-          twoFactorEnabled: regEnable2FA,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setRegError(data.error || 'Rejestracja nie powiodła się.');
-        setIsRegistering(false);
-        return;
-      }
-
-      if (onRefreshUsers) await onRefreshUsers();
-
-      if (data.twoFactor) {
-        setRegistered2FASecret(data.twoFactor.secret);
-        setRegistered2FABackupCodes(data.twoFactor.backupCodes || []);
-        // Lokalne generowanie kodu QR bez zewnętrznych serwisów
-        const qr = await generateQrCodeDataUrl(data.twoFactor.otpAuthUrl);
-        setRegisteredQrDataUrl(qr);
-      } else {
-        setRegistered2FASecret(null);
-        setRegistered2FABackupCodes([]);
-        setRegisteredQrDataUrl(null);
-      }
-
-      setRegSuccess(true);
-      setRegName('');
-      setRegEmail('');
-      setRegPassword('');
-    } catch {
-      setRegError('Błąd połączenia z serwerem podczas rejestracji.');
-    } finally {
-      setIsRegistering(false);
+    const pwCheck = validatePassword(regPassword, { name: regName, email: regEmail });
+    if (!pwCheck.ok) {
+      registerSubmit.setValidationError(pwCheck.errors.join(' '), 'password');
+      return;
     }
+
+    await registerSubmit.submit(
+      async () => {
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            name: regName.trim(),
+            email: regEmail.trim(),
+            role: regRole,
+            department: regDepartment.trim(),
+            password: regPassword,
+            twoFactorEnabled: regEnable2FA,
+          }),
+        });
+
+        if (!res.ok) {
+          const parsed = await parseApiErrorResponse(res, 'Rejestracja nie powiodła się.');
+          return {
+            ok: false,
+            status: res.status,
+            error: parsed.error,
+            field: parsed.field,
+          };
+        }
+
+        const data = await res.json();
+        if (onRefreshUsers) await onRefreshUsers();
+
+        if (data.twoFactor) {
+          setRegistered2FASecret(data.twoFactor.secret);
+          setRegistered2FABackupCodes(data.twoFactor.backupCodes || []);
+          // Lokalne generowanie kodu QR bez zewnętrznych serwisów
+          const qr = await generateQrCodeDataUrl(data.twoFactor.otpAuthUrl);
+          setRegisteredQrDataUrl(qr);
+        } else {
+          setRegistered2FASecret(null);
+          setRegistered2FABackupCodes([]);
+          setRegisteredQrDataUrl(null);
+        }
+
+        setRegSuccess(true);
+        setRegName('');
+        setRegEmail('');
+        setRegPassword('');
+        return { ok: true, status: res.status };
+      },
+      { fallbackError: 'Błąd połączenia z serwerem podczas rejestracji.' }
+    );
   };
 
   // Password Recovery Handlers (Secure SMTP via server)
   const handleRequestRecoveryEmail = async (e: React.FormEvent) => {
     e.preventDefault();
-    setRecoveryError(null);
+    recoverySubmit.clearError();
     const clean = recoveryEmail.trim().toLowerCase();
     if (!clean) {
-      setRecoveryError('Wprowadź adres e-mail przypisany do konta pracowni.');
+      recoverySubmit.setValidationError('Wprowadź adres e-mail przypisany do konta pracowni.', 'email');
       return;
     }
 
-    setIsRecoveryLoading(true);
-    try {
-      const res = await fetch('/api/auth/password-reset/request', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ email: clean }),
-      });
+    await recoverySubmit.submit(
+      async () => {
+        const res = await fetch('/api/auth/password-reset/request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ email: clean }),
+        });
 
-      const data = await res.json();
-      if (!res.ok) {
-        setRecoveryError(data.error || 'Wystąpił błąd podczas żądania resetu hasła.');
-        setIsRecoveryLoading(false);
-        return;
-      }
+        if (!res.ok) {
+          const parsed = await parseApiErrorResponse(
+            res,
+            'Wystąpił błąd podczas żądania resetu hasła.'
+          );
+          return {
+            ok: false,
+            status: res.status,
+            error: parsed.error,
+            field: parsed.field,
+          };
+        }
 
-      // Odpowiedź jest identyczna dla każdego adresu
-      setRecoveryInfoMsg(data.message);
-      setEnteredRecoveryCode('');
-      setRecoveryStep('code');
-    } catch {
-      setRecoveryError('Błąd połączenia z serwerem pocztowym.');
-    } finally {
-      setIsRecoveryLoading(false);
-    }
+        const data = await res.json();
+        // Odpowiedź jest identyczna dla każdego adresu
+        setRecoveryInfoMsg(data.message);
+        setEnteredRecoveryCode('');
+        setRecoveryStep('code');
+        return { ok: true, status: res.status };
+      },
+      { fallbackError: 'Błąd połączenia z serwerem pocztowym.' }
+    );
   };
 
   const handleVerifyRecoveryCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    setRecoveryError(null);
+    recoverySubmit.clearError();
     const code = enteredRecoveryCode.replace(/\s+/g, '').trim();
 
     if (!code || code.length !== 6) {
-      setRecoveryError('Wprowadź 6-cyfrowy kod otrzymany w wiadomości e-mail.');
+      recoverySubmit.setValidationError(
+        'Wprowadź 6-cyfrowy kod otrzymany w wiadomości e-mail.',
+        'code'
+      );
       return;
     }
 
-    setIsRecoveryLoading(true);
-    try {
-      const res = await fetch('/api/auth/password-reset/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-          email: recoveryEmail.trim(),
-          code,
-        }),
-      });
+    await recoverySubmit.submit(
+      async () => {
+        const res = await fetch('/api/auth/password-reset/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            email: recoveryEmail.trim(),
+            code,
+          }),
+        });
 
-      const data = await res.json();
-      if (!res.ok) {
-        setRecoveryError(data.error || 'Nieprawidłowy kod weryfikacyjny.');
-        setIsRecoveryLoading(false);
-        return;
-      }
+        if (!res.ok) {
+          const parsed = await parseApiErrorResponse(res, 'Nieprawidłowy kod weryfikacyjny.');
+          return {
+            ok: false,
+            status: res.status,
+            error: parsed.error,
+            field: parsed.field,
+          };
+        }
 
-      setRecoveryVerifiedTicket(data.verifiedTicket);
-      setRecoveryStep('new_password');
-      setNewRecoveryPass('');
-      setConfirmRecoveryPass('');
-    } catch {
-      setRecoveryError('Błąd połączenia z serwerem podczas weryfikacji kodu.');
-    } finally {
-      setIsRecoveryLoading(false);
-    }
+        const data = await res.json();
+        setRecoveryVerifiedTicket(data.verifiedTicket);
+        setRecoveryStep('new_password');
+        setNewRecoveryPass('');
+        setConfirmRecoveryPass('');
+        return { ok: true, status: res.status };
+      },
+      { fallbackError: 'Błąd połączenia z serwerem podczas weryfikacji kodu.' }
+    );
   };
 
   const handleResetPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setRecoveryError(null);
+    recoverySubmit.clearError();
 
     const matchedUser = users.find((u) => u.email?.toLowerCase() === recoveryEmail.trim().toLowerCase());
     const pwCheck = validatePassword(newRecoveryPass, { email: recoveryEmail, name: matchedUser?.name });
     if (!pwCheck.ok) {
-      setRecoveryError(pwCheck.errors.join(' '));
+      recoverySubmit.setValidationError(pwCheck.errors.join(' '), 'newPassword');
       return;
     }
     if (newRecoveryPass !== confirmRecoveryPass) {
-      setRecoveryError('Wprowadzone hasła nie są identyczne.');
+      recoverySubmit.setValidationError('Wprowadzone hasła nie są identyczne.', 'confirmPassword');
       return;
     }
 
-    setIsRecoveryLoading(true);
-    try {
-      const res = await fetch('/api/auth/password-reset/confirm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-          email: recoveryEmail.trim(),
-          verifiedTicket: recoveryVerifiedTicket,
-          newPassword: newRecoveryPass,
-        }),
-      });
+    await recoverySubmit.submit(
+      async () => {
+        const res = await fetch('/api/auth/password-reset/confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            email: recoveryEmail.trim(),
+            verifiedTicket: recoveryVerifiedTicket,
+            newPassword: newRecoveryPass,
+          }),
+        });
 
-      const data = await res.json();
-      if (!res.ok) {
-        setRecoveryError(data.error || 'Błąd podczas zmiany hasła.');
-        setIsRecoveryLoading(false);
-        return;
-      }
+        if (!res.ok) {
+          const parsed = await parseApiErrorResponse(res, 'Błąd podczas zmiany hasła.');
+          return {
+            ok: false,
+            status: res.status,
+            error: parsed.error,
+            field: parsed.field,
+          };
+        }
 
-      setRecoveryStep('success');
-    } catch {
-      setRecoveryError('Błąd połączenia z serwerem podczas zapisywania hasła.');
-    } finally {
-      setIsRecoveryLoading(false);
-    }
+        setRecoveryStep('success');
+        return { ok: true, status: res.status };
+      },
+      { fallbackError: 'Błąd połączenia z serwerem podczas zapisywania hasła.' }
+    );
   };
 
   // If system has no administrator / users: render the Initial Administrator Setup Wizard
@@ -549,12 +579,13 @@ export const LoginGate: React.FC<LoginGateProps> = ({
             </div>
           </div>
 
-          {adminSetupError && (
-            <div role="alert" className="p-3 rounded-lg bg-rose-950/70 border border-rose-800 text-rose-200 text-xs flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" aria-hidden="true" />
-              <span className="leading-relaxed">{adminSetupError}</span>
-            </div>
-          )}
+          <FormError
+            id="setup-admin-error"
+            variant="dark"
+            error={adminSetupSubmit.submitError}
+            alertRef={adminSetupSubmit.alertRef}
+            onDismiss={adminSetupSubmit.clearError}
+          />
 
           <form onSubmit={handleAdminSetupSubmit} className="space-y-4">
             <div>
@@ -692,7 +723,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
             <button
               type="submit"
               disabled={
-                isAdminSubmitting ||
+                adminSetupSubmit.isSubmitting ||
                 !validatePassword(adminPassword, { name: adminName, email: adminEmail }).ok ||
                 adminPassword !== adminConfirmPassword ||
                 (requireSetupToken && !adminSetupToken.trim())
@@ -700,7 +731,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
               className="w-full py-3 bg-amber-700 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-amber-700/30 flex items-center justify-center gap-2 mt-4"
             >
               <ShieldCheck className="w-4 h-4" aria-hidden="true" />
-              <span>{isAdminSubmitting ? 'Inicjalizacja...' : 'Utwórz konto Administratora i przejdź do systemu'}</span>
+              <span>{adminSetupSubmit.isSubmitting ? 'Inicjalizacja...' : 'Utwórz konto Administratora i przejdź do systemu'}</span>
             </button>
           </form>
         </div>
@@ -746,7 +777,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                 onClick={() => {
                   setActiveTab('login');
                   setRegSuccess(false);
-                  setLoginError(null);
+                  loginSubmit.clearError();
                 }}
                 className={`py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
                   activeTab === 'login'
@@ -765,8 +796,8 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   aria-selected={activeTab === 'register'}
                   onClick={() => {
                     setActiveTab('register');
-                    setLoginError(null);
-                    setRegError(null);
+                    loginSubmit.clearError();
+                    registerSubmit.clearError();
                   }}
                   className={`py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
                     activeTab === 'register'
@@ -787,7 +818,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   onClick={() => {
                     setActiveTab('recovery');
                     setRecoveryStep('email');
-                    setRecoveryError(null);
+                    recoverySubmit.clearError();
                     setRecoveryInfoMsg(null);
                     checkSmtpStatus();
                   }}
@@ -818,12 +849,13 @@ export const LoginGate: React.FC<LoginGateProps> = ({
               </p>
             </div>
 
-            {loginError && (
-              <div role="alert" className="p-3 rounded-lg bg-rose-950/60 border border-rose-800 text-rose-200 text-xs flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" aria-hidden="true" />
-                <span className="leading-relaxed">{loginError}</span>
-              </div>
-            )}
+            <FormError
+              id="login-2fa-error"
+              variant="dark"
+              error={loginSubmit.submitError}
+              alertRef={loginSubmit.alertRef}
+              onDismiss={loginSubmit.clearError}
+            />
 
             <div>
               <label htmlFor="login-2fa-code" className="block text-xs font-medium text-slate-300 mb-1.5 text-center">
@@ -835,7 +867,11 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                 required
                 maxLength={16}
                 value={totpInput}
-                onChange={(e) => setTotpInput(e.target.value.toUpperCase())}
+                onChange={(e) => {
+                  setTotpInput(e.target.value.toUpperCase());
+                  loginSubmit.clearError();
+                }}
+                {...loginSubmit.getFieldA11yProps('totpCode', 'login-2fa-error')}
                 placeholder="000000 lub XXXXX-XXXXX"
                 autoFocus
                 className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg px-3 py-2.5 text-center text-lg tracking-[0.2em] font-mono font-bold text-emerald-400 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -847,18 +883,18 @@ export const LoginGate: React.FC<LoginGateProps> = ({
 
             <button
               type="submit"
-              disabled={isLoggingIn || totpInput.trim().length < 6}
+              disabled={loginSubmit.isSubmitting || totpInput.trim().length < 6}
               className="w-full py-2.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-emerald-700/30 flex items-center justify-center gap-2"
             >
               <ShieldCheck className="w-4 h-4" aria-hidden="true" />
-              <span>{isLoggingIn ? 'Weryfikacja...' : 'Zweryfikuj kod i zaloguj'}</span>
+              <span>{loginSubmit.isSubmitting ? 'Weryfikacja...' : 'Zweryfikuj kod i zaloguj'}</span>
             </button>
 
             <button
               type="button"
               onClick={() => {
                 setAuthStep('credentials');
-                setLoginError(null);
+                loginSubmit.clearError();
               }}
               className="w-full py-1.5 text-slate-300 hover:text-white text-xs flex items-center justify-center gap-1 transition-colors"
             >
@@ -871,12 +907,13 @@ export const LoginGate: React.FC<LoginGateProps> = ({
         {/* TAB 1: LOGOWANIE (CREDENTIALS) */}
         {activeTab === 'login' && authStep === 'credentials' && (
           <form onSubmit={handleLoginSubmit} className="space-y-4">
-            {loginError && (
-              <div role="alert" className="p-3 rounded-lg bg-rose-950/60 border border-rose-800 text-rose-200 text-xs flex items-start gap-2 animate-in fade-in">
-                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" aria-hidden="true" />
-                <span className="leading-relaxed">{loginError}</span>
-              </div>
-            )}
+            <FormError
+              id="login-credentials-error"
+              variant="dark"
+              error={loginSubmit.submitError}
+              alertRef={loginSubmit.alertRef}
+              onDismiss={loginSubmit.clearError}
+            />
 
             <div>
               <label htmlFor="login-email" className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center justify-between">
@@ -891,8 +928,9 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   value={loginEmail}
                   onChange={(e) => {
                     setLoginEmail(e.target.value);
-                    setLoginError(null);
+                    loginSubmit.clearError();
                   }}
+                  {...loginSubmit.getFieldA11yProps('email', 'login-credentials-error')}
                   placeholder="np. admin@pracownia.pl"
                   className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
                 />
@@ -911,7 +949,11 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   type="password"
                   required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    loginSubmit.clearError();
+                  }}
+                  {...loginSubmit.getFieldA11yProps('password', 'login-credentials-error')}
                   placeholder="Wpisz hasło..."
                   className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                 />
@@ -925,7 +967,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   onClick={() => {
                     setActiveTab('recovery');
                     setRecoveryStep('email');
-                    setRecoveryError(null);
+                    recoverySubmit.clearError();
                     setRecoveryInfoMsg(null);
                     checkSmtpStatus();
                   }}
@@ -962,11 +1004,11 @@ export const LoginGate: React.FC<LoginGateProps> = ({
 
             <button
               type="submit"
-              disabled={isLoggingIn}
+              disabled={loginSubmit.isSubmitting}
               className="w-full py-2.5 bg-sky-700 hover:bg-sky-600 disabled:opacity-50 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-sky-700/30 flex items-center justify-center gap-2"
             >
               <UserCheck className="w-4 h-4" aria-hidden="true" />
-              <span>{isLoggingIn ? 'Logowanie...' : 'Zaloguj do pracowni'}</span>
+              <span>{loginSubmit.isSubmitting ? 'Logowanie...' : 'Zaloguj do pracowni'}</span>
             </button>
           </form>
         )}
@@ -1086,12 +1128,13 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   </span>
                 </div>
 
-                {regError && (
-                  <div role="alert" className="p-3 rounded-lg bg-rose-950/70 border border-rose-800 text-rose-200 text-xs flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" aria-hidden="true" />
-                    <span>{regError}</span>
-                  </div>
-                )}
+                <FormError
+                  id="register-error"
+                  variant="dark"
+                  error={registerSubmit.submitError}
+                  alertRef={registerSubmit.alertRef}
+                  onDismiss={registerSubmit.clearError}
+                />
 
                 <div>
                   <label htmlFor="reg-name" className="block text-xs font-medium text-slate-300 mb-1">Imię i Nazwisko *</label>
@@ -1199,13 +1242,13 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                 <button
                   type="submit"
                   disabled={
-                    isRegistering ||
+                    registerSubmit.isSubmitting ||
                     !validatePassword(regPassword, { name: regName, email: regEmail }).ok
                   }
                   className="w-full py-2.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-emerald-700/30 flex items-center justify-center gap-2 mt-2"
                 >
                   <UserPlus className="w-4 h-4" aria-hidden="true" />
-                  <span>{isRegistering ? 'Rejestrowanie...' : 'Zarejestruj konto do zatwierdzenia'}</span>
+                  <span>{registerSubmit.isSubmitting ? 'Rejestrowanie...' : 'Zarejestruj konto do zatwierdzenia'}</span>
                 </button>
               </form>
             )}
@@ -1243,7 +1286,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   type="button"
                   onClick={() => {
                     setActiveTab('login');
-                    setRecoveryError(null);
+                    recoverySubmit.clearError();
                   }}
                   className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold transition-colors mt-2"
                 >
@@ -1252,11 +1295,14 @@ export const LoginGate: React.FC<LoginGateProps> = ({
               </div>
             )}
 
-            {isSmtpConfigured && recoveryError && (
-              <div role="alert" className="p-3 rounded-lg bg-rose-950/60 border border-rose-800 text-rose-200 text-xs flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" aria-hidden="true" />
-                <span className="leading-relaxed">{recoveryError}</span>
-              </div>
+            {isSmtpConfigured && (
+              <FormError
+                id="recovery-error"
+                variant="dark"
+                error={recoverySubmit.submitError}
+                alertRef={recoverySubmit.alertRef}
+                onDismiss={recoverySubmit.clearError}
+              />
             )}
 
             {/* Krok 1: Wpisanie adresu e-mail */}
@@ -1275,8 +1321,9 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                       value={recoveryEmail}
                       onChange={(e) => {
                         setRecoveryEmail(e.target.value);
-                        setRecoveryError(null);
+                        recoverySubmit.clearError();
                       }}
+                      {...recoverySubmit.getFieldA11yProps('email', 'recovery-error')}
                       placeholder="np. fraczek.marcin@gmail.com"
                       className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                     />
@@ -1285,11 +1332,11 @@ export const LoginGate: React.FC<LoginGateProps> = ({
 
                 <button
                   type="submit"
-                  disabled={isRecoveryLoading}
+                  disabled={recoverySubmit.isSubmitting}
                   className="w-full py-2.5 bg-sky-700 hover:bg-sky-600 disabled:opacity-50 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-sky-700/30 flex items-center justify-center gap-2"
                 >
                   <Mail className="w-4 h-4" aria-hidden="true" />
-                  <span>{isRecoveryLoading ? 'Wysyłanie...' : 'Wyślij kod weryfikacyjny'}</span>
+                  <span>{recoverySubmit.isSubmitting ? 'Wysyłanie...' : 'Wyślij kod weryfikacyjny'}</span>
                 </button>
               </form>
             )}
@@ -1319,8 +1366,9 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                     value={enteredRecoveryCode}
                     onChange={(e) => {
                       setEnteredRecoveryCode(e.target.value.replace(/\D/g, ''));
-                      setRecoveryError(null);
+                      recoverySubmit.clearError();
                     }}
+                    {...recoverySubmit.getFieldA11yProps('code', 'recovery-error')}
                     placeholder="000000"
                     autoFocus
                     className="w-full bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 rounded-lg px-3 py-2.5 text-center text-lg tracking-[0.3em] font-mono font-bold text-sky-400 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
@@ -1332,16 +1380,19 @@ export const LoginGate: React.FC<LoginGateProps> = ({
 
                 <button
                   type="submit"
-                  disabled={isRecoveryLoading || enteredRecoveryCode.length < 6}
+                  disabled={recoverySubmit.isSubmitting || enteredRecoveryCode.length < 6}
                   className="w-full py-2.5 bg-sky-700 hover:bg-sky-600 disabled:opacity-50 text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-sky-700/30 flex items-center justify-center gap-2"
                 >
                   <CheckCircle2 className="w-4 h-4" aria-hidden="true" />
-                  <span>{isRecoveryLoading ? 'Weryfikacja...' : 'Potwierdź kod weryfikacyjny'}</span>
+                  <span>{recoverySubmit.isSubmitting ? 'Weryfikacja...' : 'Potwierdź kod weryfikacyjny'}</span>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => setRecoveryStep('email')}
+                  onClick={() => {
+                    setRecoveryStep('email');
+                    recoverySubmit.clearError();
+                  }}
                   className="w-full py-1 text-slate-300 hover:text-white text-xs flex items-center justify-center gap-1"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
@@ -1411,7 +1462,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                 <button
                   type="submit"
                   disabled={
-                    isRecoveryLoading ||
+                    recoverySubmit.isSubmitting ||
                     !validatePassword(newRecoveryPass, {
                       email: recoveryEmail,
                       name: users.find((u) => u.email?.toLowerCase() === recoveryEmail.trim().toLowerCase())?.name,
@@ -1421,7 +1472,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                   className="w-full py-2.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-semibold text-xs transition-colors shadow-lg shadow-emerald-700/30 flex items-center justify-center gap-2"
                 >
                   <KeyRound className="w-4 h-4" aria-hidden="true" />
-                  <span>{isRecoveryLoading ? 'Zapisywanie...' : 'Zapisz nowe hasło'}</span>
+                  <span>{recoverySubmit.isSubmitting ? 'Zapisywanie...' : 'Zapisz nowe hasło'}</span>
                 </button>
               </form>
             )}
@@ -1458,7 +1509,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({
                 onClick={() => {
                   setActiveTab('login');
                   setAuthStep('credentials');
-                  setRecoveryError(null);
+                  recoverySubmit.clearError();
                 }}
                 className="w-full py-1 text-slate-300 hover:text-white text-xs flex items-center justify-center gap-1 transition-colors"
               >

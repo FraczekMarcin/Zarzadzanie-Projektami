@@ -2,7 +2,9 @@ import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { Company, TenderPriceBasis, TenderStatus } from '../types';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { useFocusTrap } from '../utils/useFocusTrap';
+import { parseApiErrorResponse, useFormSubmit } from '../hooks/useFormSubmit';
 import { DiscardChangesModal } from './DiscardChangesModal';
+import { FormError } from './FormError';
 import {
   formatQuantity,
   MONEY_PRECISION_ERROR,
@@ -21,7 +23,7 @@ import {
   TENDER_STATUS_LABELS,
   TenderDetail,
 } from '../utils/tenderUi';
-import { AlertTriangle, Plus, RefreshCw, Trash2, Trophy, X } from 'lucide-react';
+import { Plus, RefreshCw, Trash2, Trophy, X } from 'lucide-react';
 
 interface BidderFormRow {
   id: string;
@@ -144,8 +146,8 @@ export const TenderFormModal: React.FC<TenderFormModalProps> = ({
   const [form, setForm] = useState<TenderFormState>(() => createInitialFormState(initialTender));
   const [baselineSnapshot, setBaselineSnapshot] = useState<string>('');
   const [tenderRevision, setTenderRevision] = useState<number>(initialTender?.revision || 1);
-  const [isSaving, setIsSaving] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
+  const saveSubmit = useFormSubmit();
+  const errorAlertId = `${uid}-error`;
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [conflictTender, setConflictTender] = useState<TenderDetail | null>(null);
 
@@ -155,10 +157,10 @@ export const TenderFormModal: React.FC<TenderFormModalProps> = ({
     setForm(init);
     setBaselineSnapshot(JSON.stringify(init));
     setTenderRevision(initialTender?.revision || 1);
-    setFormError(null);
+    saveSubmit.clearError();
     setFieldErrors({});
     setConflictTender(null);
-  }, [isOpen, initialTender]);
+  }, [isOpen, initialTender, saveSubmit.clearError]);
 
   const isDirty = useMemo(() => {
     if (!isOpen || !baselineSnapshot) return false;
@@ -178,7 +180,7 @@ export const TenderFormModal: React.FC<TenderFormModalProps> = ({
     panelRef,
     onDismiss: onClose,
     isDirty,
-    disabled: isSaving,
+    disabled: saveSubmit.isSubmitting,
     cancelButtonRef,
   });
 
@@ -186,7 +188,7 @@ export const TenderFormModal: React.FC<TenderFormModalProps> = ({
     isOpen: isOpen && !isDiscardModalOpen,
     containerRef: panelRef,
     onClose: requestClose,
-    disableEscape: isSaving || isDiscardModalOpen,
+    disableEscape: saveSubmit.isSubmitting || isDiscardModalOpen,
   });
 
   const selectableCompanies = useMemo(() => {
@@ -219,14 +221,14 @@ export const TenderFormModal: React.FC<TenderFormModalProps> = ({
     setBaselineSnapshot(JSON.stringify(refreshed));
     setTenderRevision(conflictTender.revision || 1);
     setConflictTender(null);
-    setFormError(null);
+    saveSubmit.clearError();
     setFieldErrors({});
     onSaved(conflictTender, false);
   };
 
   const handleAddBidder = () => {
     if (form.bidders.length >= 50) {
-      setFormError('Przetarg może zawierać maksymalnie 50 oferentów.');
+      saveSubmit.setValidationError('Przetarg może zawierać maksymalnie 50 oferentów.');
       return;
     }
     setForm((prev) => ({
@@ -276,7 +278,7 @@ export const TenderFormModal: React.FC<TenderFormModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setFormError(null);
+    saveSubmit.clearError();
     const errors: Record<string, string> = {};
 
     const trimmedName = form.name.trim();
@@ -374,73 +376,87 @@ export const TenderFormModal: React.FC<TenderFormModalProps> = ({
 
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
-      setFormError('Popraw zaznaczone błędy w formularzu przed zapisaniem.');
+      saveSubmit.setValidationError(
+        'Popraw zaznaczone błędy w formularzu przed zapisaniem.',
+        Object.keys(errors)[0]
+      );
       return;
     }
 
     setFieldErrors({});
-    setIsSaving(true);
     setConflictTender(null);
 
-    try {
-      const payload = {
-        name: trimmedName,
-        contractingAuthority: trimmedAuth,
-        referenceNumber: form.referenceNumber.trim() || null,
-        description: form.description.trim() || null,
-        url: form.url.trim() || null,
-        announcementDate: form.announcementDate.trim() || null,
-        submissionDeadline: form.submissionDeadline.trim() || null,
-        resolutionDate: form.resolutionDate.trim(),
-        status: form.status,
-        priceBasis: form.priceBasis,
-        authorityBudget,
-        scopeQuantity,
-        scopeUnit: form.scopeUnit.trim() || null,
-        notes: form.notes.trim() || null,
-        bidders: validatedBidders,
-        winnerBidderId: effectiveWinnerId,
-      };
+    await saveSubmit.submit(
+      async () => {
+        const payload = {
+          name: trimmedName,
+          contractingAuthority: trimmedAuth,
+          referenceNumber: form.referenceNumber.trim() || null,
+          description: form.description.trim() || null,
+          url: form.url.trim() || null,
+          announcementDate: form.announcementDate.trim() || null,
+          submissionDeadline: form.submissionDeadline.trim() || null,
+          resolutionDate: form.resolutionDate.trim(),
+          status: form.status,
+          priceBasis: form.priceBasis,
+          authorityBudget,
+          scopeQuantity,
+          scopeUnit: form.scopeUnit.trim() || null,
+          notes: form.notes.trim() || null,
+          bidders: validatedBidders,
+          winnerBidderId: effectiveWinnerId,
+        };
 
-      const endpoint = isEditing ? `/api/tenders/${initialTender!.id}` : '/api/tenders';
-      const method = isEditing ? 'PATCH' : 'POST';
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (isEditing) {
-        headers['If-Match'] = String(tenderRevision);
-      }
+        const endpoint = isEditing ? `/api/tenders/${initialTender!.id}` : '/api/tenders';
+        const method = isEditing ? 'PATCH' : 'POST';
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        if (isEditing) {
+          headers['If-Match'] = String(tenderRevision);
+        }
 
-      const res = await fetch(endpoint, {
-        method,
-        credentials: 'same-origin',
-        headers,
-        body: JSON.stringify(payload),
-      });
+        const res = await fetch(endpoint, {
+          method,
+          credentials: 'same-origin',
+          headers,
+          body: JSON.stringify(payload),
+        });
 
-      const data = await res.json().catch(() => ({}));
+        if (res.status === 409) {
+          const clone = res.clone();
+          const conflictData = await clone.json().catch(() => null);
+          if (conflictData?.currentTender) {
+            setConflictTender(conflictData.currentTender as TenderDetail);
+            return {
+              ok: false,
+              status: 409,
+              error:
+                conflictData.error ||
+                'Konflikt wersji przetargu: ktoś inny zapisał zmiany w tym czasie. Pobierz najnowsze dane.',
+            };
+          }
+        }
 
-      if (res.status === 409 && data?.currentTender) {
-        setConflictTender(data.currentTender as TenderDetail);
-        setFormError(
-          data.error ||
-            'Konflikt wersji przetargu: ktoś inny zapisał zmiany w tym czasie. Pobierz najnowsze dane.'
-        );
-        return;
-      }
+        if (!res.ok) {
+          const parsed = await parseApiErrorResponse(res, 'Nie udało się zapisać przetargu.');
+          if (parsed.field) {
+            setFieldErrors((prev) => ({ ...prev, [parsed.field!]: parsed.error }));
+          }
+          return { ok: false, status: res.status, ...parsed };
+        }
 
-      if (!res.ok || !data?.tender) {
-        setFormError(data?.error || 'Nie udało się zapisać przetargu.');
-        return;
-      }
+        const data = await res.json().catch(() => null);
+        if (!data?.tender) {
+          return { ok: false, error: 'Nie udało się zapisać przetargu.' };
+        }
 
-      onSaved(data.tender as TenderDetail, !isEditing, data.revision);
-      onClose();
-    } catch (err: any) {
-      setFormError(err?.message || 'Błąd połączenia z serwerem podczas zapisywania.');
-    } finally {
-      setIsSaving(false);
-    }
+        onSaved(data.tender as TenderDetail, !isEditing, data.revision);
+        onClose();
+        return { ok: true };
+      },
+      { fallbackError: 'Nie udało się zapisać przetargu.' }
+    );
   };
 
   return (
@@ -470,24 +486,25 @@ export const TenderFormModal: React.FC<TenderFormModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 space-y-5 text-xs">
-          {formError && (
-            <div
-              role="alert"
-              className="rounded-lg border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/50 text-rose-900 dark:text-rose-200 px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2"
-            >
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
-                <span>{formError}</span>
-              </div>
+          {saveSubmit.submitError && (
+            <div className="space-y-2">
+              <FormError
+                id={errorAlertId}
+                error={saveSubmit.submitError}
+                alertRef={saveSubmit.alertRef}
+                onDismiss={saveSubmit.clearError}
+              />
               {conflictTender && (
-                <button
-                  type="button"
-                  onClick={handleApplyConflictLatest}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-700 hover:bg-amber-800 text-white font-semibold"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>Odśwież najnowsze dane</span>
-                </button>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleApplyConflictLatest}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-700 hover:bg-amber-800 text-white font-semibold"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>Odśwież najnowsze dane</span>
+                  </button>
+                </div>
               )}
             </div>
           )}
@@ -504,6 +521,8 @@ export const TenderFormModal: React.FC<TenderFormModalProps> = ({
                 maxLength={200}
                 value={form.name}
                 onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+                aria-invalid={Boolean(fieldErrors.name) || saveSubmit.errorField === 'name' || undefined}
+                aria-describedby={fieldErrors.name || saveSubmit.errorField === 'name' ? errorAlertId : undefined}
                 className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500"
                 placeholder="np. Przebudowa drogi powiatowej nr 1245..."
               />
@@ -523,6 +542,8 @@ export const TenderFormModal: React.FC<TenderFormModalProps> = ({
                 maxLength={200}
                 value={form.contractingAuthority}
                 onChange={(e) => setForm((p) => ({ ...p, contractingAuthority: e.target.value }))}
+                aria-invalid={Boolean(fieldErrors.contractingAuthority) || saveSubmit.errorField === 'contractingAuthority' || undefined}
+                aria-describedby={fieldErrors.contractingAuthority || saveSubmit.errorField === 'contractingAuthority' ? errorAlertId : undefined}
                 className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500"
                 placeholder="np. Gmina Miasto..."
               />
@@ -644,6 +665,8 @@ export const TenderFormModal: React.FC<TenderFormModalProps> = ({
                 type="date"
                 value={form.resolutionDate}
                 onChange={(e) => setForm((p) => ({ ...p, resolutionDate: e.target.value }))}
+                aria-invalid={Boolean(fieldErrors.resolutionDate) || saveSubmit.errorField === 'resolutionDate' || undefined}
+                aria-describedby={fieldErrors.resolutionDate || saveSubmit.errorField === 'resolutionDate' ? errorAlertId : undefined}
                 className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-2.5 py-1.5 font-mono focus:outline-none focus:ring-2 focus:ring-sky-500"
               />
               {fieldErrors.resolutionDate && (
@@ -666,6 +689,8 @@ export const TenderFormModal: React.FC<TenderFormModalProps> = ({
                 inputMode="decimal"
                 value={form.authorityBudgetText}
                 onChange={(e) => setForm((p) => ({ ...p, authorityBudgetText: e.target.value }))}
+                aria-invalid={Boolean(fieldErrors.authorityBudget) || saveSubmit.errorField === 'authorityBudget' || undefined}
+                aria-describedby={fieldErrors.authorityBudget || saveSubmit.errorField === 'authorityBudget' ? errorAlertId : undefined}
                 className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-3 py-1.5 font-mono tabular-nums focus:outline-none focus:ring-2 focus:ring-sky-500"
                 placeholder="np. 250 000,00"
               />
@@ -686,6 +711,8 @@ export const TenderFormModal: React.FC<TenderFormModalProps> = ({
                 inputMode="decimal"
                 value={form.scopeQuantityText}
                 onChange={(e) => setForm((p) => ({ ...p, scopeQuantityText: e.target.value }))}
+                aria-invalid={Boolean(fieldErrors.scopeQuantity) || saveSubmit.errorField === 'scopeQuantity' || undefined}
+                aria-describedby={fieldErrors.scopeQuantity || saveSubmit.errorField === 'scopeQuantity' ? errorAlertId : undefined}
                 className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-3 py-1.5 font-mono tabular-nums focus:outline-none focus:ring-2 focus:ring-sky-500"
                 placeholder="np. 12,5"
               />
@@ -727,6 +754,8 @@ export const TenderFormModal: React.FC<TenderFormModalProps> = ({
                 maxLength={500}
                 value={form.url}
                 onChange={(e) => setForm((p) => ({ ...p, url: e.target.value }))}
+                aria-invalid={Boolean(fieldErrors.url) || saveSubmit.errorField === 'url' || undefined}
+                aria-describedby={fieldErrors.url || saveSubmit.errorField === 'url' ? errorAlertId : undefined}
                 className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500"
                 placeholder="https://ezamowienia.gov.pl/..."
               />
@@ -1005,7 +1034,7 @@ export const TenderFormModal: React.FC<TenderFormModalProps> = ({
             <button
               ref={cancelButtonRef}
               type="button"
-              disabled={isSaving}
+              disabled={saveSubmit.isSubmitting}
               onClick={requestClose}
               className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 font-semibold transition-colors"
             >
@@ -1013,10 +1042,10 @@ export const TenderFormModal: React.FC<TenderFormModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={isSaving}
+              disabled={saveSubmit.isSubmitting}
               className="px-4 py-2 rounded-lg bg-sky-700 hover:bg-sky-800 disabled:opacity-60 text-white font-semibold transition-colors"
             >
-              {isSaving ? 'Zapisywanie...' : 'Zapisz'}
+              {saveSubmit.isSubmitting ? 'Zapisywanie...' : 'Zapisz'}
             </button>
           </div>
         </form>

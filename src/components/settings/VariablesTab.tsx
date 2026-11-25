@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   BellRing,
   Percent,
@@ -6,12 +6,24 @@ import {
   Trash2,
   Tag,
   Building2,
-  AlertCircle,
   CheckCircle2,
   Lock,
   UploadCloud,
+  Layers,
+  Flag,
+  ArrowUp,
+  ArrowDown,
+  Edit3,
+  Check,
+  X,
 } from 'lucide-react';
-import type { User } from '../../types';
+import type {
+  Project,
+  ProjectMetaColorKey,
+  ProjectPriorityOption,
+  ProjectStatusOption,
+  User,
+} from '../../types';
 import {
   VatRateOption,
   ClientRecord,
@@ -24,17 +36,29 @@ import {
   readLegacyLocalVariables,
   clearLegacyLocalVariables,
 } from '../../utils/variableSettings';
+import {
+  PROJECT_META_LABEL_MAX,
+  PROJECT_META_PALETTE,
+  getOrderedProjectPriorities,
+  getOrderedProjectStatuses,
+  getPaletteDef,
+  slugifyProjectMetaId,
+} from '../../utils/projectMeta';
 import { useVariables } from '../../hooks/useVariables';
+import { useFormSubmit } from '../../hooks/useFormSubmit';
+import { FormError } from '../FormError';
 import { useSettingsTabDirty } from './SettingsDirtyContext';
 
 export interface VariablesTabProps {
   isOpen: boolean;
   currentUser: User | null;
+  projects?: Project[];
 }
 
 export const VariablesTab: React.FC<VariablesTabProps> = ({
   isOpen,
   currentUser,
+  projects = [],
 }) => {
   const reportTabDirty = useSettingsTabDirty();
   const serverVars = useVariables();
@@ -44,6 +68,34 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
   const vatRates = serverVars.vatRates;
   const clients = serverVars.clients;
   const taskTypes = serverVars.taskTypes;
+  const projectStatuses = useMemo(
+    () => getOrderedProjectStatuses(serverVars.projectStatuses),
+    [serverVars.projectStatuses]
+  );
+  const projectPriorities = useMemo(
+    () => getOrderedProjectPriorities(serverVars.projectPriorities),
+    [serverVars.projectPriorities]
+  );
+
+  const statusUsageCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const p of projects) {
+      if (p?.status) {
+        counts.set(p.status, (counts.get(p.status) || 0) + 1);
+      }
+    }
+    return counts;
+  }, [projects]);
+
+  const priorityUsageCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const p of projects) {
+      if (p?.priority) {
+        counts.set(p.priority, (counts.get(p.priority) || 0) + 1);
+      }
+    }
+    return counts;
+  }, [projects]);
 
   const [warningDaysInput, setWarningDaysInput] = useState<string>(
     String(serverVars.deadlineWarningDays)
@@ -63,10 +115,33 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
   const [newTaskTypeLabel, setNewTaskTypeLabel] = useState('');
   const [newTaskTypeDesc, setNewTaskTypeDesc] = useState('');
 
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  // Project statuses form state
+  const [newStatusLabel, setNewStatusLabel] = useState('');
+  const [newStatusColor, setNewStatusColor] = useState<ProjectMetaColorKey>('sky');
+  const [newStatusClosed, setNewStatusClosed] = useState(false);
+  const [editingStatusId, setEditingStatusId] = useState<string | null>(null);
+  const [editStatusLabel, setEditStatusLabel] = useState('');
+  const [editStatusColor, setEditStatusColor] = useState<ProjectMetaColorKey>('sky');
+  const [editStatusClosed, setEditStatusClosed] = useState(false);
+
+  // Project priorities form state
+  const [newPriorityLabel, setNewPriorityLabel] = useState('');
+  const [newPriorityColor, setNewPriorityColor] = useState<ProjectMetaColorKey>('sky');
+  const [editingPriorityId, setEditingPriorityId] = useState<string | null>(null);
+  const [editPriorityLabel, setEditPriorityLabel] = useState('');
+  const [editPriorityColor, setEditPriorityColor] = useState<ProjectMetaColorKey>('sky');
+
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [showMigrationBanner, setShowMigrationBanner] = useState<boolean>(false);
+
+  const {
+    isSubmitting: isSaving,
+    submitError: saveError,
+    alertRef: errorAlertRef,
+    submit,
+    clearError,
+    setValidationError,
+  } = useFormSubmit();
 
   useEffect(() => {
     setWarningDaysInput(String(serverVars.deadlineWarningDays));
@@ -74,11 +149,13 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
 
   useEffect(() => {
     if (!isOpen) {
-      setSaveError(null);
+      clearError();
       setSaveSuccess(null);
+      setEditingStatusId(null);
+      setEditingPriorityId(null);
     }
     setShowMigrationBanner(Boolean(isAdmin && !serverVars.initialized && hasLegacyLocalVariables()));
-  }, [isOpen, isAdmin, serverVars.initialized]);
+  }, [isOpen, isAdmin, serverVars.initialized, clearError]);
 
   const isDirty = Boolean(
     isOpen &&
@@ -95,7 +172,11 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
         newClientAddress.trim() ||
         newTaskTypeId.trim() ||
         newTaskTypeLabel.trim() ||
-        newTaskTypeDesc.trim())
+        newTaskTypeDesc.trim() ||
+        newStatusLabel.trim() ||
+        newPriorityLabel.trim() ||
+        editingStatusId !== null ||
+        editingPriorityId !== null)
   );
 
   useEffect(() => {
@@ -108,13 +189,22 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
     successMsg: string
   ): Promise<boolean> => {
     if (!isAdmin) return false;
-    setIsSaving(true);
-    setSaveError(null);
     setSaveSuccess(null);
-    const result = await saveVariablesToServer(patch);
-    setIsSaving(false);
-    if (!result.ok) {
-      setSaveError(result.error || 'Nie udało się zapisać zmian na serwerze.');
+    const res = await submit(
+      async () => {
+        const result = await saveVariablesToServer(patch);
+        if (!result.ok) {
+          return {
+            ok: false,
+            status: result.status,
+            error: result.error || 'Nie udało się zapisać zmian na serwerze.',
+          };
+        }
+        return { ok: true };
+      },
+      { fallbackError: 'Nie udało się zapisać zmian na serwerze.' }
+    );
+    if (!res.ok) {
       return false;
     }
     setSaveSuccess(successMsg);
@@ -147,6 +237,7 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
   const handleSaveWarningDays = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAdmin) return;
+    setSaveSuccess(null);
     const parsed = Number(warningDaysInput.trim());
     if (
       warningDaysInput.trim() === '' ||
@@ -154,7 +245,7 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
       parsed < VARIABLES_LIMITS.deadlineWarningDaysMin ||
       parsed > VARIABLES_LIMITS.deadlineWarningDaysMax
     ) {
-      setSaveError('Czas wyprzedzenia ostrzeżenia musi być liczbą całkowitą od 0 do 30 dni.');
+      setValidationError('Czas wyprzedzenia ostrzeżenia musi być liczbą całkowitą od 0 do 30 dni.');
       return;
     }
     await persistPatch({ deadlineWarningDays: parsed }, 'Zapisano liczbę dni ostrzeżenia o terminie.');
@@ -269,6 +360,262 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
     );
   };
 
+  // --- Handlers: Project Statuses ---
+  const reindexStatusOrders = (list: ProjectStatusOption[]): ProjectStatusOption[] =>
+    list.map((item, idx) => ({ ...item, order: idx + 1 }));
+
+  const handleAddProjectStatus = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isAdmin) return;
+    const label = newStatusLabel.trim();
+    if (!label) {
+      setValidationError('Nazwa stanu projektu nie może być pusta.');
+      return;
+    }
+    if (label.length > PROJECT_META_LABEL_MAX) {
+      setValidationError(`Nazwa stanu może mieć maksymalnie ${PROJECT_META_LABEL_MAX} znaków.`);
+      return;
+    }
+    if (projectStatuses.length >= VARIABLES_LIMITS.projectStatusesMax) {
+      setValidationError(
+        `Osiągnięto maksymalną liczbę stanów projektu (${VARIABLES_LIMITS.projectStatusesMax}).`
+      );
+      return;
+    }
+    const baseId = slugifyProjectMetaId(label, 'stan');
+    let candidateId = baseId;
+    let suffix = 2;
+    const existingIds = new Set(projectStatuses.map((s) => s.id));
+    while (existingIds.has(candidateId)) {
+      candidateId = `${baseId.slice(0, 42)}_${suffix}`;
+      suffix += 1;
+    }
+
+    const updated = reindexStatusOrders([
+      ...projectStatuses,
+      {
+        id: candidateId,
+        label,
+        color: newStatusColor,
+        order: projectStatuses.length + 1,
+        isDefault: false,
+        isClosed: newStatusClosed,
+      },
+    ]);
+
+    const ok = await persistPatch({ projectStatuses: updated }, 'Dodano nowy stan projektu.');
+    if (ok) {
+      setNewStatusLabel('');
+      setNewStatusColor('sky');
+      setNewStatusClosed(false);
+    }
+  };
+
+  const handleStartEditStatus = (item: ProjectStatusOption) => {
+    clearError();
+    setEditingStatusId(item.id);
+    setEditStatusLabel(item.label);
+    setEditStatusColor(item.color);
+    setEditStatusClosed(Boolean(item.isClosed));
+  };
+
+  const handleSaveEditStatus = async (id: string) => {
+    if (!isAdmin) return;
+    const label = editStatusLabel.trim();
+    if (!label) {
+      setValidationError('Nazwa stanu projektu nie może być pusta.');
+      return;
+    }
+    const updated = projectStatuses.map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            label,
+            color: editStatusColor,
+            isClosed: editStatusClosed,
+          }
+        : item
+    );
+    const ok = await persistPatch({ projectStatuses: updated }, 'Zapisano zmiany stanu projektu.');
+    if (ok) {
+      setEditingStatusId(null);
+    }
+  };
+
+  const handleSetDefaultStatus = async (id: string) => {
+    if (!isAdmin) return;
+    const updated = projectStatuses.map((item) => ({
+      ...item,
+      isDefault: item.id === id,
+    }));
+    await persistPatch({ projectStatuses: updated }, 'Zmieniono domyślny stan nowego projektu.');
+  };
+
+  const handleMoveProjectStatus = async (index: number, delta: -1 | 1) => {
+    if (!isAdmin) return;
+    const target = index + delta;
+    if (target < 0 || target >= projectStatuses.length) return;
+    const copy = [...projectStatuses];
+    const [moved] = copy.splice(index, 1);
+    copy.splice(target, 0, moved);
+    const updated = reindexStatusOrders(copy);
+    await persistPatch({ projectStatuses: updated }, 'Zmieniono kolejność stanów projektu.');
+  };
+
+  const handleDeleteProjectStatus = async (item: ProjectStatusOption) => {
+    if (!isAdmin) return;
+    const usageCount = statusUsageCounts.get(item.id) || 0;
+    if (item.isSystem) {
+      setValidationError(`Stan systemowy „${item.label}” nie może zostać usunięty.`);
+      return;
+    }
+    if (usageCount > 0) {
+      setValidationError(
+        `Nie można usunąć stanu „${item.label}”, ponieważ jest używany przez ${usageCount} projekt(ów).`
+      );
+      return;
+    }
+    const remaining = projectStatuses.filter((s) => s.id !== item.id);
+    if (remaining.length > 0 && !remaining.some((s) => s.isDefault)) {
+      remaining[0] = { ...remaining[0], isDefault: true };
+    }
+    const updated = reindexStatusOrders(remaining);
+    await persistPatch({ projectStatuses: updated }, `Usunięto stan „${item.label}”.`);
+  };
+
+  // --- Handlers: Project Priorities ---
+  const reindexPriorityOrders = (list: ProjectPriorityOption[]): ProjectPriorityOption[] =>
+    list.map((item, idx) => ({ ...item, order: idx + 1 }));
+
+  const handleAddProjectPriority = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isAdmin) return;
+    const label = newPriorityLabel.trim();
+    if (!label) {
+      setValidationError('Nazwa priorytetu projektu nie może być pusta.');
+      return;
+    }
+    if (label.length > PROJECT_META_LABEL_MAX) {
+      setValidationError(
+        `Nazwa priorytetu może mieć maksymalnie ${PROJECT_META_LABEL_MAX} znaków.`
+      );
+      return;
+    }
+    if (projectPriorities.length >= VARIABLES_LIMITS.projectPrioritiesMax) {
+      setValidationError(
+        `Osiągnięto maksymalną liczbę priorytetów projektu (${VARIABLES_LIMITS.projectPrioritiesMax}).`
+      );
+      return;
+    }
+    const baseId = slugifyProjectMetaId(label, 'priorytet');
+    let candidateId = baseId;
+    let suffix = 2;
+    const existingIds = new Set(projectPriorities.map((p) => p.id));
+    while (existingIds.has(candidateId)) {
+      candidateId = `${baseId.slice(0, 42)}_${suffix}`;
+      suffix += 1;
+    }
+
+    const updated = reindexPriorityOrders([
+      ...projectPriorities,
+      {
+        id: candidateId,
+        label,
+        color: newPriorityColor,
+        order: projectPriorities.length + 1,
+        isDefault: false,
+      },
+    ]);
+
+    const ok = await persistPatch(
+      { projectPriorities: updated },
+      'Dodano nowy priorytet projektu.'
+    );
+    if (ok) {
+      setNewPriorityLabel('');
+      setNewPriorityColor('sky');
+    }
+  };
+
+  const handleStartEditPriority = (item: ProjectPriorityOption) => {
+    clearError();
+    setEditingPriorityId(item.id);
+    setEditPriorityLabel(item.label);
+    setEditPriorityColor(item.color);
+  };
+
+  const handleSaveEditPriority = async (id: string) => {
+    if (!isAdmin) return;
+    const label = editPriorityLabel.trim();
+    if (!label) {
+      setValidationError('Nazwa priorytetu projektu nie może być pusta.');
+      return;
+    }
+    const updated = projectPriorities.map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            label,
+            color: editPriorityColor,
+          }
+        : item
+    );
+    const ok = await persistPatch(
+      { projectPriorities: updated },
+      'Zapisano zmiany priorytetu projektu.'
+    );
+    if (ok) {
+      setEditingPriorityId(null);
+    }
+  };
+
+  const handleSetDefaultPriority = async (id: string) => {
+    if (!isAdmin) return;
+    const updated = projectPriorities.map((item) => ({
+      ...item,
+      isDefault: item.id === id,
+    }));
+    await persistPatch(
+      { projectPriorities: updated },
+      'Zmieniono domyślny priorytet nowego projektu.'
+    );
+  };
+
+  const handleMoveProjectPriority = async (index: number, delta: -1 | 1) => {
+    if (!isAdmin) return;
+    const target = index + delta;
+    if (target < 0 || target >= projectPriorities.length) return;
+    const copy = [...projectPriorities];
+    const [moved] = copy.splice(index, 1);
+    copy.splice(target, 0, moved);
+    const updated = reindexPriorityOrders(copy);
+    await persistPatch(
+      { projectPriorities: updated },
+      'Zmieniono kolejność priorytetów projektu.'
+    );
+  };
+
+  const handleDeleteProjectPriority = async (item: ProjectPriorityOption) => {
+    if (!isAdmin) return;
+    const usageCount = priorityUsageCounts.get(item.id) || 0;
+    if (item.isSystem) {
+      setValidationError(`Priorytet systemowy „${item.label}” nie może zostać usunięty.`);
+      return;
+    }
+    if (usageCount > 0) {
+      setValidationError(
+        `Nie można usunąć priorytetu „${item.label}”, ponieważ jest używany przez ${usageCount} projekt(ów).`
+      );
+      return;
+    }
+    const remaining = projectPriorities.filter((p) => p.id !== item.id);
+    if (remaining.length > 0 && !remaining.some((p) => p.isDefault)) {
+      remaining[0] = { ...remaining[0], isDefault: true };
+    }
+    const updated = reindexPriorityOrders(remaining);
+    await persistPatch({ projectPriorities: updated }, `Usunięto priorytet „${item.label}”.`);
+  };
+
   return (
     <div className="space-y-6 max-w-3xl">
       {/* One-time migration banner from browser localStorage */}
@@ -313,15 +660,12 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
         </div>
       )}
 
-      {saveError && (
-        <div
-          role="alert"
-          className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-lg text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2"
-        >
-          <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
-          <span>{saveError}</span>
-        </div>
-      )}
+      <FormError
+        id="variables-tab-error"
+        error={saveError}
+        alertRef={errorAlertRef}
+        onDismiss={clearError}
+      />
 
       {saveSuccess && (
         <div
@@ -380,8 +724,520 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
         </div>
       </form>
 
+      {/* Section: Project Statuses */}
+      <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+        <div>
+          <h4 className="font-bold text-slate-900 dark:text-white text-sm flex items-center gap-2">
+            <Layers className="w-4 h-4 text-sky-700 dark:text-sky-400" aria-hidden="true" />
+            <span>
+              Stany projektów ({projectStatuses.length}/{VARIABLES_LIMITS.projectStatusesMax})
+            </span>
+          </h4>
+          <p className="text-slate-600 dark:text-slate-400 text-xs">
+            Słownik stanów dostępny w formularzu projektu i filtrach. Stany oznaczone jako{' '}
+            <strong>Stan końcowy</strong> są wykluczane z ostrzeżeń o terminach, podsumowań tygodniowych i przypomnień.
+          </p>
+        </div>
+
+        <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
+              <tr>
+                <th scope="col" className="py-2 px-3 font-semibold">Podgląd / Nazwa</th>
+                <th scope="col" className="py-2 px-3 font-semibold text-center">Domyślny</th>
+                <th scope="col" className="py-2 px-3 font-semibold text-center">Stan końcowy</th>
+                <th scope="col" className="py-2 px-3 font-semibold text-center">Użycie</th>
+                {isAdmin && <th scope="col" className="py-2 px-3 font-semibold text-right">Akcje</th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
+              {projectStatuses.map((st, idx) => {
+                const palette = getPaletteDef(st.color);
+                const usageCount = statusUsageCounts.get(st.id) || 0;
+                const isEditing = editingStatusId === st.id;
+                const deleteDisabled = isSaving || Boolean(st.isSystem) || usageCount > 0;
+                const deleteHint = st.isSystem
+                  ? 'Pozycja systemowa nie może zostać usunięta'
+                  : usageCount > 0
+                  ? `Używany przez ${usageCount} projekt(ów) — nie można usunąć`
+                  : 'Usuń stan projektu';
+
+                return (
+                  <tr key={st.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <td className="py-2 px-3">
+                      {isEditing ? (
+                        <div className="space-y-2">
+                          <input
+                            type="text"
+                            aria-label={`Nazwa stanu ${st.label}`}
+                            maxLength={PROJECT_META_LABEL_MAX}
+                            value={editStatusLabel}
+                            onChange={(e) => setEditStatusLabel(e.target.value)}
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-900 dark:text-white"
+                          />
+                          <div className="flex flex-wrap gap-1" role="group" aria-label="Paleta kolorów stanu">
+                            {PROJECT_META_PALETTE.map((c) => (
+                              <button
+                                key={c.key}
+                                type="button"
+                                aria-label={`Kolor ${c.label}`}
+                                aria-pressed={editStatusColor === c.key}
+                                onClick={() => setEditStatusColor(c.key)}
+                                className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                                  editStatusColor === c.key
+                                    ? 'border-slate-900 dark:border-white scale-110'
+                                    : 'border-transparent'
+                                }`}
+                                style={{ backgroundColor: c.swatchHex }}
+                                title={c.label}
+                              >
+                                {editStatusColor === c.key && (
+                                  <Check className="w-3 h-3 text-white drop-shadow" aria-hidden="true" />
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded border text-[11px] font-semibold ${palette.badgeClass}`}
+                          >
+                            {st.label}
+                          </span>
+                          <span className="font-mono text-[10px] text-slate-600 dark:text-slate-400">
+                            {st.id}
+                          </span>
+                          {st.isSystem && (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                              Systemowy
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-2 px-3 text-center">
+                      <input
+                        type="radio"
+                        name="default-project-status"
+                        aria-label={`Ustaw stan ${st.label} jako domyślny`}
+                        checked={Boolean(st.isDefault)}
+                        disabled={!isAdmin || isSaving}
+                        onChange={() => handleSetDefaultStatus(st.id)}
+                      />
+                    </td>
+                    <td className="py-2 px-3 text-center">
+                      {isEditing ? (
+                        <label className="inline-flex items-center gap-1 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            aria-label={`Stan końcowy dla ${st.label}`}
+                            checked={editStatusClosed}
+                            onChange={(e) => setEditStatusClosed(e.target.checked)}
+                          />
+                          <span className="text-[11px] text-slate-700 dark:text-slate-300">Końcowy</span>
+                        </label>
+                      ) : (
+                        <span
+                          className={`text-[11px] font-semibold ${
+                            st.isClosed
+                              ? 'text-emerald-700 dark:text-emerald-300'
+                              : 'text-slate-600 dark:text-slate-400'
+                          }`}
+                        >
+                          {st.isClosed ? 'Tak' : 'Nie'}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2 px-3 text-center font-mono text-slate-700 dark:text-slate-300">
+                      {usageCount}
+                    </td>
+                    {isAdmin && (
+                      <td className="py-2 px-3 text-right whitespace-nowrap">
+                        {isEditing ? (
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              disabled={isSaving}
+                              onClick={() => handleSaveEditStatus(st.id)}
+                              className="px-2 py-1 rounded bg-sky-700 hover:bg-sky-800 text-white text-[11px] font-semibold"
+                            >
+                              Zapisz
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isSaving}
+                              onClick={() => setEditingStatusId(null)}
+                              aria-label="Anuluj edycję stanu"
+                              className="p-1 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                            >
+                              <X className="w-3.5 h-3.5" aria-hidden="true" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              disabled={isSaving || idx === 0}
+                              onClick={() => handleMoveProjectStatus(idx, -1)}
+                              aria-label={`Przesuń stan ${st.label} w górę`}
+                              className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-30"
+                            >
+                              <ArrowUp className="w-3.5 h-3.5" aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isSaving || idx === projectStatuses.length - 1}
+                              onClick={() => handleMoveProjectStatus(idx, 1)}
+                              aria-label={`Przesuń stan ${st.label} w dół`}
+                              className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-30"
+                            >
+                              <ArrowDown className="w-3.5 h-3.5" aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isSaving}
+                              onClick={() => handleStartEditStatus(st)}
+                              aria-label={`Edytuj stan ${st.label}`}
+                              className="p-1 text-slate-600 dark:text-slate-400 hover:text-sky-700 dark:hover:text-sky-300"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={deleteDisabled}
+                              onClick={() => handleDeleteProjectStatus(st)}
+                              aria-label={`Usuń stan ${st.label}`}
+                              title={deleteHint}
+                              className="p-1 text-slate-600 dark:text-slate-400 hover:text-rose-700 dark:hover:text-rose-400 disabled:opacity-30 disabled:cursor-not-allowed"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {isAdmin && (
+          <form
+            onSubmit={handleAddProjectStatus}
+            className="p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-wrap gap-3 items-end"
+          >
+            <div className="flex-1 min-w-[180px]">
+              <label
+                htmlFor="settings-new-project-status-label"
+                className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1"
+              >
+                Nowy stan projektu *
+              </label>
+              <input
+                id="settings-new-project-status-label"
+                type="text"
+                maxLength={PROJECT_META_LABEL_MAX}
+                disabled={isSaving}
+                value={newStatusLabel}
+                onChange={(e) => setNewStatusLabel(e.target.value)}
+                placeholder="np. Gwarancja lub Anulowany"
+                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div>
+              <span className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">
+                Kolor
+              </span>
+              <div className="flex items-center gap-1" role="group" aria-label="Kolor nowego stanu">
+                {PROJECT_META_PALETTE.map((c) => (
+                  <button
+                    key={c.key}
+                    type="button"
+                    aria-label={`Kolor ${c.label}`}
+                    aria-pressed={newStatusColor === c.key}
+                    onClick={() => setNewStatusColor(c.key)}
+                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                      newStatusColor === c.key
+                        ? 'border-slate-900 dark:border-white scale-110'
+                        : 'border-transparent'
+                    }`}
+                    style={{ backgroundColor: c.swatchHex }}
+                    title={c.label}
+                  >
+                    {newStatusColor === c.key && (
+                      <Check className="w-3 h-3 text-white drop-shadow" aria-hidden="true" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <label className="flex items-center gap-1.5 text-[11px] text-slate-700 dark:text-slate-300 pb-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={newStatusClosed}
+                disabled={isSaving}
+                onChange={(e) => setNewStatusClosed(e.target.checked)}
+                className="rounded border-slate-300 dark:border-slate-700"
+              />
+              <span>Stan końcowy</span>
+            </label>
+
+            <button
+              type="submit"
+              disabled={isSaving || projectStatuses.length >= VARIABLES_LIMITS.projectStatusesMax}
+              className="px-3.5 py-1.5 bg-sky-700 hover:bg-sky-800 disabled:opacity-50 text-white rounded font-semibold text-xs shadow-xs transition-colors"
+            >
+              + Dodaj stan
+            </button>
+          </form>
+        )}
+      </div>
+
+      {/* Section: Project Priorities */}
+      <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+        <div>
+          <h4 className="font-bold text-slate-900 dark:text-white text-sm flex items-center gap-2">
+            <Flag className="w-4 h-4 text-rose-700 dark:text-rose-400" aria-hidden="true" />
+            <span>
+              Priorytety projektów ({projectPriorities.length}/{VARIABLES_LIMITS.projectPrioritiesMax})
+            </span>
+          </h4>
+          <p className="text-slate-600 dark:text-slate-400 text-xs">
+            Słownik priorytetów wyświetlanych na kartach i listach projektów.
+          </p>
+        </div>
+
+        <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
+              <tr>
+                <th scope="col" className="py-2 px-3 font-semibold">Podgląd / Nazwa</th>
+                <th scope="col" className="py-2 px-3 font-semibold text-center">Domyślny</th>
+                <th scope="col" className="py-2 px-3 font-semibold text-center">Użycie</th>
+                {isAdmin && <th scope="col" className="py-2 px-3 font-semibold text-right">Akcje</th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
+              {projectPriorities.map((pr, idx) => {
+                const palette = getPaletteDef(pr.color);
+                const usageCount = priorityUsageCounts.get(pr.id) || 0;
+                const isEditing = editingPriorityId === pr.id;
+                const deleteDisabled = isSaving || Boolean(pr.isSystem) || usageCount > 0;
+                const deleteHint = pr.isSystem
+                  ? 'Pozycja systemowa nie może zostać usunięta'
+                  : usageCount > 0
+                  ? `Używany przez ${usageCount} projekt(ów) — nie można usunąć`
+                  : 'Usuń priorytet projektu';
+
+                return (
+                  <tr key={pr.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <td className="py-2 px-3">
+                      {isEditing ? (
+                        <div className="space-y-2">
+                          <input
+                            type="text"
+                            aria-label={`Nazwa priorytetu ${pr.label}`}
+                            maxLength={PROJECT_META_LABEL_MAX}
+                            value={editPriorityLabel}
+                            onChange={(e) => setEditPriorityLabel(e.target.value)}
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-900 dark:text-white"
+                          />
+                          <div className="flex flex-wrap gap-1" role="group" aria-label="Paleta kolorów priorytetu">
+                            {PROJECT_META_PALETTE.map((c) => (
+                              <button
+                                key={c.key}
+                                type="button"
+                                aria-label={`Kolor ${c.label}`}
+                                aria-pressed={editPriorityColor === c.key}
+                                onClick={() => setEditPriorityColor(c.key)}
+                                className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                                  editPriorityColor === c.key
+                                    ? 'border-slate-900 dark:border-white scale-110'
+                                    : 'border-transparent'
+                                }`}
+                                style={{ backgroundColor: c.swatchHex }}
+                                title={c.label}
+                              >
+                                {editPriorityColor === c.key && (
+                                  <Check className="w-3 h-3 text-white drop-shadow" aria-hidden="true" />
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded border text-[11px] font-semibold ${palette.badgeClass}`}
+                          >
+                            {pr.label}
+                          </span>
+                          <span className="font-mono text-[10px] text-slate-600 dark:text-slate-400">
+                            {pr.id}
+                          </span>
+                          {pr.isSystem && (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                              Systemowy
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-2 px-3 text-center">
+                      <input
+                        type="radio"
+                        name="default-project-priority"
+                        aria-label={`Ustaw priorytet ${pr.label} jako domyślny`}
+                        checked={Boolean(pr.isDefault)}
+                        disabled={!isAdmin || isSaving}
+                        onChange={() => handleSetDefaultPriority(pr.id)}
+                      />
+                    </td>
+                    <td className="py-2 px-3 text-center font-mono text-slate-700 dark:text-slate-300">
+                      {usageCount}
+                    </td>
+                    {isAdmin && (
+                      <td className="py-2 px-3 text-right whitespace-nowrap">
+                        {isEditing ? (
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              disabled={isSaving}
+                              onClick={() => handleSaveEditPriority(pr.id)}
+                              className="px-2 py-1 rounded bg-sky-700 hover:bg-sky-800 text-white text-[11px] font-semibold"
+                            >
+                              Zapisz
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isSaving}
+                              onClick={() => setEditingPriorityId(null)}
+                              aria-label="Anuluj edycję priorytetu"
+                              className="p-1 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                            >
+                              <X className="w-3.5 h-3.5" aria-hidden="true" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              disabled={isSaving || idx === 0}
+                              onClick={() => handleMoveProjectPriority(idx, -1)}
+                              aria-label={`Przesuń priorytet ${pr.label} w górę`}
+                              className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-30"
+                            >
+                              <ArrowUp className="w-3.5 h-3.5" aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isSaving || idx === projectPriorities.length - 1}
+                              onClick={() => handleMoveProjectPriority(idx, 1)}
+                              aria-label={`Przesuń priorytet ${pr.label} w dół`}
+                              className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-30"
+                            >
+                              <ArrowDown className="w-3.5 h-3.5" aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isSaving}
+                              onClick={() => handleStartEditPriority(pr)}
+                              aria-label={`Edytuj priorytet ${pr.label}`}
+                              className="p-1 text-slate-600 dark:text-slate-400 hover:text-sky-700 dark:hover:text-sky-300"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={deleteDisabled}
+                              onClick={() => handleDeleteProjectPriority(pr)}
+                              aria-label={`Usuń priorytet ${pr.label}`}
+                              title={deleteHint}
+                              className="p-1 text-slate-600 dark:text-slate-400 hover:text-rose-700 dark:hover:text-rose-400 disabled:opacity-30 disabled:cursor-not-allowed"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {isAdmin && (
+          <form
+            onSubmit={handleAddProjectPriority}
+            className="p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-wrap gap-3 items-end"
+          >
+            <div className="flex-1 min-w-[180px]">
+              <label
+                htmlFor="settings-new-project-priority-label"
+                className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1"
+              >
+                Nowy priorytet projektu *
+              </label>
+              <input
+                id="settings-new-project-priority-label"
+                type="text"
+                maxLength={PROJECT_META_LABEL_MAX}
+                disabled={isSaving}
+                value={newPriorityLabel}
+                onChange={(e) => setNewPriorityLabel(e.target.value)}
+                placeholder="np. Strategiczny"
+                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div>
+              <span className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">
+                Kolor
+              </span>
+              <div className="flex items-center gap-1" role="group" aria-label="Kolor nowego priorytetu">
+                {PROJECT_META_PALETTE.map((c) => (
+                  <button
+                    key={c.key}
+                    type="button"
+                    aria-label={`Kolor ${c.label}`}
+                    aria-pressed={newPriorityColor === c.key}
+                    onClick={() => setNewPriorityColor(c.key)}
+                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                      newPriorityColor === c.key
+                        ? 'border-slate-900 dark:border-white scale-110'
+                        : 'border-transparent'
+                    }`}
+                    style={{ backgroundColor: c.swatchHex }}
+                    title={c.label}
+                  >
+                    {newPriorityColor === c.key && (
+                      <Check className="w-3 h-3 text-white drop-shadow" aria-hidden="true" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSaving || projectPriorities.length >= VARIABLES_LIMITS.projectPrioritiesMax}
+              className="px-3.5 py-1.5 bg-sky-700 hover:bg-sky-800 disabled:opacity-50 text-white rounded font-semibold text-xs shadow-xs transition-colors"
+            >
+              + Dodaj priorytet
+            </button>
+          </form>
+        )}
+      </div>
+
       {/* Section: VAT Rates */}
-      <div className="space-y-3">
+      <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800">
         <div className="flex items-center justify-between">
           <div>
             <h4 className="font-bold text-slate-900 dark:text-white text-sm flex items-center gap-2">

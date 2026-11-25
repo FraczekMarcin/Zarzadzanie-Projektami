@@ -2,6 +2,8 @@ import React from 'react';
 import { Company, Project, Task, User } from '../../types';
 import { computeProjectFinance } from '../../utils/finance';
 import { copyToClipboard } from '../../utils/clipboard';
+import { resolveProjectPriority, resolveProjectStatus } from '../../utils/projectMeta';
+import { useVariables } from '../../hooks/useVariables';
 import { Archive, Building2, Check, Clock, Copy, DollarSign, Folder } from 'lucide-react';
 import { ProjectActions } from './ProjectActions';
 
@@ -40,6 +42,10 @@ export const ProjectTile: React.FC<ProjectTileProps> = ({
   onRestore,
   onDelete,
 }) => {
+  const { projectStatuses, projectPriorities } = useVariables();
+  const statusMeta = resolveProjectStatus(project.status, projectStatuses);
+  const priorityMeta = resolveProjectPriority(project.priority, projectPriorities);
+
   const completedTasks = projectTasks.filter((t) => t.status === 'done').length;
   const criticalTasks = projectTasks.filter(
     (t) => t.priority === 'critical' && t.status !== 'done'
@@ -51,7 +57,7 @@ export const ProjectTile: React.FC<ProjectTileProps> = ({
 
   const selectedQuotes = (project.quotations || []).filter((q) => q.isSelected !== false);
   const revenueQuotes = selectedQuotes.filter((q) => q.type !== 'koszt');
-  const finance = computeProjectFinance(project, comp);
+  const finance = computeProjectFinance(project, comp, { projectStatuses });
   const quoteNet = finance.totalQuotationNet;
   const totalCostsNet = finance.economicTotalCosts;
   const profitNet = finance.profitNet;
@@ -73,12 +79,8 @@ export const ProjectTile: React.FC<ProjectTileProps> = ({
                 {comp.letter}
               </span>
             )}
-            <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono">
-              {project.status === 'active'
-                ? 'Aktywny'
-                : project.status === 'planning'
-                  ? 'Planowanie'
-                  : project.status}
+            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${statusMeta.badgeClass}`}>
+              {statusMeta.label}
             </span>
             {project.isDemo && (
               <span className="text-[10px] text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.2 rounded">
@@ -93,18 +95,8 @@ export const ProjectTile: React.FC<ProjectTileProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <span
-              className={`text-xs font-semibold ${
-                project.priority === 'critical'
-                  ? 'text-rose-700 dark:text-rose-400'
-                  : project.priority === 'high'
-                    ? 'text-amber-700 dark:text-amber-400'
-                    : project.priority === 'normal'
-                      ? 'text-blue-700 dark:text-blue-400'
-                      : 'text-slate-600 dark:text-slate-400'
-              }`}
-            >
-              {project.priority === 'normal' ? 'Normalny' : project.priority.toUpperCase()}
+            <span className={`text-xs ${priorityMeta.textClass}`}>
+              {priorityMeta.label}
             </span>
           </div>
         </div>

@@ -7,12 +7,16 @@ import { FIELD_LIMITS } from '../utils/access';
 import { hasDirectSubtasks } from '../utils/progress';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
+import { useFormSubmit, type FormSubmitResult } from '../hooks/useFormSubmit';
+import { FormError } from './FormError';
 import { DiscardChangesModal } from './DiscardChangesModal';
 
 interface TaskModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (taskData: Omit<Task, 'id' | 'code' | 'createdAt' | 'updatedAt'>) => void;
+  onSave: (
+    taskData: Omit<Task, 'id' | 'code' | 'createdAt' | 'updatedAt'>
+  ) => Promise<FormSubmitResult<Task> | void> | FormSubmitResult<Task> | void;
   projects: Project[];
   users: User[];
   allTasks: Task[];
@@ -66,6 +70,16 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const baseId = useId();
   const titleId = `${baseId}-dialog-title`;
+  const formErrorId = `${baseId}-form-error`;
+  const {
+    isSubmitting,
+    submitError,
+    alertRef,
+    submit,
+    clearError,
+    setValidationError,
+    getFieldA11yProps,
+  } = useFormSubmit<Task>();
 
   const buildSnapshot = (vals: {
     projectId: string;
@@ -120,10 +134,16 @@ export const TaskModal: React.FC<TaskModalProps> = ({
     panelRef: modalRef,
     onDismiss: onClose,
     isDirty,
+    disabled: isSubmitting,
     cancelButtonRef,
   });
 
-  useFocusTrap({ isOpen, onClose: requestClose, containerRef: modalRef });
+  useFocusTrap({
+    isOpen,
+    onClose: requestClose,
+    containerRef: modalRef,
+    disableEscape: isSubmitting,
+  });
 
   // Helper to calculate due date from start date and duration days
   const calculateDueDate = (start: string, days: number): string => {
@@ -153,6 +173,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
   useEffect(() => {
     setStatusError(null);
+    clearError();
     const currentTypes: TaskTypeDefinition[] = taskTypes;
     if (initialTask) {
       const initProjectId = initialTask.projectId;
@@ -324,9 +345,16 @@ export const TaskModal: React.FC<TaskModalProps> = ({
     (t) => t.projectId === projectId && (!initialTask || t.id !== initialTask.id) && !t.parentId
   );
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !projectId) return;
+    if (!projectId) {
+      setValidationError('Wybierz projekt nadrzędny.', 'projectId');
+      return;
+    }
+    if (!title.trim()) {
+      setValidationError('Tytuł zadania jest wymagany.', 'title');
+      return;
+    }
 
     const tags = tagsInput
       .split(',')
@@ -346,29 +374,37 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
     const isParentTask = Boolean(initialTask && hasDirectSubtasks(allTasks, initialTask.id));
 
-    onSave({
-      projectId,
-      title,
-      description,
-      type,
-      priority,
-      status: finalStatus,
-      assigneeId: assigneeId || undefined,
-      reporterId: 'usr-1',
-      startDate,
-      dueDate,
-      durationDays: Number(durationDays) || 1,
-      isOfficialDeadline,
-      estimatedHours: Number(estimatedHours) || 0,
-      spentHours: initialTask?.spentHours || 0,
-      progress: isParentTask ? (initialTask?.progress ?? 0) : Number(progress) || 0,
-      blockingTaskIds,
-      dependencies: blockingTaskIds,
-      parentId: parentId || undefined,
-      tags,
-    });
+    const result = await submit(
+      () =>
+        Promise.resolve(
+          onSave({
+            projectId,
+            title,
+            description,
+            type,
+            priority,
+            status: finalStatus,
+            assigneeId: assigneeId || undefined,
+            reporterId: 'usr-1',
+            startDate,
+            dueDate,
+            durationDays: Number(durationDays) || 1,
+            isOfficialDeadline,
+            estimatedHours: Number(estimatedHours) || 0,
+            spentHours: initialTask?.spentHours || 0,
+            progress: isParentTask ? (initialTask?.progress ?? 0) : Number(progress) || 0,
+            blockingTaskIds,
+            dependencies: blockingTaskIds,
+            parentId: parentId || undefined,
+            tags,
+          })
+        ),
+      { fallbackError: 'Nie udało się zapisać zadania na serwerze.' }
+    );
 
-    onClose();
+    if (result.ok) {
+      onClose();
+    }
   };
 
   return (
@@ -395,9 +431,10 @@ export const TaskModal: React.FC<TaskModalProps> = ({
           </div>
           <button
             type="button"
+            disabled={isSubmitting}
             onClick={requestClose}
             aria-label="Zamknij okno zadania"
-            className="p-1 rounded text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors"
+            className="p-1 rounded text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors"
           >
             <X className="w-4 h-4" aria-hidden="true" />
           </button>
@@ -405,6 +442,13 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto flex-1 text-xs">
+          <FormError
+            id={formErrorId}
+            error={submitError}
+            alertRef={alertRef}
+            onDismiss={clearError}
+          />
+
           {/* Project & Type */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -414,6 +458,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                 required
                 value={projectId}
                 onChange={(e) => setProjectId(e.target.value)}
+                {...getFieldA11yProps('projectId', formErrorId)}
                 className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
               >
                 {projects.map((p) => (
@@ -452,6 +497,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
               onChange={(e) => setTitle(e.target.value)}
               maxLength={FIELD_LIMITS.title}
               placeholder="np. Projekt wykonawczy konstrukcji żelbetowej lub uzgodnienia z rzeczoznawcą ds. PPOŻ"
+              {...getFieldA11yProps('title', formErrorId)}
               className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded px-3 py-2 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
             />
           </div>
@@ -541,6 +587,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                   required
                   value={startDate}
                   onChange={(e) => handleStartDateChange(e.target.value)}
+                  {...getFieldA11yProps('startDate', formErrorId)}
                   className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 font-mono"
                 />
               </div>
@@ -558,6 +605,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                     required
                     value={durationDays}
                     onChange={(e) => handleDurationDaysChange(Number(e.target.value))}
+                    {...getFieldA11yProps('durationDays', formErrorId)}
                     className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 font-mono font-bold"
                   />
                   <span className="ml-2 font-mono text-slate-600 dark:text-slate-300">dni</span>
@@ -572,6 +620,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                   required
                   value={dueDate}
                   onChange={(e) => handleDueDateChange(e.target.value)}
+                  {...getFieldA11yProps('dueDate', formErrorId)}
                   className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 font-mono"
                 />
               </div>
@@ -728,16 +777,22 @@ export const TaskModal: React.FC<TaskModalProps> = ({
             <button
               ref={cancelButtonRef}
               type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors"
+              disabled={isSubmitting}
+              onClick={requestClose}
+              className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 rounded transition-colors"
             >
               Anuluj
             </button>
             <button
               type="submit"
-              className="px-4 py-2 text-xs font-medium bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 text-white rounded transition-colors"
+              disabled={isSubmitting}
+              className="px-4 py-2 text-xs font-medium bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 disabled:opacity-50 text-white rounded transition-colors"
             >
-              {initialTask ? 'Zapisz zmiany' : 'Utwórz zadanie'}
+              {isSubmitting
+                ? 'Zapisywanie...'
+                : initialTask
+                  ? 'Zapisz zmiany'
+                  : 'Utwórz zadanie'}
             </button>
           </div>
         </form>

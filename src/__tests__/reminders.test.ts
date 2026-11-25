@@ -243,6 +243,106 @@ describe('Przypomnienia e-mail o terminach — logika czysta (src/utils/reminder
     expect(digests[0].sections[2].tasks.map((t) => t.id)).toEqual(['t4']);
   });
 
+  it('pomija zadania projektów w niestandardowym stanie końcowym (isClosed: true)', () => {
+    const now = Date.parse('2026-11-16T08:00:00.000Z');
+    const projects: Project[] = [
+      {
+        id: 'p-open',
+        key: 'OPEN',
+        name: 'Projekt otwarty',
+        description: '',
+        priority: 'normal',
+        status: 'active',
+        startDate: '2026-11-01',
+        dueDate: '2026-12-30',
+        durationDays: 60,
+        progress: 20,
+        memberIds: ['u1'],
+        color: '#0ea5e9',
+      },
+      {
+        id: 'p-closed',
+        key: 'CNCL',
+        name: 'Projekt anulowany',
+        description: '',
+        priority: 'normal',
+        status: 'cancelled',
+        startDate: '2026-11-01',
+        dueDate: '2026-12-30',
+        durationDays: 60,
+        progress: 0,
+        memberIds: ['u1'],
+        color: '#64748b',
+      },
+    ];
+    const users: User[] = [
+      {
+        id: 'u1',
+        name: 'Jan Nowak',
+        email: 'jan@pracownia.pl',
+        role: 'developer',
+        department: 'Architektura',
+        initials: 'JN',
+        isApproved: true,
+      },
+    ];
+    const tasks: Task[] = [
+      {
+        id: 't-open',
+        projectId: 'p-open',
+        code: 'OPEN-01',
+        title: 'Zadanie aktywne',
+        description: '',
+        type: 'task',
+        priority: 'normal',
+        status: 'to_do',
+        assigneeId: 'u1',
+        reporterId: 'u1',
+        startDate: '2026-11-10',
+        dueDate: '2026-11-16',
+        durationDays: 1,
+        progress: 0,
+        createdAt: '2026-11-10T00:00:00Z',
+        updatedAt: '2026-11-10T00:00:00Z',
+      },
+      {
+        id: 't-closed',
+        projectId: 'p-closed',
+        code: 'CNCL-01',
+        title: 'Zadanie w anulowanym projekcie',
+        description: '',
+        type: 'task',
+        priority: 'normal',
+        status: 'to_do',
+        assigneeId: 'u1',
+        reporterId: 'u1',
+        startDate: '2026-11-10',
+        dueDate: '2026-11-16',
+        durationDays: 1,
+        progress: 0,
+        createdAt: '2026-11-10T00:00:00Z',
+        updatedAt: '2026-11-10T00:00:00Z',
+      },
+    ];
+    const settings: ReminderSettings = {
+      enabled: true,
+      sendHour: 8,
+      timezone: 'Europe/Warsaw',
+      daysBefore: [0],
+      notifyOverdue: true,
+      appBaseUrl: '',
+    };
+    const customStatuses = [
+      { id: 'active', label: 'Aktywny', color: 'emerald' as const, order: 1, isDefault: true, isClosed: false },
+      { id: 'cancelled', label: 'Anulowany', color: 'rose' as const, order: 2, isDefault: false, isClosed: true },
+    ];
+
+    const digests = buildDigests(tasks, projects, users, now, settings, customStatuses);
+    expect(digests).toHaveLength(1);
+    expect(digests[0].totalTasks).toBe(1);
+    expect(digests[0].sections[0].tasks.map((t) => t.id)).toEqual(['t-open']);
+  });
+
   it('escapuje HTML, pomija opisy i dane finansowe oraz dołącza linki wyłącznie gdy podano appBaseUrl', () => {
     const now = Date.parse('2026-11-16T08:00:00.000Z');
     const projects: Project[] = [

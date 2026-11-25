@@ -269,6 +269,64 @@ export function registerAdminSettingsRoutes(
 
       const appState = stateStore.ensureStateStructure();
       const prevVariables = appState.variables;
+      const projects = Array.isArray(appState.projects) ? appState.projects : [];
+
+      if (validation.patch.projectStatuses) {
+        const nextStatusIds = new Set(validation.patch.projectStatuses.map((s) => s.id));
+        const prevStatuses = Array.isArray(prevVariables.projectStatuses)
+          ? prevVariables.projectStatuses
+          : [];
+        for (const prevStatus of prevStatuses) {
+          if (!nextStatusIds.has(prevStatus.id)) {
+            const usingProjects = projects.filter((p: any) => p && p.status === prevStatus.id);
+            if (usingProjects.length > 0) {
+              const sample = usingProjects
+                .slice(0, 5)
+                .map((p: any) => `${p.key || p.id}${p.name ? ` (${p.name})` : ''}`)
+                .join(', ');
+              const suffix = usingProjects.length > 5 ? ` i ${usingProjects.length - 5} innych` : '';
+              return res.status(409).json({
+                error: `Nie można usunąć stanu projektu "${prevStatus.label}", ponieważ jest używany przez projekty: ${sample}${suffix}.`,
+                field: 'projectStatuses',
+                inUseProjects: usingProjects.map((p: any) => ({
+                  id: p.id,
+                  key: p.key || '',
+                  name: p.name || '',
+                })),
+              });
+            }
+          }
+        }
+      }
+
+      if (validation.patch.projectPriorities) {
+        const nextPriorityIds = new Set(validation.patch.projectPriorities.map((p) => p.id));
+        const prevPriorities = Array.isArray(prevVariables.projectPriorities)
+          ? prevVariables.projectPriorities
+          : [];
+        for (const prevPriority of prevPriorities) {
+          if (!nextPriorityIds.has(prevPriority.id)) {
+            const usingProjects = projects.filter((p: any) => p && p.priority === prevPriority.id);
+            if (usingProjects.length > 0) {
+              const sample = usingProjects
+                .slice(0, 5)
+                .map((p: any) => `${p.key || p.id}${p.name ? ` (${p.name})` : ''}`)
+                .join(', ');
+              const suffix = usingProjects.length > 5 ? ` i ${usingProjects.length - 5} innych` : '';
+              return res.status(409).json({
+                error: `Nie można usunąć priorytetu projektu "${prevPriority.label}", ponieważ jest używany przez projekty: ${sample}${suffix}.`,
+                field: 'projectPriorities',
+                inUseProjects: usingProjects.map((p: any) => ({
+                  id: p.id,
+                  key: p.key || '',
+                  name: p.name || '',
+                })),
+              });
+            }
+          }
+        }
+      }
+
       const nextVariables = {
         ...prevVariables,
         ...validation.patch,
@@ -276,7 +334,14 @@ export function registerAdminSettingsRoutes(
       };
 
       const changedSections: string[] = [];
-      for (const key of ['vatRates', 'clients', 'taskTypes', 'deadlineWarningDays'] as const) {
+      for (const key of [
+        'vatRates',
+        'clients',
+        'taskTypes',
+        'projectStatuses',
+        'projectPriorities',
+        'deadlineWarningDays',
+      ] as const) {
         if (
           validation.patch[key] !== undefined &&
           JSON.stringify(prevVariables[key]) !== JSON.stringify(nextVariables[key])

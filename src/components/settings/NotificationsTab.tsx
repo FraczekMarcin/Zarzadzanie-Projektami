@@ -19,6 +19,8 @@ import {
   WEEKLY_MAX_ITEMS_PER_PROJECT,
   WEEKLY_MIN_ITEMS_PER_PROJECT,
 } from '../../utils/weeklySummary';
+import { normalizeSubmitError, parseApiErrorResponse, useFormSubmit } from '../../hooks/useFormSubmit';
+import { FormError } from '../FormError';
 import { useSettingsTabDirty } from './SettingsDirtyContext';
 
 export interface ReminderStatusResponse {
@@ -90,22 +92,20 @@ export const NotificationsTab: React.FC<NotificationsTabProps> = ({
   const [wsMaxItemsPerProject, setWsMaxItemsPerProject] = useState<number>(15);
 
   const [currentPassword, setCurrentPassword] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveSubmit = useFormSubmit();
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const saveErrorId = 'notifications-save-error';
 
   // Podgląd i ręczne uruchomienie — przypomnienia dzienne
-  const [isSendingPreview, setIsSendingPreview] = useState(false);
-  const [isRunningNow, setIsRunningNow] = useState(false);
+  const dailyActionSubmit = useFormSubmit();
+  const [dailyActionKind, setDailyActionKind] = useState<'preview' | 'run' | null>(null);
   const [forceRun, setForceRun] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   // Podgląd i ręczne uruchomienie — podsumowanie tygodniowe
-  const [isSendingWeeklyPreview, setIsSendingWeeklyPreview] = useState(false);
-  const [isRunningWeeklyNow, setIsRunningWeeklyNow] = useState(false);
+  const weeklyActionSubmit = useFormSubmit();
+  const [weeklyActionKind, setWeeklyActionKind] = useState<'preview' | 'run' | null>(null);
   const [forceWeeklyRun, setForceWeeklyRun] = useState(false);
-  const [weeklyActionError, setWeeklyActionError] = useState<string | null>(null);
   const [weeklyActionSuccess, setWeeklyActionSuccess] = useState<string | null>(null);
 
   const applyResponseToForm = (payload: AdminSettingsResponse) => {
@@ -139,23 +139,27 @@ export const NotificationsTab: React.FC<NotificationsTabProps> = ({
         fetch('/api/admin/reminders/status', { credentials: 'same-origin' }),
         fetch('/api/admin/weekly-summary/status', { credentials: 'same-origin' }),
       ]);
-      const settingsJson = await settingsRes.json().catch(() => ({}));
-      const statusJson = await statusRes.json().catch(() => ({}));
-      const weeklyStatusJson = await weeklyStatusRes.json().catch(() => ({}));
 
       if (!settingsRes.ok) {
-        setLoadError(settingsJson.error || 'Nie udało się pobrać ustawień powiadomień.');
+        const parsed = await parseApiErrorResponse(
+          settingsRes,
+          'Nie udało się pobrać ustawień powiadomień.'
+        );
+        setLoadError(parsed.error);
         return;
       }
+      const settingsJson = await settingsRes.json();
       applyResponseToForm(settingsJson as AdminSettingsResponse);
       if (statusRes.ok) {
-        setStatus(statusJson as ReminderStatusResponse);
+        const statusJson = await statusRes.json().catch(() => null);
+        if (statusJson) setStatus(statusJson as ReminderStatusResponse);
       }
       if (weeklyStatusRes.ok) {
-        setWeeklyStatus(weeklyStatusJson as WeeklySummaryStatusResponse);
+        const weeklyStatusJson = await weeklyStatusRes.json().catch(() => null);
+        if (weeklyStatusJson) setWeeklyStatus(weeklyStatusJson as WeeklySummaryStatusResponse);
       }
-    } catch (err: any) {
-      setLoadError(err?.message || 'Błąd połączenia z serwerem.');
+    } catch (err: unknown) {
+      setLoadError(normalizeSubmitError(err, 'Błąd połączenia z serwerem.').error);
     } finally {
       setIsLoading(false);
     }
@@ -208,11 +212,14 @@ export const NotificationsTab: React.FC<NotificationsTabProps> = ({
     e.preventDefault();
     if (!data) return;
 
-    setSaveError(null);
+    saveSubmit.clearError();
     setSaveSuccess(null);
 
     if (!currentPassword) {
-      setSaveError('Podaj aktualne hasło administratora, aby zapisać ustawienia.');
+      saveSubmit.setValidationError(
+        'Podaj aktualne hasło administratora, aby zapisać ustawienia.',
+        'currentPassword'
+      );
       return;
     }
 
@@ -234,153 +241,184 @@ export const NotificationsTab: React.FC<NotificationsTabProps> = ({
     if (!data.weeklySummary.dayOfWeek.locked) weeklySummaryPatch.dayOfWeek = wsDayOfWeek;
     if (!data.weeklySummary.time.locked) weeklySummaryPatch.time = wsTime.trim();
 
-    setIsSaving(true);
-    try {
-      const res = await fetch('/api/admin/settings', {
-        method: 'PUT',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          currentPassword,
-          reminders: remindersPatch,
-          weeklySummary: weeklySummaryPatch,
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setSaveError(json.error || 'Nie udało się zapisać ustawień powiadomień.');
-        return;
-      }
-      if (json.settings) {
-        applyResponseToForm(json.settings as AdminSettingsResponse);
-      }
-      setCurrentPassword('');
-      setSaveSuccess(
-        Array.isArray(json.changedFields) && json.changedFields.length > 0
-          ? 'Ustawienia powiadomień zostały zapisane i obowiązują natychmiast.'
-          : 'Brak nowych zmian do zapisania.'
-      );
-      // Odśwież status harmonogramów (np. nextScheduledAt)
-      const [statusRes, weeklyStatusRes] = await Promise.all([
-        fetch('/api/admin/reminders/status', { credentials: 'same-origin' }),
-        fetch('/api/admin/weekly-summary/status', { credentials: 'same-origin' }),
-      ]);
-      if (statusRes.ok) {
-        const statusJson = await statusRes.json().catch(() => null);
-        if (statusJson) setStatus(statusJson);
-      }
-      if (weeklyStatusRes.ok) {
-        const weeklyStatusJson = await weeklyStatusRes.json().catch(() => null);
-        if (weeklyStatusJson) setWeeklyStatus(weeklyStatusJson);
-      }
-    } catch (err: any) {
-      setSaveError(err?.message || 'Błąd połączenia z serwerem.');
-    } finally {
-      setIsSaving(false);
-    }
+    await saveSubmit.submit(
+      async () => {
+        const res = await fetch('/api/admin/settings', {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            currentPassword,
+            reminders: remindersPatch,
+            weeklySummary: weeklySummaryPatch,
+          }),
+        });
+        if (!res.ok) {
+          const parsed = await parseApiErrorResponse(
+            res,
+            'Nie udało się zapisać ustawień powiadomień.'
+          );
+          return { ok: false, status: res.status, ...parsed };
+        }
+        const json = await res.json().catch(() => ({}));
+        if (json.settings) {
+          applyResponseToForm(json.settings as AdminSettingsResponse);
+        }
+        setCurrentPassword('');
+        setSaveSuccess(
+          Array.isArray(json.changedFields) && json.changedFields.length > 0
+            ? 'Ustawienia powiadomień zostały zapisane i obowiązują natychmiast.'
+            : 'Brak nowych zmian do zapisania.'
+        );
+        // Odśwież status harmonogramów (np. nextScheduledAt)
+        const [statusRes, weeklyStatusRes] = await Promise.all([
+          fetch('/api/admin/reminders/status', { credentials: 'same-origin' }),
+          fetch('/api/admin/weekly-summary/status', { credentials: 'same-origin' }),
+        ]);
+        if (statusRes.ok) {
+          const statusJson = await statusRes.json().catch(() => null);
+          if (statusJson) setStatus(statusJson);
+        }
+        if (weeklyStatusRes.ok) {
+          const weeklyStatusJson = await weeklyStatusRes.json().catch(() => null);
+          if (weeklyStatusJson) setWeeklyStatus(weeklyStatusJson);
+        }
+        return { ok: true };
+      },
+      { fallbackError: 'Nie udało się zapisać ustawień powiadomień.' }
+    );
   };
 
   const handleSendPreview = async () => {
-    setActionError(null);
     setActionSuccess(null);
-    setIsSendingPreview(true);
+    setDailyActionKind('preview');
     try {
-      const res = await fetch('/api/admin/reminders/preview', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setActionError(json.error || 'Nie udało się wysłać wiadomości podglądu.');
-        return;
-      }
-      setActionSuccess(json.message || 'Wiadomość podglądu została wysłana na Twój adres e-mail.');
-    } catch (err: any) {
-      setActionError(err?.message || 'Błąd połączenia z serwerem.');
+      await dailyActionSubmit.submit(
+        async () => {
+          const res = await fetch('/api/admin/reminders/preview', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+          });
+          if (!res.ok) {
+            const parsed = await parseApiErrorResponse(
+              res,
+              'Nie udało się wysłać wiadomości podglądu.'
+            );
+            return { ok: false, status: res.status, ...parsed };
+          }
+          const json = await res.json().catch(() => ({}));
+          setActionSuccess(
+            json.message || 'Wiadomość podglądu została wysłana na Twój adres e-mail.'
+          );
+          return { ok: true };
+        },
+        { fallbackError: 'Nie udało się wysłać wiadomości podglądu.' }
+      );
     } finally {
-      setIsSendingPreview(false);
+      setDailyActionKind(null);
     }
   };
 
   const handleRunNow = async () => {
-    setActionError(null);
     setActionSuccess(null);
-    setIsRunningNow(true);
+    setDailyActionKind('run');
     try {
-      const res = await fetch('/api/admin/reminders/run-now', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force: forceRun }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setActionError(json.error || 'Nie udało się uruchomić wysyłki przypomnień.');
-        return;
-      }
-      if (json.status) {
-        setStatus(json.status as ReminderStatusResponse);
-      }
-      setActionSuccess(
-        `Przebieg przypomnień zakończony: wysłano ${json.sentCount ?? 0}, pominięto ${json.skippedCount ?? 0}, błędy ${json.errorCount ?? 0}.`
+      await dailyActionSubmit.submit(
+        async () => {
+          const res = await fetch('/api/admin/reminders/run-now', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ force: forceRun }),
+          });
+          if (!res.ok) {
+            const parsed = await parseApiErrorResponse(
+              res,
+              'Nie udało się uruchomić wysyłki przypomnień.'
+            );
+            return { ok: false, status: res.status, ...parsed };
+          }
+          const json = await res.json().catch(() => ({}));
+          if (json.status) {
+            setStatus(json.status as ReminderStatusResponse);
+          }
+          setActionSuccess(
+            `Przebieg przypomnień zakończony: wysłano ${json.sentCount ?? 0}, pominięto ${json.skippedCount ?? 0}, błędy ${json.errorCount ?? 0}.`
+          );
+          return { ok: true };
+        },
+        { fallbackError: 'Nie udało się uruchomić wysyłki przypomnień.' }
       );
-    } catch (err: any) {
-      setActionError(err?.message || 'Błąd połączenia z serwerem.');
     } finally {
-      setIsRunningNow(false);
+      setDailyActionKind(null);
     }
   };
 
   const handleSendWeeklyPreview = async () => {
-    setWeeklyActionError(null);
     setWeeklyActionSuccess(null);
-    setIsSendingWeeklyPreview(true);
+    setWeeklyActionKind('preview');
     try {
-      const res = await fetch('/api/admin/weekly-summary/preview', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setWeeklyActionError(json.error || 'Nie udało się wysłać podglądu podsumowania tygodniowego.');
-        return;
-      }
-      setWeeklyActionSuccess(json.message || 'Podgląd podsumowania tygodniowego został wysłany na Twój adres e-mail.');
-    } catch (err: any) {
-      setWeeklyActionError(err?.message || 'Błąd połączenia z serwerem.');
+      await weeklyActionSubmit.submit(
+        async () => {
+          const res = await fetch('/api/admin/weekly-summary/preview', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+          });
+          if (!res.ok) {
+            const parsed = await parseApiErrorResponse(
+              res,
+              'Nie udało się wysłać podglądu podsumowania tygodniowego.'
+            );
+            return { ok: false, status: res.status, ...parsed };
+          }
+          const json = await res.json().catch(() => ({}));
+          setWeeklyActionSuccess(
+            json.message ||
+              'Podgląd podsumowania tygodniowego został wysłany na Twój adres e-mail.'
+          );
+          return { ok: true };
+        },
+        { fallbackError: 'Nie udało się wysłać podglądu podsumowania tygodniowego.' }
+      );
     } finally {
-      setIsSendingWeeklyPreview(false);
+      setWeeklyActionKind(null);
     }
   };
 
   const handleRunWeeklyNow = async () => {
-    setWeeklyActionError(null);
     setWeeklyActionSuccess(null);
-    setIsRunningWeeklyNow(true);
+    setWeeklyActionKind('run');
     try {
-      const res = await fetch('/api/admin/weekly-summary/run-now', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force: forceWeeklyRun }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setWeeklyActionError(json.error || 'Nie udało się uruchomić wysyłki podsumowania tygodniowego.');
-        return;
-      }
-      if (json.status) {
-        setWeeklyStatus(json.status as WeeklySummaryStatusResponse);
-      }
-      setWeeklyActionSuccess(
-        `Przebieg podsumowania tygodniowego (${json.weekKey ?? ''}) zakończony: wysłano ${json.sentCount ?? 0}, pominięto ${json.skippedCount ?? 0}, błędy ${json.errorCount ?? 0}.`
+      await weeklyActionSubmit.submit(
+        async () => {
+          const res = await fetch('/api/admin/weekly-summary/run-now', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ force: forceWeeklyRun }),
+          });
+          if (!res.ok) {
+            const parsed = await parseApiErrorResponse(
+              res,
+              'Nie udało się uruchomić wysyłki podsumowania tygodniowego.'
+            );
+            return { ok: false, status: res.status, ...parsed };
+          }
+          const json = await res.json().catch(() => ({}));
+          if (json.status) {
+            setWeeklyStatus(json.status as WeeklySummaryStatusResponse);
+          }
+          setWeeklyActionSuccess(
+            `Przebieg podsumowania tygodniowego (${json.weekKey ?? ''}) zakończony: wysłano ${json.sentCount ?? 0}, pominięto ${json.skippedCount ?? 0}, błędy ${json.errorCount ?? 0}.`
+          );
+          return { ok: true };
+        },
+        { fallbackError: 'Nie udało się uruchomić wysyłki podsumowania tygodniowego.' }
       );
-    } catch (err: any) {
-      setWeeklyActionError(err?.message || 'Błąd połączenia z serwerem.');
     } finally {
-      setIsRunningWeeklyNow(false);
+      setWeeklyActionKind(null);
     }
   };
 
@@ -745,16 +783,17 @@ export const NotificationsTab: React.FC<NotificationsTabProps> = ({
                   onChange={(e) => setCurrentPassword(e.target.value)}
                   autoComplete="current-password"
                   placeholder="Wpisz swoje aktualne hasło logowania"
+                  {...saveSubmit.getFieldA11yProps('currentPassword', saveErrorId)}
                   className="w-full sm:max-w-sm px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs"
                 />
               </div>
 
-              {saveError && (
-                <div role="alert" className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
-                  <span>{saveError}</span>
-                </div>
-              )}
+              <FormError
+                id={saveErrorId}
+                error={saveSubmit.submitError}
+                alertRef={saveSubmit.alertRef}
+                onDismiss={saveSubmit.clearError}
+              />
 
               {saveSuccess && (
                 <div role="status" className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-2">
@@ -766,11 +805,11 @@ export const NotificationsTab: React.FC<NotificationsTabProps> = ({
               <div className="flex items-center justify-end">
                 <button
                   type="submit"
-                  disabled={isSaving}
+                  disabled={saveSubmit.isSubmitting}
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-700 hover:bg-sky-800 disabled:opacity-60 text-white text-xs font-semibold shadow-xs transition-colors"
                 >
                   <Save className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>{isSaving ? 'Zapisywanie...' : 'Zapisz'}</span>
+                  <span>{saveSubmit.isSubmitting ? 'Zapisywanie...' : 'Zapisz'}</span>
                 </button>
               </div>
             </div>
@@ -839,31 +878,30 @@ export const NotificationsTab: React.FC<NotificationsTabProps> = ({
                 <button
                   type="button"
                   onClick={handleSendPreview}
-                  disabled={isSendingPreview || !smtpConfigured}
+                  disabled={dailyActionSubmit.isSubmitting || !smtpConfigured}
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 text-slate-800 dark:text-slate-100 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition-colors"
                 >
                   <Send className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>{isSendingPreview ? 'Wysyłanie...' : 'Wyślij podgląd do mnie'}</span>
+                  <span>{dailyActionKind === 'preview' && dailyActionSubmit.isSubmitting ? 'Wysyłanie...' : 'Wyślij podgląd do mnie'}</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={handleRunNow}
-                  disabled={isRunningNow || !smtpConfigured}
+                  disabled={dailyActionSubmit.isSubmitting || !smtpConfigured}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-800 disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition-colors"
                 >
                   <Play className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>{isRunningNow ? 'Wysyłanie...' : 'Uruchom teraz'}</span>
+                  <span>{dailyActionKind === 'run' && dailyActionSubmit.isSubmitting ? 'Wysyłanie...' : 'Uruchom teraz'}</span>
                 </button>
               </div>
             </div>
 
-            {actionError && (
-              <div role="alert" className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
-                <span>{actionError}</span>
-              </div>
-            )}
+            <FormError
+              error={dailyActionSubmit.submitError}
+              alertRef={dailyActionSubmit.alertRef}
+              onDismiss={dailyActionSubmit.clearError}
+            />
 
             {actionSuccess && (
               <div role="status" className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-2">
@@ -954,31 +992,30 @@ export const NotificationsTab: React.FC<NotificationsTabProps> = ({
                 <button
                   type="button"
                   onClick={handleSendWeeklyPreview}
-                  disabled={isSendingWeeklyPreview || !smtpConfigured}
+                  disabled={weeklyActionSubmit.isSubmitting || !smtpConfigured}
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 text-slate-800 dark:text-slate-100 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition-colors"
                 >
                   <Send className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>{isSendingWeeklyPreview ? 'Wysyłanie...' : 'Wyślij podgląd do mnie'}</span>
+                  <span>{weeklyActionKind === 'preview' && weeklyActionSubmit.isSubmitting ? 'Wysyłanie...' : 'Wyślij podgląd do mnie'}</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={handleRunWeeklyNow}
-                  disabled={isRunningWeeklyNow || !smtpConfigured}
+                  disabled={weeklyActionSubmit.isSubmitting || !smtpConfigured}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-800 disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition-colors"
                 >
                   <Play className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>{isRunningWeeklyNow ? 'Wysyłanie...' : 'Wyślij teraz'}</span>
+                  <span>{weeklyActionKind === 'run' && weeklyActionSubmit.isSubmitting ? 'Wysyłanie...' : 'Wyślij teraz'}</span>
                 </button>
               </div>
             </div>
 
-            {weeklyActionError && (
-              <div role="alert" className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
-                <span>{weeklyActionError}</span>
-              </div>
-            )}
+            <FormError
+              error={weeklyActionSubmit.submitError}
+              alertRef={weeklyActionSubmit.alertRef}
+              onDismiss={weeklyActionSubmit.clearError}
+            />
 
             {weeklyActionSuccess && (
               <div role="status" className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-2">

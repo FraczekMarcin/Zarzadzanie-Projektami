@@ -230,7 +230,8 @@ export function createWeeklySummaryService(deps: {
         projects,
         users,
         currentMs,
-        settings
+        settings,
+        appState.variables?.projectStatuses
       );
 
       const alreadySentSet = new Set(persisted.sentUserIdsThisWeek);
@@ -390,7 +391,8 @@ export function createWeeklySummaryService(deps: {
       projects,
       [previewRecipient],
       currentMs,
-      { ...settings, includeAdmins: true }
+      { ...settings, includeAdmins: true },
+      appState.variables?.projectStatuses
     );
 
     const summary = summaries[0] || {

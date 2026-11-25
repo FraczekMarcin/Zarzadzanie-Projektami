@@ -473,6 +473,8 @@ export function registerTenderRoutes(
             appState.projectNumbering?.scope === 'company' ? 'company' : 'year',
           defaultCompanyId: appState.projectNumbering?.defaultCompanyId,
           vatRates: appState.variables?.vatRates,
+          projectStatuses: appState.variables?.projectStatuses,
+          projectPriorities: appState.variables?.projectPriorities,
           body: rawBody,
           templateDurationDays: resolvedTemplate?.defaultDurationDays,
         });

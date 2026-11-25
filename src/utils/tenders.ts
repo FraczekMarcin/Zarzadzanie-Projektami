@@ -4,6 +4,8 @@ import type {
   Company,
   Project,
   ProjectNumberingScope,
+  ProjectPriorityOption,
+  ProjectStatusOption,
   Tender,
   TenderPriceBasis,
   TenderStatus,
@@ -21,6 +23,7 @@ import {
   subtractMoney,
 } from './money.js';
 import { getNextProjectCode } from './projectCode.js';
+import { getDefaultProjectPriorityId, getDefaultProjectStatusId } from './projectMeta.js';
 import { addDaysIso, getTodayIso, parseIsoDate } from './today.js';
 import type { VatRateOption } from './variablesSchema.js';
 
@@ -1151,6 +1154,8 @@ export interface BuildProjectFromTenderOptions {
   projectNumberingScope?: ProjectNumberingScope;
   defaultCompanyId?: string;
   vatRates?: VatRateOption[];
+  projectStatuses?: ProjectStatusOption[];
+  projectPriorities?: ProjectPriorityOption[];
   body?: Record<string, any>;
   templateDurationDays?: number;
   todayIso?: string;
@@ -1358,8 +1363,8 @@ export function buildProjectFromTender(
     ...(selectedCompany ? { companyId: selectedCompany.id } : {}),
     name: tender.name,
     description,
-    priority: 'normal',
-    status: 'planning',
+    priority: getDefaultProjectPriorityId(opts.projectPriorities),
+    status: getDefaultProjectStatusId(opts.projectStatuses),
     startDate,
     dueDate,
     durationDays,

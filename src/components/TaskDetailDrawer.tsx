@@ -1,7 +1,9 @@
 import React, { useState, useRef, useId, useEffect, useCallback } from 'react';
-import { Task, Project, User, Priority, TaskStatus } from '../types';
+import { Task, Project, User, Priority, TaskStatus, Comment } from '../types';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
+import { useFormSubmit, type FormSubmitResult } from '../hooks/useFormSubmit';
+import { FormError } from './FormError';
 import { FIELD_LIMITS } from '../utils/access';
 import { generateGoogleCalendarUrl, downloadIcsFile } from '../utils/calendar';
 import { 
@@ -40,7 +42,10 @@ interface TaskDetailDrawerProps {
   onUpdateStatus: (taskId: string, status: TaskStatus) => void;
   onUpdateProgress: (taskId: string, progress: number) => void;
   onUpdateTaskFields?: (taskId: string, patch: Partial<Task>) => void;
-  onAddComment: (taskId: string, text: string) => void;
+  onAddComment: (
+    taskId: string,
+    text: string
+  ) => Promise<FormSubmitResult<Comment> | void> | FormSubmitResult<Comment> | void;
   comments?: { id: string; taskId: string; userId: string; content: string; createdAt: string }[];
 }
 
@@ -73,6 +78,7 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [titleError, setTitleError] = useState<string | null>(null);
   const [datesError, setDatesError] = useState<string | null>(null);
+  const commentSubmit = useFormSubmit<Comment>();
 
   const normalizePriority = (p?: Priority | string): Priority => {
     if (p === 'medium') return 'normal';
@@ -124,6 +130,7 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
     setTitleError(null);
     setDatesError(null);
     setErrorMessage(null);
+    commentSubmit.clearError();
   }, [task?.id]);
 
   const validateAndCommit = useCallback((): boolean => {
@@ -234,11 +241,17 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
     onUpdateStatus(task.id, newStatus);
   };
 
-  const handleCommentSubmit = (e: React.FormEvent) => {
+  const handleCommentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!commentText.trim()) return;
-    onAddComment(task.id, commentText);
-    setCommentText('');
+    const trimmed = commentText.trim();
+    if (!trimmed) return;
+    const res = await commentSubmit.submit(
+      () => Promise.resolve(onAddComment(task.id, trimmed)),
+      { fallbackError: 'Nie udało się zapisać komentarza na serwerze.' }
+    );
+    if (res.ok) {
+      setCommentText('');
+    }
   };
 
   const handleEditButtonClick = () => {
@@ -858,22 +871,33 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
               )}
             </div>
 
+            <FormError
+              id={`${baseId}-comment-error`}
+              error={commentSubmit.submitError}
+              alertRef={commentSubmit.alertRef}
+              onDismiss={commentSubmit.clearError}
+              className="mb-3"
+            />
+
             <form onSubmit={handleCommentSubmit} className="flex gap-2">
               <input
                 id={`${baseId}-comment`}
                 type="text"
                 aria-label="Treść komentarza"
                 value={commentText}
+                disabled={commentSubmit.isSubmitting}
                 onChange={(e) => setCommentText(e.target.value)}
+                {...commentSubmit.getFieldA11yProps('content', `${baseId}-comment-error`)}
                 placeholder={`Napisz jako ${currentUser?.name || 'Użytkownik'}...`}
-                className="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                className="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-60"
               />
               <button
                 type="submit"
-                className="bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 text-white px-3 py-1.5 rounded transition-colors flex items-center gap-1 shrink-0 font-medium"
+                disabled={commentSubmit.isSubmitting}
+                className="bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 disabled:opacity-60 text-white px-3 py-1.5 rounded transition-colors flex items-center gap-1 shrink-0 font-medium"
               >
                 <Send className="w-3 h-3" aria-hidden="true" />
-                <span>Wyślij</span>
+                <span>{commentSubmit.isSubmitting ? 'Wysyłanie...' : 'Wyślij'}</span>
               </button>
             </form>
           </div>

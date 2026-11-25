@@ -4,6 +4,8 @@ import { copyToClipboard } from '../utils/clipboard';
 import { FIELD_LIMITS } from '../utils/access';
 import { computeProjectFinance } from '../utils/finance';
 import { formatMoney } from '../utils/money';
+import { resolveProjectPriority, resolveProjectStatus } from '../utils/projectMeta';
+import { useVariables } from '../hooks/useVariables';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { 
@@ -64,6 +66,7 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
   const modalRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
+  const { projectStatuses, projectPriorities } = useVariables();
   const { backdropProps, requestClose } = useDismissOnOutsideClick({
     isOpen: Boolean(isOpen && project),
     mode: 'dismiss',
@@ -75,6 +78,8 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
 
   if (!isOpen || !project) return null;
 
+  const statusMeta = resolveProjectStatus(project.status, projectStatuses);
+  const priorityMeta = resolveProjectPriority(project.priority, projectPriorities);
   const projectTasks = tasks.filter((t) => t.projectId === project.id);
   const completedTasksCount = projectTasks.filter((t) => t.status === 'done').length;
   const inProgressTasksCount = projectTasks.filter((t) => t.status === 'in_progress').length;
@@ -88,7 +93,7 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
     ? companies.find((c) => c.id === project.companyId)
     : undefined;
 
-  const finance = computeProjectFinance(project, projectCompany);
+  const finance = computeProjectFinance(project, projectCompany, { projectStatuses });
   const baselineValue = finance.baseProjectValueNet;
   const baselineValueGross = finance.baseProjectValueGross;
   const balanceNet = finance.profitNet;
@@ -159,21 +164,14 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                 ) : null;
               })()}
               <span
-                className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
-                  project.status === 'active'
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
-                    : project.status === 'completed'
-                    ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800'
-                    : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
-                }`}
+                className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${statusMeta.badgeClass}`}
               >
-                {project.status === 'active'
-                  ? 'W realizacji'
-                  : project.status === 'completed'
-                  ? 'Ukończony'
-                  : project.status === 'planning'
-                  ? 'Planowanie'
-                  : 'Wstrzymany'}
+                {statusMeta.label}
+              </span>
+              <span
+                className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${priorityMeta.badgeClass}`}
+              >
+                Priorytet: {priorityMeta.label}
               </span>
               {project.isArchived && (
                 <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 flex items-center gap-1">

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useId } from 'react';
+import React, { useState, useRef, useId, useEffect } from 'react';
 import type {
   Project,
   Task,
@@ -10,7 +10,9 @@ import type {
   Company,
 } from '../types';
 import type { FinancePatchSaveResult } from '../hooks/useServerSync';
+import type { FormSubmitResult } from '../hooks/useFormSubmit';
 import { registerClientIfNew } from '../utils/variableSettings';
+import { isProjectStatusClosed } from '../utils/projectMeta';
 import { useVariables } from '../hooks/useVariables';
 import { copyToClipboard } from '../utils/clipboard';
 import { useFocusTrap } from '../utils/useFocusTrap';
@@ -68,7 +70,9 @@ interface ProjectFinancialsModalProps {
   tasks: Task[];
   currentUser?: User | null;
   isAdmin?: boolean;
-  onSaveProject?: (updated: Project) => void;
+  onSaveProject?: (
+    updated: Project
+  ) => Promise<FormSubmitResult<Project> | boolean | void> | FormSubmitResult<Project> | boolean | void;
   onSaveFinancePatch?: (
     projectId: string,
     patch: Partial<Project>,
@@ -139,8 +143,12 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   const [diskPath, setDiskPath] = useState(project.diskPath || '');
   const [copiedPath, setCopiedPath] = useState(false);
 
-  // Available VAT rates & clients from server-synced system variables
-  const { vatRates: vatRateOptions, clients: availableClients } = useVariables();
+  // Available VAT rates, project statuses & clients from server-synced system variables
+  const {
+    vatRates: vatRateOptions,
+    clients: availableClients,
+    projectStatuses,
+  } = useVariables();
   const projectCompany = project.companyId
     ? companies.find((c) => c.id === project.companyId)
     : undefined;
@@ -152,7 +160,12 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
     23;
 
   // Base Contract Value (Wartość projektu z umowy) — pusta, jeśli projekt jej nie ma
-  const initialVatRate = project.projectVatRate !== undefined ? project.projectVatRate : 23;
+  const initialVatRate =
+    project.projectVatRate !== undefined
+      ? project.projectVatRate
+      : isVatExempt
+        ? 0
+        : defaultVarVatRate;
   const [projectVatRate, setProjectVatRate] = useState<number>(initialVatRate);
   const [baseNetStr, setBaseNetStr] = useState<string>(() =>
     getInitialMoneyStr(project.projectValue)
@@ -170,7 +183,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   const [isBaseContractPaid, setIsBaseContractPaid] = useState<boolean>(
     project.isBaseContractPaid !== undefined
       ? Boolean(project.isBaseContractPaid)
-      : project.status === 'completed'
+      : isProjectStatusClosed(project.status, projectStatuses)
   );
 
   // Dates
@@ -307,6 +320,9 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
 
   // Save / Server Error / Conflict State
   const [isSaving, setIsSaving] = useState(false);
+  const inFlightSaveRef = useRef(false);
+  const saveErrorAlertRef = useRef<HTMLDivElement>(null);
+  const conflictAlertRef = useRef<HTMLDivElement>(null);
   const [saveError, setSaveError] = useState<{
     error: string;
     itemType?: 'project' | 'quotation' | 'cost' | 'tranche';
@@ -317,6 +333,18 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
     error: string;
     currentProject?: Project;
   } | null>(null);
+
+  useEffect(() => {
+    if (saveError && typeof window !== 'undefined') {
+      window.requestAnimationFrame(() => saveErrorAlertRef.current?.focus());
+    }
+  }, [saveError]);
+
+  useEffect(() => {
+    if (conflictState && typeof window !== 'undefined') {
+      window.requestAnimationFrame(() => conflictAlertRef.current?.focus());
+    }
+  }, [conflictState]);
 
   const buildFinanceSnapshot = (vals: {
     clientName: string;
@@ -361,7 +389,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
       isBaseContractPaid:
         project.isBaseContractPaid !== undefined
           ? Boolean(project.isBaseContractPaid)
-          : project.status === 'completed',
+          : isProjectStatusClosed(project.status, projectStatuses),
       quotations: (project.quotations || []).map((q) => ({
         ...q,
         companyName: q.companyName || project.clientName || 'Inwestor Główny',
@@ -501,7 +529,12 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
 
   // Rehydrate modal states when user clicks "Odśwież dane projektu" po 409
   const applyFreshProjectToModal = (fresh: Project) => {
-    const freshVat = fresh.projectVatRate !== undefined ? fresh.projectVatRate : 23;
+    const freshVat =
+      fresh.projectVatRate !== undefined
+        ? fresh.projectVatRate
+        : isVatExempt
+          ? 0
+          : defaultVarVatRate;
     const nextStart = fresh.startDate || getTodayIso();
     const nextDue = fresh.dueDate || getTodayIso();
     const nextBaseNetStr = getInitialMoneyStr(fresh.projectValue);
@@ -516,7 +549,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
     const nextBasePaid =
       fresh.isBaseContractPaid !== undefined
         ? Boolean(fresh.isBaseContractPaid)
-        : fresh.status === 'completed';
+        : isProjectStatusClosed(fresh.status, projectStatuses);
     const nextQuotations = (fresh.quotations || []).map((q) => ({
       ...q,
       companyName: q.companyName || fresh.clientName || 'Inwestor Główny',
@@ -1471,6 +1504,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
   // --- Save Handler (sends ONLY changed fields) ---
   const handleSaveAll = async () => {
     if (!canEdit) return;
+    if (inFlightSaveRef.current || isSaving) return;
     if (baseNetError || baseGrossError) {
       setActiveTab('quotations');
       return;
@@ -1543,51 +1577,85 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
     };
 
     if (onSaveFinancePatch) {
+      inFlightSaveRef.current = true;
       setIsSaving(true);
-      const res = await onSaveFinancePatch(project.id, patch, project.revision || 1);
-      setIsSaving(false);
+      try {
+        const res = await onSaveFinancePatch(project.id, patch, project.revision || 1);
 
-      if (res.ok) {
-        const newlyPaidTaskIds = collectNewlyPaidTaskIds();
-        if (newlyPaidTaskIds.length > 0) {
-          onItemsMarkedPaid?.(newlyPaidTaskIds);
+        if (res.ok) {
+          const newlyPaidTaskIds = collectNewlyPaidTaskIds();
+          if (newlyPaidTaskIds.length > 0) {
+            onItemsMarkedPaid?.(newlyPaidTaskIds);
+          }
+          onClose();
+          return;
         }
-        onClose();
-        return;
-      }
 
-      if (res.status === 409) {
-        setConflictState({
-          error:
-            res.error ||
-            'Konflikt wersji projektu (został zmodyfikowany przez innego użytkownika).',
-          currentProject: res.currentProject,
+        if (res.status === 409) {
+          setConflictState({
+            error:
+              res.error ||
+              'Konflikt wersji projektu (został zmodyfikowany przez innego użytkownika).',
+            currentProject: res.currentProject,
+          });
+          return;
+        }
+
+        setSaveError({
+          error: res.error || 'Błąd zapisu danych finansowych.',
+          itemType: res.itemType,
+          itemId: res.itemId,
+          field: res.field,
         });
-        return;
-      }
 
-      setSaveError({
-        error: res.error || 'Błąd zapisu danych finansowych.',
-        itemType: res.itemType,
-        itemId: res.itemId,
-        field: res.field,
-      });
-
-      if (res.itemType === 'cost') {
-        setActiveTab('costs');
-      } else if (res.itemType === 'quotation' || res.itemType === 'tranche' || res.itemType === 'project') {
-        setActiveTab('quotations');
+        if (res.itemType === 'cost') {
+          setActiveTab('costs');
+        } else if (res.itemType === 'quotation' || res.itemType === 'tranche' || res.itemType === 'project') {
+          setActiveTab('quotations');
+        }
+      } catch (err: any) {
+        setSaveError({
+          error: err?.message || 'Błąd połączenia z serwerem podczas zapisu danych finansowych.',
+        });
+      } finally {
+        inFlightSaveRef.current = false;
+        setIsSaving(false);
       }
       return;
     }
 
     if (onSaveProject) {
-      onSaveProject(draftWithBudget);
-      const newlyPaidTaskIds = collectNewlyPaidTaskIds();
-      if (newlyPaidTaskIds.length > 0) {
-        onItemsMarkedPaid?.(newlyPaidTaskIds);
+      inFlightSaveRef.current = true;
+      setIsSaving(true);
+      try {
+        const res = await Promise.resolve(onSaveProject(draftWithBudget));
+        if (res === false || (res && typeof res === 'object' && 'ok' in res && !res.ok)) {
+          const errMsg =
+            res && typeof res === 'object' && 'error' in res && typeof res.error === 'string' && res.error.trim()
+              ? res.error
+              : 'Błąd zapisu danych finansowych.';
+          setSaveError({
+            error: errMsg,
+            field: res && typeof res === 'object' && 'field' in res ? res.field : undefined,
+          });
+          return;
+        }
+        const newlyPaidTaskIds = collectNewlyPaidTaskIds();
+        if (newlyPaidTaskIds.length > 0) {
+          onItemsMarkedPaid?.(newlyPaidTaskIds);
+        }
+        onClose();
+      } catch (err: any) {
+        setSaveError({
+          error: err?.message || 'Nie udało się zapisać danych projektu na serwerze.',
+        });
+      } finally {
+        inFlightSaveRef.current = false;
+        setIsSaving(false);
       }
+      return;
     }
+
     onClose();
   };
 
@@ -1725,8 +1793,11 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
         {/* 409 Revision Conflict Alert */}
         {conflictState && (
           <div
+            ref={conflictAlertRef}
             role="alert"
-            className="px-6 py-3 bg-amber-50 dark:bg-amber-950/60 border-b border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-100 text-xs flex flex-wrap items-center justify-between gap-3"
+            aria-live="assertive"
+            tabIndex={-1}
+            className="px-6 py-3 bg-amber-50 dark:bg-amber-950/60 border-b border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-100 text-xs flex flex-wrap items-center justify-between gap-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
           >
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0" aria-hidden="true" />
@@ -1746,8 +1817,11 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
         {/* General 400 / 403 / Save Error Alert */}
         {saveError && (
           <div
+            ref={saveErrorAlertRef}
             role="alert"
-            className="px-6 py-2.5 bg-rose-50 dark:bg-rose-950/50 border-b border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200 text-xs flex items-center justify-between gap-2"
+            aria-live="assertive"
+            tabIndex={-1}
+            className="px-6 py-2.5 bg-rose-50 dark:bg-rose-950/50 border-b border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200 text-xs flex items-center justify-between gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
           >
             <div className="flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-rose-700 dark:text-rose-400 shrink-0" aria-hidden="true" />

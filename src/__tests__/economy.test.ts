@@ -7,6 +7,7 @@ import { createApp, CreateAppOptions } from '../../server.js';
 import type { Company, Project, Task, User } from '../types/index.js';
 import { canEditFinance, canViewFinance, filterProjectForUser } from '../utils/access.js';
 import { parseDeepLink, buildUrlWithoutDeepLinkParams } from '../utils/deepLink.js';
+import { computeProjectFinance } from '../utils/finance.js';
 import {
   buildEconomyRows,
   computeEconomyTotals,
@@ -514,6 +515,66 @@ describe('Ekonomia — testy jednostkowe', () => {
     expect(lines[2]).toContain(
       ';Zwolniona z VAT;Przychód ZW, koszt brutto (VAT nieodliczalny) — art. 113 ust. 1 ustawy o VAT'
     );
+  });
+
+  it('P76: projekt bez ustawionej wartości (undefined/null) ma hasProjectValue = false i sumuje się jako 0', () => {
+    const noValueProject: Project = {
+      ...SAMPLE_PROJECTS[2],
+      id: 'prj-no-val',
+      key: '2026-9_A',
+      name: 'Projekt bez wartości',
+      projectValue: undefined,
+      projectValueGross: undefined,
+      quotations: [],
+      costs: [
+        {
+          id: 'c-nv-1',
+          projectId: 'prj-no-val',
+          title: 'Koszt początkowy',
+          amountNet: 500,
+          amountGross: 615,
+          category: 'inne',
+          date: '2026-04-01',
+          status: 'planned',
+          isPaid: false,
+        },
+      ],
+    };
+
+    const rows = buildEconomyRows([noValueProject, SAMPLE_PROJECTS[0]], COMPANIES, ADMIN_USER, '2026-05-01');
+    const nvRow = rows.find((r) => r.project.id === 'prj-no-val')!;
+    expect(nvRow.hasProjectValue).toBe(false);
+    expect(nvRow.valueNet).toBe(0);
+    expect(nvRow.valueGross).toBe(0);
+
+    const totals = computeEconomyTotals(rows);
+    expect(totals.valueNet).toBe(10000);
+    expect(totals.valueGross).toBe(12300);
+    expect(totals.costsNet).toBe(2500);
+  });
+
+  it('P76: computeProjectFinance traktuje niestandardowy stan końcowy (isClosed: true) jako opłacony fallback umowy bazowej', () => {
+    const cancelledProject: Project = {
+      ...SAMPLE_PROJECTS[0],
+      status: 'cancelled',
+      isBaseContractPaid: undefined,
+      projectValue: 10000,
+      paymentTranches: [],
+      quotations: [],
+      costs: [],
+    };
+    const statuses = [
+      { id: 'active', label: 'Aktywny', color: 'emerald' as const, order: 1, isDefault: true, isClosed: false },
+      { id: 'cancelled', label: 'Anulowany', color: 'rose' as const, order: 2, isDefault: false, isClosed: true },
+    ];
+
+    const closedSummary = computeProjectFinance(cancelledProject, { projectStatuses: statuses });
+    expect(closedSummary.paidRevenueNet).toBe(10000);
+    expect(closedSummary.unpaidRevenueNet).toBe(0);
+
+    const fallbackSummary = computeProjectFinance(cancelledProject);
+    expect(fallbackSummary.paidRevenueNet).toBe(0);
+    expect(fallbackSummary.unpaidRevenueNet).toBe(10000);
   });
 });
 

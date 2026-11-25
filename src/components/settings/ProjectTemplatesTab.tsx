@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { Project, ProjectTemplate, ProjectTemplateSummary, Task, User } from '../../types';
 import {
   MAX_CUSTOM_TEMPLATES,
@@ -13,10 +13,11 @@ import {
   fetchTemplatesList,
   getLegacyLocalCustomTemplates,
 } from '../../utils/projectTemplates';
+import { normalizeSubmitError } from '../../hooks/useFormSubmit';
+import { FormError } from '../FormError';
 import { CreateTemplateFromProjectModal } from './CreateTemplateFromProjectModal';
 import { TemplateEditorModal } from './TemplateEditorModal';
 import {
-  AlertCircle,
   Building2,
   CheckCircle2,
   Clock,
@@ -63,6 +64,16 @@ export const ProjectTemplatesTab: React.FC<ProjectTemplatesTabProps> = ({
     type: 'success' | 'info' | 'error';
     text: string;
   } | null>(null);
+  const errorAlertRef = useRef<HTMLDivElement>(null);
+  const actionLockRef = useRef(false);
+
+  const showError = useCallback((err: unknown, fallback: string) => {
+    const normalized = normalizeSubmitError(err, fallback);
+    setStatusMsg({ type: 'error', text: normalized.error });
+    if (typeof window !== 'undefined') {
+      window.requestAnimationFrame(() => errorAlertRef.current?.focus());
+    }
+  }, []);
 
   const loadTemplates = useCallback(async () => {
     if (!isAdmin) return;
@@ -70,15 +81,12 @@ export const ProjectTemplatesTab: React.FC<ProjectTemplatesTabProps> = ({
     try {
       const list = await fetchTemplatesList();
       setTemplates(list);
-    } catch (err: any) {
-      setStatusMsg({
-        type: 'error',
-        text: err?.message || 'Nie udało się pobrać listy szablonów.',
-      });
+    } catch (err: unknown) {
+      showError(err, 'Nie udało się pobrać listy szablonów.');
     } finally {
       setIsLoading(false);
     }
-  }, [isAdmin]);
+  }, [isAdmin, showError]);
 
   useEffect(() => {
     if (!isOpen || !isAdmin) return;
@@ -100,7 +108,8 @@ export const ProjectTemplatesTab: React.FC<ProjectTemplatesTabProps> = ({
   const customCount = templates.filter((t) => !t.builtIn).length;
 
   const handleMigrateLegacyToServer = async () => {
-    if (legacyTemplates.length === 0) return;
+    if (legacyTemplates.length === 0 || actionLockRef.current) return;
+    actionLockRef.current = true;
     setIsMigratingLegacy(true);
     setStatusMsg(null);
     let savedCount = 0;
@@ -126,15 +135,14 @@ export const ProjectTemplatesTab: React.FC<ProjectTemplatesTabProps> = ({
         type: 'success',
         text: `Zapisano ${savedCount} szablon(ów) z przeglądarki na serwerze.`,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       await loadTemplates();
-      setStatusMsg({
-        type: 'error',
-        text:
-          err?.message ||
-          `Przeniesiono ${savedCount} szablonów, ale wystąpił błąd podczas zapisu pozostałych.`,
-      });
+      showError(
+        err,
+        `Przeniesiono ${savedCount} szablonów, ale wystąpił błąd podczas zapisu pozostałych.`
+      );
     } finally {
+      actionLockRef.current = false;
       setIsMigratingLegacy(false);
     }
   };
@@ -149,6 +157,8 @@ export const ProjectTemplatesTab: React.FC<ProjectTemplatesTabProps> = ({
   };
 
   const handleDuplicate = async (tpl: ProjectTemplateSummary) => {
+    if (actionLockRef.current) return;
+    actionLockRef.current = true;
     setBusyId(tpl.id);
     setStatusMsg(null);
     try {
@@ -159,17 +169,17 @@ export const ProjectTemplatesTab: React.FC<ProjectTemplatesTabProps> = ({
         type: 'success',
         text: `Utworzono kopię szablonu: "${res.template.name}".`,
       });
-    } catch (err: any) {
-      setStatusMsg({
-        type: 'error',
-        text: err?.message || 'Nie udało się zduplikować szablonu.',
-      });
+    } catch (err: unknown) {
+      showError(err, 'Nie udało się zduplikować szablonu.');
     } finally {
+      actionLockRef.current = false;
       setBusyId(null);
     }
   };
 
   const handleConfirmDelete = async (tpl: ProjectTemplateSummary) => {
+    if (actionLockRef.current) return;
+    actionLockRef.current = true;
     setBusyId(tpl.id);
     setStatusMsg(null);
     try {
@@ -181,28 +191,26 @@ export const ProjectTemplatesTab: React.FC<ProjectTemplatesTabProps> = ({
         type: 'success',
         text: `Szablon "${tpl.name}" został usunięty.`,
       });
-    } catch (err: any) {
-      setStatusMsg({
-        type: 'error',
-        text: err?.message || 'Nie udało się usunąć szablonu.',
-      });
+    } catch (err: unknown) {
+      showError(err, 'Nie udało się usunąć szablonu.');
     } finally {
+      actionLockRef.current = false;
       setBusyId(null);
     }
   };
 
   const handleOpenEditor = async (tpl: ProjectTemplateSummary) => {
+    if (actionLockRef.current) return;
+    actionLockRef.current = true;
     setLoadingEditId(tpl.id);
     setStatusMsg(null);
     try {
       const fullTemplate = await fetchTemplateById(tpl.id);
       setEditingTemplate(fullTemplate);
-    } catch (err: any) {
-      setStatusMsg({
-        type: 'error',
-        text: err?.message || 'Nie udało się wczytać szablonu do edycji.',
-      });
+    } catch (err: unknown) {
+      showError(err, 'Nie udało się wczytać szablonu do edycji.');
     } finally {
+      actionLockRef.current = false;
       setLoadingEditId(null);
     }
   };
@@ -279,24 +287,26 @@ export const ProjectTemplatesTab: React.FC<ProjectTemplatesTabProps> = ({
       )}
 
       {/* Komunikat statusu */}
-      {statusMsg && (
-        <div
-          role={statusMsg.type === 'error' ? 'alert' : 'status'}
-          className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
-            statusMsg.type === 'error'
-              ? 'bg-rose-50 dark:bg-rose-950/50 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200'
-              : statusMsg.type === 'success'
-              ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
-              : 'bg-sky-50 dark:bg-sky-950/50 border-sky-300 dark:border-sky-800 text-sky-900 dark:text-sky-200'
-          }`}
-        >
-          {statusMsg.type === 'error' ? (
-            <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
-          ) : (
+      {statusMsg?.type === 'error' ? (
+        <FormError
+          error={statusMsg.text}
+          alertRef={errorAlertRef}
+          onDismiss={() => setStatusMsg(null)}
+        />
+      ) : (
+        statusMsg && (
+          <div
+            role="status"
+            className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+              statusMsg.type === 'success'
+                ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
+                : 'bg-sky-50 dark:bg-sky-950/50 border-sky-300 dark:border-sky-800 text-sky-900 dark:text-sky-200'
+            }`}
+          >
             <CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden="true" />
-          )}
-          <span>{statusMsg.text}</span>
-        </div>
+            <span>{statusMsg.text}</span>
+          </div>
+        )
       )}
 
       {/* Lista szablonów */}

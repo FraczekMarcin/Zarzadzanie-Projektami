@@ -425,6 +425,49 @@ describe('Podsumowanie tygodniowe — logika czysta (src/utils/weeklySummary.ts)
     expect(limited[0].projects[0].overdueOverflow).toBe(3);
   });
 
+  it('wyklucza projekty w stanie końcowym (completed oraz niestandardowy isClosed: true) z podsumowania tygodniowego', () => {
+    const now = Date.parse('2026-11-16T08:00:00.000Z');
+    const users: User[] = [
+      {
+        id: 'u-pm',
+        name: 'Kierownik',
+        email: 'pm@pracownia.pl',
+        role: 'project_manager',
+        department: 'Zarządzanie',
+        initials: 'KI',
+        isApproved: true,
+      },
+    ];
+    const projects: Project[] = [
+      makeProject({ id: 'p-act', key: 'ACT', name: 'Aktywny', status: 'active' }),
+      makeProject({ id: 'p-comp', key: 'CMP', name: 'Zakończony', status: 'completed' }),
+      makeProject({ id: 'p-cncl', key: 'CNCL', name: 'Anulowany', status: 'cancelled' }),
+    ];
+    const tasks: Task[] = [
+      makeTask({ id: 't-act', projectId: 'p-act', code: 'ACT-1', title: 'Zaległe aktywne', dueDate: '2026-11-10' }),
+      makeTask({ id: 't-comp', projectId: 'p-comp', code: 'CMP-1', title: 'Zaległe zakończone', dueDate: '2026-11-10' }),
+      makeTask({ id: 't-cncl', projectId: 'p-cncl', code: 'CNCL-1', title: 'Zaległe anulowane', dueDate: '2026-11-10' }),
+    ];
+    const customStatuses = [
+      { id: 'active', label: 'Aktywny', color: 'emerald' as const, order: 1, isDefault: true, isClosed: false },
+      { id: 'completed', label: 'Zakończony', color: 'slate' as const, order: 2, isDefault: false, isClosed: true },
+      { id: 'cancelled', label: 'Anulowany', color: 'rose' as const, order: 3, isDefault: false, isClosed: true },
+    ];
+
+    const summaries = buildWeeklySummary(
+      tasks,
+      projects,
+      users,
+      now,
+      makeBaseSettings({ windowDays: 7, includeAdmins: false }),
+      customStatuses
+    );
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0].projects.map((p) => p.projectId)).toEqual(['p-act']);
+    expect(summaries[0].cleanProjects).toEqual([]);
+    expect(summaries[0].totalOverdue).toBe(1);
+  });
+
   it('renderWeeklySummaryEmail generuje poprawny temat, tabele HTML, bezpieczne escapowanie i brak danych poufnych', () => {
     const now = Date.parse('2026-11-16T08:00:00.000Z');
     const summary = buildWeeklySummary(

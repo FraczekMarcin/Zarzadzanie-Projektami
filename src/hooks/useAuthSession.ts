@@ -21,6 +21,11 @@ import {
   normalizeProgressWeighting,
   ProgressWeighting,
 } from '../utils/progress';
+import {
+  FormSubmitResult,
+  normalizeSubmitError,
+  parseApiErrorResponse,
+} from './useFormSubmit';
 
 export interface NotificationToast {
   message: string;
@@ -270,13 +275,16 @@ export function useAuthSession({
     });
   };
 
-  const handleAddUser = async (newUserData: Omit<User, 'id' | 'initials'>) => {
+  const handleAddUser = async (
+    newUserData: Omit<User, 'id' | 'initials'>
+  ): Promise<FormSubmitResult<User>> => {
     if (!newUserData.password || !newUserData.password.trim()) {
+      const msg = 'Hasło jest wymagane do utworzenia konta użytkownika.';
       setNotificationToast({
-        message: 'Hasło jest wymagane do utworzenia konta użytkownika.',
+        message: msg,
         type: 'error',
       });
-      return;
+      return { ok: false, error: msg, field: 'password' };
     }
     try {
       const res = await fetch('/api/users', {
@@ -294,12 +302,17 @@ export function useAuthSession({
       });
 
       if (!res.ok) {
-        const err = await res.json();
+        const parsed = await parseApiErrorResponse(res, 'Nie udało się dodać użytkownika.');
         setNotificationToast({
-          message: err.error || 'Nie udało się dodać użytkownika.',
+          message: parsed.error,
           type: 'error',
         });
-        return;
+        return {
+          ok: false,
+          status: res.status,
+          error: parsed.error,
+          field: parsed.field,
+        };
       }
 
       const data = await res.json();
@@ -309,11 +322,17 @@ export function useAuthSession({
         message: `Użytkownik ${data.user.name} został pomyślnie dodany i zabezpieczony scrypt.`,
         type: 'success',
       });
-    } catch {
+      return { ok: true, status: res.status, data: data.user };
+    } catch (err) {
+      const normalized = normalizeSubmitError(
+        err,
+        'Błąd połączenia z serwerem podczas dodawania użytkownika.'
+      );
       setNotificationToast({
-        message: 'Błąd połączenia z serwerem podczas dodawania użytkownika.',
+        message: normalized.error,
         type: 'error',
       });
+      return { ok: false, error: normalized.error, field: normalized.field };
     }
   };
 
@@ -374,7 +393,11 @@ export function useAuthSession({
   };
 
   // Update user password via server scrypt endpoint
-  const handleUpdateUserPassword = async (userId: string, newPass: string, currentPass?: string): Promise<boolean> => {
+  const handleUpdateUserPassword = async (
+    userId: string,
+    newPass: string,
+    currentPass?: string
+  ): Promise<FormSubmitResult> => {
     try {
       const res = await fetch(`/api/users/${userId}/password`, {
         method: 'POST',
@@ -383,21 +406,31 @@ export function useAuthSession({
         body: JSON.stringify({ newPassword: newPass, currentPassword: currentPass }),
       });
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Błąd podczas zmiany hasła');
+        const parsed = await parseApiErrorResponse(res, 'Błąd podczas zmiany hasła.');
+        setNotificationToast({
+          message: parsed.error,
+          type: 'error',
+        });
+        return {
+          ok: false,
+          status: res.status,
+          error: parsed.error,
+          field: parsed.field,
+        };
       }
       logActivityRef.current('Zaktualizowano hasło dostępu użytkownika (zabezpieczone scrypt)');
       setNotificationToast({
         message: 'Hasło użytkownika zostało pomyślnie zaktualizowane na serwerze (scrypt).',
         type: 'success',
       });
-      return true;
-    } catch (e: any) {
+      return { ok: true, status: res.status };
+    } catch (e: unknown) {
+      const normalized = normalizeSubmitError(e, 'Nie udało się zmienić hasła.');
       setNotificationToast({
-        message: e.message || 'Nie udało się zmienić hasła.',
+        message: normalized.error,
         type: 'error',
       });
-      return false;
+      return { ok: false, error: normalized.error, field: normalized.field };
     }
   };
 

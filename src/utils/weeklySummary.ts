@@ -1,5 +1,6 @@
-import type { Project, Task, User } from '../types/index.js';
+import type { Project, ProjectStatusOption, Task, User } from '../types/index.js';
 import { PRIORITY_LABELS, STATUS_LABELS } from './labels.js';
+import { isProjectStatusClosed } from './projectMeta.js';
 import { escapeHtml, isValidIanaTimezone, localDateString } from './reminders.js';
 
 export interface WeeklySummarySettings {
@@ -444,7 +445,8 @@ export function buildWeeklySummary(
   projects: Project[],
   users: User[],
   now: Date | number,
-  settings: WeeklySummarySettings
+  settings: WeeklySummarySettings,
+  projectStatuses?: ProjectStatusOption[] | null
 ): UserWeeklySummary[] {
   const norm = normalizeWeeklySettings(settings);
   const todayStr = localDateString(now, norm.timezone);
@@ -483,7 +485,9 @@ export function buildWeeklySummary(
     return [];
   }
 
-  const activeProjects = (projects || []).filter((p) => p && p.id && !p.isArchived);
+  const activeProjects = (projects || []).filter(
+    (p) => p && p.id && !p.isArchived && !isProjectStatusClosed(p.status, projectStatuses)
+  );
   const tasksByProject = new Map<string, Task[]>();
   for (const p of activeProjects) {
     tasksByProject.set(p.id, []);

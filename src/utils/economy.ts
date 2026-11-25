@@ -3,6 +3,7 @@ import type {
   CostItem,
   PaymentTranche,
   Project,
+  ProjectStatusOption,
   QuotationItem,
   Task,
   User,
@@ -10,6 +11,7 @@ import type {
 import { FIELD_LIMITS, canEditFinance, canViewFinance } from './access.js';
 import { ProjectFinanceSummary, computeProjectFinance, isPaymentOverdue } from './finance.js';
 import { addMoney, calcGrossFromNet, formatMoney, subtractMoney } from './money.js';
+import { resolveProjectStatus } from './projectMeta.js';
 import { getTodayIso } from './today.js';
 
 export type EconomyAmountMode = 'net' | 'gross';
@@ -83,6 +85,7 @@ export interface EconomyProjectRow {
   year: number | null;
   summary: ProjectFinanceSummary;
   clientNameDisplay: string;
+  hasProjectValue: boolean;
   valueNet: number;
   valueGross: number;
   costsNet: number;
@@ -129,7 +132,8 @@ export function buildEconomyRows(
   projects: Project[],
   companies: Company[],
   currentUser: Pick<User, 'id' | 'role'> | null | undefined,
-  todayIso: string = getTodayIso()
+  todayIso: string = getTodayIso(),
+  projectStatuses?: ProjectStatusOption[] | null
 ): EconomyProjectRow[] {
   const companyMap = new Map<string, Company>();
   for (const comp of companies) {
@@ -142,12 +146,18 @@ export function buildEconomyRows(
   for (const project of projects) {
     if (!project || !canViewFinance(currentUser, project)) continue;
     const company = project.companyId ? companyMap.get(project.companyId) || null : null;
-    const summary = computeProjectFinance(project, company, { todayIso });
+    const summary = computeProjectFinance(project, company, { todayIso, projectStatuses });
     const expectedBalanceNet = subtractMoney(summary.expectedInflowNet, summary.economicExpectedOutflow);
     const expectedBalanceGross = subtractMoney(
       summary.expectedInflowGross,
       summary.expectedOutflowGross
     );
+    const hasBaseValue = project.projectValue !== undefined && project.projectValue !== null;
+    const quotations = Array.isArray(project.quotations) ? project.quotations : [];
+    const hasRevenueQuotes = quotations.some(
+      (q) => q && q.isSelected !== false && q.type !== 'koszt'
+    );
+    const hasProjectValue = hasBaseValue || hasRevenueQuotes;
 
     rows.push({
       project,
@@ -156,6 +166,7 @@ export function buildEconomyRows(
       year: extractProjectYear(project),
       summary,
       clientNameDisplay: project.clientName?.trim() || '—',
+      hasProjectValue,
       valueNet: summary.totalRevenueNet,
       valueGross: summary.totalRevenueGross,
       costsNet: summary.economicTotalCosts,
@@ -688,7 +699,8 @@ function formatCsvNumber(amount: number): string {
 
 export function exportEconomyCsv(
   rows: EconomyProjectRow[],
-  amountMode: EconomyAmountMode
+  amountMode: EconomyAmountMode,
+  projectStatuses?: ProjectStatusOption[] | null
 ): string {
   const modeLabel = amountMode === 'gross' ? 'brutto' : 'netto';
   const headers = [
@@ -708,13 +720,6 @@ export function exportEconomyCsv(
     'Podstawa wyliczeń',
   ];
 
-  const statusLabels: Record<Project['status'], string> = {
-    planning: 'Planowany',
-    active: 'Aktywny',
-    on_hold: 'Wstrzymany',
-    completed: 'Zakończony',
-  };
-
   const lines: string[] = [headers.map(formatCsvCell).join(';')];
 
   for (const row of rows) {
@@ -725,9 +730,10 @@ export function exportEconomyCsv(
     const outflow = amountMode === 'gross' ? row.expectedOutflowGross : row.expectedOutflowNet;
     const expBal = amountMode === 'gross' ? row.expectedBalanceGross : row.expectedBalanceNet;
     const companyLabel = row.company ? `${row.company.letter} - ${row.company.name}` : 'Bez firmy';
+    const resolvedStatusLabel = resolveProjectStatus(row.project.status, projectStatuses).label;
     const statusText = row.project.isArchived
-      ? `${statusLabels[row.project.status] || row.project.status} (Archiwalny)`
-      : statusLabels[row.project.status] || row.project.status;
+      ? `${resolvedStatusLabel} (Archiwalny)`
+      : resolvedStatusLabel;
     const vatStatusLabel = row.isVatExempt ? 'Zwolniona z VAT' : 'Płatnik VAT';
     const calcBasis = row.isVatExempt
       ? row.company?.vatExemptionBasis
