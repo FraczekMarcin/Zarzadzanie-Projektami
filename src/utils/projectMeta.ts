@@ -1,12 +1,36 @@
 import type {
+  LegacyTemplateCategory,
+  ProjectDeliverable,
   ProjectMetaColorKey,
   ProjectPriorityOption,
   ProjectStatusOption,
+  ProjectSubtypeOption,
+  ProjectTypeOption,
+  TemplateDeliverableBlueprint,
 } from '../types/index.js';
+import { hasForbiddenKeys } from './access.js';
 
 export const PROJECT_META_LABEL_MAX = 40;
 export const PROJECT_META_ID_MAX = 50;
 export const PROJECT_META_MAX_ITEMS = 20;
+
+export const PROJECT_TYPE_LABEL_MAX = 60;
+export const PROJECT_TYPE_ID_MAX = 50;
+export const PROJECT_TYPE_MAX_ITEMS = 30;
+export const PROJECT_SUBTYPE_MAX_ITEMS = 30;
+export const SHORT_NAME_MAX = 60;
+
+export const DELIVERABLE_LIMITS = {
+  maxItems: 100,
+  idMax: 100,
+  nameMax: 200,
+  copiesMin: 1,
+  copiesMax: 999,
+  defaultCopies: 1,
+  unitMax: 20,
+  defaultUnit: 'egz.',
+  notesMax: 500,
+} as const;
 
 export interface ProjectMetaColorDef {
   key: ProjectMetaColorKey;
@@ -213,6 +237,103 @@ export const DEFAULT_PROJECT_PRIORITIES: ProjectPriorityOption[] = [
     isSystem: true,
   },
 ];
+
+export const DEFAULT_PROJECT_TYPES: ProjectTypeOption[] = [
+  {
+    id: 'projekt_budowlany',
+    label: 'Projekt Budowlany',
+    color: 'sky',
+    order: 1,
+    isActive: true,
+    subtypes: [],
+  },
+  {
+    id: 'zgloszenie',
+    label: 'Zgłoszenie',
+    color: 'emerald',
+    order: 2,
+    isActive: true,
+    subtypes: [],
+  },
+  {
+    id: 'zrid',
+    label: 'ZRID',
+    color: 'indigo',
+    order: 3,
+    isActive: true,
+    subtypes: [],
+  },
+  {
+    id: 'uzgodnienie',
+    label: 'Uzgodnienie',
+    color: 'purple',
+    order: 4,
+    isActive: true,
+    subtypes: [],
+  },
+  {
+    id: 'zjazd_pd',
+    label: 'Zjazd PD',
+    color: 'amber',
+    order: 5,
+    isActive: true,
+    subtypes: [],
+  },
+  {
+    id: 'zjazd_dw',
+    label: 'Zjazd DW',
+    color: 'orange',
+    order: 6,
+    isActive: true,
+    subtypes: [],
+  },
+  {
+    id: 'organizacja_ruchu',
+    label: 'Organizacja ruchu',
+    color: 'rose',
+    order: 7,
+    isActive: true,
+    subtypes: [],
+  },
+  {
+    id: 'kosztorys',
+    label: 'Kosztorys',
+    color: 'emerald',
+    order: 8,
+    isActive: true,
+    subtypes: [],
+  },
+  {
+    id: 'inne',
+    label: 'Inne',
+    color: 'slate',
+    order: 9,
+    isActive: true,
+    subtypes: [],
+  },
+];
+
+export const LEGACY_TEMPLATE_CATEGORY_MAP: Record<LegacyTemplateCategory, string> = {
+  kubaturowe: 'projekt_budowlany',
+  mieszkaniowe: 'projekt_budowlany',
+  przemyslowe: 'projekt_budowlany',
+  przebudowa: 'projekt_budowlany',
+  infrastruktura: 'zrid',
+  ogolne: 'inne',
+};
+
+export function mapLegacyTemplateCategory(
+  rawCategory: unknown,
+  allowedTypeIds?: ReadonlySet<string>
+): string {
+  const key = typeof rawCategory === 'string' ? rawCategory.trim().toLowerCase() : '';
+  const mapped =
+    (LEGACY_TEMPLATE_CATEGORY_MAP as Record<string, string>)[key] || 'inne';
+  if (allowedTypeIds && !allowedTypeIds.has(mapped)) {
+    return allowedTypeIds.has('inne') ? 'inne' : Array.from(allowedTypeIds)[0] || 'inne';
+  }
+  return mapped;
+}
 
 export function getPaletteDef(color?: string): ProjectMetaColorDef {
   if (color && VALID_PROJECT_META_COLORS.has(color as ProjectMetaColorKey)) {
@@ -460,4 +581,681 @@ export function isProjectStatusClosed(
     return Boolean(match.isClosed);
   }
   return statusId === 'completed';
+}
+
+export function normalizeProjectTypes(raw: unknown): ProjectTypeOption[] {
+  // Jeśli w starszym app_state.json nie ma pola projectTypes — uzupełnij domyślnymi 9 rodzajami.
+  // Jeśli tablica została jawnie przekazana (w tym pusta [] po celowym usunięciu wszystkich), zachowaj ją.
+  if (!Array.isArray(raw)) {
+    return DEFAULT_PROJECT_TYPES.map((t) => ({
+      ...t,
+      subtypes: t.subtypes.map((s) => ({ ...s })),
+    }));
+  }
+
+  const byId = new Map<string, ProjectTypeOption>();
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const rawObj = item as Record<string, any>;
+    const id = typeof rawObj.id === 'string' ? rawObj.id.trim().slice(0, PROJECT_TYPE_ID_MAX) : '';
+    const label =
+      typeof rawObj.label === 'string' ? rawObj.label.trim().slice(0, PROJECT_TYPE_LABEL_MAX) : '';
+    if (!id || !label || byId.has(id)) continue;
+
+    const defFallback = DEFAULT_PROJECT_TYPES.find((d) => d.id === id);
+    const color: ProjectMetaColorKey = VALID_PROJECT_META_COLORS.has(rawObj.color)
+      ? rawObj.color
+      : defFallback?.color || 'slate';
+    const order =
+      typeof rawObj.order === 'number' && Number.isInteger(rawObj.order)
+        ? rawObj.order
+        : defFallback?.order ?? byId.size + 1;
+    const isActive = typeof rawObj.isActive === 'boolean' ? rawObj.isActive : true;
+
+    const subtypesById = new Map<string, ProjectSubtypeOption>();
+    if (Array.isArray(rawObj.subtypes)) {
+      for (const subItem of rawObj.subtypes) {
+        if (!subItem || typeof subItem !== 'object') continue;
+        const subObj = subItem as Record<string, any>;
+        const subId =
+          typeof subObj.id === 'string' ? subObj.id.trim().slice(0, PROJECT_TYPE_ID_MAX) : '';
+        const subLabel =
+          typeof subObj.label === 'string'
+            ? subObj.label.trim().slice(0, PROJECT_TYPE_LABEL_MAX)
+            : '';
+        if (!subId || !subLabel || subtypesById.has(subId)) continue;
+        const subOrder =
+          typeof subObj.order === 'number' && Number.isInteger(subObj.order)
+            ? subObj.order
+            : subtypesById.size + 1;
+        const subActive = typeof subObj.isActive === 'boolean' ? subObj.isActive : true;
+        subtypesById.set(subId, {
+          id: subId,
+          label: subLabel,
+          order: subOrder,
+          isActive: subActive,
+        });
+        if (subtypesById.size >= PROJECT_SUBTYPE_MAX_ITEMS) break;
+      }
+    }
+
+    const sortedSubtypes = Array.from(subtypesById.values()).sort(
+      (a, b) => a.order - b.order || a.label.localeCompare(b.label, 'pl')
+    );
+
+    byId.set(id, {
+      id,
+      label,
+      color,
+      order,
+      isActive,
+      subtypes: sortedSubtypes,
+    });
+    if (byId.size >= PROJECT_TYPE_MAX_ITEMS) break;
+  }
+
+  return Array.from(byId.values()).sort(
+    (a, b) => a.order - b.order || a.label.localeCompare(b.label, 'pl')
+  );
+}
+
+export function getOrderedProjectTypes(
+  types?: ProjectTypeOption[] | null,
+  options?: { activeOnly?: boolean }
+): ProjectTypeOption[] {
+  const source = Array.isArray(types) ? types : DEFAULT_PROJECT_TYPES;
+  const filtered = options?.activeOnly ? source.filter((t) => t && t.isActive !== false) : source;
+  return [...filtered].sort(
+    (a, b) => (a.order ?? 0) - (b.order ?? 0) || a.label.localeCompare(b.label, 'pl')
+  );
+}
+
+export function getOrderedProjectSubtypes(
+  projectType: ProjectTypeOption | null | undefined,
+  options?: { activeOnly?: boolean }
+): ProjectSubtypeOption[] {
+  if (!projectType || !Array.isArray(projectType.subtypes)) return [];
+  const filtered = options?.activeOnly
+    ? projectType.subtypes.filter((s) => s && s.isActive !== false)
+    : projectType.subtypes;
+  return [...filtered].sort(
+    (a, b) => (a.order ?? 0) - (b.order ?? 0) || a.label.localeCompare(b.label, 'pl')
+  );
+}
+
+export function resolveProjectType(
+  typeId: string | undefined | null,
+  types?: ProjectTypeOption[] | null
+): {
+  id: string;
+  label: string;
+  color: ProjectMetaColorKey;
+  hasType: boolean;
+  badgeClass: string;
+  textClass: string;
+  barClass: string;
+} {
+  const cleanId = typeof typeId === 'string' ? typeId.trim() : '';
+  if (!cleanId) {
+    const slate = getPaletteDef('slate');
+    return {
+      id: '',
+      label: 'Brak',
+      color: 'slate',
+      hasType: false,
+      badgeClass: slate.badgeClass,
+      textClass: slate.textClass,
+      barClass: slate.barClass,
+    };
+  }
+  const source = Array.isArray(types) ? types : DEFAULT_PROJECT_TYPES;
+  const match =
+    source.find((t) => t.id === cleanId) || DEFAULT_PROJECT_TYPES.find((t) => t.id === cleanId);
+  const color: ProjectMetaColorKey = match?.color || 'slate';
+  const palette = getPaletteDef(color);
+  return {
+    id: cleanId,
+    label: match?.label || cleanId,
+    color,
+    hasType: true,
+    badgeClass: palette.badgeClass,
+    textClass: palette.textClass,
+    barClass: palette.barClass,
+  };
+}
+
+export function resolveProjectSubtype(
+  typeId: string | undefined | null,
+  subtypeId: string | undefined | null,
+  types?: ProjectTypeOption[] | null
+): { id: string; label: string } | null {
+  const cleanTypeId = typeof typeId === 'string' ? typeId.trim() : '';
+  const cleanSubId = typeof subtypeId === 'string' ? subtypeId.trim() : '';
+  if (!cleanTypeId || !cleanSubId) return null;
+  const source = Array.isArray(types) ? types : DEFAULT_PROJECT_TYPES;
+  const typeMatch = source.find((t) => t.id === cleanTypeId);
+  const subMatch = typeMatch?.subtypes?.find((s) => s.id === cleanSubId);
+  return {
+    id: cleanSubId,
+    label: subMatch?.label || cleanSubId,
+  };
+}
+
+export function getProjectDisplayName(
+  project: { name?: string | null; shortName?: string | null } | null | undefined
+): string {
+  if (!project) return '';
+  const short = typeof project.shortName === 'string' ? project.shortName.trim() : '';
+  if (short) return short;
+  return typeof project.name === 'string' ? project.name : '';
+}
+
+export function hasDistinctShortName(
+  project: { name?: string | null; shortName?: string | null } | null | undefined
+): boolean {
+  if (!project) return false;
+  const short = typeof project.shortName === 'string' ? project.shortName.trim() : '';
+  const full = typeof project.name === 'string' ? project.name.trim() : '';
+  return Boolean(short && full && short !== full);
+}
+
+export function compareProjectDisplayNames(
+  a: { name?: string | null; shortName?: string | null } | null | undefined,
+  b: { name?: string | null; shortName?: string | null } | null | undefined
+): number {
+  const nameA = getProjectDisplayName(a).toLowerCase();
+  const nameB = getProjectDisplayName(b).toLowerCase();
+  const cmp = nameA.localeCompare(nameB, 'pl', { sensitivity: 'base' });
+  if (cmp !== 0) return cmp;
+  const fullA = (typeof a?.name === 'string' ? a.name : '').toLowerCase();
+  const fullB = (typeof b?.name === 'string' ? b.name : '').toLowerCase();
+  return fullA.localeCompare(fullB, 'pl', { sensitivity: 'base' });
+}
+
+export function matchesProjectSearch(
+  project:
+    | { key?: string | null; name?: string | null; shortName?: string | null; clientName?: string | null }
+    | null
+    | undefined,
+  rawQuery: string,
+  options?: { includeClientName?: boolean }
+): boolean {
+  if (!project) return false;
+  const q = rawQuery.trim().toLowerCase();
+  if (!q) return true;
+  if (typeof project.name === 'string' && project.name.toLowerCase().includes(q)) return true;
+  if (typeof project.shortName === 'string' && project.shortName.toLowerCase().includes(q)) return true;
+  if (typeof project.key === 'string' && project.key.toLowerCase().includes(q)) return true;
+  if (
+    options?.includeClientName &&
+    typeof project.clientName === 'string' &&
+    project.clientName.toLowerCase().includes(q)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function getDeliverablesSummary(
+  deliverables?: readonly ProjectDeliverable[] | null
+): { done: number; total: number; percent: number; label: string } {
+  if (!Array.isArray(deliverables) || deliverables.length === 0) {
+    return { done: 0, total: 0, percent: 0, label: 'Wykonano 0 z 0' };
+  }
+  let done = 0;
+  for (const item of deliverables) {
+    if (item && item.isDone) done += 1;
+  }
+  const total = deliverables.length;
+  const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+  return {
+    done,
+    total,
+    percent,
+    label: `Wykonano ${done} z ${total}`,
+  };
+}
+
+function generateDeliverableId(): string {
+  if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
+    return `del-${globalThis.crypto.randomUUID()}`;
+  }
+  return `del-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export function validateProjectDeliverables(
+  raw: unknown,
+  options?: {
+    existingDeliverables?: readonly ProjectDeliverable[] | null;
+    actorName?: string;
+    nowIso?: string;
+  }
+):
+  | { ok: true; deliverables: ProjectDeliverable[] }
+  | { ok: false; error: string; field: 'deliverables' } {
+  if (raw === null || raw === undefined) {
+    return { ok: true, deliverables: [] };
+  }
+  if (!Array.isArray(raw)) {
+    return {
+      ok: false,
+      error: 'Pole deliverables (elementy do odbioru) musi być tablicą.',
+      field: 'deliverables',
+    };
+  }
+  if (raw.length > DELIVERABLE_LIMITS.maxItems) {
+    return {
+      ok: false,
+      error: `Projekt może zawierać maksymalnie ${DELIVERABLE_LIMITS.maxItems} elementów do odbioru.`,
+      field: 'deliverables',
+    };
+  }
+
+  const prevById = new Map<string, ProjectDeliverable>();
+  if (Array.isArray(options?.existingDeliverables)) {
+    for (const prev of options.existingDeliverables) {
+      if (prev && typeof prev.id === 'string' && prev.id) {
+        prevById.set(prev.id, prev);
+      }
+    }
+  }
+
+  const nowIso = options?.nowIso || new Date().toISOString();
+  const actorName = (options?.actorName || '').trim() || 'Użytkownik';
+  const seenIds = new Set<string>();
+  const normalized: ProjectDeliverable[] = [];
+
+  for (let i = 0; i < raw.length; i += 1) {
+    const item = raw[i];
+    if (!item || typeof item !== 'object' || Array.isArray(item) || hasForbiddenKeys(item)) {
+      return {
+        ok: false,
+        error: `Nieprawidłowy format elementu do odbioru na pozycji ${i + 1}.`,
+        field: 'deliverables',
+      };
+    }
+
+    const obj = item as Record<string, unknown>;
+    if (typeof obj.name !== 'string' || !obj.name.trim()) {
+      return {
+        ok: false,
+        error: `Nazwa elementu do odbioru na pozycji ${i + 1} nie może być pusta.`,
+        field: 'deliverables',
+      };
+    }
+    const name = obj.name.trim();
+    if (name.length > DELIVERABLE_LIMITS.nameMax) {
+      return {
+        ok: false,
+        error: `Nazwa elementu do odbioru nie może przekraczać ${DELIVERABLE_LIMITS.nameMax} znaków.`,
+        field: 'deliverables',
+      };
+    }
+
+    let copies: number = DELIVERABLE_LIMITS.defaultCopies;
+    if (obj.copies !== undefined && obj.copies !== null && obj.copies !== '') {
+      if (
+        typeof obj.copies !== 'number' ||
+        !Number.isInteger(obj.copies) ||
+        obj.copies < DELIVERABLE_LIMITS.copiesMin ||
+        obj.copies > DELIVERABLE_LIMITS.copiesMax
+      ) {
+        return {
+          ok: false,
+          error: `Liczba egzemplarzy musi być liczbą całkowitą z zakresu ${DELIVERABLE_LIMITS.copiesMin}–${DELIVERABLE_LIMITS.copiesMax}.`,
+          field: 'deliverables',
+        };
+      }
+      copies = obj.copies;
+    }
+
+    let unit: string = DELIVERABLE_LIMITS.defaultUnit;
+    if (obj.unit !== undefined && obj.unit !== null && obj.unit !== '') {
+      if (typeof obj.unit !== 'string') {
+        return {
+          ok: false,
+          error: 'Jednostka elementu do odbioru musi być tekstem.',
+          field: 'deliverables',
+        };
+      }
+      const trimmedUnit = obj.unit.trim();
+      if (trimmedUnit.length > DELIVERABLE_LIMITS.unitMax) {
+        return {
+          ok: false,
+          error: `Jednostka elementu do odbioru nie może przekraczać ${DELIVERABLE_LIMITS.unitMax} znaków.`,
+          field: 'deliverables',
+        };
+      }
+      if (trimmedUnit) {
+        unit = trimmedUnit;
+      }
+    }
+
+    let notes: string | undefined;
+    if (obj.notes !== undefined && obj.notes !== null && obj.notes !== '') {
+      if (typeof obj.notes !== 'string') {
+        return {
+          ok: false,
+          error: 'Notatka elementu do odbioru musi być tekstem.',
+          field: 'deliverables',
+        };
+      }
+      const trimmedNotes = obj.notes.trim();
+      if (trimmedNotes.length > DELIVERABLE_LIMITS.notesMax) {
+        return {
+          ok: false,
+          error: `Notatka elementu do odbioru nie może przekraczać ${DELIVERABLE_LIMITS.notesMax} znaków.`,
+          field: 'deliverables',
+        };
+      }
+      if (trimmedNotes) {
+        notes = trimmedNotes;
+      }
+    }
+
+    let id =
+      typeof obj.id === 'string' && obj.id.trim()
+        ? obj.id.trim().slice(0, DELIVERABLE_LIMITS.idMax)
+        : generateDeliverableId();
+    if (seenIds.has(id)) {
+      return {
+        ok: false,
+        error: `Zduplikowany identyfikator elementu do odbioru "${id}".`,
+        field: 'deliverables',
+      };
+    }
+    seenIds.add(id);
+
+    if (obj.isDone !== undefined && typeof obj.isDone !== 'boolean') {
+      return {
+        ok: false,
+        error: `Pole isDone elementu "${name}" musi być wartością logiczną.`,
+        field: 'deliverables',
+      };
+    }
+
+    const isDone = obj.isDone === true;
+    const prev = prevById.get(id);
+    let doneAt: string | undefined;
+    let doneBy: string | undefined;
+
+    if (isDone) {
+      if (prev && prev.isDone) {
+        doneAt = prev.doneAt || nowIso;
+        doneBy = prev.doneBy || actorName;
+      } else {
+        doneAt = nowIso;
+        doneBy = actorName;
+      }
+    }
+
+    normalized.push({
+      id,
+      name,
+      copies,
+      unit,
+      isDone,
+      ...(doneAt ? { doneAt } : {}),
+      ...(doneBy ? { doneBy } : {}),
+      ...(notes ? { notes } : {}),
+    });
+  }
+
+  return { ok: true, deliverables: normalized };
+}
+
+export function validateTemplateDeliverables(
+  raw: unknown
+):
+  | { ok: true; deliverables: TemplateDeliverableBlueprint[] }
+  | { ok: false; error: string; field: 'deliverables' } {
+  if (raw === null || raw === undefined) {
+    return { ok: true, deliverables: [] };
+  }
+  if (!Array.isArray(raw)) {
+    return {
+      ok: false,
+      error: 'Lista domyślnych elementów do odbioru szablonu musi być tablicą.',
+      field: 'deliverables',
+    };
+  }
+  if (raw.length > DELIVERABLE_LIMITS.maxItems) {
+    return {
+      ok: false,
+      error: `Szablon może zawierać maksymalnie ${DELIVERABLE_LIMITS.maxItems} elementów do odbioru.`,
+      field: 'deliverables',
+    };
+  }
+
+  const seenIds = new Set<string>();
+  const normalized: TemplateDeliverableBlueprint[] = [];
+
+  for (let i = 0; i < raw.length; i += 1) {
+    const item = raw[i];
+    if (!item || typeof item !== 'object' || Array.isArray(item) || hasForbiddenKeys(item)) {
+      return {
+        ok: false,
+        error: `Nieprawidłowy format elementu do odbioru nr ${i + 1} w szablonie.`,
+        field: 'deliverables',
+      };
+    }
+    const obj = item as Record<string, unknown>;
+    if (typeof obj.name !== 'string' || !obj.name.trim()) {
+      return {
+        ok: false,
+        error: `Nazwa elementu do odbioru nr ${i + 1} w szablonie jest wymagana.`,
+        field: 'deliverables',
+      };
+    }
+    const name = obj.name.trim();
+    if (name.length > DELIVERABLE_LIMITS.nameMax) {
+      return {
+        ok: false,
+        error: `Nazwa elementu do odbioru w szablonie nie może przekraczać ${DELIVERABLE_LIMITS.nameMax} znaków.`,
+        field: 'deliverables',
+      };
+    }
+
+    let copies: number = DELIVERABLE_LIMITS.defaultCopies;
+    if (obj.copies !== undefined && obj.copies !== null && obj.copies !== '') {
+      if (
+        typeof obj.copies !== 'number' ||
+        !Number.isInteger(obj.copies) ||
+        obj.copies < DELIVERABLE_LIMITS.copiesMin ||
+        obj.copies > DELIVERABLE_LIMITS.copiesMax
+      ) {
+        return {
+          ok: false,
+          error: `Liczba egzemplarzy w szablonie musi być liczbą całkowitą z zakresu ${DELIVERABLE_LIMITS.copiesMin}–${DELIVERABLE_LIMITS.copiesMax}.`,
+          field: 'deliverables',
+        };
+      }
+      copies = obj.copies;
+    }
+
+    let unit: string = DELIVERABLE_LIMITS.defaultUnit;
+    if (obj.unit !== undefined && obj.unit !== null && obj.unit !== '') {
+      if (typeof obj.unit !== 'string') {
+        return {
+          ok: false,
+          error: 'Jednostka elementu do odbioru w szablonie musi być tekstem.',
+          field: 'deliverables',
+        };
+      }
+      const trimmedUnit = obj.unit.trim();
+      if (trimmedUnit.length > DELIVERABLE_LIMITS.unitMax) {
+        return {
+          ok: false,
+          error: `Jednostka elementu do odbioru w szablonie nie może przekraczać ${DELIVERABLE_LIMITS.unitMax} znaków.`,
+          field: 'deliverables',
+        };
+      }
+      if (trimmedUnit) {
+        unit = trimmedUnit;
+      }
+    }
+
+    let notes: string | undefined;
+    if (obj.notes !== undefined && obj.notes !== null && obj.notes !== '') {
+      if (typeof obj.notes !== 'string') {
+        return {
+          ok: false,
+          error: 'Notatka elementu do odbioru w szablonie musi być tekstem.',
+          field: 'deliverables',
+        };
+      }
+      const trimmedNotes = obj.notes.trim();
+      if (trimmedNotes.length > DELIVERABLE_LIMITS.notesMax) {
+        return {
+          ok: false,
+          error: `Notatka elementu do odbioru w szablonie nie może przekraczać ${DELIVERABLE_LIMITS.notesMax} znaków.`,
+          field: 'deliverables',
+        };
+      }
+      if (trimmedNotes) {
+        notes = trimmedNotes;
+      }
+    }
+
+    const id =
+      typeof obj.id === 'string' && obj.id.trim()
+        ? obj.id.trim().slice(0, DELIVERABLE_LIMITS.idMax)
+        : `tdel-${i + 1}`;
+    if (seenIds.has(id)) {
+      return {
+        ok: false,
+        error: `Zduplikowany identyfikator elementu do odbioru w szablonie: "${id}".`,
+        field: 'deliverables',
+      };
+    }
+    seenIds.add(id);
+
+    normalized.push({
+      id,
+      name,
+      copies,
+      unit,
+      ...(notes ? { notes } : {}),
+    });
+  }
+
+  return { ok: true, deliverables: normalized };
+}
+
+export function copyTemplateDeliverablesToProject(
+  blueprints?: readonly TemplateDeliverableBlueprint[] | null
+): ProjectDeliverable[] {
+  if (!Array.isArray(blueprints) || blueprints.length === 0) return [];
+  return blueprints.slice(0, DELIVERABLE_LIMITS.maxItems).map((bp) => ({
+    id: generateDeliverableId(),
+    name: bp.name,
+    copies:
+      typeof bp.copies === 'number' && Number.isInteger(bp.copies)
+        ? Math.min(DELIVERABLE_LIMITS.copiesMax, Math.max(DELIVERABLE_LIMITS.copiesMin, bp.copies))
+        : DELIVERABLE_LIMITS.defaultCopies,
+    unit: (typeof bp.unit === 'string' && bp.unit.trim()) || DELIVERABLE_LIMITS.defaultUnit,
+    isDone: false,
+    ...(bp.notes ? { notes: bp.notes } : {}),
+  }));
+}
+
+export interface ProjectTypeUsageMatch {
+  projects: Array<{ id: string; key: string; name: string }>;
+  templates: Array<{ id: string; name: string; builtIn?: boolean }>;
+  positionsCount: number;
+}
+
+export function findProjectTypeUsage(
+  typeId: string,
+  sources: {
+    projects?: readonly any[] | null;
+    templates?: readonly any[] | null;
+    tenders?: readonly any[] | null;
+  }
+): ProjectTypeUsageMatch {
+  const usingProjects: Array<{ id: string; key: string; name: string }> = [];
+  const usingTemplates: Array<{ id: string; name: string; builtIn?: boolean }> = [];
+  let positionsCount = 0;
+
+  for (const p of sources.projects || []) {
+    if (!p || typeof p !== 'object') continue;
+    if (p.typeId === typeId) {
+      usingProjects.push({ id: p.id, key: p.key || '', name: getProjectDisplayName(p) || p.name || '' });
+    }
+    for (const arrKey of ['costs', 'quotations', 'paymentTranches'] as const) {
+      const arr = p[arrKey];
+      if (!Array.isArray(arr)) continue;
+      for (const item of arr) {
+        if (item && item.typeId === typeId) positionsCount += 1;
+      }
+    }
+  }
+
+  for (const t of sources.tenders || []) {
+    if (t && t.typeId === typeId) {
+      positionsCount += 1;
+    }
+  }
+
+  for (const tpl of sources.templates || []) {
+    if (!tpl || typeof tpl !== 'object') continue;
+    if (tpl.typeId === typeId) {
+      usingTemplates.push({
+        id: tpl.id,
+        name: tpl.name || tpl.id,
+        ...(tpl.builtIn ? { builtIn: true } : {}),
+      });
+    }
+  }
+
+  return { projects: usingProjects, templates: usingTemplates, positionsCount };
+}
+
+export function findProjectSubtypeUsage(
+  typeId: string,
+  subtypeId: string,
+  sources: {
+    projects?: readonly any[] | null;
+    templates?: readonly any[] | null;
+    tenders?: readonly any[] | null;
+  }
+): ProjectTypeUsageMatch {
+  const usingProjects: Array<{ id: string; key: string; name: string }> = [];
+  const usingTemplates: Array<{ id: string; name: string; builtIn?: boolean }> = [];
+  let positionsCount = 0;
+
+  for (const p of sources.projects || []) {
+    if (!p || typeof p !== 'object') continue;
+    if (p.typeId === typeId && p.subtypeId === subtypeId) {
+      usingProjects.push({ id: p.id, key: p.key || '', name: getProjectDisplayName(p) || p.name || '' });
+    }
+    for (const arrKey of ['costs', 'quotations', 'paymentTranches'] as const) {
+      const arr = p[arrKey];
+      if (!Array.isArray(arr)) continue;
+      for (const item of arr) {
+        if (item && item.subtypeId === subtypeId && (!item.typeId || item.typeId === typeId)) {
+          positionsCount += 1;
+        }
+      }
+    }
+  }
+
+  for (const t of sources.tenders || []) {
+    if (t && t.typeId === typeId && t.subtypeId === subtypeId) {
+      positionsCount += 1;
+    }
+  }
+
+  for (const tpl of sources.templates || []) {
+    if (!tpl || typeof tpl !== 'object') continue;
+    if (tpl.typeId === typeId && tpl.subtypeId === subtypeId) {
+      usingTemplates.push({
+        id: tpl.id,
+        name: tpl.name || tpl.id,
+        ...(tpl.builtIn ? { builtIn: true } : {}),
+      });
+    }
+  }
+
+  return { projects: usingProjects, templates: usingTemplates, positionsCount };
 }

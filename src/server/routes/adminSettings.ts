@@ -1,6 +1,12 @@
 import express from 'express';
+import { DEFAULT_PROJECT_TEMPLATES } from '../../data/defaultTemplates.js';
 import { isSameOrigin } from '../../utils/access.js';
 import { recomputeAllProjectsProgress } from '../../utils/progress.js';
+import {
+  findProjectSubtypeUsage,
+  findProjectTypeUsage,
+  normalizeProjectTypes,
+} from '../../utils/projectMeta.js';
 import { isValidEmail } from '../../utils/settingsSchema.js';
 import { validateVariablesUpdate } from '../../utils/variablesSchema.js';
 import { formatSmtpErrorPolish, MailerService } from '../mailer.js';
@@ -327,6 +333,107 @@ export function registerAdminSettingsRoutes(
         }
       }
 
+      if (validation.patch.projectTypes) {
+        const nextTypes = validation.patch.projectTypes;
+        const nextTypeMap = new Map(nextTypes.map((t) => [t.id, t]));
+        const prevTypes = normalizeProjectTypes(prevVariables.projectTypes);
+        const customTemplates = Array.isArray(appState.projectTemplates) ? appState.projectTemplates : [];
+        const allTemplates = [...customTemplates, ...DEFAULT_PROJECT_TEMPLATES];
+        const tenders = Array.isArray(appState.tenders) ? appState.tenders : [];
+
+        for (const prevType of prevTypes) {
+          const nextType = nextTypeMap.get(prevType.id);
+          if (!nextType) {
+            const usage = findProjectTypeUsage(prevType.id, {
+              projects,
+              templates: allTemplates,
+              tenders,
+            });
+            if (
+              usage.projects.length > 0 ||
+              usage.templates.length > 0 ||
+              usage.positionsCount > 0
+            ) {
+              const parts: string[] = [];
+              if (usage.projects.length > 0) {
+                const sample = usage.projects
+                  .slice(0, 5)
+                  .map((p) => `${p.key || p.id}${p.name ? ` (${p.name})` : ''}`)
+                  .join(', ');
+                parts.push(
+                  `projekty: ${sample}${usage.projects.length > 5 ? ` i ${usage.projects.length - 5} innych` : ''}`
+                );
+              }
+              if (usage.templates.length > 0) {
+                const sampleT = usage.templates
+                  .slice(0, 5)
+                  .map((t) => t.name)
+                  .join(', ');
+                parts.push(
+                  `szablony: ${sampleT}${usage.templates.length > 5 ? ` i ${usage.templates.length - 5} innych` : ''}`
+                );
+              }
+              if (usage.positionsCount > 0) {
+                parts.push(`pozycje (${usage.positionsCount})`);
+              }
+              return res.status(409).json({
+                error: `Nie można usunąć rodzaju projektu "${prevType.label}", ponieważ jest używany (${parts.join('; ')}).`,
+                field: 'projectTypes',
+                inUseProjects: usage.projects,
+                inUseTemplates: usage.templates,
+                positionsCount: usage.positionsCount,
+              });
+            }
+          } else {
+            const nextSubtypeIds = new Set((nextType.subtypes || []).map((s) => s.id));
+            for (const prevSub of prevType.subtypes || []) {
+              if (!nextSubtypeIds.has(prevSub.id)) {
+                const usage = findProjectSubtypeUsage(prevType.id, prevSub.id, {
+                  projects,
+                  templates: allTemplates,
+                  tenders,
+                });
+                if (
+                  usage.projects.length > 0 ||
+                  usage.templates.length > 0 ||
+                  usage.positionsCount > 0
+                ) {
+                  const parts: string[] = [];
+                  if (usage.projects.length > 0) {
+                    const sample = usage.projects
+                      .slice(0, 5)
+                      .map((p) => `${p.key || p.id}${p.name ? ` (${p.name})` : ''}`)
+                      .join(', ');
+                    parts.push(
+                      `projekty: ${sample}${usage.projects.length > 5 ? ` i ${usage.projects.length - 5} innych` : ''}`
+                    );
+                  }
+                  if (usage.templates.length > 0) {
+                    const sampleT = usage.templates
+                      .slice(0, 5)
+                      .map((t) => t.name)
+                      .join(', ');
+                    parts.push(
+                      `szablony: ${sampleT}${usage.templates.length > 5 ? ` i ${usage.templates.length - 5} innych` : ''}`
+                    );
+                  }
+                  if (usage.positionsCount > 0) {
+                    parts.push(`pozycje (${usage.positionsCount})`);
+                  }
+                  return res.status(409).json({
+                    error: `Nie można usunąć podrodzaju "${prevSub.label}" w rodzaju "${prevType.label}", ponieważ jest używany (${parts.join('; ')}).`,
+                    field: 'projectTypes',
+                    inUseProjects: usage.projects,
+                    inUseTemplates: usage.templates,
+                    positionsCount: usage.positionsCount,
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+
       const nextVariables = {
         ...prevVariables,
         ...validation.patch,
@@ -340,6 +447,7 @@ export function registerAdminSettingsRoutes(
         'taskTypes',
         'projectStatuses',
         'projectPriorities',
+        'projectTypes',
         'deadlineWarningDays',
       ] as const) {
         if (

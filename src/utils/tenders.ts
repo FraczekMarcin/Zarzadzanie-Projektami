@@ -6,6 +6,8 @@ import type {
   ProjectNumberingScope,
   ProjectPriorityOption,
   ProjectStatusOption,
+  ProjectTypeOption,
+  TemplateDeliverableBlueprint,
   Tender,
   TenderPriceBasis,
   TenderStatus,
@@ -23,7 +25,13 @@ import {
   subtractMoney,
 } from './money.js';
 import { getNextProjectCode } from './projectCode.js';
-import { getDefaultProjectPriorityId, getDefaultProjectStatusId } from './projectMeta.js';
+import {
+  SHORT_NAME_MAX,
+  copyTemplateDeliverablesToProject,
+  getDefaultProjectPriorityId,
+  getDefaultProjectStatusId,
+  normalizeProjectTypes,
+} from './projectMeta.js';
 import { addDaysIso, getTodayIso, parseIsoDate } from './today.js';
 import type { VatRateOption } from './variablesSchema.js';
 
@@ -109,6 +117,9 @@ export const CREATE_PROJECT_ALLOWED_KEYS = new Set<string>([
   'force',
   'templateId',
   'templateTaskKeys',
+  'shortName',
+  'typeId',
+  'subtypeId',
 ]);
 
 export interface ComputedBidder extends Bidder {
@@ -1156,8 +1167,11 @@ export interface BuildProjectFromTenderOptions {
   vatRates?: VatRateOption[];
   projectStatuses?: ProjectStatusOption[];
   projectPriorities?: ProjectPriorityOption[];
+  projectTypes?: ProjectTypeOption[];
   body?: Record<string, any>;
   templateDurationDays?: number;
+  templateTypeId?: string;
+  templateDeliverables?: TemplateDeliverableBlueprint[];
   todayIso?: string;
   idFactory?: () => string;
 }
@@ -1355,6 +1369,62 @@ export function buildProjectFromTender(
   }
   const description = descParts.join('\n\n');
 
+  const configuredTypes = normalizeProjectTypes(opts.projectTypes);
+  let resolvedTypeId: string | undefined;
+  if (body.typeId !== undefined && body.typeId !== null && body.typeId !== '') {
+    if (typeof body.typeId !== 'string' || !body.typeId.trim()) {
+      return { ok: false, status: 400, error: 'Nieprawidłowy identyfikator rodzaju projektu.' };
+    }
+    const rawTypeId = body.typeId.trim();
+    if (!configuredTypes.some((t) => t.id === rawTypeId)) {
+      return { ok: false, status: 400, error: 'Wybrany rodzaj projektu nie istnieje w konfiguracji.' };
+    }
+    resolvedTypeId = rawTypeId;
+  } else if (
+    body.typeId === undefined &&
+    typeof opts.templateTypeId === 'string' &&
+    opts.templateTypeId.trim() &&
+    configuredTypes.some((t) => t.id === opts.templateTypeId!.trim())
+  ) {
+    resolvedTypeId = opts.templateTypeId.trim();
+  }
+
+  let resolvedSubtypeId: string | undefined;
+  if (body.subtypeId !== undefined && body.subtypeId !== null && body.subtypeId !== '') {
+    if (typeof body.subtypeId !== 'string' || !body.subtypeId.trim()) {
+      return { ok: false, status: 400, error: 'Nieprawidłowy identyfikator podrodzaju projektu.' };
+    }
+    const rawSubId = body.subtypeId.trim();
+    if (!resolvedTypeId) {
+      return { ok: false, status: 400, error: 'Podrodzaj projektu wymaga wybrania rodzaju projektu.' };
+    }
+    const parentType = configuredTypes.find((t) => t.id === resolvedTypeId);
+    if (!parentType || !(parentType.subtypes || []).some((s) => s.id === rawSubId)) {
+      return { ok: false, status: 400, error: 'Wybrany podrodzaj nie należy do wskazanego rodzaju projektu.' };
+    }
+    resolvedSubtypeId = rawSubId;
+  }
+
+  let resolvedShortName: string | undefined;
+  if (body.shortName !== undefined && body.shortName !== null && body.shortName !== '') {
+    if (typeof body.shortName !== 'string') {
+      return { ok: false, status: 400, error: 'Nazwa skrócona projektu musi być tekstem.' };
+    }
+    const trimmedShort = body.shortName.trim();
+    if (trimmedShort.length > SHORT_NAME_MAX) {
+      return {
+        ok: false,
+        status: 400,
+        error: `Nazwa skrócona projektu nie może przekraczać ${SHORT_NAME_MAX} znaków.`,
+      };
+    }
+    if (trimmedShort) {
+      resolvedShortName = trimmedShort;
+    }
+  }
+
+  const copiedDeliverables = copyTemplateDeliverablesToProject(opts.templateDeliverables);
+
   const idFactory = opts.idFactory ?? (() => crypto.randomUUID());
 
   const project: Project = {
@@ -1362,6 +1432,9 @@ export function buildProjectFromTender(
     key,
     ...(selectedCompany ? { companyId: selectedCompany.id } : {}),
     name: tender.name,
+    ...(resolvedShortName ? { shortName: resolvedShortName } : {}),
+    ...(resolvedTypeId ? { typeId: resolvedTypeId } : {}),
+    ...(resolvedSubtypeId ? { subtypeId: resolvedSubtypeId } : {}),
     description,
     priority: getDefaultProjectPriorityId(opts.projectPriorities),
     status: getDefaultProjectStatusId(opts.projectStatuses),
@@ -1377,6 +1450,7 @@ export function buildProjectFromTender(
     color: '#3b82f6',
     clientName: tender.contractingAuthority,
     sourceTenderId: tender.id,
+    ...(copiedDeliverables.length > 0 ? { deliverables: copiedDeliverables } : {}),
     revision: 1,
   };
 

@@ -472,7 +472,7 @@ export function useServerSync({
           applyRevision(data.revision);
         }
         if (data.project) {
-          setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, ...data.project } : p)));
+          setProjects((prev) => prev.map((p) => (p.id === projectId ? (data.project as Project) : p)));
         }
         return {
           ok: true,

@@ -1,19 +1,30 @@
-import type { ProjectPriorityOption, ProjectStatusOption } from '../types/index.js';
+import type {
+  ProjectPriorityOption,
+  ProjectStatusOption,
+  ProjectSubtypeOption,
+  ProjectTypeOption,
+} from '../types/index.js';
 import { hasForbiddenKeys } from './access.js';
 import {
   DEFAULT_PROJECT_PRIORITIES,
   DEFAULT_PROJECT_STATUSES,
+  DEFAULT_PROJECT_TYPES,
   PROJECT_META_ID_MAX,
   PROJECT_META_LABEL_MAX,
   PROJECT_META_MAX_ITEMS,
+  PROJECT_SUBTYPE_MAX_ITEMS,
+  PROJECT_TYPE_ID_MAX,
+  PROJECT_TYPE_LABEL_MAX,
+  PROJECT_TYPE_MAX_ITEMS,
   SYSTEM_PROJECT_PRIORITY_IDS,
   SYSTEM_PROJECT_STATUS_IDS,
   VALID_PROJECT_META_COLORS,
   normalizeProjectPriorities,
   normalizeProjectStatuses,
+  normalizeProjectTypes,
 } from './projectMeta.js';
 
-export { DEFAULT_PROJECT_PRIORITIES, DEFAULT_PROJECT_STATUSES };
+export { DEFAULT_PROJECT_PRIORITIES, DEFAULT_PROJECT_STATUSES, DEFAULT_PROJECT_TYPES };
 
 export interface ClientRecord {
   id: string;
@@ -55,6 +66,7 @@ export interface ServerVariablesState {
   taskTypes: TaskTypeDefinition[];
   projectStatuses: ProjectStatusOption[];
   projectPriorities: ProjectPriorityOption[];
+  projectTypes: ProjectTypeOption[];
   deadlineWarningDays: number;
   initialized: boolean;
 }
@@ -151,6 +163,10 @@ export const VARIABLES_LIMITS = {
   projectPrioritiesMax: PROJECT_META_MAX_ITEMS,
   projectMetaLabelMax: PROJECT_META_LABEL_MAX,
   projectMetaIdMax: PROJECT_META_ID_MAX,
+  projectTypesMax: PROJECT_TYPE_MAX_ITEMS,
+  projectSubtypesMax: PROJECT_SUBTYPE_MAX_ITEMS,
+  projectTypeLabelMax: PROJECT_TYPE_LABEL_MAX,
+  projectTypeIdMax: PROJECT_TYPE_ID_MAX,
   deadlineWarningDaysMin: 0,
   deadlineWarningDaysMax: 30,
 } as const;
@@ -173,6 +189,10 @@ export function createDefaultVariablesState(): ServerVariablesState {
     taskTypes: DEFAULT_TASK_TYPES.map((t) => ({ ...t })),
     projectStatuses: DEFAULT_PROJECT_STATUSES.map((s) => ({ ...s })),
     projectPriorities: DEFAULT_PROJECT_PRIORITIES.map((p) => ({ ...p })),
+    projectTypes: DEFAULT_PROJECT_TYPES.map((pt) => ({
+      ...pt,
+      subtypes: pt.subtypes.map((sub) => ({ ...sub })),
+    })),
     deadlineWarningDays: DEFAULT_DEADLINE_WARNING_DAYS,
     initialized: false,
   };
@@ -222,6 +242,7 @@ export function normalizeVariablesState(raw: any): ServerVariablesState {
 
   const projectStatuses = normalizeProjectStatuses(raw.projectStatuses);
   const projectPriorities = normalizeProjectPriorities(raw.projectPriorities);
+  const projectTypes = normalizeProjectTypes(raw.projectTypes);
 
   const deadlineWarningDays =
     typeof raw.deadlineWarningDays === 'number' &&
@@ -239,6 +260,7 @@ export function normalizeVariablesState(raw: any): ServerVariablesState {
     taskTypes,
     projectStatuses,
     projectPriorities,
+    projectTypes,
     deadlineWarningDays,
     initialized,
   };
@@ -267,6 +289,7 @@ export function validateVariablesUpdate(body: any): VariablesValidationResult {
   const hasTaskTypes = body.taskTypes !== undefined;
   const hasProjectStatuses = body.projectStatuses !== undefined;
   const hasProjectPriorities = body.projectPriorities !== undefined;
+  const hasProjectTypes = body.projectTypes !== undefined;
   const hasDeadlineDays = body.deadlineWarningDays !== undefined;
 
   if (
@@ -275,6 +298,7 @@ export function validateVariablesUpdate(body: any): VariablesValidationResult {
     !hasTaskTypes &&
     !hasProjectStatuses &&
     !hasProjectPriorities &&
+    !hasProjectTypes &&
     !hasDeadlineDays
   ) {
     return {
@@ -769,7 +793,196 @@ export function validateVariablesUpdate(body: any): VariablesValidationResult {
     }
   }
 
-  // 6. Walidacja liczby dni ostrzeżenia o terminie
+  // 6. Walidacja rodzajów projektów i podrodzajów
+  if (hasProjectTypes) {
+    if (!Array.isArray(body.projectTypes)) {
+      errors.push('Pole projectTypes musi być tablicą.');
+    } else if (body.projectTypes.length > VARIABLES_LIMITS.projectTypesMax) {
+      errors.push(
+        `Lista rodzajów projektów może zawierać maksymalnie ${VARIABLES_LIMITS.projectTypesMax} pozycji.`
+      );
+    } else {
+      const normalizedTypes: ProjectTypeOption[] = [];
+      const seenTypeIds = new Set<string>();
+      const seenTypeLabels = new Set<string>();
+
+      for (let i = 0; i < body.projectTypes.length; i += 1) {
+        const item = body.projectTypes[i];
+        if (!item || typeof item !== 'object' || Array.isArray(item) || hasForbiddenKeys(item)) {
+          errors.push(`Nieprawidłowy format rodzaju projektu na pozycji ${i + 1}.`);
+          break;
+        }
+
+        const rawId = typeof item.id === 'string' ? item.id.trim() : '';
+        if (!rawId) {
+          errors.push('Każdy rodzaj projektu musi posiadać identyfikator (id).');
+          break;
+        }
+        if (rawId.length > VARIABLES_LIMITS.projectTypeIdMax) {
+          errors.push(
+            `Identyfikator rodzaju projektu nie może przekraczać ${VARIABLES_LIMITS.projectTypeIdMax} znaków.`
+          );
+          break;
+        }
+        if (seenTypeIds.has(rawId)) {
+          errors.push(`Duplikat identyfikatora rodzaju projektu "${rawId}".`);
+          break;
+        }
+        seenTypeIds.add(rawId);
+
+        if (typeof item.label !== 'string' || !item.label.trim()) {
+          errors.push('Nazwa rodzaju projektu nie może być pusta.');
+          break;
+        }
+        const label = item.label.trim();
+        if (label.length > VARIABLES_LIMITS.projectTypeLabelMax) {
+          errors.push(
+            `Nazwa rodzaju projektu nie może przekraczać ${VARIABLES_LIMITS.projectTypeLabelMax} znaków.`
+          );
+          break;
+        }
+        const labelKey = label.toLowerCase();
+        if (seenTypeLabels.has(labelKey)) {
+          errors.push(`Nazwa rodzaju projektu "${label}" musi być unikalna.`);
+          break;
+        }
+        seenTypeLabels.add(labelKey);
+
+        const color =
+          item.color === undefined || item.color === null ? 'slate' : item.color;
+        if (typeof color !== 'string' || !VALID_PROJECT_META_COLORS.has(color as any)) {
+          errors.push(`Nieprawidłowy kolor rodzaju projektu "${label}".`);
+          break;
+        }
+
+        const order = item.order === undefined ? i + 1 : item.order;
+        if (typeof order !== 'number' || !Number.isInteger(order)) {
+          errors.push(`Kolejność rodzaju projektu "${label}" musi być liczbą całkowitą.`);
+          break;
+        }
+
+        const isActive =
+          item.isActive === undefined ? true : Boolean(item.isActive);
+        if (item.isActive !== undefined && typeof item.isActive !== 'boolean') {
+          errors.push(`Pole isActive rodzaju projektu "${label}" musi być wartością logiczną.`);
+          break;
+        }
+
+        let normalizedSubtypes: ProjectSubtypeOption[] = [];
+        if (item.subtypes !== undefined && item.subtypes !== null) {
+          if (!Array.isArray(item.subtypes)) {
+            errors.push(`Podrodzaje rodzaju "${label}" muszą być tablicą.`);
+            break;
+          }
+          if (item.subtypes.length > VARIABLES_LIMITS.projectSubtypesMax) {
+            errors.push(
+              `Rodzaj projektu "${label}" może zawierać maksymalnie ${VARIABLES_LIMITS.projectSubtypesMax} podrodzajów.`
+            );
+            break;
+          }
+
+          const seenSubIds = new Set<string>();
+          const seenSubLabels = new Set<string>();
+          let subtypeError = false;
+
+          for (let j = 0; j < item.subtypes.length; j += 1) {
+            const sub = item.subtypes[j];
+            if (!sub || typeof sub !== 'object' || Array.isArray(sub) || hasForbiddenKeys(sub)) {
+              errors.push(`Nieprawidłowy format podrodzaju na pozycji ${j + 1} w rodzaju "${label}".`);
+              subtypeError = true;
+              break;
+            }
+            const rawSubId = typeof sub.id === 'string' ? sub.id.trim() : '';
+            if (!rawSubId) {
+              errors.push(`Każdy podrodzaj w rodzaju "${label}" musi posiadać identyfikator (id).`);
+              subtypeError = true;
+              break;
+            }
+            if (rawSubId.length > VARIABLES_LIMITS.projectTypeIdMax) {
+              errors.push(
+                `Identyfikator podrodzaju w rodzaju "${label}" nie może przekraczać ${VARIABLES_LIMITS.projectTypeIdMax} znaków.`
+              );
+              subtypeError = true;
+              break;
+            }
+            if (seenSubIds.has(rawSubId)) {
+              errors.push(`Duplikat identyfikatora podrodzaju "${rawSubId}" w rodzaju "${label}".`);
+              subtypeError = true;
+              break;
+            }
+            seenSubIds.add(rawSubId);
+
+            if (typeof sub.label !== 'string' || !sub.label.trim()) {
+              errors.push(`Nazwa podrodzaju w rodzaju "${label}" nie może być pusta.`);
+              subtypeError = true;
+              break;
+            }
+            const subLabel = sub.label.trim();
+            if (subLabel.length > VARIABLES_LIMITS.projectTypeLabelMax) {
+              errors.push(
+                `Nazwa podrodzaju w rodzaju "${label}" nie może przekraczać ${VARIABLES_LIMITS.projectTypeLabelMax} znaków.`
+              );
+              subtypeError = true;
+              break;
+            }
+            const subLabelKey = subLabel.toLowerCase();
+            if (seenSubLabels.has(subLabelKey)) {
+              errors.push(`Nazwa podrodzaju "${subLabel}" w rodzaju "${label}" musi być unikalna.`);
+              subtypeError = true;
+              break;
+            }
+            seenSubLabels.add(subLabelKey);
+
+            const subOrder = sub.order === undefined ? j + 1 : sub.order;
+            if (typeof subOrder !== 'number' || !Number.isInteger(subOrder)) {
+              errors.push(`Kolejność podrodzaju "${subLabel}" musi być liczbą całkowitą.`);
+              subtypeError = true;
+              break;
+            }
+
+            if (sub.isActive !== undefined && typeof sub.isActive !== 'boolean') {
+              errors.push(`Pole isActive podrodzaju "${subLabel}" musi być wartością logiczną.`);
+              subtypeError = true;
+              break;
+            }
+            const subActive = sub.isActive === undefined ? true : Boolean(sub.isActive);
+
+            normalizedSubtypes.push({
+              id: rawSubId,
+              label: subLabel,
+              order: subOrder,
+              isActive: subActive,
+            });
+          }
+
+          if (subtypeError) {
+            break;
+          }
+
+          normalizedSubtypes = normalizedSubtypes.sort(
+            (a, b) => a.order - b.order || a.label.localeCompare(b.label, 'pl')
+          );
+        }
+
+        normalizedTypes.push({
+          id: rawId,
+          label,
+          color: color as ProjectTypeOption['color'],
+          order,
+          isActive,
+          subtypes: normalizedSubtypes,
+        });
+      }
+
+      if (errors.length === 0) {
+        patch.projectTypes = normalizedTypes.sort(
+          (a, b) => a.order - b.order || a.label.localeCompare(b.label, 'pl')
+        );
+      }
+    }
+  }
+
+  // 7. Walidacja liczby dni ostrzeżenia o terminie
   if (hasDeadlineDays) {
     const days = body.deadlineWarningDays;
     if (

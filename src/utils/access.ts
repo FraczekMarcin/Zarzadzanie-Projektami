@@ -315,6 +315,7 @@ export const FIELD_LIMITS = {
   title: 200,
   key: 12,
   name: 200,
+  shortName: 60,
   description: 20000,
   status: 50,
   priority: 50,
@@ -363,8 +364,9 @@ export function sanitizeFieldValue(
     if (field === 'title') limit = FIELD_LIMITS.title;
     else if (field === 'key') limit = FIELD_LIMITS.key;
     else if (field === 'name') limit = FIELD_LIMITS.name;
+    else if (field === 'shortName') limit = FIELD_LIMITS.shortName;
     else if (field === 'description') limit = FIELD_LIMITS.description;
-    else if (field === 'status' || field === 'priority' || field === 'type') limit = FIELD_LIMITS.status;
+    else if (field === 'status' || field === 'priority' || field === 'type' || field === 'typeId' || field === 'subtypeId') limit = FIELD_LIMITS.status;
     else if (field.toLowerCase().startsWith('client')) limit = FIELD_LIMITS.client;
 
     if (limit !== undefined) {
@@ -490,6 +492,10 @@ export function pickAllowedProjectFields(
   // Bazowe pola edytowalne dla każdego uprawnionego do edycji projektu
   const baseFields = new Set([
     'name',
+    'shortName',
+    'typeId',
+    'subtypeId',
+    'deliverables',
     'description',
     'priority',
     'status',

@@ -19,6 +19,7 @@ import { useFocusTrap } from '../utils/useFocusTrap';
 import { canEditFinance } from '../utils/access';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { DiscardChangesModal } from './DiscardChangesModal';
+import { ProjectNameLabel } from './ProjectNameLabel';
 import {
   buildFinancePatch,
   computeProjectFinance,
@@ -1759,7 +1760,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                   </span>
                 )}
                 <h3 id="financials-modal-title" className="text-sm font-bold text-slate-900 dark:text-white">
-                  {project.name}
+                  <ProjectNameLabel project={project} />
                 </h3>
               </div>
               <p className="text-xs text-slate-600 dark:text-slate-400">

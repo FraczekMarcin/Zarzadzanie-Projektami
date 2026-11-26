@@ -1,14 +1,23 @@
 import type {
+  LegacyTemplateCategory,
   Priority,
   Project,
   ProjectTemplate,
   ProjectTemplateSummary,
+  ProjectTypeOption,
   Task,
   TemplateAssigneeRole,
-  TemplateCategory,
+  TemplateDeliverableBlueprint,
   TemplateTaskBlueprint,
 } from '../types';
 import { hasForbiddenKeys } from './access.js';
+import {
+  DEFAULT_PROJECT_TYPES,
+  PROJECT_TYPE_ID_MAX,
+  getProjectDisplayName,
+  mapLegacyTemplateCategory,
+  validateTemplateDeliverables,
+} from './projectMeta.js';
 import { MAX_TASK_DEPTH } from './taskTree.js';
 
 export const MAX_CUSTOM_TEMPLATES = 50;
@@ -27,24 +36,6 @@ export const TEMPLATE_LIMITS = {
   tagsMaxCount: 30,
   tagLength: 50,
 } as const;
-
-export const TEMPLATE_CATEGORIES: readonly TemplateCategory[] = [
-  'kubaturowe',
-  'mieszkaniowe',
-  'przemyslowe',
-  'infrastruktura',
-  'przebudowa',
-  'ogolne',
-] as const;
-
-export const TEMPLATE_CATEGORY_LABELS: Record<TemplateCategory, string> = {
-  kubaturowe: 'Obiekty kubaturowe',
-  mieszkaniowe: 'Budownictwo mieszkaniowe',
-  przemyslowe: 'Przemysł i hale',
-  infrastruktura: 'Infrastruktura i sieci',
-  przebudowa: 'Przebudowy i modernizacje',
-  ogolne: 'Ogólne',
-};
 
 export const TEMPLATE_PRIORITIES: readonly Priority[] = [
   'low',
@@ -80,22 +71,20 @@ export interface LegacyTemplateTaskLike {
 export interface LegacyTemplateLike {
   id?: string;
   name?: string;
-  category?: TemplateCategory | string;
+  typeId?: string;
+  category?: LegacyTemplateCategory | string;
   description?: string;
   defaultDurationDays?: number;
   defaultPriority?: Priority | string;
   defaultBudget?: string;
   tasks?: LegacyTemplateTaskLike[];
+  deliverables?: unknown[];
   isCustom?: boolean;
   builtIn?: boolean;
   createdAt?: string;
   updatedAt?: string;
   createdBy?: string;
   sourceProjectId?: string;
-}
-
-function isValidCategory(val: unknown): val is TemplateCategory {
-  return typeof val === 'string' && (TEMPLATE_CATEGORIES as readonly string[]).includes(val);
 }
 
 function isValidPriority(val: unknown): val is Priority {
@@ -226,13 +215,29 @@ export function migrateTemplateTasksFromIndices(
  */
 export function migrateLegacyTemplate(
   raw: LegacyTemplateLike,
-  options: { builtIn?: boolean } = {}
+  options: { builtIn?: boolean; allowedProjectTypes?: readonly ProjectTypeOption[] } = {}
 ): ProjectTemplate {
   const builtIn = options.builtIn ?? Boolean(raw?.builtIn);
   const rawDuration =
     typeof raw?.defaultDurationDays === 'number' && Number.isFinite(raw.defaultDurationDays)
       ? Math.round(raw.defaultDurationDays)
       : 60;
+
+  const allowedIds =
+    Array.isArray(options.allowedProjectTypes) && options.allowedProjectTypes.length > 0
+      ? new Set(options.allowedProjectTypes.map((t) => t.id))
+      : undefined;
+
+  const rawTypeId = typeof raw?.typeId === 'string' ? raw.typeId.trim().slice(0, PROJECT_TYPE_ID_MAX) : '';
+  const resolvedTypeId =
+    rawTypeId && (!allowedIds || allowedIds.has(rawTypeId))
+      ? rawTypeId
+      : mapLegacyTemplateCategory(raw?.category, allowedIds);
+
+  const delValidation = validateTemplateDeliverables(raw?.deliverables);
+  const deliverables = delValidation.ok && delValidation.deliverables.length > 0
+    ? delValidation.deliverables
+    : undefined;
 
   return {
     id:
@@ -242,7 +247,7 @@ export function migrateLegacyTemplate(
     name:
       String(raw?.name || 'Szablon projektu').trim().slice(0, TEMPLATE_LIMITS.name) ||
       'Szablon projektu',
-    category: isValidCategory(raw?.category) ? raw.category : 'ogolne',
+    typeId: resolvedTypeId,
     description: String(raw?.description || '').trim().slice(0, TEMPLATE_LIMITS.description),
     defaultDurationDays: Math.min(MAX_TEMPLATE_DAYS, Math.max(1, rawDuration)),
     defaultPriority: isValidPriority(raw?.defaultPriority) ? raw.defaultPriority : 'normal',
@@ -250,6 +255,7 @@ export function migrateLegacyTemplate(
       ? { defaultBudget: raw.defaultBudget.trim().slice(0, TEMPLATE_LIMITS.budget) }
       : {}),
     tasks: migrateTemplateTasksFromIndices(raw?.tasks).slice(0, MAX_TEMPLATE_TASKS),
+    ...(deliverables ? { deliverables } : {}),
     builtIn,
     isCustom: builtIn ? false : true,
     ...(typeof raw?.createdAt === 'string' ? { createdAt: raw.createdAt } : {}),
@@ -262,16 +268,18 @@ export function migrateLegacyTemplate(
 
 export function toTemplateSummary(template: ProjectTemplate): ProjectTemplateSummary {
   const tasks = Array.isArray(template.tasks) ? template.tasks : [];
+  const deliverables = Array.isArray(template.deliverables) ? template.deliverables : [];
   return {
     id: template.id,
     name: template.name,
-    category: template.category,
+    typeId: template.typeId || 'inne',
     description: template.description,
     defaultDurationDays: template.defaultDurationDays,
     defaultPriority: template.defaultPriority,
     ...(template.defaultBudget !== undefined ? { defaultBudget: template.defaultBudget } : {}),
     taskCount: tasks.length,
     officialDeadlineCount: tasks.filter((t) => Boolean(t?.isOfficialDeadline)).length,
+    deliverableCount: deliverables.length,
     builtIn: Boolean(template.builtIn),
     ...(template.isCustom !== undefined ? { isCustom: template.isCustom } : {}),
     ...(template.createdAt !== undefined ? { createdAt: template.createdAt } : {}),
@@ -284,20 +292,24 @@ export function toTemplateSummary(template: ProjectTemplate): ProjectTemplateSum
 
 export interface ValidatedTemplatePayload {
   name: string;
-  category: TemplateCategory;
+  typeId: string;
   description: string;
   defaultDurationDays: number;
   defaultPriority: Priority;
   defaultBudget?: string;
   sourceProjectId?: string;
   tasks: TemplateTaskBlueprint[];
+  deliverables?: TemplateDeliverableBlueprint[];
 }
 
 export type TemplateValidationResult =
   | { ok: true; data: ValidatedTemplatePayload }
   | { ok: false; error: string; field?: string };
 
-export function validateTemplateWritePayload(raw: unknown): TemplateValidationResult {
+export function validateTemplateWritePayload(
+  raw: unknown,
+  allowedProjectTypes?: readonly ProjectTypeOption[]
+): TemplateValidationResult {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return { ok: false, error: 'Nieprawidłowy format danych szablonu.' };
   }
@@ -319,12 +331,45 @@ export function validateTemplateWritePayload(raw: unknown): TemplateValidationRe
     };
   }
 
-  let category: TemplateCategory = 'ogolne';
-  if (body.category !== undefined) {
-    if (!isValidCategory(body.category)) {
-      return { ok: false, error: 'Nieprawidłowa kategoria szablonu.', field: 'category' };
+  const typePool =
+    Array.isArray(allowedProjectTypes)
+      ? allowedProjectTypes
+      : DEFAULT_PROJECT_TYPES;
+  const allowedTypeIds = new Set(typePool.map((t) => t.id));
+
+  let typeId = allowedTypeIds.has('inne')
+    ? 'inne'
+    : typePool[0]?.id || 'inne';
+  if (body.typeId !== undefined && body.typeId !== null && body.typeId !== '') {
+    if (typeof body.typeId !== 'string' || !body.typeId.trim()) {
+      return { ok: false, error: 'Nieprawidłowy rodzaj projektu dla szablonu.', field: 'typeId' };
     }
-    category = body.category;
+    const trimmedTypeId = body.typeId.trim();
+    if (trimmedTypeId.length > PROJECT_TYPE_ID_MAX) {
+      return {
+        ok: false,
+        error: `Identyfikator rodzaju projektu nie może przekraczać ${PROJECT_TYPE_ID_MAX} znaków.`,
+        field: 'typeId',
+      };
+    }
+    if (!allowedTypeIds.has(trimmedTypeId)) {
+      return {
+        ok: false,
+        error: 'Wybrany rodzaj projektu nie istnieje w konfiguracji.',
+        field: 'typeId',
+      };
+    }
+    typeId = trimmedTypeId;
+  } else if (body.typeId === '' || body.typeId === null) {
+    if (typePool.length > 0 && !allowedTypeIds.has(typeId)) {
+      return {
+        ok: false,
+        error: 'Wybierz rodzaj projektu dla szablonu.',
+        field: 'typeId',
+      };
+    }
+  } else if (body.category !== undefined) {
+    typeId = mapLegacyTemplateCategory(body.category, allowedTypeIds);
   }
 
   let description = '';
@@ -712,17 +757,29 @@ export function validateTemplateWritePayload(raw: unknown): TemplateValidationRe
     }
   }
 
+  const deliverablesRes = validateTemplateDeliverables(body.deliverables);
+  if (!deliverablesRes.ok) {
+    return {
+      ok: false,
+      error: deliverablesRes.error,
+      field: deliverablesRes.field,
+    };
+  }
+
   return {
     ok: true,
     data: {
       name,
-      category,
+      typeId,
       description,
       defaultDurationDays,
       defaultPriority,
       ...(defaultBudget !== undefined ? { defaultBudget } : {}),
       ...(sourceProjectId !== undefined ? { sourceProjectId } : {}),
       tasks: normalizedTasks,
+      ...(deliverablesRes.deliverables.length > 0
+        ? { deliverables: deliverablesRes.deliverables }
+        : {}),
     },
   };
 }
@@ -755,14 +812,18 @@ export interface BuildTemplateFromProjectInput {
   projectTasks: readonly Task[];
   body: {
     name?: unknown;
+    typeId?: unknown;
     category?: unknown;
     description?: unknown;
     selectedTaskIds?: unknown;
     skipCompleted?: unknown;
     preserveAssigneeRoles?: unknown;
+    includeDeliverables?: unknown;
+    deliverables?: unknown;
   };
   callerId: string;
   templateId: string;
+  allowedProjectTypes?: readonly ProjectTypeOption[];
   nowIso?: string;
 }
 
@@ -777,13 +838,22 @@ export type BuildTemplateFromProjectResult =
 export function buildTemplateFromProject(
   input: BuildTemplateFromProjectInput
 ): BuildTemplateFromProjectResult {
-  const { project, projectTasks, body, callerId, templateId, nowIso = new Date().toISOString() } = input;
+  const {
+    project,
+    projectTasks,
+    body,
+    callerId,
+    templateId,
+    allowedProjectTypes,
+    nowIso = new Date().toISOString(),
+  } = input;
 
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return { ok: false, status: 400, error: 'Nieprawidłowy format żądania.' };
   }
 
-  let name = `Szablon: ${project.name}`.trim().slice(0, TEMPLATE_LIMITS.name);
+  const displayName = getProjectDisplayName(project) || project.name;
+  let name = `Szablon: ${displayName}`.trim().slice(0, TEMPLATE_LIMITS.name);
   if (body.name !== undefined) {
     if (typeof body.name !== 'string') {
       return { ok: false, status: 400, error: 'Nazwa szablonu musi być tekstem.', field: 'name' };
@@ -803,12 +873,29 @@ export function buildTemplateFromProject(
     name = trimmed;
   }
 
-  let category: TemplateCategory = 'kubaturowe';
-  if (body.category !== undefined) {
-    if (!isValidCategory(body.category)) {
-      return { ok: false, status: 400, error: 'Nieprawidłowa kategoria szablonu.', field: 'category' };
+  const typePool = Array.isArray(allowedProjectTypes)
+    ? allowedProjectTypes
+    : DEFAULT_PROJECT_TYPES;
+  const allowedTypeIds = new Set(typePool.map((t) => t.id));
+
+  let typeId =
+    project.typeId && allowedTypeIds.has(project.typeId)
+      ? project.typeId
+      : allowedTypeIds.has('inne')
+      ? 'inne'
+      : typePool[0]?.id || 'inne';
+
+  if (body.typeId !== undefined && body.typeId !== null && body.typeId !== '') {
+    if (typeof body.typeId !== 'string' || !body.typeId.trim()) {
+      return { ok: false, status: 400, error: 'Nieprawidłowy rodzaj projektu dla szablonu.', field: 'typeId' };
     }
-    category = body.category;
+    const trimmedTypeId = body.typeId.trim();
+    if (!allowedTypeIds.has(trimmedTypeId)) {
+      return { ok: false, status: 400, error: 'Wybrany rodzaj projektu nie istnieje w konfiguracji.', field: 'typeId' };
+    }
+    typeId = trimmedTypeId;
+  } else if (body.category !== undefined) {
+    typeId = mapLegacyTemplateCategory(body.category, allowedTypeIds);
   }
 
   let description = `Szablon utworzony na podstawie projektu [${project.key}] ${project.name}.`.slice(
@@ -1024,15 +1111,40 @@ export function buildTemplateFromProject(
       : maxEndOffset;
   const defaultDurationDays = Math.min(MAX_TEMPLATE_DAYS, Math.max(1, rawDefaultDuration));
 
+  let deliverables: TemplateDeliverableBlueprint[] | undefined;
+  if (body.deliverables !== undefined) {
+    const delCheck = validateTemplateDeliverables(body.deliverables);
+    if (!delCheck.ok) {
+      return { ok: false, status: 400, error: delCheck.error, field: delCheck.field };
+    }
+    if (delCheck.deliverables.length > 0) {
+      deliverables = delCheck.deliverables;
+    }
+  } else if (body.includeDeliverables !== false && Array.isArray(project.deliverables) && project.deliverables.length > 0) {
+    const mapped = project.deliverables
+      .filter((d) => d && typeof d.name === 'string' && d.name.trim())
+      .map((d, idx) => ({
+        id: `tdel-${idx + 1}`,
+        name: d.name.trim(),
+        copies: typeof d.copies === 'number' && Number.isInteger(d.copies) ? d.copies : 1,
+        unit: typeof d.unit === 'string' && d.unit.trim() ? d.unit.trim() : 'egz.',
+        ...(typeof d.notes === 'string' && d.notes.trim() ? { notes: d.notes.trim() } : {}),
+      }));
+    if (mapped.length > 0) {
+      deliverables = mapped;
+    }
+  }
+
   // Walidacja wynikowa chroniąca przed ew. cyklami odziedziczonymi ze starego stanu
   const finalCandidate: ProjectTemplate = {
     id: templateId,
     name,
-    category,
+    typeId,
     description,
     defaultDurationDays,
     defaultPriority: isValidPriority(project.priority) ? project.priority : 'normal',
     tasks: blueprints,
+    ...(deliverables ? { deliverables } : {}),
     isCustom: true,
     builtIn: false,
     createdAt: nowIso,
@@ -1041,7 +1153,7 @@ export function buildTemplateFromProject(
     sourceProjectId: project.id,
   };
 
-  const check = validateTemplateWritePayload(finalCandidate);
+  const check = validateTemplateWritePayload(finalCandidate, allowedProjectTypes);
   if (!check.ok) {
     return { ok: false, status: 400, error: check.error, field: check.field };
   }

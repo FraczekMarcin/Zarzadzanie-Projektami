@@ -17,10 +17,15 @@ import {
 } from '../../utils/projectCode.js';
 import { recomputeProjectProgress } from '../../utils/progress.js';
 import {
+  SHORT_NAME_MAX,
+  copyTemplateDeliverablesToProject,
   getDefaultProjectPriorityId,
   getDefaultProjectStatusId,
+  getDeliverablesSummary,
   normalizeProjectPriorities,
   normalizeProjectStatuses,
+  normalizeProjectTypes,
+  validateProjectDeliverables,
 } from '../../utils/projectMeta.js';
 import type { ProjectTemplate, Task } from '../../types/index.js';
 import {
@@ -225,6 +230,23 @@ export function registerProjectRoutes(
         return res.status(400).json({ error: 'Wymagana nazwa projektu.' });
       }
 
+      let resolvedShortName: string | undefined;
+      if (body.shortName !== undefined && body.shortName !== null) {
+        if (typeof body.shortName !== 'string') {
+          return res.status(400).json({ error: 'Nazwa skrócona projektu musi być tekstem.', field: 'shortName' });
+        }
+        const trimmedShort = body.shortName.trim();
+        if (trimmedShort.length > SHORT_NAME_MAX) {
+          return res.status(400).json({
+            error: `Nazwa skrócona projektu nie może przekraczać ${SHORT_NAME_MAX} znaków.`,
+            field: 'shortName',
+          });
+        }
+        if (trimmedShort) {
+          resolvedShortName = trimmedShort;
+        }
+      }
+
       const companies = Array.isArray(appState.companies) ? appState.companies : [];
       const activeCompanies = companies.filter((c: any) => c && c.isActive);
       const rawCompanyId =
@@ -242,6 +264,7 @@ export function registerProjectRoutes(
 
       const configuredStatuses = normalizeProjectStatuses(appState.variables?.projectStatuses);
       const configuredPriorities = normalizeProjectPriorities(appState.variables?.projectPriorities);
+      const configuredTypes = normalizeProjectTypes(appState.variables?.projectTypes);
 
       let resolvedStatus = getDefaultProjectStatusId(configuredStatuses);
       if (body.status !== undefined && body.status !== null && body.status !== '') {
@@ -265,6 +288,49 @@ export function registerProjectRoutes(
           });
         }
         resolvedPriority = rawPriority;
+      }
+
+      let resolvedTypeId: string | undefined;
+      if (body.typeId !== undefined && body.typeId !== null && body.typeId !== '') {
+        if (typeof body.typeId !== 'string' || !body.typeId.trim()) {
+          return res.status(400).json({
+            error: 'Nieprawidłowy identyfikator rodzaju projektu.',
+            field: 'typeId',
+          });
+        }
+        const rawTypeId = body.typeId.trim();
+        if (!configuredTypes.some((t) => t.id === rawTypeId)) {
+          return res.status(400).json({
+            error: 'Wybrany rodzaj projektu nie istnieje w konfiguracji.',
+            field: 'typeId',
+          });
+        }
+        resolvedTypeId = rawTypeId;
+      }
+
+      let resolvedSubtypeId: string | undefined;
+      if (body.subtypeId !== undefined && body.subtypeId !== null && body.subtypeId !== '') {
+        if (typeof body.subtypeId !== 'string' || !body.subtypeId.trim()) {
+          return res.status(400).json({
+            error: 'Nieprawidłowy identyfikator podrodzaju projektu.',
+            field: 'subtypeId',
+          });
+        }
+        const rawSubtypeId = body.subtypeId.trim();
+        if (!resolvedTypeId) {
+          return res.status(400).json({
+            error: 'Podrodzaj projektu wymaga wybrania rodzaju projektu.',
+            field: 'subtypeId',
+          });
+        }
+        const parentType = configuredTypes.find((t) => t.id === resolvedTypeId);
+        if (!parentType || !(parentType.subtypes || []).some((s) => s.id === rawSubtypeId)) {
+          return res.status(400).json({
+            error: 'Wybrany podrodzaj nie należy do wskazanego rodzaju projektu.',
+            field: 'subtypeId',
+          });
+        }
+        resolvedSubtypeId = rawSubtypeId;
       }
 
       const financeValidation = validateProjectFinanceFields(allowed, undefined, {
@@ -386,6 +452,35 @@ export function registerProjectRoutes(
           ? addDaysUtc(effectiveStartDate, effectiveDurationDays - 1)
           : now.slice(0, 10);
 
+      if (
+        !resolvedTypeId &&
+        body.typeId === undefined &&
+        resolvedTemplate?.typeId &&
+        configuredTypes.some((t) => t.id === resolvedTemplate!.typeId)
+      ) {
+        resolvedTypeId = resolvedTemplate.typeId;
+      }
+
+      const actorName = caller?.name || caller?.email || caller?.id || 'Użytkownik';
+      let resolvedDeliverables = undefined;
+      if (body.deliverables !== undefined) {
+        const delValidation = validateProjectDeliverables(body.deliverables, {
+          actorName,
+          nowIso: now,
+        });
+        if (!delValidation.ok) {
+          return res.status(400).json({
+            error: delValidation.error,
+            field: delValidation.field,
+          });
+        }
+        if (delValidation.deliverables.length > 0) {
+          resolvedDeliverables = delValidation.deliverables;
+        }
+      } else if (resolvedTemplate?.deliverables && resolvedTemplate.deliverables.length > 0) {
+        resolvedDeliverables = copyTemplateDeliverablesToProject(resolvedTemplate.deliverables);
+      }
+
       const newProject: Record<string, any> = {
         ...allowed,
         id: crypto.randomUUID(),
@@ -403,6 +498,26 @@ export function registerProjectRoutes(
         color: allowed.color || '#3b82f6',
         revision: 1,
       };
+      if (resolvedShortName) {
+        newProject.shortName = resolvedShortName;
+      } else {
+        delete newProject.shortName;
+      }
+      if (resolvedTypeId) {
+        newProject.typeId = resolvedTypeId;
+      } else {
+        delete newProject.typeId;
+      }
+      if (resolvedSubtypeId) {
+        newProject.subtypeId = resolvedSubtypeId;
+      } else {
+        delete newProject.subtypeId;
+      }
+      if (resolvedDeliverables && resolvedDeliverables.length > 0) {
+        newProject.deliverables = resolvedDeliverables;
+      } else {
+        delete newProject.deliverables;
+      }
       if (!selectedCompany) {
         delete newProject.companyId;
       }
@@ -634,6 +749,7 @@ export function registerProjectRoutes(
 
       const configuredStatuses = normalizeProjectStatuses(appState.variables?.projectStatuses);
       const configuredPriorities = normalizeProjectPriorities(appState.variables?.projectPriorities);
+      const configuredTypes = normalizeProjectTypes(appState.variables?.projectTypes);
 
       if (Object.prototype.hasOwnProperty.call(patch, 'status')) {
         const rawStatus = typeof patch.status === 'string' ? patch.status.trim() : '';
@@ -657,6 +773,100 @@ export function registerProjectRoutes(
         allowedUpdates.priority = rawPriority;
       }
 
+      const hasTypePatch = Object.prototype.hasOwnProperty.call(patch, 'typeId');
+      const hasSubtypePatch = Object.prototype.hasOwnProperty.call(patch, 'subtypeId');
+      let effectiveTypeId: string | undefined =
+        typeof project.typeId === 'string' && project.typeId.trim() ? project.typeId.trim() : undefined;
+
+      if (hasTypePatch) {
+        const rawTypeId = patch.typeId;
+        if (rawTypeId === null || rawTypeId === '' || rawTypeId === undefined) {
+          allowedUpdates.typeId = undefined;
+          effectiveTypeId = undefined;
+        } else if (typeof rawTypeId === 'string' && rawTypeId.trim()) {
+          const trimmedTypeId = rawTypeId.trim();
+          if (!configuredTypes.some((t) => t.id === trimmedTypeId)) {
+            return res.status(400).json({
+              error: 'Wybrany rodzaj projektu nie istnieje w konfiguracji.',
+              field: 'typeId',
+            });
+          }
+          allowedUpdates.typeId = trimmedTypeId;
+          effectiveTypeId = trimmedTypeId;
+        } else {
+          return res.status(400).json({
+            error: 'Nieprawidłowy identyfikator rodzaju projektu.',
+            field: 'typeId',
+          });
+        }
+      }
+
+      if (hasSubtypePatch) {
+        const rawSubtypeId = patch.subtypeId;
+        if (rawSubtypeId === null || rawSubtypeId === '' || rawSubtypeId === undefined) {
+          allowedUpdates.subtypeId = undefined;
+        } else if (typeof rawSubtypeId === 'string' && rawSubtypeId.trim()) {
+          const trimmedSubId = rawSubtypeId.trim();
+          if (!effectiveTypeId) {
+            return res.status(400).json({
+              error: 'Podrodzaj projektu wymaga wybrania rodzaju projektu.',
+              field: 'subtypeId',
+            });
+          }
+          const parentType = configuredTypes.find((t) => t.id === effectiveTypeId);
+          if (!parentType || !(parentType.subtypes || []).some((s) => s.id === trimmedSubId)) {
+            return res.status(400).json({
+              error: 'Wybrany podrodzaj nie należy do wskazanego rodzaju projektu.',
+              field: 'subtypeId',
+            });
+          }
+          allowedUpdates.subtypeId = trimmedSubId;
+        } else {
+          return res.status(400).json({
+            error: 'Nieprawidłowy identyfikator podrodzaju projektu.',
+            field: 'subtypeId',
+          });
+        }
+      } else if (hasTypePatch && project.subtypeId) {
+        if (!effectiveTypeId) {
+          allowedUpdates.subtypeId = undefined;
+        } else {
+          const parentType = configuredTypes.find((t) => t.id === effectiveTypeId);
+          if (!parentType || !(parentType.subtypes || []).some((s) => s.id === project.subtypeId)) {
+            allowedUpdates.subtypeId = undefined;
+          }
+        }
+      }
+
+      let deliverablesChangedSummary: { prevDone: number; prevTotal: number; nextDone: number; nextTotal: number } | null = null;
+      if (Object.prototype.hasOwnProperty.call(patch, 'deliverables')) {
+        const actorName = caller?.name || caller?.email || caller?.id || 'Użytkownik';
+        const delValidation = validateProjectDeliverables(patch.deliverables, {
+          existingDeliverables: Array.isArray(project.deliverables) ? project.deliverables : [],
+          actorName,
+          nowIso: new Date().toISOString(),
+        });
+        if (!delValidation.ok) {
+          return res.status(400).json({
+            error: delValidation.error,
+            field: delValidation.field,
+          });
+        }
+        const prevDeliverables = Array.isArray(project.deliverables) ? project.deliverables : [];
+        if (!deepEqualJson(prevDeliverables, delValidation.deliverables)) {
+          const prevSum = getDeliverablesSummary(prevDeliverables);
+          const nextSum = getDeliverablesSummary(delValidation.deliverables);
+          deliverablesChangedSummary = {
+            prevDone: prevSum.done,
+            prevTotal: prevSum.total,
+            nextDone: nextSum.done,
+            nextTotal: nextSum.total,
+          };
+        }
+        allowedUpdates.deliverables =
+          delValidation.deliverables.length > 0 ? delValidation.deliverables : undefined;
+      }
+
       const financeValidation = validateProjectFinanceFields(allowedUpdates, project, {
         company: targetCompany,
       });
@@ -678,6 +888,27 @@ export function registerProjectRoutes(
           allowedUpdates.ownerId = trimmedOwner || undefined;
         } else {
           return res.status(400).json({ error: 'Nieprawidłowy identyfikator właściciela projektu.' });
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(patch, 'shortName')) {
+        const rawShort = patch.shortName;
+        if (rawShort === null || rawShort === '' || rawShort === undefined) {
+          allowedUpdates.shortName = undefined;
+        } else if (typeof rawShort === 'string') {
+          const trimmedShort = rawShort.trim();
+          if (trimmedShort.length > SHORT_NAME_MAX) {
+            return res.status(400).json({
+              error: `Nazwa skrócona projektu nie może przekraczać ${SHORT_NAME_MAX} znaków.`,
+              field: 'shortName',
+            });
+          }
+          allowedUpdates.shortName = trimmedShort || undefined;
+        } else {
+          return res.status(400).json({
+            error: 'Nazwa skrócona projektu musi być tekstem.',
+            field: 'shortName',
+          });
         }
       }
 
@@ -722,7 +953,15 @@ export function registerProjectRoutes(
       delete allowedUpdates.progress;
 
       for (const [key, value] of Object.entries(allowedUpdates)) {
-        if ((key === 'companyId' || key === 'ownerId') && value === undefined) {
+        if (
+          (key === 'companyId' ||
+            key === 'ownerId' ||
+            key === 'shortName' ||
+            key === 'typeId' ||
+            key === 'subtypeId' ||
+            key === 'deliverables') &&
+          value === undefined
+        ) {
           delete project[key];
         } else if (
           (key === 'projectValue' || key === 'projectValueGross' || key === 'budget') &&
@@ -742,6 +981,24 @@ export function registerProjectRoutes(
           project.memberIds = [project.ownerId];
         } else if (!project.memberIds.includes(project.ownerId)) {
           project.memberIds.push(project.ownerId);
+        }
+      }
+
+      if (deliverablesChangedSummary) {
+        if (!Array.isArray(appState.activityLogs)) {
+          appState.activityLogs = [];
+        }
+        const actorName = caller?.name || caller?.email || caller?.id || 'Użytkownik';
+        appState.activityLogs.unshift({
+          id: `act-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
+          projectId: project.id,
+          userId: caller.id,
+          action: `${actorName} zaktualizował elementy do odbioru w projekcie [${project.key}] (Wykonano ${deliverablesChangedSummary.nextDone} z ${deliverablesChangedSummary.nextTotal})`,
+          timestamp: new Date().toISOString(),
+          details: `Poprzednio: ${deliverablesChangedSummary.prevDone} z ${deliverablesChangedSummary.prevTotal}.`,
+        });
+        if (appState.activityLogs.length > 500) {
+          appState.activityLogs = appState.activityLogs.slice(0, 500);
         }
       }
 

@@ -289,6 +289,7 @@ describe('Szablony projektów — walidacja, migracja i instancjonowanie', () =>
     );
     expect(migrated.builtIn).toBe(false);
     expect(migrated.isCustom).toBe(true);
+    expect(migrated.typeId).toBe('projekt_budowlany');
     expect(migrated.tasks[0].key).toBe('t-1');
     expect(migrated.tasks[1].key).toBe('t-2');
     expect(migrated.tasks[1].blockerKeys).toEqual(['t-1']);
@@ -503,7 +504,7 @@ describe('Szablony projektów — walidacja, migracja i instancjonowanie', () =>
     const sampleTemplate: ProjectTemplate = {
       id: 'tpl-hier',
       name: 'Szablon hierarchiczny',
-      category: 'kubaturowe',
+      typeId: 'projekt_budowlany',
       description: '',
       defaultDurationDays: 30,
       defaultPriority: 'normal',
@@ -596,7 +597,7 @@ describe('Szablony projektów — walidacja, migracja i instancjonowanie', () =>
     const baseTemplate: ProjectTemplate = {
       id: 'tpl-ed',
       name: 'Szablon edycji',
-      category: 'kubaturowe',
+      typeId: 'projekt_budowlany',
       description: 'Opis',
       defaultDurationDays: 10,
       defaultPriority: 'normal',

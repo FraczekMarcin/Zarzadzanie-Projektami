@@ -79,7 +79,7 @@ describe('P76: Słowniki stanów i priorytetów projektów (projectMeta)', () =>
       },
     ];
     const customPriorities = [
-      ...DEFAULT_PROJECT_PRIORITIES,
+      ...DEFAULT_PROJECT_PRIORITIES.map((p) => ({ ...p, isDefault: false })),
       {
         id: 'urgent_vip',
         label: 'Pilny VIP',

@@ -11,7 +11,12 @@ import type {
 import { FIELD_LIMITS, canEditFinance, canViewFinance } from './access.js';
 import { ProjectFinanceSummary, computeProjectFinance, isPaymentOverdue } from './finance.js';
 import { addMoney, calcGrossFromNet, formatMoney, subtractMoney } from './money.js';
-import { resolveProjectStatus } from './projectMeta.js';
+import {
+  compareProjectDisplayNames,
+  getProjectDisplayName,
+  matchesProjectSearch,
+  resolveProjectStatus,
+} from './projectMeta.js';
 import { getTodayIso } from './today.js';
 
 export type EconomyAmountMode = 'net' | 'gross';
@@ -220,10 +225,8 @@ export function filterEconomyRows(
     if (filters.status !== 'all' && row.project.status !== filters.status) {
       return false;
     }
-    if (searchLower) {
-      const keyMatch = (row.project.key || '').toLowerCase().includes(searchLower);
-      const nameMatch = (row.project.name || '').toLowerCase().includes(searchLower);
-      if (!keyMatch && !nameMatch) return false;
+    if (searchLower && !matchesProjectSearch(row.project, filters.search)) {
+      return false;
     }
     return true;
   });
@@ -244,7 +247,7 @@ export function sortEconomyRows(
         cmp = (a.project.key || '').localeCompare(b.project.key || '', 'pl', { numeric: true });
         break;
       case 'name':
-        cmp = (a.project.name || '').localeCompare(b.project.name || '', 'pl');
+        cmp = compareProjectDisplayNames(a.project, b.project);
         break;
       case 'clientName':
         cmp = a.clientNameDisplay.localeCompare(b.clientNameDisplay, 'pl');
@@ -357,7 +360,7 @@ export function getProjectPaymentCandidates(
     result.push({
       projectId: project.id,
       projectKey: project.key,
-      projectName: project.name,
+      projectName: getProjectDisplayName(project),
       kind: 'tranche',
       itemId: tranche.id,
       title: tranche.title,
@@ -396,7 +399,7 @@ export function getProjectPaymentCandidates(
     result.push({
       projectId: project.id,
       projectKey: project.key,
-      projectName: project.name,
+      projectName: getProjectDisplayName(project),
       kind: 'quotation',
       itemId: quote.id,
       title: quote.title,
@@ -423,7 +426,7 @@ export function getProjectPaymentCandidates(
     result.push({
       projectId: project.id,
       projectKey: project.key,
-      projectName: project.name,
+      projectName: getProjectDisplayName(project),
       kind: 'cost',
       itemId: cost.id,
       title: cost.title,
@@ -479,7 +482,7 @@ export function buildPaymentTaskTitle(
 }
 
 export function buildPaymentTaskPayload(
-  project: Pick<Project, 'id' | 'key' | 'name' | 'ownerId'>,
+  project: Pick<Project, 'id' | 'key' | 'name' | 'shortName' | 'ownerId'>,
   candidate: PaymentScheduleCandidate,
   defaultTaskType: string,
   amountMode: EconomyAmountMode
@@ -488,7 +491,7 @@ export function buildPaymentTaskPayload(
   return {
     projectId: project.id,
     title: buildPaymentTaskTitle(candidate.title, amount, candidate.direction),
-    description: `Płatność w projekcie [${project.key}] ${project.name}: ${candidate.title} (${formatPln(amount)}, ${candidate.direction}). Termin płatności: ${candidate.dueDate}.`,
+    description: `Płatność w projekcie [${project.key}] ${getProjectDisplayName(project)}: ${candidate.title} (${formatPln(amount)}, ${candidate.direction}). Termin płatności: ${candidate.dueDate}.`,
     startDate: candidate.dueDate,
     dueDate: candidate.dueDate,
     durationDays: 1,
@@ -745,7 +748,7 @@ export function exportEconomyCsv(
 
     const cells = [
       row.project.key || '',
-      row.project.name || '',
+      getProjectDisplayName(row.project) || '',
       companyLabel,
       row.project.clientName?.trim() || '',
       formatCsvNumber(val),

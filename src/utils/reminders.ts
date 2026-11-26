@@ -1,6 +1,6 @@
 import type { Project, ProjectStatusOption, Task, User } from '../types/index.js';
 import { PRIORITY_LABELS, STATUS_LABELS } from './labels.js';
-import { isProjectStatusClosed } from './projectMeta.js';
+import { getProjectDisplayName, isProjectStatusClosed } from './projectMeta.js';
 
 export const ALLOWED_REMINDER_DAYS: readonly number[] = [0, 1, 2, 3, 7] as const;
 
@@ -253,7 +253,7 @@ export function buildDigests(
         priority: t.priority || 'normal',
         status: t.status || 'to_do',
         projectId: proj.id,
-        projectName: proj.name || '',
+        projectName: getProjectDisplayName(proj) || proj.name || '',
         projectKey: proj.key || '',
         isOfficialDeadline: Boolean(t.isOfficialDeadline),
         diffDays,

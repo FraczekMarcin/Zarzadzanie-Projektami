@@ -1,9 +1,15 @@
 import React from 'react';
 import { Company, Project, Task, User } from '../../types';
 import { canViewFinance } from '../../utils/access';
-import { isProjectStatusClosed } from '../../utils/projectMeta';
+import {
+  getDeliverablesSummary,
+  isProjectStatusClosed,
+  resolveProjectSubtype,
+  resolveProjectType,
+} from '../../utils/projectMeta';
 import { useVariables } from '../../hooks/useVariables';
 import { Archive } from 'lucide-react';
+import { useProjectNameTooltip } from '../ProjectNameLabel';
 import { ProjectActions } from './ProjectActions';
 import {
   getProjectPriorityMeta,
@@ -46,9 +52,13 @@ export const ProjectRow: React.FC<ProjectRowProps> = ({
   onRestore,
   onDelete,
 }) => {
-  const { projectStatuses, projectPriorities } = useVariables();
+  const { projectStatuses, projectPriorities, projectTypes } = useVariables();
   const statusMeta = getProjectStatusMeta(project.status, projectStatuses);
   const priorityMeta = getProjectPriorityMeta(project.priority, projectPriorities);
+  const typeMeta = resolveProjectType(project.typeId, projectTypes);
+  const subtypeMeta = resolveProjectSubtype(project.typeId, project.subtypeId, projectTypes);
+  const deliverablesSummary = getDeliverablesSummary(project.deliverables);
+  const nameTooltip = useProjectNameTooltip(project);
   const metrics = getProjectTaskMetrics(tasks, project.id, todayIso);
   const canSeeClient = canViewFinance(currentUser, project);
   const isDueOverdue =
@@ -88,14 +98,24 @@ export const ProjectRow: React.FC<ProjectRowProps> = ({
       {/* Nazwa */}
       <td className="px-2.5 py-2.5 min-w-[160px] max-w-[260px]">
         <div className="flex items-center gap-1.5 min-w-0">
-          <button
-            type="button"
-            onClick={() => onOpen(project.id)}
-            className="font-semibold text-slate-900 dark:text-white hover:text-sky-700 dark:hover:text-sky-300 text-left truncate"
-            title={project.name}
+          <span
+            ref={nameTooltip.containerRef}
+            className="relative inline-flex max-w-full min-w-0 items-center"
           >
-            {project.name}
-          </button>
+            <button
+              type="button"
+              onClick={() => onOpen(project.id)}
+              {...nameTooltip.triggerHandlers}
+              className={`font-semibold text-slate-900 dark:text-white hover:text-sky-700 dark:hover:text-sky-300 text-left truncate rounded-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 ${
+                nameTooltip.hasTooltip
+                  ? 'underline decoration-dotted decoration-slate-400 dark:decoration-slate-500 underline-offset-2'
+                  : ''
+              }`}
+            >
+              {nameTooltip.displayName}
+            </button>
+            {nameTooltip.tooltipNode}
+          </span>
           {project.isArchived && (
             <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-200 font-semibold border border-purple-200 dark:border-purple-800 shrink-0">
               <Archive className="w-2.5 h-2.5" aria-hidden="true" />
@@ -103,6 +123,26 @@ export const ProjectRow: React.FC<ProjectRowProps> = ({
             </span>
           )}
         </div>
+      </td>
+
+      {/* Rodzaj i podrodzaj */}
+      <td className="px-2.5 py-2.5 whitespace-nowrap">
+        {typeMeta.hasType ? (
+          <div className="flex flex-col items-start gap-0.5">
+            <span
+              className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded border ${typeMeta.badgeClass}`}
+            >
+              {typeMeta.label}
+            </span>
+            {subtypeMeta && (
+              <span className="text-[10px] text-slate-600 dark:text-slate-400 pl-0.5">
+                {subtypeMeta.label}
+              </span>
+            )}
+          </div>
+        ) : (
+          <span className="text-slate-500 dark:text-slate-400">Brak</span>
+        )}
       </td>
 
       {/* Firma (litera) */}
@@ -182,6 +222,32 @@ export const ProjectRow: React.FC<ProjectRowProps> = ({
             {project.progress}%
           </span>
         </div>
+      </td>
+
+      {/* Elementy do odbioru */}
+      <td className="px-2.5 py-2.5 whitespace-nowrap">
+        {deliverablesSummary.total > 0 ? (
+          <div className="flex flex-col gap-1 min-w-[110px]">
+            <span className="font-mono tabular-nums text-[11px] font-semibold text-slate-800 dark:text-slate-200">
+              {deliverablesSummary.label}
+            </span>
+            <div
+              className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden"
+              aria-hidden="true"
+            >
+              <div
+                style={{ width: `${deliverablesSummary.percent}%` }}
+                className={`h-full ${
+                  deliverablesSummary.done === deliverablesSummary.total
+                    ? 'bg-emerald-500'
+                    : 'bg-sky-500'
+                }`}
+              />
+            </div>
+          </div>
+        ) : (
+          <span className="text-slate-500 dark:text-slate-400">—</span>
+        )}
       </td>
 
       {/* Zadania otwarte i zaległe */}

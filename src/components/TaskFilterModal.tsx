@@ -13,6 +13,7 @@ import {
 import { isApproachingOfficialDeadline, getBusinessDaysRemaining } from '../utils/businessDays';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
+import { ProjectNameLabel } from './ProjectNameLabel';
 
 interface TaskFilterModalProps {
   isOpen: boolean;
@@ -163,7 +164,7 @@ export const TaskFilterModal: React.FC<TaskFilterModalProps> = ({
                       {project && (
                         <span className="inline-flex items-center gap-1 font-mono text-[11px] font-bold text-sky-800 dark:text-sky-200 bg-sky-50 dark:bg-sky-950/60 px-2 py-0.5 rounded border border-sky-200 dark:border-sky-800">
                           <Briefcase className="w-3 h-3 text-sky-700 dark:text-sky-400" aria-hidden="true" />
-                          <span>[{project.key}] {project.name}</span>
+                          <span>[{project.key}] <ProjectNameLabel project={project} /></span>
                         </span>
                       )}
 

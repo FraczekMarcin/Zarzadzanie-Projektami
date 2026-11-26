@@ -5,6 +5,7 @@ import { TaskTypeDefinition } from '../utils/variableSettings';
 import { useVariables } from '../hooks/useVariables';
 import { FIELD_LIMITS } from '../utils/access';
 import { hasDirectSubtasks } from '../utils/progress';
+import { getProjectDisplayName } from '../utils/projectMeta';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { useFormSubmit, type FormSubmitResult } from '../hooks/useFormSubmit';
@@ -463,7 +464,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
               >
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
-                    [{p.key}] {p.name}
+                    [{p.key}] {getProjectDisplayName(p)}
                   </option>
                 ))}
               </select>

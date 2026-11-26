@@ -504,7 +504,7 @@ describe('diskWatch & ENOSPC handling', () => {
         key: 'DSK-01',
         name: 'Projekt Testowy Dysku',
         priority: 'normal',
-        status: 'in_progress',
+        status: 'active',
         startDate: '2026-11-17',
         dueDate: '2026-11-30',
         durationDays: 14,

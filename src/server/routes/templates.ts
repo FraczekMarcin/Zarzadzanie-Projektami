@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import type { Project, ProjectTemplate, Task } from '../../types/index.js';
 import { DEFAULT_PROJECT_TEMPLATES } from '../../data/defaultTemplates.js';
 import { canWrite, hasForbiddenKeys } from '../../utils/access.js';
+import { normalizeProjectTypes } from '../../utils/projectMeta.js';
 import {
   MAX_CUSTOM_TEMPLATES,
   TEMPLATE_LIMITS,
@@ -23,6 +24,9 @@ function cloneTemplate(tpl: ProjectTemplate): ProjectTemplate {
       ...(t.tags ? { tags: [...t.tags] } : {}),
       ...(t.blockerKeys ? { blockerKeys: [...t.blockerKeys] } : {}),
     })),
+    ...(Array.isArray(tpl.deliverables)
+      ? { deliverables: tpl.deliverables.map((d) => ({ ...d })) }
+      : {}),
   };
 }
 
@@ -131,7 +135,8 @@ export function registerTemplateRoutes(
         });
       }
 
-      const validation = validateTemplateWritePayload(req.body);
+      const configuredTypes = normalizeProjectTypes(appState.variables?.projectTypes);
+      const validation = validateTemplateWritePayload(req.body, configuredTypes);
       if (!validation.ok) {
         return res.status(400).json({
           error: validation.error,
@@ -218,12 +223,14 @@ export function registerTemplateRoutes(
       const allTasks: Task[] = Array.isArray(appState.tasks) ? appState.tasks : [];
       const projectTasks = allTasks.filter((t) => t && t.projectId === project.id);
 
+      const configuredTypes = normalizeProjectTypes(appState.variables?.projectTypes);
       const buildResult = buildTemplateFromProject({
         project,
         projectTasks,
         body: req.body || {},
         callerId: caller.id,
         templateId: `tpl-${crypto.randomUUID()}`,
+        allowedProjectTypes: configuredTypes,
       });
 
       if (!buildResult.ok) {
@@ -397,7 +404,8 @@ export function registerTemplateRoutes(
         }
       }
 
-      const validation = validateTemplateWritePayload(req.body);
+      const configuredTypes = normalizeProjectTypes(appState.variables?.projectTypes);
+      const validation = validateTemplateWritePayload(req.body, configuredTypes);
       if (!validation.ok) {
         return res.status(400).json({
           error: validation.error,

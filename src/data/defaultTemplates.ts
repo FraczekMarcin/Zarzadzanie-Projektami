@@ -8,8 +8,13 @@ const RAW_DEFAULT_PROJECT_TEMPLATES: LegacyTemplateLike[] = [
   {
     id: 'tpl-kubaturowy',
     name: 'Obiekt Kubaturowy (PZT + PAB + PT + PW + PnB)',
-    category: 'kubaturowe',
+    typeId: 'projekt_budowlany',
     description: 'Kompletny cykl projektowania architektoniczno-budowlanego i technicznego obiektu użyteczności publicznej lub komercyjnego zgodnie z Prawem Budowlanym.',
+    deliverables: [
+      { id: 'tdel-kub-1', name: 'Projekt Zagospodarowania Terenu (PZT)', copies: 3, unit: 'egz.' },
+      { id: 'tdel-kub-2', name: 'Projekt Architektoniczno-Budowlany (PAB)', copies: 3, unit: 'egz.' },
+      { id: 'tdel-kub-3', name: 'Projekt Techniczny wielobranżowy (PT)', copies: 2, unit: 'egz.' },
+    ],
     defaultDurationDays: 180,
     defaultPriority: 'critical',
     defaultBudget: '240 000 PLN',
@@ -199,7 +204,7 @@ const RAW_DEFAULT_PROJECT_TEMPLATES: LegacyTemplateLike[] = [
   {
     id: 'tpl-hala-przemyslowa',
     name: 'Hala Przemysłowo-Magazynowa (Konstrukcja Stalowa + PnB)',
-    category: 'przemyslowe',
+    typeId: 'projekt_budowlany',
     description: 'Szablon dla obiektów halowych, centrów logistycznych i produkcyjnych z posadzką bezspoinową, stacją trafo i strefami pożarowymi.',
     defaultDurationDays: 140,
     defaultPriority: 'high',
@@ -290,7 +295,7 @@ const RAW_DEFAULT_PROJECT_TEMPLATES: LegacyTemplateLike[] = [
   {
     id: 'tpl-mieszkaniowy-wielorodzinny',
     name: 'Osiedle Mieszkaniowe Wielorodzinne (PZT + PAB + PT)',
-    category: 'mieszkaniowe',
+    typeId: 'projekt_budowlany',
     description: 'Zespół budynków mieszkalnych wielorodzinnych z halami garażowymi, infrastrukturą rekreacyjną i bilansem nasłonecznienia.',
     defaultDurationDays: 160,
     defaultPriority: 'critical',
@@ -382,7 +387,7 @@ const RAW_DEFAULT_PROJECT_TEMPLATES: LegacyTemplateLike[] = [
   {
     id: 'tpl-przebudowa-modernizacja',
     name: 'Przebudowa i Zmiana Sposobu Użytkowania Obiektu',
-    category: 'przebudowa',
+    typeId: 'projekt_budowlany',
     description: 'Inwentaryzacja 3D / skaning laserowy, ekspertyza techniczna stanu konstrukcji, projekt wzmocnień i zmiana przeznaczenia.',
     defaultDurationDays: 90,
     defaultPriority: 'normal',

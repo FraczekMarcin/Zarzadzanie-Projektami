@@ -3,7 +3,7 @@ import type {
   Priority,
   ProjectTemplate,
   TemplateAssigneeRole,
-  TemplateCategory,
+  TemplateDeliverableBlueprint,
   TemplateTaskBlueprint,
 } from '../../types';
 import { useDismissOnOutsideClick } from '../../hooks/useDismissOnOutsideClick';
@@ -13,8 +13,10 @@ import { useFormSubmit } from '../../hooks/useFormSubmit';
 import { DiscardChangesModal } from '../DiscardChangesModal';
 import { FormError } from '../FormError';
 import {
-  TEMPLATE_CATEGORIES,
-  TEMPLATE_CATEGORY_LABELS,
+  DELIVERABLE_LIMITS,
+  getOrderedProjectTypes,
+} from '../../utils/projectMeta';
+import {
   MAX_TEMPLATE_DAYS,
   MAX_TEMPLATE_TASKS,
   validateTemplateWritePayload,
@@ -59,6 +61,7 @@ import {
   GitBranch,
   GripVertical,
   Layers,
+  PackageCheck,
   Plus,
   Redo2,
   Save,
@@ -97,18 +100,20 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   const uid = useId();
-  const { taskTypes } = useVariables();
+  const { taskTypes, projectTypes } = useVariables();
+  const orderedProjectTypes = useMemo(() => getOrderedProjectTypes(projectTypes), [projectTypes]);
 
   const [history, setHistory] = useState<TemplateEditorHistory>(() =>
     createEditorHistory({
       name: '',
-      category: 'ogolne',
+      typeId: 'inne',
       description: '',
       defaultPriority: 'normal',
       defaultDurationDays: 30,
       durationManualOverride: false,
       defaultBudget: '',
       tasks: [],
+      deliverables: [],
     })
   );
   const [baselineSnapshot, setBaselineSnapshot] = useState<string>('');
@@ -117,6 +122,10 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
   const [pendingDeleteKey, setPendingDeleteKey] = useState<string | null>(null);
   const [tagsText, setTagsText] = useState<string>('');
   const [showTimeline, setShowTimeline] = useState<boolean>(true);
+  const [newDelName, setNewDelName] = useState<string>('');
+  const [newDelCopies, setNewDelCopies] = useState<number>(1);
+  const [newDelUnit, setNewDelUnit] = useState<string>(DELIVERABLE_LIMITS.defaultUnit);
+  const [newDelNotes, setNewDelNotes] = useState<string>('');
   const saveSubmit = useFormSubmit();
   const errorAlertId = `${uid}-error`;
   const [conflictTemplate, setConflictTemplate] = useState<ProjectTemplate | null>(null);
@@ -134,6 +143,10 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
     const ordered = buildTreeOrderedTasks(initialDraft.tasks);
     setSelectedTaskKey(ordered[0]?.task.key ?? null);
     setPendingDeleteKey(null);
+    setNewDelName('');
+    setNewDelCopies(1);
+    setNewDelUnit(DELIVERABLE_LIMITS.defaultUnit);
+    setNewDelNotes('');
     saveSubmit.clearError();
     setConflictTemplate(null);
     setDraggedKey(null);
@@ -345,13 +358,91 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
     };
   }, [draggedKey, draft.tasks]);
 
+  const handleAddDeliverable = () => {
+    const cleanName = newDelName.trim();
+    if (!cleanName) {
+      saveSubmit.setValidationError('Podaj nazwę elementu do odbioru.');
+      return;
+    }
+    if (draft.deliverables.length >= DELIVERABLE_LIMITS.maxItems) {
+      saveSubmit.setValidationError(
+        `Szablon może zawierać maksymalnie ${DELIVERABLE_LIMITS.maxItems} elementów do odbioru.`
+      );
+      return;
+    }
+    const copies = Math.min(
+      DELIVERABLE_LIMITS.copiesMax,
+      Math.max(DELIVERABLE_LIMITS.copiesMin, Math.round(Number(newDelCopies) || 1))
+    );
+    const unit = newDelUnit.trim().slice(0, DELIVERABLE_LIMITS.unitMax) || DELIVERABLE_LIMITS.defaultUnit;
+    const notes = newDelNotes.trim().slice(0, DELIVERABLE_LIMITS.notesMax);
+    const nextItem: TemplateDeliverableBlueprint = {
+      id: `tdel-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: cleanName.slice(0, DELIVERABLE_LIMITS.nameMax),
+      copies,
+      unit,
+      ...(notes ? { notes } : {}),
+    };
+    commitDraft((curr) => ({
+      ...curr,
+      deliverables: [...curr.deliverables, nextItem],
+    }));
+    setNewDelName('');
+    setNewDelCopies(1);
+    setNewDelUnit(DELIVERABLE_LIMITS.defaultUnit);
+    setNewDelNotes('');
+  };
+
+  const handleUpdateDeliverable = (
+    id: string,
+    patch: Partial<TemplateDeliverableBlueprint>
+  ) => {
+    commitDraft((curr) => ({
+      ...curr,
+      deliverables: curr.deliverables.map((item) =>
+        item.id === id ? { ...item, ...patch } : item
+      ),
+    }));
+  };
+
+  const handleMoveDeliverable = (index: number, delta: -1 | 1) => {
+    const target = index + delta;
+    if (target < 0 || target >= draft.deliverables.length) return;
+    commitDraft((curr) => {
+      const next = [...curr.deliverables];
+      const [moved] = next.splice(index, 1);
+      next.splice(target, 0, moved);
+      return { ...curr, deliverables: next };
+    });
+  };
+
+  const handleDeleteDeliverable = (id: string) => {
+    commitDraft((curr) => ({
+      ...curr,
+      deliverables: curr.deliverables.filter((d) => d.id !== id),
+    }));
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!template) return;
 
+    const cleanedDeliverables: TemplateDeliverableBlueprint[] = draft.deliverables
+      .filter((d) => d && typeof d.name === 'string' && d.name.trim())
+      .map((d) => ({
+        id: d.id,
+        name: d.name.trim(),
+        copies: Math.min(
+          DELIVERABLE_LIMITS.copiesMax,
+          Math.max(DELIVERABLE_LIMITS.copiesMin, Math.round(Number(d.copies) || 1))
+        ),
+        unit: (typeof d.unit === 'string' && d.unit.trim()) || DELIVERABLE_LIMITS.defaultUnit,
+        ...(typeof d.notes === 'string' && d.notes.trim() ? { notes: d.notes.trim() } : {}),
+      }));
+
     const payload = {
       name: draft.name.trim(),
-      category: draft.category,
+      typeId: draft.typeId,
       description: draft.description.trim(),
       defaultDurationDays: draft.durationManualOverride
         ? Math.max(1, Math.min(MAX_TEMPLATE_DAYS, Math.round(draft.defaultDurationDays || 1)))
@@ -364,9 +455,10 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
         title: t.title.trim(),
         description: (t.description || '').trim(),
       })),
+      deliverables: cleanedDeliverables,
     };
 
-    const localValidation = validateTemplateWritePayload(payload);
+    const localValidation = validateTemplateWritePayload(payload, projectTypes);
     if (!localValidation.ok) {
       saveSubmit.setValidationError(localValidation.error);
       return;
@@ -531,25 +623,31 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
                 </div>
 
                 <div>
-                  <label htmlFor={`${uid}-cat`} className="block font-semibold text-slate-700 dark:text-slate-200 mb-1">
-                    Kategoria
+                  <label htmlFor={`${uid}-type`} className="block font-semibold text-slate-700 dark:text-slate-200 mb-1">
+                    Rodzaj projektu
                   </label>
                   <select
-                    id={`${uid}-cat`}
-                    value={draft.category}
+                    id={`${uid}-type`}
+                    value={draft.typeId}
                     onChange={(e) =>
                       commitDraft((curr) => ({
                         ...curr,
-                        category: e.target.value as TemplateCategory,
+                        typeId: e.target.value,
                       }))
                     }
                     className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500"
                   >
-                    {TEMPLATE_CATEGORIES.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {TEMPLATE_CATEGORY_LABELS[cat]}
-                      </option>
-                    ))}
+                    {!orderedProjectTypes.some((pt) => pt.id === draft.typeId) && draft.typeId && (
+                      <option value={draft.typeId}>{draft.typeId}</option>
+                    )}
+                    {orderedProjectTypes
+                      .filter((pt) => pt.isActive !== false || pt.id === draft.typeId)
+                      .map((pt) => (
+                        <option key={pt.id} value={pt.id}>
+                          {pt.label}
+                          {pt.isActive === false ? ' (nieaktywny)' : ''}
+                        </option>
+                      ))}
                   </select>
                 </div>
 
@@ -1227,6 +1325,188 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
                     Wybierz zadanie z drzewa po lewej stronie, aby dostosować jego parametry.
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* Domyślne elementy do odbioru szablonu */}
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 text-slate-900 dark:text-slate-100 overflow-hidden">
+              <div className="px-3.5 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/70 flex items-center justify-between gap-2">
+                <span className="font-bold flex items-center gap-1.5 text-slate-900 dark:text-white">
+                  <PackageCheck className="w-4 h-4 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
+                  <span>
+                    Domyślne elementy do odbioru ({draft.deliverables.length}/{DELIVERABLE_LIMITS.maxItems})
+                  </span>
+                </span>
+                <span className="text-[11px] text-slate-600 dark:text-slate-400">
+                  Kopiowane do nowego projektu jako niewykonane
+                </span>
+              </div>
+
+              <div className="p-3 space-y-2.5">
+                {draft.deliverables.length === 0 ? (
+                  <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                    Brak domyślnych elementów do odbioru w tym szablonie.
+                  </p>
+                ) : (
+                  <div className="divide-y divide-slate-200 dark:divide-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg">
+                    {draft.deliverables.map((del, delIdx) => (
+                      <div
+                        key={del.id}
+                        className="p-2 grid grid-cols-1 sm:grid-cols-12 gap-2 items-center"
+                      >
+                        <div className="sm:col-span-5">
+                          <input
+                            type="text"
+                            aria-label={`Nazwa elementu ${delIdx + 1}`}
+                            maxLength={DELIVERABLE_LIMITS.nameMax}
+                            value={del.name}
+                            onChange={(e) =>
+                              handleUpdateDeliverable(del.id, { name: e.target.value })
+                            }
+                            className="w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1 text-xs text-slate-900 dark:text-white"
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <input
+                            type="number"
+                            aria-label={`Liczba egzemplarzy elementu ${delIdx + 1}`}
+                            min={DELIVERABLE_LIMITS.copiesMin}
+                            max={DELIVERABLE_LIMITS.copiesMax}
+                            value={del.copies}
+                            onChange={(e) =>
+                              handleUpdateDeliverable(del.id, {
+                                copies: Math.min(
+                                  DELIVERABLE_LIMITS.copiesMax,
+                                  Math.max(DELIVERABLE_LIMITS.copiesMin, Math.round(Number(e.target.value) || 1))
+                                ),
+                              })
+                            }
+                            className="w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1 text-xs font-mono text-slate-900 dark:text-white"
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <input
+                            type="text"
+                            aria-label={`Jednostka elementu ${delIdx + 1}`}
+                            maxLength={DELIVERABLE_LIMITS.unitMax}
+                            value={del.unit}
+                            onChange={(e) =>
+                              handleUpdateDeliverable(del.id, { unit: e.target.value })
+                            }
+                            className="w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1 text-xs text-slate-900 dark:text-white"
+                          />
+                        </div>
+                        <div className="sm:col-span-3 flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            disabled={delIdx === 0}
+                            onClick={() => handleMoveDeliverable(delIdx, -1)}
+                            aria-label={`Przesuń element ${del.name} w górę`}
+                            className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-30"
+                          >
+                            <ArrowUp className="w-3.5 h-3.5" aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={delIdx === draft.deliverables.length - 1}
+                            onClick={() => handleMoveDeliverable(delIdx, 1)}
+                            aria-label={`Przesuń element ${del.name} w dół`}
+                            className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-30"
+                          >
+                            <ArrowDown className="w-3.5 h-3.5" aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteDeliverable(del.id)}
+                            aria-label={`Usuń element ${del.name}`}
+                            className="p-1 text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                          </button>
+                        </div>
+                        <div className="sm:col-span-12">
+                          <input
+                            type="text"
+                            aria-label={`Uwagi do elementu ${delIdx + 1}`}
+                            maxLength={DELIVERABLE_LIMITS.notesMax}
+                            value={del.notes || ''}
+                            onChange={(e) =>
+                              handleUpdateDeliverable(del.id, { notes: e.target.value })
+                            }
+                            placeholder="Uwagi (opcjonalnie)"
+                            className="w-full rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-2 py-1 text-[11px] text-slate-700 dark:text-slate-300"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
+                  <div className="sm:col-span-5">
+                    <label htmlFor={`${uid}-new-del-name`} className="block text-[11px] text-slate-600 dark:text-slate-300 mb-1">
+                      Nowy element do odbioru
+                    </label>
+                    <input
+                      id={`${uid}-new-del-name`}
+                      type="text"
+                      maxLength={DELIVERABLE_LIMITS.nameMax}
+                      value={newDelName}
+                      onChange={(e) => setNewDelName(e.target.value)}
+                      placeholder="np. Projekt Zagospodarowania Terenu (PZT)"
+                      className="w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-xs text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label htmlFor={`${uid}-new-del-copies`} className="block text-[11px] text-slate-600 dark:text-slate-300 mb-1">
+                      Egzemplarze
+                    </label>
+                    <input
+                      id={`${uid}-new-del-copies`}
+                      type="number"
+                      min={DELIVERABLE_LIMITS.copiesMin}
+                      max={DELIVERABLE_LIMITS.copiesMax}
+                      value={newDelCopies}
+                      onChange={(e) => setNewDelCopies(Number(e.target.value) || 1)}
+                      className="w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-xs font-mono text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label htmlFor={`${uid}-new-del-unit`} className="block text-[11px] text-slate-600 dark:text-slate-300 mb-1">
+                      Jednostka
+                    </label>
+                    <input
+                      id={`${uid}-new-del-unit`}
+                      type="text"
+                      maxLength={DELIVERABLE_LIMITS.unitMax}
+                      value={newDelUnit}
+                      onChange={(e) => setNewDelUnit(e.target.value)}
+                      className="w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-xs text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <div className="sm:col-span-3">
+                    <button
+                      type="button"
+                      disabled={draft.deliverables.length >= DELIVERABLE_LIMITS.maxItems}
+                      onClick={handleAddDeliverable}
+                      className="w-full inline-flex items-center justify-center gap-1 px-3 py-1 rounded bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-semibold text-xs transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>Dodaj element</span>
+                    </button>
+                  </div>
+                  <div className="sm:col-span-12">
+                    <input
+                      type="text"
+                      aria-label="Uwagi do nowego elementu do odbioru"
+                      maxLength={DELIVERABLE_LIMITS.notesMax}
+                      value={newDelNotes}
+                      onChange={(e) => setNewDelNotes(e.target.value)}
+                      placeholder="Uwagi do nowego elementu (opcjonalnie)"
+                      className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-[11px] text-slate-700 dark:text-slate-300"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 

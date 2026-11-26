@@ -10,6 +10,8 @@ import React, {
 } from 'react';
 import type { Company, Project, ProjectTemplate, Task, User } from '../types';
 import type { NotificationToast } from '../hooks/useAuthSession';
+import { getProjectDisplayName } from '../utils/projectMeta';
+import { ProjectNameLabel } from './ProjectNameLabel';
 import { getTodayIso } from '../utils/today';
 import {
   buildTenderQueryParams,
@@ -308,7 +310,7 @@ export const TendersView: React.FC<TendersViewProps> = ({
     }
     setCreatedProjectBanner(result.project);
     onNotify?.(
-      `Utworzono projekt [${result.project.key}]: ${result.project.name}.`,
+      `Utworzono projekt [${result.project.key}]: ${getProjectDisplayName(result.project)}.`,
       'success',
       {
         label: `Otwórz projekt ${result.project.key}`,
@@ -416,7 +418,8 @@ export const TendersView: React.FC<TendersViewProps> = ({
             <CheckCircle2 className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" aria-hidden="true" />
             <span>
               Utworzono projekt{' '}
-              <strong className="font-mono">{createdProjectBanner.key}</strong> — {createdProjectBanner.name}.
+              <strong className="font-mono">{createdProjectBanner.key}</strong> —{' '}
+              <ProjectNameLabel project={createdProjectBanner} />.
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -860,17 +863,22 @@ export const TendersView: React.FC<TendersViewProps> = ({
                               )}
 
                               {linkedProj && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onOpenProject(linkedProj.id);
-                                  }}
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-900 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-800 font-mono font-bold text-[10px] hover:bg-indigo-200 dark:hover:bg-indigo-900/60 transition-colors"
-                                >
-                                  <Link2 className="w-2.5 h-2.5" aria-hidden="true" />
-                                  <span>Projekt: {linkedProj.key}</span>
-                                </button>
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onOpenProject(linkedProj.id);
+                                    }}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-900 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-800 font-mono font-bold text-[10px] hover:bg-indigo-200 dark:hover:bg-indigo-900/60 transition-colors"
+                                  >
+                                    <Link2 className="w-2.5 h-2.5" aria-hidden="true" />
+                                    <span>Projekt: {linkedProj.key}</span>
+                                  </button>
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-[10px] font-semibold">
+                                    <ProjectNameLabel project={linkedProj} />
+                                  </span>
+                                </>
                               )}
                             </div>
                           </div>

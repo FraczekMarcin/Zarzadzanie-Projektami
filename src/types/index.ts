@@ -146,6 +146,41 @@ export interface ProjectPriorityOption {
   isSystem?: boolean;
 }
 
+export interface ProjectSubtypeOption {
+  id: string;
+  label: string;
+  order: number;
+  isActive: boolean;
+}
+
+export interface ProjectTypeOption {
+  id: string;
+  label: string;
+  color: ProjectMetaColorKey;
+  order: number;
+  isActive: boolean;
+  subtypes: ProjectSubtypeOption[];
+}
+
+export interface ProjectDeliverable {
+  id: string;
+  name: string;
+  copies: number;
+  unit: string;
+  isDone: boolean;
+  doneAt?: string;
+  doneBy?: string;
+  notes?: string;
+}
+
+export interface TemplateDeliverableBlueprint {
+  id: string;
+  name: string;
+  copies: number;
+  unit: string;
+  notes?: string;
+}
+
 export type ProjectStatusId = 'active' | 'planning' | 'on_hold' | 'completed' | string;
 export type ProjectPriorityId = Priority | string;
 
@@ -154,6 +189,10 @@ export interface Project {
   key: string;
   companyId?: string;
   name: string;
+  shortName?: string;
+  typeId?: string;
+  subtypeId?: string;
+  deliverables?: ProjectDeliverable[];
   description: string;
   priority: ProjectPriorityId;
   status: ProjectStatusId;
@@ -284,7 +323,7 @@ export interface Comment {
 
 export type TemplateAssigneeRole = 'owner' | 'reporter' | 'none';
 
-export type TemplateCategory =
+export type LegacyTemplateCategory =
   | 'kubaturowe'
   | 'mieszkaniowe'
   | 'przemyslowe'
@@ -311,12 +350,13 @@ export interface TemplateTaskBlueprint {
 export interface ProjectTemplate {
   id: string;
   name: string;
-  category: TemplateCategory;
+  typeId: string;
   description: string;
   defaultDurationDays: number;
   defaultPriority: Priority;
   defaultBudget?: string;
   tasks: TemplateTaskBlueprint[];
+  deliverables?: TemplateDeliverableBlueprint[];
   isCustom?: boolean;
   builtIn?: boolean;
   createdAt?: string;
@@ -329,13 +369,14 @@ export interface ProjectTemplate {
 export interface ProjectTemplateSummary {
   id: string;
   name: string;
-  category: TemplateCategory;
+  typeId: string;
   description: string;
   defaultDurationDays: number;
   defaultPriority: Priority;
   defaultBudget?: string;
   taskCount: number;
   officialDeadlineCount: number;
+  deliverableCount?: number;
   builtIn: boolean;
   isCustom?: boolean;
   createdAt?: string;

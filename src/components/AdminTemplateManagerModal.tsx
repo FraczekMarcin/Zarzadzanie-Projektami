@@ -9,8 +9,9 @@ import {
 } from '../types';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
+import { useVariables } from '../hooks/useVariables';
 import { fetchTemplatesList, fetchTemplateById } from '../utils/projectTemplates';
-import { TEMPLATE_CATEGORY_LABELS } from '../utils/templateValidation';
+import { resolveProjectType } from '../utils/projectMeta';
 import {
   X,
   Layers,
@@ -20,6 +21,7 @@ import {
   AlertCircle,
   GitBranch,
   Link2,
+  PackageCheck,
 } from 'lucide-react';
 
 interface AdminTemplateManagerModalProps {
@@ -55,6 +57,7 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
   onClose,
   onSelectTemplateToCreate,
 }) => {
+  const { projectTypes } = useVariables();
   const [summaries, setSummaries] = useState<ProjectTemplateSummary[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [detailsCache, setDetailsCache] = useState<Record<string, ProjectTemplate>>({});
@@ -268,9 +271,14 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <div className="flex flex-wrap items-center gap-2 mb-1">
-                      <span className="text-[11px] font-bold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/50 px-2 py-0.5 rounded border border-purple-200 dark:border-purple-800">
-                        {TEMPLATE_CATEGORY_LABELS[selectedDetail.category] || selectedDetail.category}
-                      </span>
+                      {(() => {
+                        const typeInfo = resolveProjectType(selectedDetail.typeId, projectTypes);
+                        return (
+                          <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${typeInfo.badgeClass}`}>
+                            {typeInfo.label}
+                          </span>
+                        );
+                      })()}
                       {selectedDetail.builtIn ? (
                         <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-300 dark:border-slate-700">
                           Szablon wbudowany
@@ -397,6 +405,33 @@ export const AdminTemplateManagerModal: React.FC<AdminTemplateManagerModalProps>
                     })}
                   </div>
                 </div>
+
+                {/* Domyślne elementy do odbioru */}
+                {Array.isArray(selectedDetail.deliverables) && selectedDetail.deliverables.length > 0 && (
+                  <div className="space-y-2">
+                    <h5 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide flex items-center gap-1.5">
+                      <PackageCheck className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
+                      <span>Domyślne elementy do odbioru ({selectedDetail.deliverables.length}):</span>
+                    </h5>
+                    <div className="border border-slate-200 dark:border-slate-700 rounded-lg divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                      {selectedDetail.deliverables.map((del) => (
+                        <div key={del.id} className="px-3 py-2 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <span className="font-semibold text-slate-900 dark:text-white">{del.name}</span>
+                            {del.notes && (
+                              <span className="block text-[11px] text-slate-600 dark:text-slate-400">
+                                {del.notes}
+                              </span>
+                            )}
+                          </div>
+                          <span className="font-mono text-[11px] font-semibold text-slate-700 dark:text-slate-300 shrink-0">
+                            {del.copies} {del.unit}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="h-full flex flex-col items-center justify-center text-center p-8 text-slate-600 dark:text-slate-300">

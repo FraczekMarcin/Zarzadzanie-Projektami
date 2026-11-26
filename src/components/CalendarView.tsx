@@ -16,6 +16,8 @@ import {
 import { isApproachingOfficialDeadline, getBusinessDaysRemaining } from '../utils/businessDays';
 import { getTodayIso } from '../utils/today';
 import { isPolishHoliday } from '../utils/polishHolidays';
+import { getProjectDisplayName } from '../utils/projectMeta';
+import { ProjectNameLabel } from './ProjectNameLabel';
 
 interface CalendarViewProps {
   tasks: Task[];
@@ -131,7 +133,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   const todayStr = getTodayIso();
 
   const handleExportAllToIcs = () => {
-    const pName = activeProject ? activeProject.name : 'Wszystkie Projekty';
+    const pName = activeProject ? getProjectDisplayName(activeProject) : 'Wszystkie Projekty';
     downloadIcsFile(filteredTasks, `terminarz-${year}-${month + 1}.ics`, pName);
   };
 
@@ -319,7 +321,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                           className={`text-[11px] p-1.5 rounded border leading-tight cursor-pointer transition-all hover:scale-[1.01] ${badgeColor} ${
                             isMilestone ? 'font-semibold' : ''
                           } ${isOfficialWarning ? 'animate-official-deadline' : ''}`}
-                          title={`${task.code} - ${task.title} [${taskProj ? taskProj.name : ''}] (${task.status})${
+                          title={`${task.code} - ${task.title} [${taskProj ? getProjectDisplayName(taskProj) : ''}] (${task.status})${
                             isOverdue ? ' [PRZETERMINOWANE]' : ''
                           }${
                             task.isOfficialDeadline ? ` [Termin urzędowy: pozostało ${businessDaysRemaining} dni roboczych]` : ''
@@ -355,7 +357,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                                   </span>
                                 ) : null;
                               })()}
-                              <span className="truncate">{taskProj.name}</span>
+                              <ProjectNameLabel project={taskProj} focusable={false} className="truncate" />
                             </div>
                           )}
                         </div>

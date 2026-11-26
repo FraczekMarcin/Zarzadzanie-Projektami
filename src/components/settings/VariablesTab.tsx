@@ -16,12 +16,19 @@ import {
   Edit3,
   Check,
   X,
+  Briefcase,
+  ChevronDown,
+  ChevronRight,
+  Plus,
 } from 'lucide-react';
 import type {
   Project,
   ProjectMetaColorKey,
   ProjectPriorityOption,
   ProjectStatusOption,
+  ProjectSubtypeOption,
+  ProjectTemplateSummary,
+  ProjectTypeOption,
   User,
 } from '../../types';
 import {
@@ -39,11 +46,18 @@ import {
 import {
   PROJECT_META_LABEL_MAX,
   PROJECT_META_PALETTE,
+  PROJECT_TYPE_LABEL_MAX,
+  findProjectSubtypeUsage,
+  findProjectTypeUsage,
   getOrderedProjectPriorities,
   getOrderedProjectStatuses,
+  getOrderedProjectSubtypes,
+  getOrderedProjectTypes,
   getPaletteDef,
   slugifyProjectMetaId,
 } from '../../utils/projectMeta';
+import { DEFAULT_PROJECT_TEMPLATES } from '../../data/defaultTemplates';
+import { fetchTemplatesList } from '../../utils/projectTemplates';
 import { useVariables } from '../../hooks/useVariables';
 import { useFormSubmit } from '../../hooks/useFormSubmit';
 import { FormError } from '../FormError';
@@ -76,6 +90,42 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
     () => getOrderedProjectPriorities(serverVars.projectPriorities),
     [serverVars.projectPriorities]
   );
+  const projectTypes = useMemo(
+    () => getOrderedProjectTypes(serverVars.projectTypes),
+    [serverVars.projectTypes]
+  );
+
+  const [templateSummaries, setTemplateSummaries] = useState<ProjectTemplateSummary[]>(() =>
+    DEFAULT_PROJECT_TEMPLATES.map((t) => ({
+      id: t.id,
+      name: t.name,
+      typeId: t.typeId,
+      description: t.description,
+      defaultDurationDays: t.defaultDurationDays,
+      defaultPriority: t.defaultPriority,
+      taskCount: t.tasks.length,
+      officialDeadlineCount: t.tasks.filter((tk) => Boolean(tk.isOfficialDeadline)).length,
+      deliverableCount: t.deliverables?.length || 0,
+      builtIn: true,
+    }))
+  );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    fetchTemplatesList()
+      .then((list) => {
+        if (!cancelled && Array.isArray(list)) {
+          setTemplateSummaries(list);
+        }
+      })
+      .catch(() => {
+        // zachowaj co najmniej wbudowane szablony do weryfikacji użycia
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   const statusUsageCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -131,6 +181,19 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
   const [editPriorityLabel, setEditPriorityLabel] = useState('');
   const [editPriorityColor, setEditPriorityColor] = useState<ProjectMetaColorKey>('sky');
 
+  // Project types & subtypes form state
+  const [newTypeLabel, setNewTypeLabel] = useState('');
+  const [newTypeColor, setNewTypeColor] = useState<ProjectMetaColorKey>('sky');
+  const [editingTypeId, setEditingTypeId] = useState<string | null>(null);
+  const [editTypeLabel, setEditTypeLabel] = useState('');
+  const [editTypeColor, setEditTypeColor] = useState<ProjectMetaColorKey>('sky');
+  const [editTypeActive, setEditTypeActive] = useState(true);
+  const [expandedTypeIds, setExpandedTypeIds] = useState<Set<string>>(() => new Set());
+  const [newSubtypeLabels, setNewSubtypeLabels] = useState<Record<string, string>>({});
+  const [editingSubtypeKey, setEditingSubtypeKey] = useState<string | null>(null);
+  const [editSubtypeLabel, setEditSubtypeLabel] = useState('');
+  const [editSubtypeActive, setEditSubtypeActive] = useState(true);
+
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [showMigrationBanner, setShowMigrationBanner] = useState<boolean>(false);
 
@@ -153,9 +216,13 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
       setSaveSuccess(null);
       setEditingStatusId(null);
       setEditingPriorityId(null);
+      setEditingTypeId(null);
+      setEditingSubtypeKey(null);
     }
     setShowMigrationBanner(Boolean(isAdmin && !serverVars.initialized && hasLegacyLocalVariables()));
   }, [isOpen, isAdmin, serverVars.initialized, clearError]);
+
+  const hasUnsavedSubtypeInput = Object.values(newSubtypeLabels).some((v) => v.trim().length > 0);
 
   const isDirty = Boolean(
     isOpen &&
@@ -175,8 +242,12 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
         newTaskTypeDesc.trim() ||
         newStatusLabel.trim() ||
         newPriorityLabel.trim() ||
+        newTypeLabel.trim() ||
+        hasUnsavedSubtypeInput ||
         editingStatusId !== null ||
-        editingPriorityId !== null)
+        editingPriorityId !== null ||
+        editingTypeId !== null ||
+        editingSubtypeKey !== null)
   );
 
   useEffect(() => {
@@ -614,6 +685,275 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
     }
     const updated = reindexPriorityOrders(remaining);
     await persistPatch({ projectPriorities: updated }, `Usunięto priorytet „${item.label}”.`);
+  };
+
+  // --- Handlers: Project Types & Subtypes ---
+  const reindexTypeOrders = (list: ProjectTypeOption[]): ProjectTypeOption[] =>
+    list.map((item, idx) => ({ ...item, order: idx + 1 }));
+
+  const reindexSubtypeOrders = (list: ProjectSubtypeOption[]): ProjectSubtypeOption[] =>
+    list.map((item, idx) => ({ ...item, order: idx + 1 }));
+
+  const toggleExpandType = (typeId: string) => {
+    setExpandedTypeIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(typeId)) next.delete(typeId);
+      else next.add(typeId);
+      return next;
+    });
+  };
+
+  const handleAddProjectType = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isAdmin) return;
+    const label = newTypeLabel.trim();
+    if (!label) {
+      setValidationError('Nazwa rodzaju projektu nie może być pusta.');
+      return;
+    }
+    if (label.length > PROJECT_TYPE_LABEL_MAX) {
+      setValidationError(`Nazwa rodzaju projektu może mieć maksymalnie ${PROJECT_TYPE_LABEL_MAX} znaków.`);
+      return;
+    }
+    if (projectTypes.some((t) => t.label.toLowerCase() === label.toLowerCase())) {
+      setValidationError(`Rodzaj projektu „${label}” już istnieje.`);
+      return;
+    }
+    if (projectTypes.length >= VARIABLES_LIMITS.projectTypesMax) {
+      setValidationError(
+        `Osiągnięto maksymalną liczbę rodzajów projektów (${VARIABLES_LIMITS.projectTypesMax}).`
+      );
+      return;
+    }
+    const baseId = slugifyProjectMetaId(label, 'rodzaj');
+    let candidateId = baseId;
+    let suffix = 2;
+    const existingIds = new Set(projectTypes.map((t) => t.id));
+    while (existingIds.has(candidateId)) {
+      candidateId = `${baseId.slice(0, 42)}_${suffix}`;
+      suffix += 1;
+    }
+
+    const updated = reindexTypeOrders([
+      ...projectTypes,
+      {
+        id: candidateId,
+        label,
+        color: newTypeColor,
+        order: projectTypes.length + 1,
+        isActive: true,
+        subtypes: [],
+      },
+    ]);
+
+    const ok = await persistPatch({ projectTypes: updated }, `Dodano rodzaj projektu „${label}”.`);
+    if (ok) {
+      setNewTypeLabel('');
+      setNewTypeColor('sky');
+    }
+  };
+
+  const handleStartEditType = (item: ProjectTypeOption) => {
+    clearError();
+    setEditingTypeId(item.id);
+    setEditTypeLabel(item.label);
+    setEditTypeColor(item.color);
+    setEditTypeActive(item.isActive !== false);
+  };
+
+  const handleSaveEditType = async (id: string) => {
+    if (!isAdmin) return;
+    const label = editTypeLabel.trim();
+    if (!label) {
+      setValidationError('Nazwa rodzaju projektu nie może być pusta.');
+      return;
+    }
+    if (label.length > PROJECT_TYPE_LABEL_MAX) {
+      setValidationError(`Nazwa rodzaju projektu może mieć maksymalnie ${PROJECT_TYPE_LABEL_MAX} znaków.`);
+      return;
+    }
+    const updated = projectTypes.map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            label,
+            color: editTypeColor,
+            isActive: editTypeActive,
+          }
+        : item
+    );
+    const ok = await persistPatch({ projectTypes: updated }, `Zapisano zmiany rodzaju „${label}”.`);
+    if (ok) {
+      setEditingTypeId(null);
+    }
+  };
+
+  const handleToggleTypeActive = async (item: ProjectTypeOption) => {
+    if (!isAdmin) return;
+    const nextActive = item.isActive === false;
+    const updated = projectTypes.map((pt) =>
+      pt.id === item.id ? { ...pt, isActive: nextActive } : pt
+    );
+    await persistPatch(
+      { projectTypes: updated },
+      nextActive ? `Aktywowano rodzaj „${item.label}”.` : `Dezaktywowano rodzaj „${item.label}”.`
+    );
+  };
+
+  const handleMoveProjectType = async (index: number, delta: -1 | 1) => {
+    if (!isAdmin) return;
+    const target = index + delta;
+    if (target < 0 || target >= projectTypes.length) return;
+    const copy = [...projectTypes];
+    const [moved] = copy.splice(index, 1);
+    copy.splice(target, 0, moved);
+    const updated = reindexTypeOrders(copy);
+    await persistPatch({ projectTypes: updated }, 'Zmieniono kolejność rodzajów projektów.');
+  };
+
+  const handleDeleteProjectType = async (item: ProjectTypeOption) => {
+    if (!isAdmin) return;
+    const usage = findProjectTypeUsage(item.id, {
+      projects,
+      templates: templateSummaries,
+    });
+    const totalUsage = usage.projects.length + usage.templates.length + usage.positionsCount;
+    if (totalUsage > 0) {
+      const details: string[] = [];
+      if (usage.projects.length > 0) details.push(`projekty: ${usage.projects.length}`);
+      if (usage.templates.length > 0) details.push(`szablony: ${usage.templates.length}`);
+      if (usage.positionsCount > 0) details.push(`pozycje: ${usage.positionsCount}`);
+      setValidationError(
+        `Nie można usunąć rodzaju „${item.label}”, ponieważ jest używany (${details.join(', ')}).`
+      );
+      return;
+    }
+    const remaining = reindexTypeOrders(projectTypes.filter((pt) => pt.id !== item.id));
+    await persistPatch({ projectTypes: remaining }, `Usunięto rodzaj projektu „${item.label}”.`);
+  };
+
+  const handleAddSubtype = async (typeItem: ProjectTypeOption) => {
+    if (!isAdmin) return;
+    const label = (newSubtypeLabels[typeItem.id] || '').trim();
+    if (!label) {
+      setValidationError('Nazwa podrodzaju nie może być pusta.');
+      return;
+    }
+    if (label.length > PROJECT_TYPE_LABEL_MAX) {
+      setValidationError(`Nazwa podrodzaju może mieć maksymalnie ${PROJECT_TYPE_LABEL_MAX} znaków.`);
+      return;
+    }
+    const currentSubs = getOrderedProjectSubtypes(typeItem);
+    if (currentSubs.some((s) => s.label.toLowerCase() === label.toLowerCase())) {
+      setValidationError(`Podrodzaj „${label}” już istnieje w rodzaju „${typeItem.label}”.`);
+      return;
+    }
+    if (currentSubs.length >= VARIABLES_LIMITS.projectSubtypesMax) {
+      setValidationError(
+        `Osiągnięto maksymalną liczbę podrodzajów (${VARIABLES_LIMITS.projectSubtypesMax}) dla rodzaju „${typeItem.label}”.`
+      );
+      return;
+    }
+    const baseId = slugifyProjectMetaId(label, 'podrodzaj');
+    let candidateId = baseId;
+    let suffix = 2;
+    const existingIds = new Set(currentSubs.map((s) => s.id));
+    while (existingIds.has(candidateId)) {
+      candidateId = `${baseId.slice(0, 42)}_${suffix}`;
+      suffix += 1;
+    }
+    const nextSubs = reindexSubtypeOrders([
+      ...currentSubs,
+      {
+        id: candidateId,
+        label,
+        order: currentSubs.length + 1,
+        isActive: true,
+      },
+    ]);
+    const updated = projectTypes.map((pt) =>
+      pt.id === typeItem.id ? { ...pt, subtypes: nextSubs } : pt
+    );
+    const ok = await persistPatch(
+      { projectTypes: updated },
+      `Dodano podrodzaj „${label}” do rodzaju „${typeItem.label}”.`
+    );
+    if (ok) {
+      setNewSubtypeLabels((prev) => ({ ...prev, [typeItem.id]: '' }));
+    }
+  };
+
+  const handleStartEditSubtype = (typeId: string, sub: ProjectSubtypeOption) => {
+    clearError();
+    setEditingSubtypeKey(`${typeId}:${sub.id}`);
+    setEditSubtypeLabel(sub.label);
+    setEditSubtypeActive(sub.isActive !== false);
+  };
+
+  const handleSaveEditSubtype = async (typeId: string, subId: string) => {
+    if (!isAdmin) return;
+    const label = editSubtypeLabel.trim();
+    if (!label) {
+      setValidationError('Nazwa podrodzaju nie może być pusta.');
+      return;
+    }
+    if (label.length > PROJECT_TYPE_LABEL_MAX) {
+      setValidationError(`Nazwa podrodzaju może mieć maksymalnie ${PROJECT_TYPE_LABEL_MAX} znaków.`);
+      return;
+    }
+    const updated = projectTypes.map((pt) => {
+      if (pt.id !== typeId) return pt;
+      return {
+        ...pt,
+        subtypes: getOrderedProjectSubtypes(pt).map((sub) =>
+          sub.id === subId ? { ...sub, label, isActive: editSubtypeActive } : sub
+        ),
+      };
+    });
+    const ok = await persistPatch({ projectTypes: updated }, `Zapisano podrodzaj „${label}”.`);
+    if (ok) {
+      setEditingSubtypeKey(null);
+    }
+  };
+
+  const handleMoveSubtype = async (typeItem: ProjectTypeOption, index: number, delta: -1 | 1) => {
+    if (!isAdmin) return;
+    const subs = getOrderedProjectSubtypes(typeItem);
+    const target = index + delta;
+    if (target < 0 || target >= subs.length) return;
+    const copy = [...subs];
+    const [moved] = copy.splice(index, 1);
+    copy.splice(target, 0, moved);
+    const nextSubs = reindexSubtypeOrders(copy);
+    const updated = projectTypes.map((pt) =>
+      pt.id === typeItem.id ? { ...pt, subtypes: nextSubs } : pt
+    );
+    await persistPatch({ projectTypes: updated }, 'Zmieniono kolejność podrodzajów.');
+  };
+
+  const handleDeleteSubtype = async (typeItem: ProjectTypeOption, sub: ProjectSubtypeOption) => {
+    if (!isAdmin) return;
+    const usage = findProjectSubtypeUsage(typeItem.id, sub.id, {
+      projects,
+      templates: templateSummaries,
+    });
+    const totalUsage = usage.projects.length + usage.templates.length + usage.positionsCount;
+    if (totalUsage > 0) {
+      setValidationError(
+        `Nie można usunąć podrodzaju „${sub.label}”, ponieważ jest używany (${totalUsage} powiązań).`
+      );
+      return;
+    }
+    const nextSubs = reindexSubtypeOrders(
+      getOrderedProjectSubtypes(typeItem).filter((s) => s.id !== sub.id)
+    );
+    const updated = projectTypes.map((pt) =>
+      pt.id === typeItem.id ? { ...pt, subtypes: nextSubs } : pt
+    );
+    await persistPatch(
+      { projectTypes: updated },
+      `Usunięto podrodzaj „${sub.label}” z rodzaju „${typeItem.label}”.`
+    );
   };
 
   return (
@@ -1231,6 +1571,467 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
               className="px-3.5 py-1.5 bg-sky-700 hover:bg-sky-800 disabled:opacity-50 text-white rounded font-semibold text-xs shadow-xs transition-colors"
             >
               + Dodaj priorytet
+            </button>
+          </form>
+        )}
+      </div>
+
+      {/* Section: Project Types & Subtypes */}
+      <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+        <div>
+          <h4 className="font-bold text-slate-900 dark:text-white text-sm flex items-center gap-2">
+            <Briefcase className="w-4 h-4 text-indigo-700 dark:text-indigo-400" aria-hidden="true" />
+            <span>
+              Rodzaje projektów i podrodzaje ({projectTypes.length}/{VARIABLES_LIMITS.projectTypesMax})
+            </span>
+          </h4>
+          <p className="text-slate-600 dark:text-slate-400 text-xs">
+            Słownik rodzajów projektów i podrodzajów dostępny w projektach, szablonach i ekonomii. Identyfikatory pozostają stabilne przy zmianie nazwy lub kolejności.
+          </p>
+        </div>
+
+        <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
+              <tr>
+                <th scope="col" className="py-2 px-3 font-semibold">Rodzaj / ID</th>
+                <th scope="col" className="py-2 px-3 font-semibold text-center">Podrodzaje</th>
+                <th scope="col" className="py-2 px-3 font-semibold text-center">Status</th>
+                <th scope="col" className="py-2 px-3 font-semibold text-center">Użycie</th>
+                {isAdmin && <th scope="col" className="py-2 px-3 font-semibold text-right">Akcje</th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
+              {projectTypes.length === 0 ? (
+                <tr>
+                  <td colSpan={isAdmin ? 5 : 4} className="py-4 text-center text-slate-600 dark:text-slate-400">
+                    Brak zdefiniowanych rodzajów projektów.
+                  </td>
+                </tr>
+              ) : (
+                projectTypes.map((pt, idx) => {
+                  const palette = getPaletteDef(pt.color);
+                  const subtypes = getOrderedProjectSubtypes(pt);
+                  const usage = findProjectTypeUsage(pt.id, {
+                    projects,
+                    templates: templateSummaries,
+                  });
+                  const totalUsage = usage.projects.length + usage.templates.length + usage.positionsCount;
+                  const isEditing = editingTypeId === pt.id;
+                  const isExpanded = expandedTypeIds.has(pt.id);
+                  const deleteDisabled = isSaving || totalUsage > 0;
+                  const deleteHint =
+                    totalUsage > 0
+                      ? `Używany (projekty: ${usage.projects.length}, szablony: ${usage.templates.length}, pozycje: ${usage.positionsCount}) — nie można usunąć`
+                      : 'Usuń rodzaj projektu';
+
+                  return (
+                    <React.Fragment key={pt.id}>
+                      <tr className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <td className="py-2 px-3">
+                          {isEditing ? (
+                            <div className="space-y-2">
+                              <input
+                                type="text"
+                                aria-label={`Nazwa rodzaju ${pt.label}`}
+                                maxLength={PROJECT_TYPE_LABEL_MAX}
+                                value={editTypeLabel}
+                                onChange={(e) => setEditTypeLabel(e.target.value)}
+                                className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-900 dark:text-white"
+                              />
+                              <div className="flex flex-wrap items-center gap-3">
+                                <div className="flex flex-wrap gap-1" role="group" aria-label="Paleta kolorów rodzaju">
+                                  {PROJECT_META_PALETTE.map((c) => (
+                                    <button
+                                      key={c.key}
+                                      type="button"
+                                      aria-label={`Kolor ${c.label}`}
+                                      aria-pressed={editTypeColor === c.key}
+                                      onClick={() => setEditTypeColor(c.key)}
+                                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                                        editTypeColor === c.key
+                                          ? 'border-slate-900 dark:border-white scale-110'
+                                          : 'border-transparent'
+                                      }`}
+                                      style={{ backgroundColor: c.swatchHex }}
+                                      title={c.label}
+                                    >
+                                      {editTypeColor === c.key && (
+                                        <Check className="w-3 h-3 text-white drop-shadow" aria-hidden="true" />
+                                      )}
+                                    </button>
+                                  ))}
+                                </div>
+                                <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-700 dark:text-slate-300 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={editTypeActive}
+                                    onChange={(e) => setEditTypeActive(e.target.checked)}
+                                  />
+                                  <span>Aktywny</span>
+                                </label>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className={`inline-flex items-center px-2 py-0.5 rounded border text-[11px] font-semibold ${palette.badgeClass}`}
+                              >
+                                {pt.label}
+                              </span>
+                              <span className="font-mono text-[10px] text-slate-600 dark:text-slate-400">
+                                {pt.id}
+                              </span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => toggleExpandType(pt.id)}
+                            aria-expanded={isExpanded}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-[11px] font-semibold"
+                          >
+                            {isExpanded ? (
+                              <ChevronDown className="w-3 h-3" aria-hidden="true" />
+                            ) : (
+                              <ChevronRight className="w-3 h-3" aria-hidden="true" />
+                            )}
+                            <span>{subtypes.length} podrodz.</span>
+                          </button>
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <button
+                            type="button"
+                            disabled={!isAdmin || isSaving}
+                            onClick={() => handleToggleTypeActive(pt)}
+                            className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-colors disabled:opacity-60 ${
+                              pt.isActive !== false
+                                ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700'
+                            }`}
+                          >
+                            {pt.isActive !== false ? 'Aktywny' : 'Nieaktywny'}
+                          </button>
+                        </td>
+                        <td className="py-2 px-3 text-center font-mono text-slate-700 dark:text-slate-300" title={`Projekty: ${usage.projects.length}, Szablony: ${usage.templates.length}, Pozycje: ${usage.positionsCount}`}>
+                          {totalUsage}
+                        </td>
+                        {isAdmin && (
+                          <td className="py-2 px-3 text-right whitespace-nowrap">
+                            {isEditing ? (
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  disabled={isSaving}
+                                  onClick={() => handleSaveEditType(pt.id)}
+                                  className="px-2 py-1 rounded bg-sky-700 hover:bg-sky-800 text-white text-[11px] font-semibold"
+                                >
+                                  Zapisz
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isSaving}
+                                  onClick={() => setEditingTypeId(null)}
+                                  aria-label="Anuluj edycję rodzaju"
+                                  className="p-1 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                                >
+                                  <X className="w-3.5 h-3.5" aria-hidden="true" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  disabled={isSaving || idx === 0}
+                                  onClick={() => handleMoveProjectType(idx, -1)}
+                                  aria-label={`Przesuń rodzaj ${pt.label} w górę`}
+                                  className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-30"
+                                >
+                                  <ArrowUp className="w-3.5 h-3.5" aria-hidden="true" />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isSaving || idx === projectTypes.length - 1}
+                                  onClick={() => handleMoveProjectType(idx, 1)}
+                                  aria-label={`Przesuń rodzaj ${pt.label} w dół`}
+                                  className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-30"
+                                >
+                                  <ArrowDown className="w-3.5 h-3.5" aria-hidden="true" />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isSaving}
+                                  onClick={() => handleStartEditType(pt)}
+                                  aria-label={`Edytuj rodzaj ${pt.label}`}
+                                  className="p-1 text-slate-600 dark:text-slate-400 hover:text-sky-700 dark:hover:text-sky-300"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" aria-hidden="true" />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={deleteDisabled}
+                                  onClick={() => handleDeleteProjectType(pt)}
+                                  aria-label={`Usuń rodzaj ${pt.label}`}
+                                  title={deleteHint}
+                                  className="p-1 text-slate-600 dark:text-slate-400 hover:text-rose-700 dark:hover:text-rose-400 disabled:opacity-30 disabled:cursor-not-allowed"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+
+                      {isExpanded && (
+                        <tr className="bg-slate-50/80 dark:bg-slate-800/30">
+                          <td colSpan={isAdmin ? 5 : 4} className="px-4 py-3 space-y-2.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200">
+                                Podrodzaje dla „{pt.label}” ({subtypes.length}/{VARIABLES_LIMITS.projectSubtypesMax})
+                              </span>
+                            </div>
+
+                            {subtypes.length === 0 ? (
+                              <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                                Brak zdefiniowanych podrodzajów dla tego rodzaju projektu.
+                              </p>
+                            ) : (
+                              <div className="divide-y divide-slate-200 dark:divide-slate-700 border border-slate-200 dark:border-slate-700 rounded-md bg-white dark:bg-slate-900">
+                                {subtypes.map((sub, subIdx) => {
+                                  const subKey = `${pt.id}:${sub.id}`;
+                                  const isEditingSub = editingSubtypeKey === subKey;
+                                  const subUsage = findProjectSubtypeUsage(pt.id, sub.id, {
+                                    projects,
+                                    templates: templateSummaries,
+                                  });
+                                  const subUsageCount =
+                                    subUsage.projects.length +
+                                    subUsage.templates.length +
+                                    subUsage.positionsCount;
+
+                                  return (
+                                    <div
+                                      key={sub.id}
+                                      className="px-2.5 py-1.5 flex flex-wrap items-center justify-between gap-2 text-[11px]"
+                                    >
+                                      {isEditingSub ? (
+                                        <div className="flex flex-wrap items-center gap-2 flex-1">
+                                          <input
+                                            type="text"
+                                            aria-label={`Nazwa podrodzaju ${sub.label}`}
+                                            maxLength={PROJECT_TYPE_LABEL_MAX}
+                                            value={editSubtypeLabel}
+                                            onChange={(e) => setEditSubtypeLabel(e.target.value)}
+                                            className="flex-1 min-w-[140px] bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-900 dark:text-white"
+                                          />
+                                          <label className="inline-flex items-center gap-1 cursor-pointer text-slate-700 dark:text-slate-300">
+                                            <input
+                                              type="checkbox"
+                                              checked={editSubtypeActive}
+                                              onChange={(e) => setEditSubtypeActive(e.target.checked)}
+                                            />
+                                            <span>Aktywny</span>
+                                          </label>
+                                          <button
+                                            type="button"
+                                            disabled={isSaving}
+                                            onClick={() => handleSaveEditSubtype(pt.id, sub.id)}
+                                            className="px-2 py-0.5 rounded bg-sky-700 hover:bg-sky-800 text-white font-semibold"
+                                          >
+                                            Zapisz
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={isSaving}
+                                            onClick={() => setEditingSubtypeKey(null)}
+                                            aria-label="Anuluj edycję podrodzaju"
+                                            className="p-1 text-slate-600 dark:text-slate-300"
+                                          >
+                                            <X className="w-3.5 h-3.5" aria-hidden="true" />
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <>
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <span className="font-semibold text-slate-900 dark:text-white">
+                                              {sub.label}
+                                            </span>
+                                            <span className="font-mono text-[10px] text-slate-600 dark:text-slate-400">
+                                              {sub.id}
+                                            </span>
+                                            <span
+                                              className={`px-1.5 py-0.2 rounded text-[10px] border ${
+                                                sub.isActive !== false
+                                                  ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700'
+                                              }`}
+                                            >
+                                              {sub.isActive !== false ? 'Aktywny' : 'Nieaktywny'}
+                                            </span>
+                                            {subUsageCount > 0 && (
+                                              <span className="text-[10px] font-mono text-slate-600 dark:text-slate-400">
+                                                użycie: {subUsageCount}
+                                              </span>
+                                            )}
+                                          </div>
+                                          {isAdmin && (
+                                            <div className="flex items-center gap-1">
+                                              <button
+                                                type="button"
+                                                disabled={isSaving || subIdx === 0}
+                                                onClick={() => handleMoveSubtype(pt, subIdx, -1)}
+                                                aria-label={`Przesuń podrodzaj ${sub.label} w górę`}
+                                                className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-30"
+                                              >
+                                                <ArrowUp className="w-3 h-3" aria-hidden="true" />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                disabled={isSaving || subIdx === subtypes.length - 1}
+                                                onClick={() => handleMoveSubtype(pt, subIdx, 1)}
+                                                aria-label={`Przesuń podrodzaj ${sub.label} w dół`}
+                                                className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-30"
+                                              >
+                                                <ArrowDown className="w-3 h-3" aria-hidden="true" />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                disabled={isSaving}
+                                                onClick={() => handleStartEditSubtype(pt.id, sub)}
+                                                aria-label={`Edytuj podrodzaj ${sub.label}`}
+                                                className="p-1 text-slate-600 dark:text-slate-400 hover:text-sky-700 dark:hover:text-sky-300"
+                                              >
+                                                <Edit3 className="w-3 h-3" aria-hidden="true" />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                disabled={isSaving || subUsageCount > 0}
+                                                onClick={() => handleDeleteSubtype(pt, sub)}
+                                                aria-label={`Usuń podrodzaj ${sub.label}`}
+                                                title={
+                                                  subUsageCount > 0
+                                                    ? `Używany (${subUsageCount}) — nie można usunąć`
+                                                    : 'Usuń podrodzaj'
+                                                }
+                                                className="p-1 text-slate-600 dark:text-slate-400 hover:text-rose-700 dark:hover:text-rose-400 disabled:opacity-30 disabled:cursor-not-allowed"
+                                              >
+                                                <Trash2 className="w-3 h-3" aria-hidden="true" />
+                                              </button>
+                                            </div>
+                                          )}
+                                        </>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {isAdmin && (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <input
+                                  type="text"
+                                  aria-label={`Nowy podrodzaj dla ${pt.label}`}
+                                  maxLength={PROJECT_TYPE_LABEL_MAX}
+                                  disabled={isSaving || subtypes.length >= VARIABLES_LIMITS.projectSubtypesMax}
+                                  value={newSubtypeLabels[pt.id] || ''}
+                                  onChange={(e) =>
+                                    setNewSubtypeLabels((prev) => ({
+                                      ...prev,
+                                      [pt.id]: e.target.value,
+                                    }))
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      void handleAddSubtype(pt);
+                                    }
+                                  }}
+                                  placeholder="Nowy podrodzaj (np. Architektura, Konstrukcja)"
+                                  className="flex-1 min-w-[200px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 text-xs text-slate-900 dark:text-white"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={isSaving || subtypes.length >= VARIABLES_LIMITS.projectSubtypesMax}
+                                  onClick={() => void handleAddSubtype(pt)}
+                                  className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-700 hover:bg-indigo-800 disabled:opacity-50 text-white rounded font-semibold text-xs transition-colors"
+                                >
+                                  <Plus className="w-3.5 h-3.5" aria-hidden="true" />
+                                  <span>Dodaj podrodzaj</span>
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {isAdmin && (
+          <form
+            onSubmit={handleAddProjectType}
+            className="p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-wrap gap-3 items-end"
+          >
+            <div className="flex-1 min-w-[180px]">
+              <label
+                htmlFor="settings-new-project-type-label"
+                className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1"
+              >
+                Nowy rodzaj projektu *
+              </label>
+              <input
+                id="settings-new-project-type-label"
+                type="text"
+                maxLength={PROJECT_TYPE_LABEL_MAX}
+                disabled={isSaving}
+                value={newTypeLabel}
+                onChange={(e) => setNewTypeLabel(e.target.value)}
+                placeholder="np. Koncepcja drogowa"
+                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div>
+              <span className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">
+                Kolor
+              </span>
+              <div className="flex items-center gap-1" role="group" aria-label="Kolor nowego rodzaju">
+                {PROJECT_META_PALETTE.map((c) => (
+                  <button
+                    key={c.key}
+                    type="button"
+                    aria-label={`Kolor ${c.label}`}
+                    aria-pressed={newTypeColor === c.key}
+                    onClick={() => setNewTypeColor(c.key)}
+                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                      newTypeColor === c.key
+                        ? 'border-slate-900 dark:border-white scale-110'
+                        : 'border-transparent'
+                    }`}
+                    style={{ backgroundColor: c.swatchHex }}
+                    title={c.label}
+                  >
+                    {newTypeColor === c.key && (
+                      <Check className="w-3 h-3 text-white drop-shadow" aria-hidden="true" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSaving || projectTypes.length >= VARIABLES_LIMITS.projectTypesMax}
+              className="px-3.5 py-1.5 bg-indigo-700 hover:bg-indigo-800 disabled:opacity-50 text-white rounded font-semibold text-xs shadow-xs transition-colors"
+            >
+              + Dodaj rodzaj
             </button>
           </form>
         )}

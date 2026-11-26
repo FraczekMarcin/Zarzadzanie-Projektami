@@ -1,4 +1,9 @@
-import type { ProjectPriorityOption, ProjectStatusOption } from '../types';
+import type {
+  ProjectPriorityOption,
+  ProjectStatusOption,
+  ProjectSubtypeOption,
+  ProjectTypeOption,
+} from '../types';
 import {
   ClientRecord,
   createDefaultVariablesState,
@@ -6,6 +11,7 @@ import {
   DEFAULT_DEADLINE_WARNING_DAYS,
   DEFAULT_PROJECT_PRIORITIES,
   DEFAULT_PROJECT_STATUSES,
+  DEFAULT_PROJECT_TYPES,
   DEFAULT_TASK_TYPES,
   DEFAULT_VAT_RATES,
   normalizeVariablesState,
@@ -20,6 +26,8 @@ export type {
   ClientRecord,
   ProjectPriorityOption,
   ProjectStatusOption,
+  ProjectSubtypeOption,
+  ProjectTypeOption,
   ServerVariablesState,
   TaskTypeColor,
   TaskTypeDefinition,
@@ -31,6 +39,7 @@ export {
   DEFAULT_DEADLINE_WARNING_DAYS,
   DEFAULT_PROJECT_PRIORITIES,
   DEFAULT_PROJECT_STATUSES,
+  DEFAULT_PROJECT_TYPES,
   DEFAULT_TASK_TYPES,
   DEFAULT_VAT_RATES,
   VARIABLES_LIMITS,
@@ -79,6 +88,7 @@ export function setServerVariables(incoming: Partial<ServerVariablesState> | nul
     taskTypes: normalized.taskTypes,
     projectStatuses: normalized.projectStatuses,
     projectPriorities: normalized.projectPriorities,
+    projectTypes: normalized.projectTypes,
     deadlineWarningDays: normalized.deadlineWarningDays,
     initialized: Boolean(incoming.initialized),
   };
@@ -114,6 +124,10 @@ export function getProjectPriorities(): ProjectPriorityOption[] {
   return currentVariablesState.projectPriorities;
 }
 
+export function getProjectTypes(): ProjectTypeOption[] {
+  return currentVariablesState.projectTypes;
+}
+
 export function getDeadlineWarningDays(): number {
   const days = currentVariablesState.deadlineWarningDays;
   if (typeof days === 'number' && Number.isInteger(days) && days >= 0 && days <= 30) {
@@ -129,6 +143,7 @@ export async function saveVariablesToServer(
   status?: number;
   error?: string;
   inUseProjects?: Array<{ id: string; key: string; name: string }>;
+  inUseTemplates?: Array<{ id: string; name: string }>;
   revision?: number;
   variables?: ServerVariablesState;
 }> {
@@ -146,6 +161,7 @@ export async function saveVariablesToServer(
         status: res.status,
         error: data?.error || 'Nie udało się zapisać zmiennych systemowych na serwerze.',
         ...(Array.isArray(data?.inUseProjects) ? { inUseProjects: data.inUseProjects } : {}),
+        ...(Array.isArray(data?.inUseTemplates) ? { inUseTemplates: data.inUseTemplates } : {}),
       };
     }
     if (data?.variables) {

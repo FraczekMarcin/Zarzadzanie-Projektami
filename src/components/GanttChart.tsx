@@ -22,6 +22,8 @@ import {
 import { isApproachingOfficialDeadline, getBusinessDaysRemaining } from '../utils/businessDays';
 import { getTodayIso, parseIsoDate } from '../utils/today';
 import { isPolishHoliday } from '../utils/polishHolidays';
+import { getProjectDisplayName, hasDistinctShortName } from '../utils/projectMeta';
+import { ProjectNameLabel } from './ProjectNameLabel';
 
 interface GanttChartProps {
   tasks: Task[];
@@ -352,7 +354,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                             ) : null;
                           })()}
                           <span aria-hidden="true">·</span>
-                          <span className="truncate">{taskProject.name}</span>
+                          <ProjectNameLabel project={taskProject} focusable={false} className="truncate" />
                         </div>
                       )}
                     </div>
@@ -486,7 +488,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                           ? 'bg-rose-50 text-rose-900 border-rose-300 font-bold'
                           : 'bg-amber-50/90 text-amber-900 border-amber-200'
                       }`}>
-                        {task.title} {isOverdue && <span className="text-rose-700 font-bold ml-1">(Po terminie)</span>} {project && <span className="opacity-85 font-normal text-[10px]">[{project.key}: {project.name}]</span>}
+                        {task.title} {isOverdue && <span className="text-rose-700 font-bold ml-1">(Po terminie)</span>} {project && <span className="opacity-85 font-normal text-[10px]">[{project.key}: {getProjectDisplayName(project)}]</span>}
                       </span>
                     </div>
                   ) : (
@@ -546,7 +548,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                           </div>
                           {project && (
                             <span className="truncate text-[9px] font-mono opacity-95 drop-shadow-xs text-sky-100">
-                              [{project.key}] {project.name}
+                              [{project.key}] {getProjectDisplayName(project)}
                             </span>
                           )}
                         </div>
@@ -566,7 +568,12 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                       <div className="flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-100 px-2 py-0.5 rounded text-[11px] shadow-md transition-colors whitespace-nowrap font-medium">
                         <Briefcase className="w-3 h-3 text-sky-700 dark:text-sky-400 shrink-0" aria-hidden="true" />
                         <span className="font-mono text-sky-700 dark:text-sky-300 font-bold">[{project.key}]</span>
-                        <span className="truncate max-w-[200px]">{project.name}</span>
+                        <span className="truncate max-w-[200px]">{getProjectDisplayName(project)}</span>
+                        {hasDistinctShortName(project) && (
+                          <span className="text-[10px] text-slate-600 dark:text-slate-300">
+                            ({project.name})
+                          </span>
+                        )}
                       </div>
                     </div>
                   )}

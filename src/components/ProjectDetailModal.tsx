@@ -1,10 +1,19 @@
 import React, { useState, useRef, useId } from 'react';
-import { Project, Task, User, Priority, Company } from '../types';
+import { Project, ProjectDeliverable, Task, User, Priority, Company } from '../types';
 import { copyToClipboard } from '../utils/clipboard';
 import { FIELD_LIMITS } from '../utils/access';
 import { computeProjectFinance } from '../utils/finance';
 import { formatMoney } from '../utils/money';
-import { resolveProjectPriority, resolveProjectStatus } from '../utils/projectMeta';
+import {
+  DELIVERABLE_LIMITS,
+  getDeliverablesSummary,
+  getProjectDisplayName,
+  hasDistinctShortName,
+  resolveProjectPriority,
+  resolveProjectStatus,
+  resolveProjectSubtype,
+  resolveProjectType,
+} from '../utils/projectMeta';
 import { useVariables } from '../hooks/useVariables';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
@@ -31,8 +40,14 @@ import {
   AlertCircle, 
   Lock,
   Layers,
-  ArrowRight
+  ArrowRight,
+  PackageCheck,
+  Plus,
+  Trash2,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
+import type { FormSubmitResult } from '../hooks/useFormSubmit';
 
 interface ProjectDetailModalProps {
   project: Project | null;
@@ -42,10 +57,21 @@ interface ProjectDetailModalProps {
   currentUser: User | null;
   isOpen: boolean;
   onClose: () => void;
+  onUpdateDeliverables?: (
+    project: Project,
+    deliverables: ProjectDeliverable[]
+  ) => Promise<FormSubmitResult<Project> | void> | void;
   onEditProject?: (project: Project) => void;
   onOpenFinancials?: (project: Project) => void;
   onArchiveProject?: (project: Project) => void;
   onRestoreProject?: (project: Project) => void;
+}
+
+function createDetailDeliverableId(): string {
+  if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
+    return `del-${globalThis.crypto.randomUUID()}`;
+  }
+  return `del-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
@@ -56,6 +82,7 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
   currentUser,
   isOpen,
   onClose,
+  onUpdateDeliverables,
   onEditProject,
   onOpenFinancials,
   onArchiveProject,
@@ -63,10 +90,15 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
 }) => {
   const [copiedDiskPath, setCopiedDiskPath] = useState(false);
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
+  const [newDelName, setNewDelName] = useState('');
+  const [newDelCopies, setNewDelCopies] = useState<number>(DELIVERABLE_LIMITS.defaultCopies);
+  const [newDelUnit, setNewDelUnit] = useState<string>(DELIVERABLE_LIMITS.defaultUnit);
+  const [deliverablesError, setDeliverablesError] = useState<string | null>(null);
+  const [isSavingDeliverables, setIsSavingDeliverables] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
-  const { projectStatuses, projectPriorities } = useVariables();
+  const { projectStatuses, projectPriorities, projectTypes } = useVariables();
   const { backdropProps, requestClose } = useDismissOnOutsideClick({
     isOpen: Boolean(isOpen && project),
     mode: 'dismiss',
@@ -80,6 +112,11 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
 
   const statusMeta = resolveProjectStatus(project.status, projectStatuses);
   const priorityMeta = resolveProjectPriority(project.priority, projectPriorities);
+  const typeMeta = resolveProjectType(project.typeId, projectTypes);
+  const subtypeMeta = resolveProjectSubtype(project.typeId, project.subtypeId, projectTypes);
+  const deliverables = Array.isArray(project.deliverables) ? project.deliverables : [];
+  const deliverablesSummary = getDeliverablesSummary(deliverables);
+
   const projectTasks = tasks.filter((t) => t.projectId === project.id);
   const completedTasksCount = projectTasks.filter((t) => t.status === 'done').length;
   const inProgressTasksCount = projectTasks.filter((t) => t.status === 'in_progress').length;
@@ -100,6 +137,106 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
   const marginPercent = finance.marginPercent;
 
   const isAdmin = currentUser?.role === 'admin';
+  const canEditProjectDeliverables = Boolean(
+    onUpdateDeliverables &&
+      currentUser &&
+      currentUser.role !== 'viewer' &&
+      (currentUser.role === 'admin' ||
+        currentUser.role === 'project_manager' ||
+        project.ownerId === currentUser.id ||
+        (project.memberIds || []).includes(currentUser.id))
+  );
+
+  const persistDeliverables = async (nextList: ProjectDeliverable[]) => {
+    if (!onUpdateDeliverables || isSavingDeliverables) return;
+    setDeliverablesError(null);
+    setIsSavingDeliverables(true);
+    try {
+      const res = await onUpdateDeliverables(project, nextList);
+      if (res && typeof res === 'object' && 'ok' in res && !res.ok) {
+        setDeliverablesError(res.error || 'Nie udało się zapisać elementów do odbioru.');
+      }
+    } catch (err: any) {
+      setDeliverablesError(err?.message || 'Nie udało się zapisać elementów do odbioru.');
+    } finally {
+      setIsSavingDeliverables(false);
+    }
+  };
+
+  const handleToggleDeliverable = async (itemId: string) => {
+    const nextList = deliverables.map((d) =>
+      d.id === itemId
+        ? {
+            ...d,
+            isDone: !d.isDone,
+            ...(!d.isDone
+              ? { doneAt: new Date().toISOString(), doneBy: currentUser?.name || 'Użytkownik' }
+              : { doneAt: undefined, doneBy: undefined }),
+          }
+        : d
+    );
+    await persistDeliverables(nextList);
+  };
+
+  const handleMoveDeliverable = async (index: number, delta: -1 | 1) => {
+    const target = index + delta;
+    if (target < 0 || target >= deliverables.length) return;
+    const nextList = [...deliverables];
+    const [moved] = nextList.splice(index, 1);
+    nextList.splice(target, 0, moved);
+    await persistDeliverables(nextList);
+  };
+
+  const handleRemoveDeliverable = async (itemId: string) => {
+    const nextList = deliverables.filter((d) => d.id !== itemId);
+    await persistDeliverables(nextList);
+  };
+
+  const handleAddDeliverable = async () => {
+    const trimmedName = newDelName.trim();
+    if (!trimmedName) {
+      setDeliverablesError('Podaj nazwę elementu do odbioru.');
+      return;
+    }
+    if (trimmedName.length > DELIVERABLE_LIMITS.nameMax) {
+      setDeliverablesError(`Nazwa elementu nie może przekraczać ${DELIVERABLE_LIMITS.nameMax} znaków.`);
+      return;
+    }
+    if (deliverables.length >= DELIVERABLE_LIMITS.maxItems) {
+      setDeliverablesError(`Maksymalnie ${DELIVERABLE_LIMITS.maxItems} elementów do odbioru.`);
+      return;
+    }
+    const copiesInt = Number(newDelCopies);
+    if (
+      !Number.isInteger(copiesInt) ||
+      copiesInt < DELIVERABLE_LIMITS.copiesMin ||
+      copiesInt > DELIVERABLE_LIMITS.copiesMax
+    ) {
+      setDeliverablesError(
+        `Liczba egzemplarzy musi być liczbą całkowitą z zakresu ${DELIVERABLE_LIMITS.copiesMin}–${DELIVERABLE_LIMITS.copiesMax}.`
+      );
+      return;
+    }
+    const unitTrimmed = newDelUnit.trim() || DELIVERABLE_LIMITS.defaultUnit;
+    if (unitTrimmed.length > DELIVERABLE_LIMITS.unitMax) {
+      setDeliverablesError(`Jednostka nie może przekraczać ${DELIVERABLE_LIMITS.unitMax} znaków.`);
+      return;
+    }
+    const nextList: ProjectDeliverable[] = [
+      ...deliverables,
+      {
+        id: createDetailDeliverableId(),
+        name: trimmedName,
+        copies: copiesInt,
+        unit: unitTrimmed,
+        isDone: false,
+      },
+    ];
+    await persistDeliverables(nextList);
+    setNewDelName('');
+    setNewDelCopies(DELIVERABLE_LIMITS.defaultCopies);
+    setNewDelUnit(DELIVERABLE_LIMITS.defaultUnit);
+  };
 
   const handleCopyPath = async () => {
     if (!project.diskPath) return;
@@ -169,6 +306,20 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                 {statusMeta.label}
               </span>
               <span
+                className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                  typeMeta.hasType
+                    ? typeMeta.badgeClass
+                    : 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                }`}
+              >
+                Rodzaj:{' '}
+                {typeMeta.hasType
+                  ? subtypeMeta
+                    ? `${typeMeta.label} · ${subtypeMeta.label}`
+                    : typeMeta.label
+                  : 'Brak'}
+              </span>
+              <span
                 className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${priorityMeta.badgeClass}`}
               >
                 Priorytet: {priorityMeta.label}
@@ -181,8 +332,13 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
               )}
             </div>
             <h2 id={titleId} className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white truncate">
-              {project.name}
+              {getProjectDisplayName(project)}
             </h2>
+            {hasDistinctShortName(project) && (
+              <p className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                Pełna nazwa: {project.name}
+              </p>
+            )}
             {project.description && (
               <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2">
                 {project.description}
@@ -447,6 +603,178 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                 <span className="text-[10px] text-amber-800 dark:text-amber-200 font-semibold">Krytyczne</span>
               </div>
             </div>
+          </div>
+
+          {/* 4. ELEMENTY DO ODBIORU */}
+          <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="font-bold text-slate-700 dark:text-slate-200 text-xs flex items-center gap-1.5 uppercase tracking-wider">
+                <PackageCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                <span>Elementy do odbioru ({deliverables.length})</span>
+              </h4>
+              {deliverables.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                    {deliverablesSummary.label}
+                  </span>
+                  <div className="w-20 bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden" aria-hidden="true">
+                    <div
+                      style={{ width: `${deliverablesSummary.percent}%` }}
+                      className={`h-full ${
+                        deliverablesSummary.done === deliverablesSummary.total
+                          ? 'bg-emerald-500'
+                          : 'bg-sky-500'
+                      }`}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {deliverablesError && (
+              <div
+                role="alert"
+                className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-xs font-medium"
+              >
+                {deliverablesError}
+              </div>
+            )}
+
+            {deliverables.length === 0 ? (
+              <p className="text-slate-600 dark:text-slate-400 italic">
+                Brak zdefiniowanych elementów do odbioru w tym projekcie.
+              </p>
+            ) : (
+              <ul className="space-y-2" aria-label="Lista elementów do odbioru w szczegółach projektu">
+                {deliverables.map((item, idx) => (
+                  <li
+                    key={item.id}
+                    className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/40 flex flex-wrap items-center justify-between gap-2"
+                  >
+                    <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                      <input
+                        type="checkbox"
+                        checked={item.isDone}
+                        disabled={!canEditProjectDeliverables || isSavingDeliverables}
+                        aria-label={`Wykonano: ${item.name}`}
+                        onChange={() => handleToggleDeliverable(item.id)}
+                        className="mt-0.5 rounded border-slate-400 dark:border-slate-600 text-emerald-700 focus:ring-emerald-600 disabled:opacity-60 cursor-pointer"
+                      />
+                      <div className="min-w-0 space-y-0.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`font-semibold text-xs ${
+                              item.isDone
+                                ? 'line-through text-slate-500 dark:text-slate-400'
+                                : 'text-slate-900 dark:text-white'
+                            }`}
+                          >
+                            {item.name}
+                          </span>
+                          <span className="font-mono text-[11px] px-1.5 py-0.2 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300">
+                            {item.copies} {item.unit}
+                          </span>
+                        </div>
+                        {item.notes && (
+                          <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                            {item.notes}
+                          </p>
+                        )}
+                        {item.isDone && (item.doneAt || item.doneBy) && (
+                          <p className="text-[10px] text-emerald-700 dark:text-emerald-300">
+                            Wykonano
+                            {item.doneAt ? `: ${new Date(item.doneAt).toLocaleString('pl-PL')}` : ''}
+                            {item.doneBy ? ` · ${item.doneBy}` : ''}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {canEditProjectDeliverables && (
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          disabled={idx === 0 || isSavingDeliverables}
+                          onClick={() => handleMoveDeliverable(idx, -1)}
+                          aria-label={`Przesuń element "${item.name}" w górę`}
+                          className="p-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40"
+                        >
+                          <ArrowUp className="w-3 h-3" aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={idx === deliverables.length - 1 || isSavingDeliverables}
+                          onClick={() => handleMoveDeliverable(idx, 1)}
+                          aria-label={`Przesuń element "${item.name}" w dół`}
+                          className="p-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40"
+                        >
+                          <ArrowDown className="w-3 h-3" aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isSavingDeliverables}
+                          onClick={() => handleRemoveDeliverable(item.id)}
+                          aria-label={`Usuń element "${item.name}"`}
+                          className="p-1 rounded border border-rose-200 dark:border-rose-900/50 bg-white dark:bg-slate-900 text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 disabled:opacity-40"
+                        >
+                          <Trash2 className="w-3 h-3" aria-hidden="true" />
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {canEditProjectDeliverables && (
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                <input
+                  type="text"
+                  aria-label="Nazwa nowego elementu do odbioru"
+                  value={newDelName}
+                  maxLength={DELIVERABLE_LIMITS.nameMax}
+                  disabled={isSavingDeliverables}
+                  onChange={(e) => setNewDelName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void handleAddDeliverable();
+                    }
+                  }}
+                  placeholder="Dodaj nowy element do odbioru..."
+                  className="sm:col-span-6 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+                />
+                <input
+                  type="number"
+                  aria-label="Liczba egzemplarzy"
+                  min={DELIVERABLE_LIMITS.copiesMin}
+                  max={DELIVERABLE_LIMITS.copiesMax}
+                  disabled={isSavingDeliverables}
+                  value={newDelCopies}
+                  onChange={(e) => setNewDelCopies(Number(e.target.value))}
+                  className="sm:col-span-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2 py-1.5 text-xs font-mono text-slate-900 dark:text-white"
+                />
+                <input
+                  type="text"
+                  aria-label="Jednostka"
+                  value={newDelUnit}
+                  maxLength={DELIVERABLE_LIMITS.unitMax}
+                  disabled={isSavingDeliverables}
+                  onChange={(e) => setNewDelUnit(e.target.value)}
+                  placeholder="egz."
+                  className="sm:col-span-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2 py-1.5 text-xs text-slate-900 dark:text-white"
+                />
+                <button
+                  type="button"
+                  disabled={isSavingDeliverables}
+                  onClick={() => void handleAddDeliverable()}
+                  className="sm:col-span-2 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded bg-sky-700 hover:bg-sky-600 disabled:opacity-50 text-white font-semibold text-xs transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>Dodaj</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

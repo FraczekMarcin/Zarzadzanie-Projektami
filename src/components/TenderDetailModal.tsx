@@ -1,5 +1,6 @@
 import React, { useId, useMemo, useRef, useState } from 'react';
 import type { Company, Project, User } from '../types';
+import { ProjectNameLabel } from './ProjectNameLabel';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import {
@@ -194,17 +195,22 @@ export const TenderDetailModal: React.FC<TenderDetailModalProps> = ({
               )}
 
               {linkedProject && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onClose();
-                    onOpenProject(linkedProject.id);
-                  }}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-indigo-100 dark:bg-indigo-950/60 text-indigo-900 dark:text-indigo-200 border border-indigo-300 dark:border-indigo-700 hover:bg-indigo-200 dark:hover:bg-indigo-900/60 transition-colors"
-                >
-                  <Link2 className="w-3 h-3" aria-hidden="true" />
-                  <span>Projekt: {linkedProject.key}</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenProject(linkedProject.id);
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-indigo-100 dark:bg-indigo-950/60 text-indigo-900 dark:text-indigo-200 border border-indigo-300 dark:border-indigo-700 hover:bg-indigo-200 dark:hover:bg-indigo-900/60 transition-colors"
+                  >
+                    <Link2 className="w-3 h-3" aria-hidden="true" />
+                    <span>Projekt: {linkedProject.key}</span>
+                  </button>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-200/80 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
+                    <ProjectNameLabel project={linkedProject} />
+                  </span>
+                </>
               )}
             </div>
 

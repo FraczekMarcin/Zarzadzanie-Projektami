@@ -5,7 +5,9 @@ import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { useFormSubmit, type FormSubmitResult } from '../hooks/useFormSubmit';
 import { FormError } from './FormError';
 import { FIELD_LIMITS } from '../utils/access';
+import { getProjectDisplayName } from '../utils/projectMeta';
 import { generateGoogleCalendarUrl, downloadIcsFile } from '../utils/calendar';
+import { ProjectNameLabel } from './ProjectNameLabel';
 import { 
   X, 
   Calendar, 
@@ -304,7 +306,7 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
             </span>
             <span className="text-xs text-slate-600 dark:text-slate-400" aria-hidden="true">·</span>
             <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate max-w-[220px]">
-              {project?.name || 'Zarządzanie Projektami'}
+              {project ? <ProjectNameLabel project={project} /> : 'Zarządzanie Projektami'}
             </span>
           </div>
 
@@ -527,7 +529,7 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
 
               <button
                 type="button"
-                onClick={() => downloadIcsFile([task], `${task.code || 'zadanie'}-termin.ics`, project?.name)}
+                onClick={() => downloadIcsFile([task], `${task.code || 'zadanie'}-termin.ics`, project ? getProjectDisplayName(project) : undefined)}
                 className="flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-sky-300 dark:border-sky-700 hover:bg-sky-100/60 dark:hover:bg-slate-700 text-sky-900 dark:text-sky-200 text-xs font-medium px-3 py-1.5 rounded transition-colors"
               >
                 <Download className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400" aria-hidden="true" />

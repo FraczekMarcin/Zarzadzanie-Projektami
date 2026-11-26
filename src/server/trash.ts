@@ -6,6 +6,7 @@ import type {
   TrashTaskPayload,
 } from '../types/index.js';
 import { canAccessProject, canWrite } from '../utils/access.js';
+import { getProjectDisplayName } from '../utils/projectMeta.js';
 import { logger } from './logger.js';
 import type { StateStore } from './state.js';
 
@@ -319,9 +320,9 @@ export function listTrashForUser(
         expiresAt: entry.expiresAt,
         daysRemaining,
         projectId: entry.projectId,
-        projectName: payload?.project?.name || entry.title,
+        projectName: getProjectDisplayName(payload?.project) || entry.title,
         projectKey: payload?.project?.key || entry.code,
-        title: entry.title,
+        title: getProjectDisplayName(payload?.project) || entry.title,
         code: entry.code,
         taskCount: Array.isArray(payload?.tasks) ? payload.tasks.length : 0,
         commentCount: Array.isArray(payload?.comments) ? payload.comments.length : 0,
@@ -339,7 +340,7 @@ export function listTrashForUser(
         expiresAt: entry.expiresAt,
         daysRemaining,
         projectId: entry.projectId,
-        projectName: proj?.name || '(Usunięty projekt)',
+        projectName: getProjectDisplayName(proj) || '(Usunięty projekt)',
         projectKey: proj?.key || '—',
         title: entry.title,
         code: entry.code,

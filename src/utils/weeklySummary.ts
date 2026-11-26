@@ -1,6 +1,6 @@
 import type { Project, ProjectStatusOption, Task, User } from '../types/index.js';
 import { PRIORITY_LABELS, STATUS_LABELS } from './labels.js';
-import { isProjectStatusClosed } from './projectMeta.js';
+import { getProjectDisplayName, isProjectStatusClosed } from './projectMeta.js';
 import { escapeHtml, isValidIanaTimezone, localDateString } from './reminders.js';
 
 export interface WeeklySummarySettings {
@@ -551,7 +551,7 @@ export function buildWeeklySummary(
       cleanProjects.push({
         projectId: proj.id,
         projectKey: proj.key || '',
-        projectName: proj.name || '',
+        projectName: getProjectDisplayName(proj) || proj.name || '',
         openCount,
       });
       continue;
@@ -568,7 +568,7 @@ export function buildWeeklySummary(
     projectSections.push({
       projectId: proj.id,
       projectKey: proj.key || '',
-      projectName: proj.name || '',
+      projectName: getProjectDisplayName(proj) || proj.name || '',
       openCount,
       overdueCount: allOverdue.length,
       upcomingCount: allUpcoming.length,

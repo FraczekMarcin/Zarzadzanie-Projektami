@@ -4,11 +4,18 @@ import type {
   Project,
   ProjectPriorityOption,
   ProjectStatusOption,
+  ProjectTypeOption,
   Task,
   User,
 } from '../../types';
 import { canViewFinance } from '../../utils/access';
-import { resolveProjectPriority, resolveProjectStatus } from '../../utils/projectMeta';
+import {
+  compareProjectDisplayNames,
+  resolveProjectPriority,
+  resolveProjectStatus,
+  resolveProjectSubtype,
+  resolveProjectType,
+} from '../../utils/projectMeta';
 
 export const PROJECTS_VIEW_PREF_KEY = 'oph_pref_projects_view';
 
@@ -17,6 +24,7 @@ export type ProjectsViewMode = 'tiles' | 'list';
 export type ProjectListSortKey =
   | 'key'
   | 'name'
+  | 'type'
   | 'company'
   | 'clientName'
   | 'status'
@@ -133,6 +141,7 @@ export interface SortProjectsListOptions {
   todayIso: string;
   projectStatuses?: ProjectStatusOption[] | null;
   projectPriorities?: ProjectPriorityOption[] | null;
+  projectTypes?: ProjectTypeOption[] | null;
 }
 
 export function sortProjectsList(
@@ -149,6 +158,7 @@ export function sortProjectsList(
     todayIso,
     projectStatuses,
     projectPriorities,
+    projectTypes,
   } = options;
   if (!sortKey) return [...projects];
 
@@ -178,8 +188,18 @@ export function sortProjectsList(
         });
         break;
       case 'name':
-        cmp = (a.name || '').localeCompare(b.name || '', 'pl', { sensitivity: 'base' });
+        cmp = compareProjectDisplayNames(a, b);
         break;
+      case 'type': {
+        const typeA = resolveProjectType(a.typeId, projectTypes);
+        const subA = resolveProjectSubtype(a.typeId, a.subtypeId, projectTypes);
+        const typeB = resolveProjectType(b.typeId, projectTypes);
+        const subB = resolveProjectSubtype(b.typeId, b.subtypeId, projectTypes);
+        const labelA = typeA.hasType ? (subA ? `${typeA.label} ${subA.label}` : typeA.label) : '';
+        const labelB = typeB.hasType ? (subB ? `${typeB.label} ${subB.label}` : typeB.label) : '';
+        cmp = labelA.localeCompare(labelB, 'pl', { sensitivity: 'base' });
+        break;
+      }
       case 'company': {
         const compA = a.companyId ? companyById.get(a.companyId)?.letter || '' : '';
         const compB = b.companyId ? companyById.get(b.companyId)?.letter || '' : '';

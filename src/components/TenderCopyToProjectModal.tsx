@@ -5,6 +5,7 @@ import { useFocusTrap } from '../utils/useFocusTrap';
 import { useVariables } from '../hooks/useVariables';
 import { parseApiErrorResponse, useFormSubmit } from '../hooks/useFormSubmit';
 import { FormError } from './FormError';
+import { ProjectNameLabel } from './ProjectNameLabel';
 import { fetchTemplatesList } from '../utils/projectTemplates';
 import { getTodayIso } from '../utils/today';
 import { formatMoney } from '../utils/money';
@@ -282,7 +283,8 @@ export const TenderCopyToProjectModal: React.FC<TenderCopyToProjectModalProps> =
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-700 dark:text-amber-400" aria-hidden="true" />
               <span>
                 Z tym przetargiem powiązano już projekt{' '}
-                <strong className="font-mono">{existingLinkedProject.key}</strong>. Próba zapisu poprosi o potwierdzenie utworzenia kolejnego projektu.
+                <strong className="font-mono">{existingLinkedProject.key}</strong>{' '}
+                (<ProjectNameLabel project={existingLinkedProject} className="font-semibold" />). Próba zapisu poprosi o potwierdzenie utworzenia kolejnego projektu.
               </span>
             </div>
           )}

@@ -24,6 +24,7 @@ export interface GoogleSyncTask {
 export interface GoogleSyncProject {
   id: string;
   name?: string;
+  shortName?: string;
   key?: string;
   isArchived?: boolean;
 }
@@ -152,8 +153,9 @@ export function buildEventPayload(
   const durationText = formatDurationDays(task.durationDays);
 
   const descParts: string[] = [];
-  if (project?.name) {
-    descParts.push(`Projekt: ${project.name}`);
+  const projectDisplayName = project?.shortName?.trim() || project?.name;
+  if (projectDisplayName) {
+    descParts.push(`Projekt: ${projectDisplayName}`);
   }
   descParts.push(`Priorytet: ${priorityText}`);
   descParts.push(`Status: ${statusText}`);

@@ -135,7 +135,7 @@ test.describe.serial('Testy end-to-end aplikacji Zarządzanie Projektami', () =>
     await page.getByRole('button', { name: 'Zarejestruj nowy projekt' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
 
-    await page.getByLabel(/Nazwa projektu/i).fill('Osiedle Parkowe E2E');
+    await page.getByLabel(/Nazwa pełna/i).fill('Osiedle Parkowe E2E');
     await page.getByLabel(/Opis projektu/i).fill('Projekt weryfikacyjny Playwright');
 
     const createProjectPromise = page.waitForResponse(

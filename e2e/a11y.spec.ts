@@ -322,7 +322,7 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
     const nav = page.getByRole('navigation', { name: 'Główna nawigacja' });
     await nav.getByRole('button', { name: 'Projekty', exact: true }).click();
     await page.getByRole('button', { name: 'Zarejestruj nowy projekt' }).click();
-    await page.getByLabel(/Nazwa projektu/i).fill('Projekt Referencyjny A11y');
+    await page.getByLabel(/Nazwa pełna/i).fill('Projekt Referencyjny A11y');
     const projResPromise = page.waitForResponse(
       (res) => res.url().includes('/api/projects') && res.request().method() === 'POST'
     );

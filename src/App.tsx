@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
-import { Task, Project, ActivityLog, Comment, ProjectTemplate, Company, ProjectNumberingSettings } from './types';
+import { Task, Project, ProjectDeliverable, ActivityLog, Comment, ProjectTemplate, Company, ProjectNumberingSettings } from './types';
 import { INITIAL_PROJECTS, INITIAL_TASKS, INITIAL_ACTIVITY } from './data/initialData';
 import type { SettingsTab } from './components/SettingsModal';
 import { useAuthSession, NotificationToast } from './hooks/useAuthSession';
@@ -58,6 +58,7 @@ import { CURRENT_APP_VERSION, GITHUB_REPO_URL } from './data/dockerConfig';
 import { isDemoProject } from './utils/demoData';
 import { sortTasksByPriorityAndDueDate } from './utils/taskSorting';
 import { canViewFinance } from './utils/access';
+import { getProjectDisplayName } from './utils/projectMeta';
 import {
   computeProgressMap,
   computeProjectProgress,
@@ -716,7 +717,7 @@ export default function App() {
     } else {
       logActivity(`${currentUser.name} zarejestrował nowy projekt [${finalProject.key}]: ${finalProject.name} (Czas: ${finalProject.durationDays} dni)`);
       setNotificationToast({
-        message: `Utworzono projekt [${finalProject.key}]: ${finalProject.name}`,
+        message: `Utworzono projekt [${finalProject.key}]: ${getProjectDisplayName(finalProject)}`,
         type: 'success',
       });
     }
@@ -744,6 +745,31 @@ export default function App() {
     const saved = result.project || updatedProject;
     logActivity(`${currentUser.name} zaktualizował projekt [${saved.key}]: ${saved.name}`);
     return { ok: true, status: result.status, data: saved };
+  };
+
+  const handleUpdateProjectDeliverables = async (
+    projectId: string,
+    deliverables: ProjectDeliverable[],
+    expectedRevision?: number
+  ): Promise<FormSubmitResult<Project>> => {
+    const result = await patchProjectOnServer(
+      projectId,
+      { deliverables },
+      expectedRevision || 1
+    );
+    if (!result.ok) {
+      return {
+        ok: false,
+        status: result.status,
+        error: result.error || 'Nie udało się zapisać elementów do odbioru na serwerze.',
+        field: result.field,
+      };
+    }
+    return {
+      ok: true,
+      status: result.status,
+      ...(result.project ? { data: result.project } : {}),
+    };
   };
 
   const handleUpdateProjectFinance = async (
@@ -1367,7 +1393,7 @@ export default function App() {
               const comp = p.companyId ? companies.find((c) => c.id === p.companyId) : undefined;
               return (
                 <option key={p.id} value={p.id}>
-                  [{p.key}]{comp ? ` (${comp.letter})` : ''} {p.name}
+                  [{p.key}]{comp ? ` (${comp.letter})` : ''} {getProjectDisplayName(p)}
                 </option>
               );
             })}
@@ -1678,6 +1704,7 @@ export default function App() {
               }}
               onAddProject={handleAddProject}
               onUpdateProject={handleUpdateProject}
+              onUpdateProjectDeliverables={handleUpdateProjectDeliverables}
               onUpdateProjectFinance={handleUpdateProjectFinance}
               onApplyFreshProject={handleApplyFreshProject}
               onDeleteProject={handleDeleteProject}

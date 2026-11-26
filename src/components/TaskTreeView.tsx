@@ -24,8 +24,10 @@ import { useVariables } from '../hooks/useVariables';
 import { copyToClipboard } from '../utils/clipboard';
 import { canAccessProject } from '../utils/access';
 import { canReparent } from '../utils/taskTree';
+import { getProjectDisplayName } from '../utils/projectMeta';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
+import { ProjectNameLabel } from './ProjectNameLabel';
 
 interface TaskTreeViewProps {
   tasks: Task[];
@@ -852,7 +854,7 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
                   const comp = p.companyId ? companies.find((c) => c.id === p.companyId) : undefined;
                   return (
                     <option key={p.id} value={p.id}>
-                      [{p.key}]{comp ? ` (${comp.letter})` : ''} {p.name}
+                      [{p.key}]{comp ? ` (${comp.letter})` : ''} {getProjectDisplayName(p)}
                     </option>
                   );
                 })}
@@ -887,7 +889,19 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
 
         {/* Selected Project Card Details */}
         {currentProject && (
-          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs bg-slate-50 dark:bg-slate-800/40 p-3 rounded-lg">
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2 text-xs bg-slate-50 dark:bg-slate-800/40 p-3 rounded-lg">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] uppercase font-semibold text-slate-600 dark:text-slate-400">
+                Wybrany projekt:
+              </span>
+              <span className="font-mono font-bold text-sky-700 dark:text-sky-400">
+                [{currentProject.key}]
+              </span>
+              <span className="font-bold text-slate-900 dark:text-white">
+                <ProjectNameLabel project={currentProject} />
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <div>
               <span className="text-[10px] uppercase font-semibold text-slate-600 dark:text-slate-400 block">
                 Zamawiający:
@@ -944,6 +958,7 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
               ) : (
                 <span className="text-slate-600 dark:text-slate-400 italic">Nie zdefiniowano</span>
               )}
+            </div>
             </div>
           </div>
         )}

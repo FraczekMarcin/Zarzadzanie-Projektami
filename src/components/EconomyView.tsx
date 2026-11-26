@@ -18,9 +18,11 @@ import { calcGrossFromNet } from '../utils/money';
 import { getTodayIso } from '../utils/today';
 import {
   getOrderedProjectStatuses,
+  getProjectDisplayName,
   isProjectStatusClosed,
   resolveProjectStatus,
 } from '../utils/projectMeta';
+import { ProjectNameLabel, useProjectNameTooltip } from './ProjectNameLabel';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { useVariables } from '../hooks/useVariables';
@@ -72,6 +74,40 @@ const ProjectFinancialsModal = lazy(() =>
 );
 
 const PAGE_SIZE = 50;
+
+const EconomyRowNameButton: React.FC<{
+  project: Project;
+  onSelect: () => void;
+}> = ({ project, onSelect }) => {
+  const nameTooltip = useProjectNameTooltip(project);
+  return (
+    <span ref={nameTooltip.containerRef} className="relative inline-flex max-w-full items-center">
+      <button
+        type="button"
+        onClick={(e) => {
+          nameTooltip.triggerHandlers.onClick?.();
+          onSelect();
+          e.stopPropagation();
+        }}
+        {...(nameTooltip.hasTooltip
+          ? {
+              'aria-describedby': nameTooltip.triggerHandlers['aria-describedby'],
+              onMouseEnter: nameTooltip.triggerHandlers.onMouseEnter,
+              onMouseLeave: nameTooltip.triggerHandlers.onMouseLeave,
+              onFocus: nameTooltip.triggerHandlers.onFocus,
+              onBlur: nameTooltip.triggerHandlers.onBlur,
+              onPointerDown: nameTooltip.triggerHandlers.onPointerDown,
+              onKeyDown: nameTooltip.triggerHandlers.onKeyDown,
+            }
+          : {})}
+        className="font-semibold text-slate-900 dark:text-white hover:text-sky-700 dark:hover:text-sky-300 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 dark:focus-visible:ring-sky-400 rounded-xs"
+      >
+        {nameTooltip.displayName}
+      </button>
+      {nameTooltip.tooltipNode}
+    </span>
+  );
+};
 
 const QUOTATION_STATUS_LABELS: Record<QuotationItem['status'], string> = {
   draft: 'Szkic',
@@ -476,7 +512,7 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
             body: JSON.stringify({
               projectId: project.id,
               title: `Płatność: ${item.title} (${formatPln(amountMode === 'gross' ? item.amountGross : item.amountNet)}, ${item.direction})`.slice(0, 200),
-              description: `Płatność w projekcie [${project.key}] ${project.name}: ${item.title}. Termin płatności: ${item.dueDate}.`,
+              description: `Płatność w projekcie [${project.key}] ${getProjectDisplayName(project)}: ${item.title}. Termin płatności: ${item.dueDate}.`,
               startDate: item.dueDate,
               dueDate: item.dueDate,
               durationDays: 1,
@@ -722,7 +758,7 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
           handleScheduleSingleItem(project, {
             projectId: project.id,
             projectKey: project.key,
-            projectName: project.name,
+            projectName: getProjectDisplayName(project),
             kind,
             itemId,
             title,
@@ -828,7 +864,7 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
                 tabIndex={-1}
                 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mt-1 focus:outline-none"
               >
-                [{project.key}] {project.name}
+                [{project.key}] <ProjectNameLabel project={project} />
               </h2>
               <p className="text-xs text-slate-600 dark:text-slate-400">
                 Zamawiający: <strong className="text-slate-800 dark:text-slate-200">{selectedDetailRow.clientNameDisplay}</strong>
@@ -2039,13 +2075,10 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
                         </div>
                       </td>
                       <td className="px-3 py-2.5 min-w-[180px]">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedDetailProjectId(row.project.id)}
-                          className="font-semibold text-slate-900 dark:text-white hover:text-sky-700 dark:hover:text-sky-300 text-left"
-                        >
-                          {row.project.name}
-                        </button>
+                        <EconomyRowNameButton
+                          project={row.project}
+                          onSelect={() => setSelectedDetailProjectId(row.project.id)}
+                        />
                         {row.isVatExempt && (
                           <span
                             title={row.company?.vatExemptionBasis || 'Firma zwolniona z VAT'}

@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { Project, ProjectTemplate, ProjectTemplateSummary, Task, User } from '../../types';
-import {
-  MAX_CUSTOM_TEMPLATES,
-  TEMPLATE_CATEGORY_LABELS,
-} from '../../utils/templateValidation';
+import { MAX_CUSTOM_TEMPLATES } from '../../utils/templateValidation';
+import { resolveProjectType } from '../../utils/projectMeta';
+import { useVariables } from '../../hooks/useVariables';
 import {
   clearLegacyLocalCustomTemplates,
   createTemplateOnServer,
@@ -25,6 +24,7 @@ import {
   Edit3,
   Layers,
   Lock,
+  PackageCheck,
   RefreshCw,
   Trash2,
   UploadCloud,
@@ -46,6 +46,7 @@ export const ProjectTemplatesTab: React.FC<ProjectTemplatesTabProps> = ({
   onRefreshState,
 }) => {
   const isAdmin = currentUser?.role === 'admin';
+  const { projectTypes } = useVariables();
 
   const [templates, setTemplates] = useState<ProjectTemplateSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -117,13 +118,16 @@ export const ProjectTemplatesTab: React.FC<ProjectTemplatesTabProps> = ({
       for (const tpl of legacyTemplates) {
         await createTemplateOnServer({
           name: tpl.name,
-          category: tpl.category,
+          typeId: tpl.typeId,
           description: tpl.description,
           defaultDurationDays: tpl.defaultDurationDays,
           defaultPriority: tpl.defaultPriority,
           ...(tpl.defaultBudget ? { defaultBudget: tpl.defaultBudget } : {}),
           ...(tpl.sourceProjectId ? { sourceProjectId: tpl.sourceProjectId } : {}),
           tasks: tpl.tasks,
+          ...(tpl.deliverables && tpl.deliverables.length > 0
+            ? { deliverables: tpl.deliverables }
+            : {}),
         });
         savedCount += 1;
       }
@@ -320,6 +324,7 @@ export const ProjectTemplatesTab: React.FC<ProjectTemplatesTabProps> = ({
           {templates.map((tpl) => {
             const isBusy = busyId === tpl.id;
             const isConfirmingDelete = confirmDeleteId === tpl.id;
+            const typeInfo = resolveProjectType(tpl.typeId, projectTypes);
 
             return (
               <div
@@ -341,8 +346,8 @@ export const ProjectTemplatesTab: React.FC<ProjectTemplatesTabProps> = ({
                           Własny
                         </span>
                       )}
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-sky-50 dark:bg-sky-950/50 text-sky-800 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
-                        {TEMPLATE_CATEGORY_LABELS[tpl.category] || tpl.category}
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${typeInfo.badgeClass}`}>
+                        {typeInfo.label}
                       </span>
                     </div>
 
@@ -361,6 +366,12 @@ export const ProjectTemplatesTab: React.FC<ProjectTemplatesTabProps> = ({
                         <Clock className="w-3 h-3" aria-hidden="true" />
                         <span>{tpl.defaultDurationDays} dni</span>
                       </span>
+                      {(tpl.deliverableCount || 0) > 0 && (
+                        <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300 font-semibold">
+                          <PackageCheck className="w-3 h-3" aria-hidden="true" />
+                          <span>{tpl.deliverableCount} elem. odbioru</span>
+                        </span>
+                      )}
                       {tpl.officialDeadlineCount > 0 && (
                         <span className="text-rose-700 dark:text-rose-300 font-semibold">
                           {tpl.officialDeadlineCount} terminy urzędowe

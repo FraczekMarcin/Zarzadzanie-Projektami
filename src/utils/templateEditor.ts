@@ -2,7 +2,7 @@ import type {
   Priority,
   ProjectTemplate,
   TemplateAssigneeRole,
-  TemplateCategory,
+  TemplateDeliverableBlueprint,
   TemplateTaskBlueprint,
 } from '../types/index.js';
 import {
@@ -13,13 +13,14 @@ import {
 
 export interface TemplateEditorDraft {
   name: string;
-  category: TemplateCategory;
+  typeId: string;
   description: string;
   defaultPriority: Priority;
   defaultDurationDays: number;
   durationManualOverride: boolean;
   defaultBudget: string;
   tasks: TemplateTaskBlueprint[];
+  deliverables: TemplateDeliverableBlueprint[];
 }
 
 export interface TemplateEditorHistory {
@@ -58,6 +59,7 @@ export function cloneDraft(draft: TemplateEditorDraft): TemplateEditorDraft {
       ...(t.tags ? { tags: [...t.tags] } : {}),
       ...(t.blockerKeys ? { blockerKeys: [...t.blockerKeys] } : {}),
     })),
+    deliverables: (draft.deliverables || []).map((d) => ({ ...d })),
   };
 }
 
@@ -81,6 +83,9 @@ export function createDraftFromTemplate(template: ProjectTemplate): TemplateEdit
     ...(t.tags ? { tags: [...t.tags] } : {}),
     ...(t.blockerKeys ? { blockerKeys: [...t.blockerKeys] } : {}),
   }));
+  const deliverables = Array.isArray(template.deliverables)
+    ? template.deliverables.map((d) => ({ ...d }))
+    : [];
   const computedDur = computeTemplateDurationFromTasks(tasks);
   const templateDur =
     typeof template.defaultDurationDays === 'number' && template.defaultDurationDays >= 1
@@ -89,13 +94,14 @@ export function createDraftFromTemplate(template: ProjectTemplate): TemplateEdit
 
   return {
     name: template.name || '',
-    category: template.category || 'ogolne',
+    typeId: template.typeId || 'inne',
     description: template.description || '',
     defaultPriority: template.defaultPriority || 'normal',
     defaultDurationDays: templateDur,
     durationManualOverride: tasks.length > 0 ? templateDur !== computedDur : true,
     defaultBudget: template.defaultBudget || '',
     tasks,
+    deliverables,
   };
 }
 

@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { isApproachingOfficialDeadline, getBusinessDaysRemaining } from '../utils/businessDays';
 import { getTodayIso } from '../utils/today';
+import { ProjectNameLabel } from './ProjectNameLabel';
 
 interface TaskListViewProps {
   tasks: Task[];
@@ -464,7 +465,11 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                             ) : null;
                           })()}
                           <span>·</span>
-                          <span className="truncate">{project.name}</span>
+                          <ProjectNameLabel
+                            project={project}
+                            stopClickPropagationOnTouch
+                            className="truncate"
+                          />
                         </div>
                       )}
                     </td>

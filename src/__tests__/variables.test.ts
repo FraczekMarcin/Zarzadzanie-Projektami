@@ -593,7 +593,7 @@ describe('P54: Zmienne systemowe na serwerze, RBAC, walidacja, migracja i czyszc
     expect(delUsedStatusRes.status).toBe(409);
     const delUsedStatusJson = await delUsedStatusRes.json();
     expect(delUsedStatusJson.field).toBe('projectStatuses');
-    expect(delUsedStatusJson.inUseProjects).toBeGreaterThanOrEqual(1);
+    expect(delUsedStatusJson.inUseProjects.length).toBeGreaterThanOrEqual(1);
 
     // Próba usunięcia używanego priorytetu -> 409
     const delUsedPriorityRes = await fetch(`${ctx.baseUrl}/api/admin/variables`, {
@@ -606,6 +606,6 @@ describe('P54: Zmienne systemowe na serwerze, RBAC, walidacja, migracja i czyszc
     expect(delUsedPriorityRes.status).toBe(409);
     const delUsedPriorityJson = await delUsedPriorityRes.json();
     expect(delUsedPriorityJson.field).toBe('projectPriorities');
-    expect(delUsedPriorityJson.inUseProjects).toBeGreaterThanOrEqual(1);
+    expect(delUsedPriorityJson.inUseProjects.length).toBeGreaterThanOrEqual(1);
   });
 });

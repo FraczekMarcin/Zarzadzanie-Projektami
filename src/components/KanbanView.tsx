@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { isApproachingOfficialDeadline, getBusinessDaysRemaining } from '../utils/businessDays';
 import { getTodayIso } from '../utils/today';
+import { ProjectNameLabel } from './ProjectNameLabel';
 
 interface KanbanViewProps {
   tasks: Task[];
@@ -410,7 +411,7 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
                                   </span>
                                 ) : null;
                               })()}
-                              <span className="truncate">{project.name}</span>
+                              <ProjectNameLabel project={project} focusable={false} className="truncate" />
                             </div>
                           )}
 
@@ -673,7 +674,7 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
                           </button>
                           {project && (
                             <span className="text-[10px] text-sky-800 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40 px-2 py-0.5 rounded border border-sky-200 dark:border-sky-800">
-                              {project.name.slice(0, 25)}...
+                              <ProjectNameLabel project={project} className="max-w-[220px] truncate" />
                             </span>
                           )}
                         </div>

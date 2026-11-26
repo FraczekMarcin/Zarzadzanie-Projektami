@@ -2,9 +2,16 @@ import React from 'react';
 import { Company, Project, Task, User } from '../../types';
 import { computeProjectFinance } from '../../utils/finance';
 import { copyToClipboard } from '../../utils/clipboard';
-import { resolveProjectPriority, resolveProjectStatus } from '../../utils/projectMeta';
+import {
+  getDeliverablesSummary,
+  resolveProjectPriority,
+  resolveProjectStatus,
+  resolveProjectSubtype,
+  resolveProjectType,
+} from '../../utils/projectMeta';
 import { useVariables } from '../../hooks/useVariables';
-import { Archive, Building2, Check, Clock, Copy, DollarSign, Folder } from 'lucide-react';
+import { Archive, Building2, Check, Clock, Copy, DollarSign, Folder, PackageCheck } from 'lucide-react';
+import { useProjectNameTooltip } from '../ProjectNameLabel';
 import { ProjectActions } from './ProjectActions';
 
 export interface ProjectTileProps {
@@ -42,9 +49,13 @@ export const ProjectTile: React.FC<ProjectTileProps> = ({
   onRestore,
   onDelete,
 }) => {
-  const { projectStatuses, projectPriorities } = useVariables();
+  const { projectStatuses, projectPriorities, projectTypes } = useVariables();
   const statusMeta = resolveProjectStatus(project.status, projectStatuses);
   const priorityMeta = resolveProjectPriority(project.priority, projectPriorities);
+  const typeMeta = resolveProjectType(project.typeId, projectTypes);
+  const subtypeMeta = resolveProjectSubtype(project.typeId, project.subtypeId, projectTypes);
+  const deliverablesSummary = getDeliverablesSummary(project.deliverables);
+  const nameTooltip = useProjectNameTooltip(project);
 
   const completedTasks = projectTasks.filter((t) => t.status === 'done').length;
   const criticalTasks = projectTasks.filter(
@@ -82,6 +93,19 @@ export const ProjectTile: React.FC<ProjectTileProps> = ({
             <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${statusMeta.badgeClass}`}>
               {statusMeta.label}
             </span>
+            <span
+              className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
+                typeMeta.hasType
+                  ? typeMeta.badgeClass
+                  : 'bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+              }`}
+            >
+              {typeMeta.hasType
+                ? subtypeMeta
+                  ? `${typeMeta.label} · ${subtypeMeta.label}`
+                  : typeMeta.label
+                : 'Brak rodzaju'}
+            </span>
             {project.isDemo && (
               <span className="text-[10px] text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.2 rounded">
                 Demo
@@ -103,13 +127,24 @@ export const ProjectTile: React.FC<ProjectTileProps> = ({
 
         {/* Project Title & Description */}
         <h3 className="text-base font-bold text-slate-900 dark:text-white">
-          <button
-            type="button"
-            onClick={() => onOpen(project.id)}
-            className="text-left hover:text-sky-700 dark:hover:text-sky-400 cursor-pointer transition-colors"
+          <span
+            ref={nameTooltip.containerRef}
+            className="relative inline-flex max-w-full items-center"
           >
-            {project.name}
-          </button>
+            <button
+              type="button"
+              onClick={() => onOpen(project.id)}
+              {...nameTooltip.triggerHandlers}
+              className={`text-left hover:text-sky-700 dark:hover:text-sky-400 cursor-pointer transition-colors rounded-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 ${
+                nameTooltip.hasTooltip
+                  ? 'underline decoration-dotted decoration-slate-400 dark:decoration-slate-500 underline-offset-2'
+                  : ''
+              }`}
+            >
+              {nameTooltip.displayName}
+            </button>
+            {nameTooltip.tooltipNode}
+          </span>
         </h3>
         <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed">
           {project.description}
@@ -260,6 +295,31 @@ export const ProjectTile: React.FC<ProjectTileProps> = ({
             />
           </div>
         </div>
+
+        {/* Deliverables summary */}
+        {deliverablesSummary.total > 0 && (
+          <div className="mt-2.5">
+            <div className="flex items-center justify-between text-xs mb-1">
+              <span className="text-slate-600 dark:text-slate-400 font-medium inline-flex items-center gap-1">
+                <PackageCheck className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
+                <span>Odbiory</span>
+              </span>
+              <span className="font-mono tabular-nums text-slate-800 dark:text-slate-200 font-semibold">
+                {deliverablesSummary.label}
+              </span>
+            </div>
+            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+              <div
+                style={{ width: `${deliverablesSummary.percent}%` }}
+                className={`h-full ${
+                  deliverablesSummary.done === deliverablesSummary.total
+                    ? 'bg-emerald-500'
+                    : 'bg-sky-500'
+                }`}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Task counts stats */}
         <div className="grid grid-cols-2 gap-2 mt-3 text-xs bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded border border-slate-100 dark:border-slate-800">

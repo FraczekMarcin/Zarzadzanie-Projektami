@@ -1,11 +1,9 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { Project, ProjectTemplate, Task, TemplateCategory } from '../../types';
-import {
-  TEMPLATE_CATEGORIES,
-  TEMPLATE_CATEGORY_LABELS,
-  TEMPLATE_LIMITS,
-} from '../../utils/templateValidation';
+import type { Project, ProjectTemplate, Task } from '../../types';
+import { TEMPLATE_LIMITS } from '../../utils/templateValidation';
 import { createTemplateFromProjectOnServer } from '../../utils/projectTemplates';
+import { getOrderedProjectTypes, getProjectDisplayName } from '../../utils/projectMeta';
+import { useVariables } from '../../hooks/useVariables';
 import { useFocusTrap } from '../../utils/useFocusTrap';
 import { useDismissOnOutsideClick } from '../../hooks/useDismissOnOutsideClick';
 import { useFormSubmit } from '../../hooks/useFormSubmit';
@@ -107,6 +105,20 @@ export const CreateTemplateFromProjectModal: React.FC<CreateTemplateFromProjectM
   const uid = useId();
   const titleId = `${uid}-title`;
 
+  const { projectTypes } = useVariables();
+  const orderedProjectTypes = useMemo(() => getOrderedProjectTypes(projectTypes), [projectTypes]);
+  const fallbackTypeId = useMemo(() => {
+    if (orderedProjectTypes.some((t) => t.id === 'inne')) return 'inne';
+    return orderedProjectTypes[0]?.id || 'inne';
+  }, [orderedProjectTypes]);
+
+  const resolveInitialTypeForProject = (proj: Project | undefined): string => {
+    if (proj?.typeId && orderedProjectTypes.some((t) => t.id === proj.typeId)) {
+      return proj.typeId;
+    }
+    return fallbackTypeId;
+  };
+
   const selectableProjects = useMemo(
     () => projects.filter((p) => !p.isDemo),
     [projects]
@@ -116,13 +128,20 @@ export const CreateTemplateFromProjectModal: React.FC<CreateTemplateFromProjectM
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [name, setName] = useState<string>('');
   const [nameEditedManually, setNameEditedManually] = useState<boolean>(false);
-  const [category, setCategory] = useState<TemplateCategory>('kubaturowe');
+  const [typeId, setTypeId] = useState<string>(fallbackTypeId);
+  const [typeEditedManually, setTypeEditedManually] = useState<boolean>(false);
   const [description, setDescription] = useState<string>('');
   const [skipCompleted, setSkipCompleted] = useState<boolean>(false);
   const [preserveAssigneeRoles, setPreserveAssigneeRoles] = useState<boolean>(false);
+  const [includeDeliverables, setIncludeDeliverables] = useState<boolean>(true);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const createSubmit = useFormSubmit();
   const errorAlertId = `${uid}-error`;
+
+  const selectedProject = useMemo(
+    () => effectiveProjects.find((p) => p.id === selectedProjectId),
+    [effectiveProjects, selectedProjectId]
+  );
 
   const projectTasks = useMemo(
     () => tasks.filter((t) => t.projectId === selectedProjectId),
@@ -139,28 +158,38 @@ export const CreateTemplateFromProjectModal: React.FC<CreateTemplateFromProjectM
     const initialProj = effectiveProjects[0];
     if (initialProj) {
       setSelectedProjectId(initialProj.id);
-      setName(`Szablon: ${initialProj.name}`.slice(0, TEMPLATE_LIMITS.name));
+      const dispName = getProjectDisplayName(initialProj) || initialProj.name;
+      setName(`Szablon: ${dispName}`.slice(0, TEMPLATE_LIMITS.name));
       const initialTasks = tasks.filter((t) => t.projectId === initialProj.id);
       setSelectedTaskIds(new Set(initialTasks.map((t) => t.id)));
+      setTypeId(resolveInitialTypeForProject(initialProj));
+      setIncludeDeliverables(Boolean(initialProj.deliverables && initialProj.deliverables.length > 0));
     } else {
       setSelectedProjectId('');
       setName('');
       setSelectedTaskIds(new Set());
+      setTypeId(fallbackTypeId);
+      setIncludeDeliverables(false);
     }
     setNameEditedManually(false);
-    setCategory('kubaturowe');
+    setTypeEditedManually(false);
     setDescription('');
     setSkipCompleted(false);
     setPreserveAssigneeRoles(false);
     createSubmit.clearError();
-  }, [isOpen, effectiveProjects, tasks, createSubmit.clearError]);
+  }, [isOpen, effectiveProjects, tasks, createSubmit.clearError, fallbackTypeId]);
 
   const handleProjectChange = (nextProjectId: string) => {
     setSelectedProjectId(nextProjectId);
     const proj = effectiveProjects.find((p) => p.id === nextProjectId);
     if (proj && !nameEditedManually) {
-      setName(`Szablon: ${proj.name}`.slice(0, TEMPLATE_LIMITS.name));
+      const dispName = getProjectDisplayName(proj) || proj.name;
+      setName(`Szablon: ${dispName}`.slice(0, TEMPLATE_LIMITS.name));
     }
+    if (!typeEditedManually) {
+      setTypeId(resolveInitialTypeForProject(proj));
+    }
+    setIncludeDeliverables(Boolean(proj?.deliverables && proj.deliverables.length > 0));
     const nextTasks = tasks.filter((t) => t.projectId === nextProjectId);
     setSelectedTaskIds(new Set(nextTasks.map((t) => t.id)));
     createSubmit.clearError();
@@ -169,6 +198,7 @@ export const CreateTemplateFromProjectModal: React.FC<CreateTemplateFromProjectM
   const isDirty = Boolean(
     isOpen &&
       (nameEditedManually ||
+        typeEditedManually ||
         description.trim() ||
         skipCompleted ||
         preserveAssigneeRoles)
@@ -252,11 +282,12 @@ export const CreateTemplateFromProjectModal: React.FC<CreateTemplateFromProjectM
       async () => {
         const res = await createTemplateFromProjectOnServer(selectedProjectId, {
           name: name.trim(),
-          category,
+          typeId,
           ...(description.trim() ? { description: description.trim() } : {}),
           selectedTaskIds: Array.from(selectedTaskIds),
           skipCompleted,
           preserveAssigneeRoles,
+          includeDeliverables,
         });
         onCreated(res.template);
         onClose();
@@ -332,7 +363,7 @@ export const CreateTemplateFromProjectModal: React.FC<CreateTemplateFromProjectM
                     const count = tasks.filter((t) => t.projectId === p.id).length;
                     return (
                       <option key={p.id} value={p.id}>
-                        [{p.key}] {p.name} ({count} zadań)
+                        [{p.key}] {getProjectDisplayName(p)} ({count} zadań)
                       </option>
                     );
                   })}
@@ -361,20 +392,25 @@ export const CreateTemplateFromProjectModal: React.FC<CreateTemplateFromProjectM
                 </div>
 
                 <div>
-                  <label htmlFor={`${uid}-category`} className="block font-semibold text-slate-700 dark:text-slate-200 mb-1">
-                    Kategoria
+                  <label htmlFor={`${uid}-type`} className="block font-semibold text-slate-700 dark:text-slate-200 mb-1">
+                    Rodzaj projektu
                   </label>
                   <select
-                    id={`${uid}-category`}
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value as TemplateCategory)}
+                    id={`${uid}-type`}
+                    value={typeId}
+                    onChange={(e) => {
+                      setTypeId(e.target.value);
+                      setTypeEditedManually(true);
+                    }}
                     className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-500"
                   >
-                    {TEMPLATE_CATEGORIES.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {TEMPLATE_CATEGORY_LABELS[cat]}
-                      </option>
-                    ))}
+                    {orderedProjectTypes
+                      .filter((pt) => pt.isActive !== false || pt.id === typeId)
+                      .map((pt) => (
+                        <option key={pt.id} value={pt.id}>
+                          {pt.label}
+                        </option>
+                      ))}
                   </select>
                 </div>
               </div>
@@ -415,6 +451,20 @@ export const CreateTemplateFromProjectModal: React.FC<CreateTemplateFromProjectM
                     className="rounded border-slate-300 dark:border-slate-600 text-sky-600 focus:ring-sky-500"
                   />
                   <span>Zachowaj przypisania jako role (właściciel projektu / zgłaszający)</span>
+                </label>
+                <label htmlFor={`${uid}-include-deliverables`} className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    id={`${uid}-include-deliverables`}
+                    type="checkbox"
+                    checked={includeDeliverables}
+                    disabled={!selectedProject?.deliverables?.length}
+                    onChange={(e) => setIncludeDeliverables(e.target.checked)}
+                    className="rounded border-slate-300 dark:border-slate-600 text-sky-600 focus:ring-sky-500 disabled:opacity-50"
+                  />
+                  <span>
+                    Kopiuj elementy do odbioru projektu (
+                    {selectedProject?.deliverables?.length || 0})
+                  </span>
                 </label>
               </div>
 

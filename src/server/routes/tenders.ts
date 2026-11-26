@@ -475,8 +475,11 @@ export function registerTenderRoutes(
           vatRates: appState.variables?.vatRates,
           projectStatuses: appState.variables?.projectStatuses,
           projectPriorities: appState.variables?.projectPriorities,
+          projectTypes: appState.variables?.projectTypes,
           body: rawBody,
           templateDurationDays: resolvedTemplate?.defaultDurationDays,
+          templateTypeId: resolvedTemplate?.typeId,
+          templateDeliverables: resolvedTemplate?.deliverables,
         });
 
         if (!buildResult.ok) {

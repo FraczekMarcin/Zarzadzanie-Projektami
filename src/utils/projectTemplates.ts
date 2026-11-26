@@ -196,11 +196,13 @@ export async function deleteTemplateOnServer(
 
 export interface CreateTemplateFromProjectPayload {
   name: string;
-  category: ProjectTemplate['category'];
+  typeId: string;
   description?: string;
   selectedTaskIds?: string[];
   skipCompleted?: boolean;
   preserveAssigneeRoles?: boolean;
+  includeDeliverables?: boolean;
+  deliverables?: ProjectTemplate['deliverables'];
 }
 
 export async function createTemplateFromProjectOnServer(

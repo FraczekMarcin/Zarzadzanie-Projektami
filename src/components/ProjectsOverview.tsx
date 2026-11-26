@@ -1,5 +1,15 @@
 import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
-import { Project, Task, User, Priority, ProjectTemplate, ProjectTemplateSummary, Company, ProjectNumberingSettings } from '../types';
+import {
+  Project,
+  ProjectDeliverable,
+  Task,
+  User,
+  Priority,
+  ProjectTemplate,
+  ProjectTemplateSummary,
+  Company,
+  ProjectNumberingSettings,
+} from '../types';
 import { downloadIcsFile } from '../utils/calendar';
 import { getNextProjectCode, isProjectCodeAvailable, isValidProjectCodeFormat } from '../utils/projectCode';
 import { fetchTemplatesList, fetchTemplateById } from '../utils/projectTemplates';
@@ -14,15 +24,30 @@ import {
   isValidIsoDateString,
 } from '../utils/templateInstantiation';
 import { ProjectDetailModal } from './ProjectDetailModal';
+import { ProjectNameLabel } from './ProjectNameLabel';
 import { FIELD_LIMITS, canEditFinance, canViewFinance } from '../utils/access';
 import { calcGrossFromNet, formatMoney } from '../utils/money';
 import { getTodayIso } from '../utils/today';
 import {
+  copyTemplateDeliverablesToProject,
+  DELIVERABLE_LIMITS,
   getDefaultProjectPriorityId,
   getDefaultProjectStatusId,
+  getDeliverablesSummary,
   getOrderedProjectPriorities,
   getOrderedProjectStatuses,
+  getOrderedProjectSubtypes,
+  getOrderedProjectTypes,
+  getProjectDisplayName,
+  hasDistinctShortName,
   isProjectStatusClosed,
+  matchesProjectSearch,
+  resolveProjectPriority,
+  resolveProjectStatus,
+  resolveProjectSubtype,
+  resolveProjectType,
+  SHORT_NAME_MAX,
+  validateProjectDeliverables,
 } from '../utils/projectMeta';
 import type { FinancePatchSaveResult } from '../hooks/useServerSync';
 import { useFormSubmit, type FormSubmitResult } from '../hooks/useFormSubmit';
@@ -64,6 +89,10 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  Search,
+  Download,
+  Plus,
+  PackageCheck,
 } from 'lucide-react';
 import { registerClientIfNew } from '../utils/variableSettings';
 import { useVariables } from '../hooks/useVariables';
@@ -100,6 +129,22 @@ const calculateDays = (start: string, end: string): number => {
   }
 };
 
+function escapeCsvCell(value: unknown): string {
+  const str = String(value ?? '');
+  const safe = /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
+  if (safe.includes(';') || safe.includes('"') || safe.includes('\n') || safe.includes('\r')) {
+    return `"${safe.replace(/"/g, '""')}"`;
+  }
+  return safe;
+}
+
+function createClientDeliverableId(): string {
+  if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
+    return `del-${globalThis.crypto.randomUUID()}`;
+  }
+  return `del-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 interface ProjectsOverviewProps {
   projects: Project[];
   companies?: Company[];
@@ -118,6 +163,11 @@ interface ProjectsOverviewProps {
   ) => Promise<FormSubmitResult<{ project: Project; tasks?: Task[] }> | void> | void;
   onUpdateProject?: (
     updatedProject: Project
+  ) => Promise<FormSubmitResult<Project> | void> | void;
+  onUpdateProjectDeliverables?: (
+    projectId: string,
+    deliverables: ProjectDeliverable[],
+    expectedRevision?: number
   ) => Promise<FormSubmitResult<Project> | void> | void;
   onUpdateProjectFinance?: (projectId: string, patch: Partial<Project>, expectedRevision?: number) => Promise<FinancePatchSaveResult>;
   onApplyFreshProject?: (freshProject: Project) => void;
@@ -138,6 +188,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   onSelectProject,
   onAddProject,
   onUpdateProject,
+  onUpdateProjectDeliverables,
   onUpdateProjectFinance,
   onApplyFreshProject,
   onDeleteProject,
@@ -151,6 +202,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     vatRates: availableVatRates,
     projectStatuses,
     projectPriorities,
+    projectTypes,
   } = useVariables();
   const orderedStatuses = useMemo(
     () => getOrderedProjectStatuses(projectStatuses),
@@ -159,6 +211,14 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   const orderedPriorities = useMemo(
     () => getOrderedProjectPriorities(projectPriorities),
     [projectPriorities]
+  );
+  const orderedProjectTypes = useMemo(
+    () => getOrderedProjectTypes(projectTypes),
+    [projectTypes]
+  );
+  const activeProjectTypes = useMemo(
+    () => getOrderedProjectTypes(projectTypes, { activeOnly: true }),
+    [projectTypes]
   );
   const defaultStatusId = useMemo(
     () => getDefaultProjectStatusId(projectStatuses),
@@ -208,6 +268,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   // Tab filter: Active vs Archived projects
   const [activeTab, setActiveTab] = useState<'active' | 'archived'>('active');
   const [projectStatusFilter, setProjectStatusFilter] = useState<'all' | 'critical' | 'blocked' | 'in_progress' | 'completed'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [subtypeFilter, setSubtypeFilter] = useState<string>('all');
 
   // View mode (Kafelki vs Lista) & sorting
   const [viewMode, setViewMode] = useState<ProjectsViewMode>(() => loadProjectsViewPref());
@@ -240,6 +303,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   const [companyId, setCompanyId] = useState<string>('');
   const [useAutoCode, setUseAutoCode] = useState<boolean>(true);
   const [name, setName] = useState('');
+  const [shortName, setShortName] = useState('');
+  const [typeId, setTypeId] = useState('');
+  const [subtypeId, setSubtypeId] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<Project['priority']>(() => getDefaultProjectPriorityId());
   const [status, setStatus] = useState<Project['status']>(() => getDefaultProjectStatusId());
@@ -251,6 +317,13 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
   const [projectVatRate, setProjectVatRate] = useState<number>(23);
   const [ownerId, setOwnerId] = useState<string>('');
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>(['usr-1', 'usr-2']);
+  const [deliverables, setDeliverables] = useState<ProjectDeliverable[]>([]);
+  const [deliverablesEditedManually, setDeliverablesEditedManually] = useState(false);
+  const [newDelName, setNewDelName] = useState('');
+  const [newDelCopies, setNewDelCopies] = useState<number>(DELIVERABLE_LIMITS.defaultCopies);
+  const [newDelUnit, setNewDelUnit] = useState<string>(DELIVERABLE_LIMITS.defaultUnit);
+  const [newDelNotes, setNewDelNotes] = useState('');
+  const [delDraftError, setDelDraftError] = useState<string | null>(null);
 
   // Client info fields
   const [clientName, setClientName] = useState('');
@@ -272,6 +345,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     companyId: string;
     projectCode: string;
     name: string;
+    shortName: string;
+    typeId: string;
+    subtypeId: string;
     description: string;
     priority: Project['priority'];
     status: string;
@@ -283,6 +359,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     projectVatRate: number;
     ownerId: string;
     selectedMemberIds: string[];
+    deliverables: ProjectDeliverable[];
     clientName: string;
     clientContactPerson: string;
     clientPhone: string;
@@ -296,6 +373,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     companyId,
     projectCode,
     name,
+    shortName,
+    typeId,
+    subtypeId,
     description,
     priority,
     status,
@@ -307,6 +387,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     projectVatRate,
     ownerId,
     selectedMemberIds,
+    deliverables,
     clientName,
     clientContactPerson,
     clientPhone,
@@ -494,12 +575,16 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     const today = getTodayIsoDate();
     let initTemplate = 'none';
     let initName = '';
+    const initShortName = '';
+    let initTypeId = '';
+    const initSubtypeId = '';
     let initDesc = '';
     let initPriority: Project['priority'] = defaultPriorityId;
     const initStatus = defaultStatusId;
     let initDur = 60;
     let initDue = calculateDueDate(today, 60);
     let initBudget = '';
+    let initDeliverables: ProjectDeliverable[] = [];
     const initValStr = '';
     const initVat = getInitialVatForCompany(defaultCompany);
 
@@ -507,11 +592,13 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
       templateDetailsRef.current[preselectedTemplate.id] = preselectedTemplate;
       initTemplate = preselectedTemplate.id;
       initName = preselectedTemplate.name;
+      initTypeId = preselectedTemplate.typeId || '';
       initDesc = preselectedTemplate.description;
       initPriority = preselectedTemplate.defaultPriority || defaultPriorityId;
       initDur = preselectedTemplate.defaultDurationDays;
       initDue = calculateDueDate(today, preselectedTemplate.defaultDurationDays);
       initBudget = preselectedTemplate.defaultBudget || '';
+      initDeliverables = copyTemplateDeliverablesToProject(preselectedTemplate.deliverables);
     }
 
     let initCode = '';
@@ -545,6 +632,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     }
     setIsLoadingTemplateDetail(false);
     setName(initName);
+    setShortName(initShortName);
+    setTypeId(initTypeId);
+    setSubtypeId(initSubtypeId);
     setDescription(initDesc);
     setPriority(initPriority);
     setStatus(initStatus);
@@ -554,6 +644,13 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setBudget(initBudget);
     setProjectValueStr(initValStr);
     setProjectVatRate(initVat);
+    setDeliverables(initDeliverables);
+    setDeliverablesEditedManually(false);
+    setNewDelName('');
+    setNewDelCopies(DELIVERABLE_LIMITS.defaultCopies);
+    setNewDelUnit(DELIVERABLE_LIMITS.defaultUnit);
+    setNewDelNotes('');
+    setDelDraftError(null);
     setClientName('');
     setClientContactPerson('');
     setClientPhone('');
@@ -568,6 +665,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         companyId: defaultCompany,
         projectCode: initCode,
         name: initName,
+        shortName: initShortName,
+        typeId: initTypeId,
+        subtypeId: initSubtypeId,
         description: initDesc,
         priority: initPriority,
         status: initStatus,
@@ -579,6 +679,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         projectVatRate: initVat,
         ownerId: '',
         selectedMemberIds: ['usr-1', 'usr-2'],
+        deliverables: initDeliverables,
         clientName: '',
         clientContactPerson: '',
         clientPhone: '',
@@ -594,6 +695,13 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     templateDetailsRef.current[full.id] = full;
     setSelectedTemplateDetail(full);
     setSelectedTemplateTaskKeys(new Set(full.tasks.map((t) => t.key)));
+    if (!editingProject) {
+      setTypeId(full.typeId || '');
+      setSubtypeId('');
+      if (!deliverablesEditedManually) {
+        setDeliverables(copyTemplateDeliverablesToProject(full.deliverables));
+      }
+    }
   };
 
   const handleTemplateChange = (templateId: string) => {
@@ -603,11 +711,16 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
       setSelectedTemplateDetail(null);
       setSelectedTemplateTaskKeys(new Set());
       setIsLoadingTemplateDetail(false);
+      if (!deliverablesEditedManually) {
+        setDeliverables([]);
+      }
       return;
     }
     const tpl = availableTemplates.find((t) => t.id === templateId);
     if (tpl) {
       setName(tpl.name);
+      setTypeId(tpl.typeId || '');
+      setSubtypeId('');
       setDescription(tpl.description);
       setPriority(tpl.defaultPriority);
       setDurationDays(tpl.defaultDurationDays);
@@ -703,6 +816,12 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         : defaultNonExemptVatRate;
     const initOwner = project.ownerId || '';
     const initMembers = project.memberIds || [];
+    const initShortName = project.shortName || '';
+    const initTypeId = project.typeId || '';
+    const initSubtypeId = project.subtypeId || '';
+    const initDeliverables = Array.isArray(project.deliverables)
+      ? project.deliverables.map((d) => ({ ...d }))
+      : [];
     const initClientName = project.clientName || '';
     const initClientContact = project.clientContactPerson || '';
     const initClientPhone = project.clientPhone || '';
@@ -714,6 +833,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setUseAutoCode(false);
     setProjectCode(project.key);
     setName(project.name);
+    setShortName(initShortName);
+    setTypeId(initTypeId);
+    setSubtypeId(initSubtypeId);
     setDescription(project.description);
     setPriority(project.priority);
     setStatus(project.status);
@@ -725,6 +847,13 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     setProjectVatRate(initVat);
     setOwnerId(initOwner);
     setSelectedMemberIds(initMembers);
+    setDeliverables(initDeliverables);
+    setDeliverablesEditedManually(false);
+    setNewDelName('');
+    setNewDelCopies(DELIVERABLE_LIMITS.defaultCopies);
+    setNewDelUnit(DELIVERABLE_LIMITS.defaultUnit);
+    setNewDelNotes('');
+    setDelDraftError(null);
     setClientName(initClientName);
     setClientContactPerson(initClientContact);
     setClientPhone(initClientPhone);
@@ -737,6 +866,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         companyId: initCompany,
         projectCode: project.key,
         name: project.name,
+        shortName: initShortName,
+        typeId: initTypeId,
+        subtypeId: initSubtypeId,
         description: project.description,
         priority: project.priority,
         status: project.status,
@@ -748,6 +880,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         projectVatRate: initVat,
         ownerId: initOwner,
         selectedMemberIds: initMembers,
+        deliverables: initDeliverables,
         clientName: initClientName,
         clientContactPerson: initClientContact,
         clientPhone: initClientPhone,
@@ -773,11 +906,84 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     Number.isFinite(parsedProjectValue) &&
     parsedProjectValue >= 0;
 
+  const handleAddFormDeliverable = () => {
+    const trimmedName = newDelName.trim();
+    if (!trimmedName) {
+      setDelDraftError('Podaj nazwę elementu do odbioru.');
+      return;
+    }
+    if (trimmedName.length > DELIVERABLE_LIMITS.nameMax) {
+      setDelDraftError(`Nazwa elementu nie może przekraczać ${DELIVERABLE_LIMITS.nameMax} znaków.`);
+      return;
+    }
+    if (deliverables.length >= DELIVERABLE_LIMITS.maxItems) {
+      setDelDraftError(`Maksymalnie ${DELIVERABLE_LIMITS.maxItems} elementów do odbioru.`);
+      return;
+    }
+    const copiesInt = Number(newDelCopies);
+    if (
+      !Number.isInteger(copiesInt) ||
+      copiesInt < DELIVERABLE_LIMITS.copiesMin ||
+      copiesInt > DELIVERABLE_LIMITS.copiesMax
+    ) {
+      setDelDraftError(
+        `Liczba egzemplarzy musi być liczbą całkowitą z zakresu ${DELIVERABLE_LIMITS.copiesMin}–${DELIVERABLE_LIMITS.copiesMax}.`
+      );
+      return;
+    }
+    const unitTrimmed = newDelUnit.trim() || DELIVERABLE_LIMITS.defaultUnit;
+    if (unitTrimmed.length > DELIVERABLE_LIMITS.unitMax) {
+      setDelDraftError(`Jednostka nie może przekraczać ${DELIVERABLE_LIMITS.unitMax} znaków.`);
+      return;
+    }
+    const notesTrimmed = newDelNotes.trim();
+    if (notesTrimmed.length > DELIVERABLE_LIMITS.notesMax) {
+      setDelDraftError(`Notatka nie może przekraczać ${DELIVERABLE_LIMITS.notesMax} znaków.`);
+      return;
+    }
+    setDelDraftError(null);
+    setDeliverablesEditedManually(true);
+    setDeliverables((prev) => [
+      ...prev,
+      {
+        id: createClientDeliverableId(),
+        name: trimmedName,
+        copies: copiesInt,
+        unit: unitTrimmed,
+        isDone: false,
+        ...(notesTrimmed ? { notes: notesTrimmed } : {}),
+      },
+    ]);
+    setNewDelName('');
+    setNewDelCopies(DELIVERABLE_LIMITS.defaultCopies);
+    setNewDelUnit(DELIVERABLE_LIMITS.defaultUnit);
+    setNewDelNotes('');
+  };
+
+  const handleMoveFormDeliverable = (index: number, delta: -1 | 1) => {
+    const target = index + delta;
+    if (target < 0 || target >= deliverables.length) return;
+    setDeliverablesEditedManually(true);
+    setDeliverables((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(index, 1);
+      next.splice(target, 0, moved);
+      return next;
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmittingForm) return;
     if (!name.trim()) {
-      setFormValidationError('Nazwa projektu jest wymagana.', 'name');
+      setFormValidationError('Nazwa pełna projektu jest wymagana.', 'name');
+      return;
+    }
+    if (shortName.trim().length > SHORT_NAME_MAX) {
+      setFormValidationError(
+        `Nazwa skrócona projektu nie może przekraczać ${SHORT_NAME_MAX} znaków.`,
+        'shortName'
+      );
       return;
     }
     if (requiresCompanySelection && !companyId) {
@@ -792,6 +998,14 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
       setFormValidationError('Kwota netto projektu musi być liczbą nieujemną.', 'projectValue');
       return;
     }
+    const delCheck = validateProjectDeliverables(deliverables, {
+      existingDeliverables: editingProject?.deliverables,
+      actorName: currentUser.name,
+    });
+    if (!delCheck.ok) {
+      setFormValidationError(delCheck.error, 'deliverables');
+      return;
+    }
 
     const result = await submitProjectForm(
       async () => {
@@ -804,6 +1018,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
             : budget.trim()
             ? budget.trim()
             : undefined;
+        const trimmedShort = shortName.trim();
+        const normalizedTypeId = typeId.trim();
+        const normalizedSubtypeId = normalizedTypeId ? subtypeId.trim() : '';
 
         let res: FormSubmitResult | void;
         if (editingProject && onUpdateProject) {
@@ -813,7 +1030,11 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
             ...(canEditSelectedProjectCompany
               ? { companyId: companyId || undefined }
               : {}),
-            name,
+            name: name.trim(),
+            shortName: trimmedShort || (null as unknown as undefined),
+            typeId: normalizedTypeId || (null as unknown as undefined),
+            subtypeId: normalizedSubtypeId || (null as unknown as undefined),
+            deliverables: delCheck.deliverables,
             description,
             priority,
             status,
@@ -882,7 +1103,11 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
             ...(templateTaskKeysPayload !== undefined
               ? { templateTaskKeys: templateTaskKeysPayload }
               : {}),
-            name,
+            name: name.trim(),
+            ...(trimmedShort ? { shortName: trimmedShort } : {}),
+            ...(normalizedTypeId ? { typeId: normalizedTypeId } : {}),
+            ...(normalizedSubtypeId ? { subtypeId: normalizedSubtypeId } : {}),
+            ...(delCheck.deliverables.length > 0 ? { deliverables: delCheck.deliverables } : {}),
             description,
             priority,
             status,
@@ -1021,6 +1246,16 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     }).length;
   }, [activeProjects, tasks, projectStatuses]);
 
+  const filterSelectedTypeObj = useMemo(
+    () => (typeFilter !== 'all' && typeFilter !== 'none' ? orderedProjectTypes.find((t) => t.id === typeFilter) : undefined),
+    [typeFilter, orderedProjectTypes]
+  );
+
+  const filterSubtypeOptions = useMemo(
+    () => (filterSelectedTypeObj ? getOrderedProjectSubtypes(filterSelectedTypeObj) : []),
+    [filterSelectedTypeObj]
+  );
+
   const displayedProjects = useMemo(() => {
     let list = activeTab === 'active' ? activeProjects : archivedProjects;
     if (activeTab === 'active') {
@@ -1049,8 +1284,36 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         });
       }
     }
+    if (typeFilter === 'none') {
+      list = list.filter((p) => !p.typeId);
+    } else if (typeFilter !== 'all') {
+      list = list.filter((p) => p.typeId === typeFilter);
+      if (subtypeFilter === 'none') {
+        list = list.filter((p) => !p.subtypeId);
+      } else if (subtypeFilter !== 'all') {
+        list = list.filter((p) => p.subtypeId === subtypeFilter);
+      }
+    }
+    if (searchQuery.trim()) {
+      list = list.filter((p) =>
+        matchesProjectSearch(p, searchQuery, {
+          includeClientName: canViewFinance(currentUser, p),
+        })
+      );
+    }
     return list;
-  }, [activeTab, activeProjects, archivedProjects, projectStatusFilter, tasks, projectStatuses]);
+  }, [
+    activeTab,
+    activeProjects,
+    archivedProjects,
+    projectStatusFilter,
+    typeFilter,
+    subtypeFilter,
+    searchQuery,
+    tasks,
+    projectStatuses,
+    currentUser,
+  ]);
 
   const todayIso = getTodayIso();
 
@@ -1066,6 +1329,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         todayIso,
         projectStatuses,
         projectPriorities,
+        projectTypes,
       }),
     [
       displayedProjects,
@@ -1078,8 +1342,55 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
       todayIso,
       projectStatuses,
       projectPriorities,
+      projectTypes,
     ]
   );
+
+  const handleExportCsv = () => {
+    const header = [
+      'Kod',
+      'Nazwa skrócona',
+      'Nazwa pełna',
+      'Rodzaj',
+      'Podrodzaj',
+      'Status',
+      'Priorytet',
+      'Termin',
+      'Postęp %',
+      'Elementy do odbioru',
+    ].map(escapeCsvCell);
+    const rows = sortedListProjects.map((p) => {
+      const tMeta = resolveProjectType(p.typeId, projectTypes);
+      const sMeta = resolveProjectSubtype(p.typeId, p.subtypeId, projectTypes);
+      const stMeta = resolveProjectStatus(p.status, projectStatuses);
+      const prMeta = resolveProjectPriority(p.priority, projectPriorities);
+      const delMeta = getDeliverablesSummary(p.deliverables);
+      return [
+        p.key || '',
+        p.shortName || '',
+        p.name || '',
+        tMeta.hasType ? tMeta.label : 'Brak',
+        sMeta?.label || '',
+        stMeta.label,
+        prMeta.label,
+        p.dueDate || '',
+        String(p.progress ?? 0),
+        delMeta.total > 0 ? delMeta.label : '',
+      ]
+        .map(escapeCsvCell)
+        .join(';');
+    });
+    const csvContent = `\uFEFF${header.join(';')}\r\n${rows.join('\r\n')}`;
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `projekty-${todayIso}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   const showClientColumn = useMemo(
     () =>
@@ -1133,7 +1444,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
   const handleDownloadProjectIcs = (project: Project) => {
     const projectTasks = tasks.filter((t) => t.projectId === project.id);
-    downloadIcsFile(projectTasks, `${project.key}-terminarz.ics`, project.name);
+    downloadIcsFile(projectTasks, `${project.key}-terminarz.ics`, getProjectDisplayName(project) || project.name);
   };
 
   return (
@@ -1339,24 +1650,135 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
             </button>
           </div>
         </div>
+        {/* Search, Type/Subtype Filter, Sort & CSV Export toolbar */}
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <div className="relative flex-1 min-w-[200px] max-w-xs">
+            <Search
+              className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+              aria-hidden="true"
+            />
+            <input
+              id="projects-search-input"
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              aria-label="Szukaj projektu po nazwie, nazwie skróconej lub kodzie"
+              placeholder="Szukaj projektu (nazwa, skrót, kod)..."
+              className="w-full pl-8 pr-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-600"
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="projects-type-filter" className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+              Rodzaj:
+            </label>
+            <select
+              id="projects-type-filter"
+              value={typeFilter}
+              onChange={(e) => {
+                setTypeFilter(e.target.value);
+                setSubtypeFilter('all');
+              }}
+              className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+            >
+              <option value="all">Wszystkie rodzaje</option>
+              <option value="none">Brak rodzaju</option>
+              {orderedProjectTypes.map((pt) => (
+                <option key={pt.id} value={pt.id}>
+                  {pt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {filterSubtypeOptions.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <label htmlFor="projects-subtype-filter" className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                Podrodzaj:
+              </label>
+              <select
+                id="projects-subtype-filter"
+                value={subtypeFilter}
+                onChange={(e) => setSubtypeFilter(e.target.value)}
+                className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+              >
+                <option value="all">Wszystkie podrodzaje</option>
+                <option value="none">Brak podrodzaju</option>
+                {filterSubtypeOptions.map((st) => (
+                  <option key={st.id} value={st.id}>
+                    {st.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="projects-sort-select" className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+              Sortuj:
+            </label>
+            <select
+              id="projects-sort-select"
+              value={sortKey ? `${sortKey}:${sortDir}` : ''}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (!val) {
+                  setSortKey(null);
+                  setSortDir('asc');
+                } else {
+                  const [k, d] = val.split(':') as [ProjectListSortKey, ProjectListSortDirection];
+                  setSortKey(k);
+                  setSortDir(d === 'desc' ? 'desc' : 'asc');
+                }
+              }}
+              className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+            >
+              <option value="">Domyślna kolejność</option>
+              <option value="name:asc">Nazwa (A–Z)</option>
+              <option value="name:desc">Nazwa (Z–A)</option>
+              <option value="key:asc">Numer (rosnąco)</option>
+              <option value="key:desc">Numer (malejąco)</option>
+              <option value="type:asc">Rodzaj (A–Z)</option>
+              <option value="dueDate:asc">Termin (najbliższe)</option>
+              <option value="progress:desc">Postęp (malejąco)</option>
+              <option value="priority:asc">Priorytet</option>
+              <option value="status:asc">Status</option>
+            </select>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" aria-hidden="true" />
+            <span>Eksportuj CSV</span>
+          </button>
+        </div>
       </div>
 
       {/* Projects Content */}
-      {displayedProjects.length === 0 ? (
+      {sortedListProjects.length === 0 ? (
         <div className="p-12 bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-800 rounded-xl text-center space-y-3">
           <Archive className="w-8 h-8 text-slate-500 dark:text-slate-400 mx-auto" aria-hidden="true" />
           <h3 className="font-bold text-slate-700 dark:text-slate-200 text-sm">
-            {activeTab === 'active' ? 'Brak aktywnych projektów' : 'Brak zarchiwizowanych projektów'}
+            {searchQuery.trim() || typeFilter !== 'all'
+              ? 'Brak projektów spełniających kryteria filtrowania'
+              : activeTab === 'active'
+                ? 'Brak aktywnych projektów'
+                : 'Brak zarchiwizowanych projektów'}
           </h3>
           <p className="text-xs text-slate-600 dark:text-slate-400 max-w-md mx-auto">
-            {activeTab === 'active'
-              ? 'Zarejestruj nowy projekt za pomocą przycisku powyżej.'
-              : 'Gdy ukończysz projekt, administrator może przenieść go do tego archiwum.'}
+            {searchQuery.trim() || typeFilter !== 'all'
+              ? 'Zmień wyszukiwaną frazę lub wyczyść filtr rodzaju projektu.'
+              : activeTab === 'active'
+                ? 'Zarejestruj nowy projekt za pomocą przycisku powyżej.'
+                : 'Gdy ukończysz projekt, administrator może przenieść go do tego archiwum.'}
           </p>
         </div>
       ) : viewMode === 'tiles' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {displayedProjects.map((project) => {
+          {sortedListProjects.map((project) => {
             const projectTasks = tasks.filter((t) => t.projectId === project.id);
             const members = users.filter((u) => project.memberIds?.includes(u.id));
             return (
@@ -1382,7 +1804,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
           })}
         </div>
       ) : (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs">
           <div
             tabIndex={0}
             role="region"
@@ -1413,6 +1835,16 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                     >
                       <span>Nazwa</span>
                       {renderSortIcon('name')}
+                    </button>
+                  </th>
+                  <th scope="col" aria-sort={getAriaSort('type')} className="px-2.5 py-2.5 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => handleSort('type')}
+                      className="inline-flex items-center gap-1 font-bold hover:text-sky-700 dark:hover:text-sky-400"
+                    >
+                      <span>Rodzaj</span>
+                      {renderSortIcon('type')}
                     </button>
                   </th>
                   <th scope="col" aria-sort={getAriaSort('company')} className="px-2.5 py-2.5 whitespace-nowrap">
@@ -1476,6 +1908,9 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                       <span>Postęp</span>
                       {renderSortIcon('progress')}
                     </button>
+                  </th>
+                  <th scope="col" className="px-2.5 py-2.5 whitespace-nowrap font-bold">
+                    Odbiory
                   </th>
                   <th scope="col" aria-sort={getAriaSort('tasks')} className="px-2.5 py-2.5 whitespace-nowrap">
                     <button
@@ -1566,11 +2001,26 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
         <ProjectDetailModal
           isOpen={true}
           onClose={() => setViewingProject(null)}
-          project={viewingProject}
+          project={projects.find((p) => p.id === viewingProject.id) || viewingProject}
           companies={companies}
           tasks={tasks}
           users={users}
           currentUser={currentUser}
+          onUpdateDeliverables={
+            onUpdateProjectDeliverables
+              ? async (proj, nextDeliverables) => {
+                  const res = await onUpdateProjectDeliverables(
+                    proj.id,
+                    nextDeliverables,
+                    proj.revision
+                  );
+                  if (res && 'data' in res && res.data) {
+                    setViewingProject(res.data);
+                  }
+                  return res;
+                }
+              : undefined
+          }
           onEditProject={(p) => {
             setViewingProject(null);
             openEditModal(p);
@@ -1601,7 +2051,8 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                 <Archive className="w-5 h-5" aria-hidden="true" />
               </div>
               <h3 id="archive-project-modal-title" className="text-sm font-bold text-slate-900 dark:text-white">
-                Archiwizacja Projektu: [{projectToArchive.project.key}] {projectToArchive.project.name}
+                Archiwizacja Projektu: [{projectToArchive.project.key}]{' '}
+                <ProjectNameLabel project={projectToArchive.project} />
               </h3>
             </div>
 
@@ -1688,7 +2139,11 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
               )}
 
               <p className="text-xs text-slate-600 dark:text-slate-400">
-                Czy na pewno chcesz usunąć temat <strong>{projectToDelete.key}: {projectToDelete.name}</strong>? Element trafi do kosza i będzie można go przywrócić przez {trashRetentionDays} dni.
+                Czy na pewno chcesz usunąć temat{' '}
+                <strong>
+                  {projectToDelete.key}: <ProjectNameLabel project={projectToDelete} />
+                </strong>
+                {hasDistinctShortName(projectToDelete) ? ` (${projectToDelete.name})` : ''}? Element trafi do kosza i będzie można go przywrócić przez {trashRetentionDays} dni.
               </p>
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
@@ -2091,19 +2546,114 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                 )}
               </div>
 
-              <div>
-                <label htmlFor="project-name-input" className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Nazwa projektu *</label>
-                <input
-                  id="project-name-input"
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  maxLength={FIELD_LIMITS.name}
-                  {...getFieldA11yProps('name', 'project-form-error')}
-                  placeholder="np. Budynek Usługowo-Biurowy Kat. XIV"
-                  className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-3 py-2 text-xs text-slate-900 dark:text-white"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="project-name-input" className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Nazwa pełna *
+                  </label>
+                  <input
+                    id="project-name-input"
+                    type="text"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    maxLength={FIELD_LIMITS.name}
+                    {...getFieldA11yProps('name', 'project-form-error')}
+                    placeholder="np. Budynek Usługowo-Biurowy Kat. XIV"
+                    className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-3 py-2 text-xs text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="project-short-name-input" className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Nazwa skrócona{' '}
+                    <span className="font-normal text-slate-500 dark:text-slate-400">(opcjonalnie, do {SHORT_NAME_MAX} zn.)</span>
+                  </label>
+                  <input
+                    id="project-short-name-input"
+                    type="text"
+                    value={shortName}
+                    onChange={(e) => setShortName(e.target.value)}
+                    maxLength={SHORT_NAME_MAX}
+                    {...getFieldA11yProps('shortName', 'project-form-error')}
+                    placeholder="np. Biurowiec XIV"
+                    className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-3 py-2 text-xs text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="project-type-select" className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Rodzaj projektu
+                  </label>
+                  <select
+                    id="project-type-select"
+                    value={typeId}
+                    onChange={(e) => {
+                      setTypeId(e.target.value);
+                      setSubtypeId('');
+                    }}
+                    {...getFieldA11yProps('typeId', 'project-form-error')}
+                    className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-3 py-2 text-xs text-slate-900 dark:text-white"
+                  >
+                    <option value="">-- Brak rodzaju --</option>
+                    {activeProjectTypes.map((pt) => (
+                      <option key={pt.id} value={pt.id}>
+                        {pt.label}
+                      </option>
+                    ))}
+                    {typeId && !activeProjectTypes.some((pt) => pt.id === typeId) && (
+                      <option value={typeId}>
+                        {resolveProjectType(typeId, projectTypes).label} (nieaktywny)
+                      </option>
+                    )}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="project-subtype-select" className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Podrodzaj projektu
+                  </label>
+                  {(() => {
+                    const selectedFormType = orderedProjectTypes.find((pt) => pt.id === typeId);
+                    const activeFormSubtypes = getOrderedProjectSubtypes(selectedFormType, {
+                      activeOnly: true,
+                    });
+                    const hasInactiveSelectedSub =
+                      Boolean(subtypeId) && !activeFormSubtypes.some((s) => s.id === subtypeId);
+                    const subDisabled =
+                      !typeId || (activeFormSubtypes.length === 0 && !subtypeId);
+                    return (
+                      <select
+                        id="project-subtype-select"
+                        value={subtypeId}
+                        disabled={subDisabled}
+                        onChange={(e) => setSubtypeId(e.target.value)}
+                        {...getFieldA11yProps('subtypeId', 'project-form-error')}
+                        className="w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-3 py-2 text-xs text-slate-900 dark:text-white disabled:opacity-60"
+                      >
+                        <option value="">
+                          {!typeId
+                            ? '-- Najpierw wybierz rodzaj --'
+                            : activeFormSubtypes.length === 0 && !subtypeId
+                              ? '-- Brak zdefiniowanych podrodzajów --'
+                              : '-- Brak podrodzaju --'}
+                        </option>
+                        {activeFormSubtypes.map((sub) => (
+                          <option key={sub.id} value={sub.id}>
+                            {sub.label}
+                          </option>
+                        ))}
+                        {hasInactiveSelectedSub && (
+                          <option value={subtypeId}>
+                            {resolveProjectSubtype(typeId, subtypeId, projectTypes)?.label || subtypeId} (nieaktywny)
+                          </option>
+                        )}
+                      </select>
+                    );
+                  })()}
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -2423,6 +2973,223 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                 </select>
               </div>
 
+              {/* ELEMENTY DO ODBIORU */}
+              <div
+                id="project-deliverables-section"
+                className="p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg space-y-2.5"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-slate-800 dark:text-slate-200 text-[11px] uppercase tracking-wide flex items-center gap-1.5">
+                    <PackageCheck className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
+                    <span>Elementy do odbioru ({deliverables.length}/{DELIVERABLE_LIMITS.maxItems})</span>
+                  </span>
+                  {deliverables.length > 0 && (
+                    <span className="font-mono text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                      {getDeliverablesSummary(deliverables).label}
+                    </span>
+                  )}
+                </div>
+
+                {deliverables.length > 0 && (
+                  <ul className="space-y-2" aria-label="Lista elementów do odbioru">
+                    {deliverables.map((item, idx) => (
+                      <li
+                        key={item.id}
+                        className="p-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 space-y-1.5"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <label className="inline-flex items-center gap-1.5 shrink-0 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={item.isDone}
+                              aria-label={`Wykonano: ${item.name}`}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                setDeliverablesEditedManually(true);
+                                setDeliverables((prev) =>
+                                  prev.map((d, i) =>
+                                    i === idx
+                                      ? {
+                                          ...d,
+                                          isDone: checked,
+                                          ...(checked
+                                            ? {
+                                                doneAt: d.doneAt || new Date().toISOString(),
+                                                doneBy: d.doneBy || currentUser.name,
+                                              }
+                                            : { doneAt: undefined, doneBy: undefined }),
+                                        }
+                                      : d
+                                  )
+                                );
+                              }}
+                              className="rounded border-slate-400 dark:border-slate-600 text-emerald-700 focus:ring-emerald-600"
+                            />
+                            <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                              Wykonano
+                            </span>
+                          </label>
+
+                          <input
+                            type="text"
+                            aria-label={`Nazwa elementu ${idx + 1}`}
+                            value={item.name}
+                            maxLength={DELIVERABLE_LIMITS.nameMax}
+                            onChange={(e) => {
+                              setDeliverablesEditedManually(true);
+                              const val = e.target.value;
+                              setDeliverables((prev) =>
+                                prev.map((d, i) => (i === idx ? { ...d, name: val } : d))
+                              );
+                            }}
+                            className={`flex-1 min-w-[160px] border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 rounded px-2 py-1 text-xs ${
+                              item.isDone
+                                ? 'line-through text-slate-500 dark:text-slate-400'
+                                : 'text-slate-900 dark:text-white'
+                            }`}
+                          />
+
+                          <input
+                            type="number"
+                            aria-label={`Liczba egzemplarzy dla ${item.name}`}
+                            min={DELIVERABLE_LIMITS.copiesMin}
+                            max={DELIVERABLE_LIMITS.copiesMax}
+                            value={item.copies}
+                            onChange={(e) => {
+                              setDeliverablesEditedManually(true);
+                              const parsed = Number(e.target.value);
+                              setDeliverables((prev) =>
+                                prev.map((d, i) =>
+                                  i === idx
+                                    ? {
+                                        ...d,
+                                        copies: Number.isInteger(parsed)
+                                          ? Math.min(
+                                              DELIVERABLE_LIMITS.copiesMax,
+                                              Math.max(DELIVERABLE_LIMITS.copiesMin, parsed)
+                                            )
+                                          : DELIVERABLE_LIMITS.defaultCopies,
+                                      }
+                                    : d
+                                )
+                              );
+                            }}
+                            className="w-16 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 rounded px-2 py-1 text-xs font-mono text-slate-900 dark:text-white"
+                          />
+
+                          <input
+                            type="text"
+                            aria-label={`Jednostka dla ${item.name}`}
+                            value={item.unit}
+                            maxLength={DELIVERABLE_LIMITS.unitMax}
+                            onChange={(e) => {
+                              setDeliverablesEditedManually(true);
+                              const val = e.target.value;
+                              setDeliverables((prev) =>
+                                prev.map((d, i) => (i === idx ? { ...d, unit: val } : d))
+                              );
+                            }}
+                            className="w-16 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 rounded px-2 py-1 text-xs text-slate-900 dark:text-white"
+                          />
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              disabled={idx === 0}
+                              onClick={() => handleMoveFormDeliverable(idx, -1)}
+                              aria-label={`Przesuń element "${item.name}" w górę`}
+                              className="p-1 rounded border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40"
+                            >
+                              <ArrowUp className="w-3 h-3" aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={idx === deliverables.length - 1}
+                              onClick={() => handleMoveFormDeliverable(idx, 1)}
+                              aria-label={`Przesuń element "${item.name}" w dół`}
+                              className="p-1 rounded border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40"
+                            >
+                              <ArrowDown className="w-3 h-3" aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDeliverablesEditedManually(true);
+                                setDeliverables((prev) => prev.filter((_, i) => i !== idx));
+                              }}
+                              aria-label={`Usuń element "${item.name}"`}
+                              className="p-1 rounded border border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50"
+                            >
+                              <Trash2 className="w-3 h-3" aria-hidden="true" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {item.isDone && (item.doneAt || item.doneBy) && (
+                          <div className="text-[10px] text-emerald-700 dark:text-emerald-300 pl-1">
+                            Wykonano
+                            {item.doneAt ? `: ${new Date(item.doneAt).toLocaleString('pl-PL')}` : ''}
+                            {item.doneBy ? ` · ${item.doneBy}` : ''}
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 pt-1">
+                  <input
+                    id="new-deliverable-name"
+                    type="text"
+                    aria-label="Nazwa nowego elementu do odbioru"
+                    value={newDelName}
+                    maxLength={DELIVERABLE_LIMITS.nameMax}
+                    onChange={(e) => setNewDelName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddFormDeliverable();
+                      }
+                    }}
+                    placeholder="Nazwa elementu do odbioru (np. Projekt architektoniczno-budowlany)"
+                    className="sm:col-span-6 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+                  />
+                  <input
+                    id="new-deliverable-copies"
+                    type="number"
+                    aria-label="Liczba egzemplarzy nowego elementu"
+                    min={DELIVERABLE_LIMITS.copiesMin}
+                    max={DELIVERABLE_LIMITS.copiesMax}
+                    value={newDelCopies}
+                    onChange={(e) => setNewDelCopies(Number(e.target.value))}
+                    className="sm:col-span-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2 py-1.5 text-xs font-mono text-slate-900 dark:text-white"
+                  />
+                  <input
+                    id="new-deliverable-unit"
+                    type="text"
+                    aria-label="Jednostka nowego elementu"
+                    value={newDelUnit}
+                    maxLength={DELIVERABLE_LIMITS.unitMax}
+                    onChange={(e) => setNewDelUnit(e.target.value)}
+                    placeholder="egz."
+                    className="sm:col-span-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded px-2 py-1.5 text-xs text-slate-900 dark:text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddFormDeliverable}
+                    className="sm:col-span-2 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded bg-sky-700 hover:bg-sky-600 text-white font-semibold text-xs transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>Dodaj</span>
+                  </button>
+                </div>
+                {delDraftError && (
+                  <p role="alert" className="text-[11px] font-semibold text-rose-700 dark:text-rose-400">
+                    {delDraftError}
+                  </p>
+                )}
+              </div>
+
               {/* Members */}
               <div>
                 <span id="project-members-label" className="block font-semibold text-slate-700 dark:text-slate-300 mb-2">
@@ -2494,6 +3261,8 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
               setSelectedTemplateId(tpl.id);
               latestTemplateIdRef.current = tpl.id;
               setName(tpl.name);
+              setTypeId(tpl.typeId || '');
+              setSubtypeId('');
               setDescription(tpl.description);
               setPriority(tpl.defaultPriority);
               setDurationDays(tpl.defaultDurationDays);

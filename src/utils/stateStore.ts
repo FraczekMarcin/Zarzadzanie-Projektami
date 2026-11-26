@@ -3,6 +3,7 @@ import path from 'path';
 import { encryptSecret, decryptUserSecrets } from './secretBox.js';
 import { TrustedDeviceRecord } from './trustedDevices.js';
 import { normalizeVariablesState, ServerVariablesState } from './variablesSchema.js';
+import { migrateLegacyTemplate } from './templateValidation.js';
 import { logger } from '../server/logger.js';
 
 import type { Company, ProjectNumberingSettings, ProjectTemplate, Tender } from '../types/index.js';
@@ -102,6 +103,19 @@ export function normalizeStateStructure(raw?: any): AppState {
   for (const td of state.tenders) {
     if (td && typeof td.revision !== 'number') td.revision = 1;
   }
+
+  state.projectTemplates = state.projectTemplates
+    .filter((tpl: any) => tpl && typeof tpl === 'object')
+    .map((tpl: any) => {
+      if (!tpl.typeId || 'category' in tpl) {
+        const migrated = migrateLegacyTemplate(tpl, {
+          builtIn: Boolean(tpl.builtIn),
+          allowedProjectTypes: state.variables?.projectTypes,
+        });
+        return migrated;
+      }
+      return tpl;
+    });
 
   return state;
 }
