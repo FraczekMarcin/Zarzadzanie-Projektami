@@ -3,12 +3,17 @@ import { Company, Project, Task, User } from '../../types';
 import { canViewFinance } from '../../utils/access';
 import {
   getDeliverablesSummary,
-  isProjectStatusClosed,
   resolveProjectSubtype,
   resolveProjectType,
 } from '../../utils/projectMeta';
-import { useVariables } from '../../hooks/useVariables';
-import { Archive } from 'lucide-react';
+import { getCompanyBadgeColors, useIsDarkTheme } from '../../utils/colorContrast';
+import {
+  evaluateProjectDeadline,
+  useDeadlineBlinkPreference,
+  usePrefersReducedMotion,
+} from '../../utils/deadlines';
+import { useAppTimezone, useVariables } from '../../hooks/useVariables';
+import { AlertTriangle, Archive } from 'lucide-react';
 import { useProjectNameTooltip } from '../ProjectNameLabel';
 import { ProjectActions } from './ProjectActions';
 import {
@@ -52,7 +57,12 @@ export const ProjectRow: React.FC<ProjectRowProps> = ({
   onRestore,
   onDelete,
 }) => {
-  const { projectStatuses, projectPriorities, projectTypes } = useVariables();
+  const { projectStatuses, projectPriorities, projectTypes, projectDeadline } = useVariables();
+  const appTimezone = useAppTimezone();
+  const isDark = useIsDarkTheme();
+  const [userBlinkEnabled] = useDeadlineBlinkPreference();
+  const prefersReducedMotion = usePrefersReducedMotion();
+
   const statusMeta = getProjectStatusMeta(project.status, projectStatuses);
   const priorityMeta = getProjectPriorityMeta(project.priority, projectPriorities);
   const typeMeta = resolveProjectType(project.typeId, projectTypes);
@@ -61,12 +71,21 @@ export const ProjectRow: React.FC<ProjectRowProps> = ({
   const nameTooltip = useProjectNameTooltip(project);
   const metrics = getProjectTaskMetrics(tasks, project.id, todayIso);
   const canSeeClient = canViewFinance(currentUser, project);
-  const isDueOverdue =
-    !project.isArchived &&
-    !isProjectStatusClosed(project.status, projectStatuses) &&
-    Boolean(project.dueDate) &&
-    project.dueDate < todayIso;
+  const deadlineEval = evaluateProjectDeadline(project.dueDate, projectDeadline, {
+    isClosed: statusMeta.isClosed,
+    isArchived: project.isArchived,
+    todayIso,
+    timezone: appTimezone,
+    userBlinkEnabled,
+    reducedMotion: prefersReducedMotion,
+  });
   const clampedProgress = Math.min(100, Math.max(0, project.progress || 0));
+
+  const rowHighlightClass = deadlineEval.shouldBlink
+    ? 'animate-project-deadline-row'
+    : deadlineEval.showStaticCritical
+      ? 'project-deadline-static-row'
+      : 'hover:bg-sky-50/50 dark:hover:bg-slate-800/60';
 
   return (
     <tr
@@ -82,7 +101,7 @@ export const ProjectRow: React.FC<ProjectRowProps> = ({
           onOpen(project.id);
         }
       }}
-      className="hover:bg-sky-50/50 dark:hover:bg-slate-800/60 cursor-pointer transition-colors"
+      className={`${rowHighlightClass} cursor-pointer transition-colors`}
     >
       {/* Numer */}
       <td className="px-2.5 py-2.5 font-mono whitespace-nowrap">
@@ -145,14 +164,15 @@ export const ProjectRow: React.FC<ProjectRowProps> = ({
         )}
       </td>
 
-      {/* Firma (litera) */}
-      <td className="px-2.5 py-2.5 whitespace-nowrap">
+      {/* Firma (pełna nazwa na tle koloru firmy) */}
+      <td className="px-2.5 py-2.5 max-w-[200px]">
         {company ? (
           <span
-            title={`Firma prowadząca: ${company.name}`}
-            className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+            style={getCompanyBadgeColors(company, isDark ? 'dark' : 'light')}
+            title={`Firma prowadząca: ${company.name} (${company.letter})`}
+            className="inline-block max-w-full truncate text-[11px] font-bold px-2 py-0.5 rounded border align-middle"
           >
-            {company.letter}
+            {company.name}
           </span>
         ) : (
           <span className="text-slate-500 dark:text-slate-400">—</span>
@@ -187,17 +207,44 @@ export const ProjectRow: React.FC<ProjectRowProps> = ({
       </td>
 
       {/* Termin */}
-      <td className="px-2.5 py-2.5 whitespace-nowrap font-mono tabular-nums">
-        <span
-          className={
-            isDueOverdue
-              ? 'text-rose-700 dark:text-rose-400 font-semibold'
-              : 'text-slate-800 dark:text-slate-200'
-          }
-          title={isDueOverdue ? 'Termin projektu przekroczony' : undefined}
-        >
-          {project.dueDate || '—'}
-        </span>
+      <td className="px-2.5 py-2.5 whitespace-nowrap">
+        {project.dueDate ? (
+          <div className="flex flex-col gap-0.5">
+            <span
+              className={`font-mono tabular-nums inline-flex items-center gap-1 ${
+                deadlineEval.isRed
+                  ? 'text-rose-700 dark:text-rose-400 font-bold'
+                  : 'text-slate-800 dark:text-slate-200'
+              }`}
+              title={
+                deadlineEval.isOverdue
+                  ? 'Termin projektu przekroczony'
+                  : deadlineEval.isRed
+                    ? 'Zbliżający się termin projektu'
+                    : undefined
+              }
+            >
+              {deadlineEval.isRed && (
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              )}
+              <span>{project.dueDate}</span>
+            </span>
+            {deadlineEval.showCounter && deadlineEval.text && (
+              <span
+                data-testid="project-deadline-counter"
+                className={`text-[11px] leading-tight ${
+                  deadlineEval.isRed
+                    ? 'text-rose-700 dark:text-rose-400 font-semibold'
+                    : 'text-slate-600 dark:text-slate-400'
+                }`}
+              >
+                {deadlineEval.text}
+              </span>
+            )}
+          </div>
+        ) : (
+          <span className="text-slate-500 dark:text-slate-400">—</span>
+        )}
       </td>
 
       {/* Postęp (pasek i procent) */}

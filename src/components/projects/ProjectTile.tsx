@@ -9,8 +9,14 @@ import {
   resolveProjectSubtype,
   resolveProjectType,
 } from '../../utils/projectMeta';
-import { useVariables } from '../../hooks/useVariables';
-import { Archive, Building2, Check, Clock, Copy, DollarSign, Folder, PackageCheck } from 'lucide-react';
+import { getCompanyBadgeColors, useIsDarkTheme } from '../../utils/colorContrast';
+import {
+  evaluateProjectDeadline,
+  useDeadlineBlinkPreference,
+  usePrefersReducedMotion,
+} from '../../utils/deadlines';
+import { useAppTimezone, useVariables } from '../../hooks/useVariables';
+import { AlertTriangle, Archive, Building2, Check, Clock, Copy, DollarSign, Folder, PackageCheck } from 'lucide-react';
 import { useProjectNameTooltip } from '../ProjectNameLabel';
 import { ProjectActions } from './ProjectActions';
 
@@ -20,6 +26,7 @@ export interface ProjectTileProps {
   projectTasks: Task[];
   members: User[];
   currentUser: User;
+  todayIso?: string;
   copiedProjectId: string | null;
   onCopyDiskPath: (projectId: string) => void;
   onOpen: (projectId: string) => void;
@@ -38,6 +45,7 @@ export const ProjectTile: React.FC<ProjectTileProps> = ({
   projectTasks,
   members,
   currentUser,
+  todayIso,
   copiedProjectId,
   onCopyDiskPath,
   onOpen,
@@ -49,13 +57,27 @@ export const ProjectTile: React.FC<ProjectTileProps> = ({
   onRestore,
   onDelete,
 }) => {
-  const { projectStatuses, projectPriorities, projectTypes } = useVariables();
+  const { projectStatuses, projectPriorities, projectTypes, projectDeadline } = useVariables();
+  const appTimezone = useAppTimezone();
+  const isDark = useIsDarkTheme();
+  const [userBlinkEnabled] = useDeadlineBlinkPreference();
+  const prefersReducedMotion = usePrefersReducedMotion();
+
   const statusMeta = resolveProjectStatus(project.status, projectStatuses);
   const priorityMeta = resolveProjectPriority(project.priority, projectPriorities);
   const typeMeta = resolveProjectType(project.typeId, projectTypes);
   const subtypeMeta = resolveProjectSubtype(project.typeId, project.subtypeId, projectTypes);
   const deliverablesSummary = getDeliverablesSummary(project.deliverables);
   const nameTooltip = useProjectNameTooltip(project);
+
+  const deadlineEval = evaluateProjectDeadline(project.dueDate, projectDeadline, {
+    isClosed: statusMeta.isClosed,
+    isArchived: project.isArchived,
+    todayIso,
+    timezone: appTimezone,
+    userBlinkEnabled,
+    reducedMotion: prefersReducedMotion,
+  });
 
   const completedTasks = projectTasks.filter((t) => t.status === 'done').length;
   const criticalTasks = projectTasks.filter(
@@ -73,8 +95,14 @@ export const ProjectTile: React.FC<ProjectTileProps> = ({
   const totalCostsNet = finance.economicTotalCosts;
   const profitNet = finance.profitNet;
 
+  const tileHighlightClass = deadlineEval.shouldBlink
+    ? 'animate-project-deadline-tile'
+    : deadlineEval.showStaticCritical
+      ? 'project-deadline-static-tile'
+      : 'border-slate-200 dark:border-slate-800';
+
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between">
+    <div className={`bg-white dark:bg-slate-900 border ${tileHighlightClass} rounded-lg p-5 shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between`}>
       <div>
         {/* Top badges */}
         <div className="flex items-center justify-between mb-2">
@@ -84,8 +112,9 @@ export const ProjectTile: React.FC<ProjectTileProps> = ({
             </span>
             {comp && (
               <span
+                style={getCompanyBadgeColors(comp, isDark ? 'dark' : 'light')}
                 title={`Firma prowadząca: ${comp.name}`}
-                className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded border"
               >
                 {comp.letter}
               </span>
@@ -257,14 +286,44 @@ export const ProjectTile: React.FC<ProjectTileProps> = ({
         )}
 
         {/* Dates & Schedule with Duration in days */}
-        <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
-          <div className="flex items-center gap-1.5">
-            <Clock className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400" aria-hidden="true" />
+        <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-400">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Clock
+              className={`w-3.5 h-3.5 shrink-0 ${
+                deadlineEval.isRed ? 'text-rose-700 dark:text-rose-400' : 'text-sky-700 dark:text-sky-400'
+              }`}
+              aria-hidden="true"
+            />
             <span className="font-bold text-slate-900 dark:text-white font-mono">
               {project.durationDays || 30} dni
             </span>
-            <span className="text-slate-600 dark:text-slate-400 font-mono text-[11px]">
-              ({project.startDate} · {project.dueDate})
+            <span className="font-mono text-[11px] inline-flex flex-wrap items-center gap-1">
+              <span className="text-slate-600 dark:text-slate-400">({project.startDate} ·</span>
+              <span
+                className={
+                  deadlineEval.isRed
+                    ? 'text-rose-700 dark:text-rose-400 font-bold inline-flex items-center gap-0.5'
+                    : 'text-slate-700 dark:text-slate-300'
+                }
+              >
+                {deadlineEval.isRed && (
+                  <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden="true" />
+                )}
+                <span>{project.dueDate}</span>
+              </span>
+              {deadlineEval.showCounter && deadlineEval.text && (
+                <span
+                  data-testid="project-deadline-counter"
+                  className={`font-sans text-[11px] ${
+                    deadlineEval.isRed
+                      ? 'text-rose-700 dark:text-rose-400 font-semibold'
+                      : 'text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  · {deadlineEval.text}
+                </span>
+              )}
+              <span className="text-slate-600 dark:text-slate-400">)</span>
             </span>
           </div>
           {project.budget && (

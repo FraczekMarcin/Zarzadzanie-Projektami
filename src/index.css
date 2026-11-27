@@ -113,6 +113,118 @@ html.dark .task-blocked-style {
   animation: officialDeadlinePulse 1.25s ease-in-out infinite !important;
 }
 
+/* Project Deadline Critical Blinking (<= 1 Hz per WCAG 2.3.1; cycle 1.4s = 0.71 Hz) */
+@keyframes projectDeadlineBlink {
+  0%, 100% {
+    background-color: rgba(254, 226, 226, 0.85);
+    box-shadow: inset 0 0 0 2px #dc2626;
+  }
+  50% {
+    background-color: rgba(254, 242, 242, 0.25);
+    box-shadow: inset 0 0 0 1px rgba(220, 38, 38, 0.35);
+  }
+}
+
+@keyframes projectDeadlineBlinkDark {
+  0%, 100% {
+    background-color: rgba(127, 29, 29, 0.52);
+    box-shadow: inset 0 0 0 2px #f87171;
+  }
+  50% {
+    background-color: rgba(127, 29, 29, 0.14);
+    box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.35);
+  }
+}
+
+.animate-project-deadline-row {
+  animation: projectDeadlineBlink 1.4s ease-in-out infinite;
+}
+
+.animate-project-deadline-row > td {
+  animation: projectDeadlineBlink 1.4s ease-in-out infinite;
+  box-shadow: inset 0 2px 0 #dc2626, inset 0 -2px 0 #dc2626;
+}
+
+.animate-project-deadline-row > td:first-child {
+  box-shadow: inset 2px 2px 0 #dc2626, inset 0 -2px 0 #dc2626;
+}
+
+.animate-project-deadline-row > td:last-child {
+  box-shadow: inset -2px 2px 0 #dc2626, inset 0 -2px 0 #dc2626;
+}
+
+html.dark .animate-project-deadline-row {
+  animation: projectDeadlineBlinkDark 1.4s ease-in-out infinite;
+}
+
+html.dark .animate-project-deadline-row > td {
+  animation: projectDeadlineBlinkDark 1.4s ease-in-out infinite;
+  box-shadow: inset 0 2px 0 #f87171, inset 0 -2px 0 #f87171;
+}
+
+html.dark .animate-project-deadline-row > td:first-child {
+  box-shadow: inset 2px 2px 0 #f87171, inset 0 -2px 0 #f87171;
+}
+
+html.dark .animate-project-deadline-row > td:last-child {
+  box-shadow: inset -2px 2px 0 #f87171, inset 0 -2px 0 #f87171;
+}
+
+.animate-project-deadline-tile {
+  border-color: #dc2626 !important;
+  animation: projectDeadlineBlink 1.4s ease-in-out infinite;
+}
+
+html.dark .animate-project-deadline-tile {
+  border-color: #f87171 !important;
+  animation: projectDeadlineBlinkDark 1.4s ease-in-out infinite;
+}
+
+/* Static critical styling when animation is disabled (prefers-reduced-motion or user/admin toggle) */
+.project-deadline-static-row {
+  background-color: rgba(254, 242, 242, 0.72);
+}
+
+.project-deadline-static-row > td {
+  box-shadow: inset 0 2px 0 #dc2626, inset 0 -2px 0 #dc2626;
+}
+
+.project-deadline-static-row > td:first-child {
+  box-shadow: inset 2px 2px 0 #dc2626, inset 0 -2px 0 #dc2626;
+}
+
+.project-deadline-static-row > td:last-child {
+  box-shadow: inset -2px 2px 0 #dc2626, inset 0 -2px 0 #dc2626;
+}
+
+html.dark .project-deadline-static-row {
+  background-color: rgba(127, 29, 29, 0.28);
+}
+
+html.dark .project-deadline-static-row > td {
+  box-shadow: inset 0 2px 0 #f87171, inset 0 -2px 0 #f87171;
+}
+
+html.dark .project-deadline-static-row > td:first-child {
+  box-shadow: inset 2px 2px 0 #f87171, inset 0 -2px 0 #f87171;
+}
+
+html.dark .project-deadline-static-row > td:last-child {
+  box-shadow: inset -2px 2px 0 #f87171, inset 0 -2px 0 #f87171;
+}
+
+.project-deadline-static-tile {
+  border-color: #dc2626 !important;
+  box-shadow: inset 0 0 0 1px #dc2626;
+  background-color: rgba(254, 242, 242, 0.55) !important;
+}
+
+html.dark .project-deadline-static-tile {
+  border-color: #f87171 !important;
+  box-shadow: inset 0 0 0 1px #f87171;
+  background-color: rgba(127, 29, 29, 0.22) !important;
+}
+
 /* Attention flash when clicking outside a dirty form modal */
 @keyframes modalAttentionFlash {
   0%, 100% {
@@ -180,6 +292,9 @@ html.dark :where(a, button, input, select, textarea, summary, [tabindex], [role=
   }
 
   .animate-official-deadline,
+  .animate-project-deadline-row,
+  .animate-project-deadline-row > td,
+  .animate-project-deadline-tile,
   .animate-modal-flash,
   .animate-pulse,
   .animate-bounce,
@@ -187,5 +302,25 @@ html.dark :where(a, button, input, select, textarea, summary, [tabindex], [role=
   .animate-spin,
   .animate-in {
     animation: none !important;
+  }
+
+  .animate-project-deadline-row {
+    background-color: rgba(254, 242, 242, 0.72);
+  }
+
+  .animate-project-deadline-tile {
+    border-color: #dc2626 !important;
+    box-shadow: inset 0 0 0 1px #dc2626;
+    background-color: rgba(254, 242, 242, 0.55) !important;
+  }
+
+  html.dark .animate-project-deadline-row {
+    background-color: rgba(127, 29, 29, 0.28);
+  }
+
+  html.dark .animate-project-deadline-tile {
+    border-color: #f87171 !important;
+    box-shadow: inset 0 0 0 1px #f87171;
+    background-color: rgba(127, 29, 29, 0.22) !important;
   }
 }

@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import {
+  getAppTimezone,
   getVariablesSnapshot,
   ServerVariablesState,
   subscribeVariables,
@@ -12,3 +13,12 @@ export function useVariables(): ServerVariablesState {
     getVariablesSnapshot
   );
 }
+
+export function useAppTimezone(): string {
+  return useSyncExternalStore(
+    subscribeVariables,
+    getAppTimezone,
+    getAppTimezone
+  );
+}
+

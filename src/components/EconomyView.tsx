@@ -16,6 +16,11 @@ import { canEditFinance } from '../utils/access';
 import { isPaymentOverdue } from '../utils/finance';
 import { calcGrossFromNet } from '../utils/money';
 import { getTodayIso } from '../utils/today';
+import { getCompanyBadgeColors, useIsDarkTheme } from '../utils/colorContrast';
+import {
+  evaluateProjectDeadline,
+  getTodayIsoInTimezone,
+} from '../utils/deadlines';
 import {
   getOrderedProjectStatuses,
   getProjectDisplayName,
@@ -25,7 +30,7 @@ import {
 import { ProjectNameLabel, useProjectNameTooltip } from './ProjectNameLabel';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
-import { useVariables } from '../hooks/useVariables';
+import { useAppTimezone, useVariables } from '../hooks/useVariables';
 import {
   EconomyAmountMode,
   EconomyCompanyFilter,
@@ -49,6 +54,7 @@ import {
   sortEconomyRows,
 } from '../utils/economy';
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowUpDown,
   Building2,
@@ -161,13 +167,15 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
   onOpenTask,
   onNotify,
 }) => {
-  const { taskTypes, projectStatuses } = useVariables();
+  const { taskTypes, projectStatuses, projectDeadline } = useVariables();
+  const appTimezone = useAppTimezone();
+  const isDark = useIsDarkTheme();
   const orderedProjectStatuses = useMemo(
     () => getOrderedProjectStatuses(projectStatuses),
     [projectStatuses]
   );
   const uidPrefix = useId();
-  const todayIso = getTodayIso();
+  const todayIso = getTodayIsoInTimezone(appTimezone);
 
   // Filtry i preferencje
   const [companyFilter, setCompanyFilter] = useState<EconomyCompanyFilter>('all');
@@ -840,7 +848,10 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 {selectedDetailRow.company && (
-                  <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                  <span
+                    style={getCompanyBadgeColors(selectedDetailRow.company, isDark ? 'dark' : 'light')}
+                    className="font-mono text-[11px] font-bold px-2 py-0.5 rounded border"
+                  >
                     {selectedDetailRow.company.letter} - {selectedDetailRow.company.name}
                   </span>
                 )}
@@ -869,6 +880,30 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
               <p className="text-xs text-slate-600 dark:text-slate-400">
                 Zamawiający: <strong className="text-slate-800 dark:text-slate-200">{selectedDetailRow.clientNameDisplay}</strong>
                 {owner ? ` · Właściciel: ${owner.name}` : ''}
+                {project.dueDate &&
+                  (() => {
+                    const detailDeadline = evaluateProjectDeadline(project.dueDate, projectDeadline, {
+                      isClosed: isProjectStatusClosed(project.status, projectStatuses),
+                      isArchived: project.isArchived,
+                      todayIso,
+                      timezone: appTimezone,
+                    });
+                    return (
+                      <span
+                        className={
+                          detailDeadline.isRed
+                            ? 'text-rose-700 dark:text-rose-400 font-semibold'
+                            : ''
+                        }
+                      >
+                        {' · '}Termin projektu:{' '}
+                        <span className="font-mono font-bold">{project.dueDate}</span>
+                        {detailDeadline.showCounter && detailDeadline.text
+                          ? ` (${detailDeadline.text})`
+                          : ''}
+                      </span>
+                    );
+                  })()}
                 {summary.isVatExempt && summary.vatExemptionBasis
                   ? ` · Podstawa zwolnienia: ${summary.vatExemptionBasis}`
                   : ''}
@@ -2059,8 +2094,9 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
                         <div className="flex items-center gap-1.5">
                           {row.company && (
                             <span
+                              style={getCompanyBadgeColors(row.company, isDark ? 'dark' : 'light')}
                               title={row.company.name}
-                              className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                              className="text-[11px] font-bold px-1.5 py-0.5 rounded border"
                             >
                               {row.company.letter}
                             </span>
@@ -2075,23 +2111,53 @@ export const EconomyView: React.FC<EconomyViewProps> = ({
                         </div>
                       </td>
                       <td className="px-3 py-2.5 min-w-[180px]">
-                        <EconomyRowNameButton
-                          project={row.project}
-                          onSelect={() => setSelectedDetailProjectId(row.project.id)}
-                        />
-                        {row.isVatExempt && (
-                          <span
-                            title={row.company?.vatExemptionBasis || 'Firma zwolniona z VAT'}
-                            className="ml-2 text-[11px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold"
-                          >
-                            Zwolniona z VAT
-                          </span>
-                        )}
-                        {row.project.isArchived && (
-                          <span className="ml-2 text-[11px] px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-200 font-semibold">
-                            Archiwum
-                          </span>
-                        )}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <EconomyRowNameButton
+                            project={row.project}
+                            onSelect={() => setSelectedDetailProjectId(row.project.id)}
+                          />
+                          {row.isVatExempt && (
+                            <span
+                              title={row.company?.vatExemptionBasis || 'Firma zwolniona z VAT'}
+                              className="text-[11px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold"
+                            >
+                              Zwolniona z VAT
+                            </span>
+                          )}
+                          {row.project.isArchived && (
+                            <span className="text-[11px] px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-200 font-semibold">
+                              Archiwum
+                            </span>
+                          )}
+                        </div>
+                        {row.project.dueDate &&
+                          (() => {
+                            const rowDeadline = evaluateProjectDeadline(row.project.dueDate, projectDeadline, {
+                              isClosed: isProjectStatusClosed(row.project.status, projectStatuses),
+                              isArchived: row.project.isArchived,
+                              todayIso,
+                              timezone: appTimezone,
+                            });
+                            return (
+                              <div
+                                className={`text-[10px] font-mono mt-0.5 inline-flex items-center gap-1 ${
+                                  rowDeadline.isRed
+                                    ? 'text-rose-700 dark:text-rose-400 font-semibold'
+                                    : 'text-slate-600 dark:text-slate-400'
+                                }`}
+                              >
+                                {rowDeadline.isRed && (
+                                  <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden="true" />
+                                )}
+                                <span>Termin: {row.project.dueDate}</span>
+                                {rowDeadline.showCounter && rowDeadline.text && (
+                                  <span data-testid="project-deadline-counter" className="font-sans">
+                                    ({rowDeadline.text})
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
                       </td>
                       <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300">
                         {row.clientNameDisplay}

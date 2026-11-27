@@ -201,8 +201,10 @@ export function sortProjectsList(
         break;
       }
       case 'company': {
-        const compA = a.companyId ? companyById.get(a.companyId)?.letter || '' : '';
-        const compB = b.companyId ? companyById.get(b.companyId)?.letter || '' : '';
+        const compObjA = a.companyId ? companyById.get(a.companyId) : undefined;
+        const compObjB = b.companyId ? companyById.get(b.companyId) : undefined;
+        const compA = compObjA ? compObjA.name || compObjA.letter || '' : '';
+        const compB = compObjB ? compObjB.name || compObjB.letter || '' : '';
         cmp = compA.localeCompare(compB, 'pl', { sensitivity: 'base' });
         break;
       }

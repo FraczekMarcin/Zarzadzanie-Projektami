@@ -28,6 +28,7 @@ import { ProjectNameLabel } from './ProjectNameLabel';
 import { FIELD_LIMITS, canEditFinance, canViewFinance } from '../utils/access';
 import { calcGrossFromNet, formatMoney } from '../utils/money';
 import { getTodayIso } from '../utils/today';
+import { getTodayIsoInTimezone } from '../utils/deadlines';
 import {
   copyTemplateDeliverablesToProject,
   DELIVERABLE_LIMITS,
@@ -49,6 +50,7 @@ import {
   SHORT_NAME_MAX,
   validateProjectDeliverables,
 } from '../utils/projectMeta';
+import { useAppTimezone, useVariables } from '../hooks/useVariables';
 import type { FinancePatchSaveResult } from '../hooks/useServerSync';
 import { useFormSubmit, type FormSubmitResult } from '../hooks/useFormSubmit';
 import { FormError } from './FormError';
@@ -95,7 +97,6 @@ import {
   PackageCheck,
 } from 'lucide-react';
 import { registerClientIfNew } from '../utils/variableSettings';
-import { useVariables } from '../hooks/useVariables';
 
 const getTodayIsoDate = (): string => {
   const now = new Date();
@@ -204,6 +205,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     projectPriorities,
     projectTypes,
   } = useVariables();
+  const appTimezone = useAppTimezone();
   const orderedStatuses = useMemo(
     () => getOrderedProjectStatuses(projectStatuses),
     [projectStatuses]
@@ -1315,7 +1317,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     currentUser,
   ]);
 
-  const todayIso = getTodayIso();
+  const todayIso = getTodayIsoInTimezone(appTimezone);
 
   const sortedListProjects = useMemo(
     () =>
@@ -1789,6 +1791,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
                 projectTasks={projectTasks}
                 members={members}
                 currentUser={currentUser}
+                todayIso={todayIso}
                 copiedProjectId={copiedProjectId}
                 onCopyDiskPath={handleCopyDiskPath}
                 onOpen={onSelectProject}

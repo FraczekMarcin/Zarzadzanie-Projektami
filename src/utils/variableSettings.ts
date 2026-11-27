@@ -1,14 +1,20 @@
 import type {
+  ProjectDeadlineSettings,
   ProjectPriorityOption,
   ProjectStatusOption,
   ProjectSubtypeOption,
   ProjectTypeOption,
 } from '../types';
 import {
+  DEFAULT_DEADLINE_TIMEZONE,
+  resolveDeadlineTimezone,
+} from './deadlines';
+import {
   ClientRecord,
   createDefaultVariablesState,
   DEFAULT_CLIENTS,
   DEFAULT_DEADLINE_WARNING_DAYS,
+  DEFAULT_PROJECT_DEADLINE_SETTINGS,
   DEFAULT_PROJECT_PRIORITIES,
   DEFAULT_PROJECT_STATUSES,
   DEFAULT_PROJECT_TYPES,
@@ -24,6 +30,7 @@ import {
 
 export type {
   ClientRecord,
+  ProjectDeadlineSettings,
   ProjectPriorityOption,
   ProjectStatusOption,
   ProjectSubtypeOption,
@@ -37,6 +44,7 @@ export type {
 export {
   DEFAULT_CLIENTS,
   DEFAULT_DEADLINE_WARNING_DAYS,
+  DEFAULT_PROJECT_DEADLINE_SETTINGS,
   DEFAULT_PROJECT_PRIORITIES,
   DEFAULT_PROJECT_STATUSES,
   DEFAULT_PROJECT_TYPES,
@@ -53,6 +61,7 @@ export const LEGACY_VARIABLE_STORAGE_KEYS = [
 ] as const;
 
 let currentVariablesState: ServerVariablesState = createDefaultVariablesState();
+let currentAppTimezone: string = DEFAULT_DEADLINE_TIMEZONE;
 const variableListeners = new Set<() => void>();
 
 function notifyVariableListeners(): void {
@@ -76,6 +85,18 @@ export function getVariablesSnapshot(): ServerVariablesState {
   return currentVariablesState;
 }
 
+export function getAppTimezone(): string {
+  return currentAppTimezone;
+}
+
+export function setAppTimezone(timezone?: string | null): void {
+  const next = resolveDeadlineTimezone(timezone);
+  if (next !== currentAppTimezone) {
+    currentAppTimezone = next;
+    notifyVariableListeners();
+  }
+}
+
 export function setServerVariables(incoming: Partial<ServerVariablesState> | null | undefined): void {
   if (!incoming || typeof incoming !== 'object') return;
   const normalized = normalizeVariablesState(incoming);
@@ -90,6 +111,7 @@ export function setServerVariables(incoming: Partial<ServerVariablesState> | nul
     projectPriorities: normalized.projectPriorities,
     projectTypes: normalized.projectTypes,
     deadlineWarningDays: normalized.deadlineWarningDays,
+    projectDeadline: normalized.projectDeadline,
     initialized: Boolean(incoming.initialized),
   };
   notifyVariableListeners();
@@ -97,6 +119,7 @@ export function setServerVariables(incoming: Partial<ServerVariablesState> | nul
 
 export function resetServerVariables(): void {
   currentVariablesState = createDefaultVariablesState();
+  currentAppTimezone = DEFAULT_DEADLINE_TIMEZONE;
   notifyVariableListeners();
 }
 
@@ -134,6 +157,10 @@ export function getDeadlineWarningDays(): number {
     return days;
   }
   return DEFAULT_DEADLINE_WARNING_DAYS;
+}
+
+export function getProjectDeadlineSettings(): ProjectDeadlineSettings {
+  return currentVariablesState.projectDeadline || DEFAULT_PROJECT_DEADLINE_SETTINGS;
 }
 
 export async function saveVariablesToServer(

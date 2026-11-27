@@ -23,6 +23,7 @@ import { isApproachingOfficialDeadline, getBusinessDaysRemaining } from '../util
 import { getTodayIso, parseIsoDate } from '../utils/today';
 import { isPolishHoliday } from '../utils/polishHolidays';
 import { getProjectDisplayName, hasDistinctShortName } from '../utils/projectMeta';
+import { getCompanyBadgeColors, useIsDarkTheme } from '../utils/colorContrast';
 import { ProjectNameLabel } from './ProjectNameLabel';
 
 interface GanttChartProps {
@@ -44,6 +45,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   onSelectTask,
   onOpenNewTask,
 }) => {
+  const isDark = useIsDarkTheme();
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
   const [zoomLevel, setZoomLevel] = useState<'days' | 'weeks'>('days');
 
@@ -346,8 +348,9 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                               : undefined;
                             return comp ? (
                               <span
+                                style={getCompanyBadgeColors(comp, isDark ? 'dark' : 'light')}
                                 title={comp.name}
-                                className="font-mono text-[9px] font-bold px-1 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shrink-0"
+                                className="font-mono text-[9px] font-bold px-1 py-0.2 rounded border shrink-0"
                               >
                                 {comp.letter}
                               </span>

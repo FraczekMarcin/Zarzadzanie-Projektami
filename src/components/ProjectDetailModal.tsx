@@ -14,7 +14,9 @@ import {
   resolveProjectSubtype,
   resolveProjectType,
 } from '../utils/projectMeta';
-import { useVariables } from '../hooks/useVariables';
+import { getCompanyBadgeColors, useIsDarkTheme } from '../utils/colorContrast';
+import { evaluateProjectDeadline } from '../utils/deadlines';
+import { useAppTimezone, useVariables } from '../hooks/useVariables';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { 
@@ -38,6 +40,7 @@ import {
   RotateCcw, 
   CheckCircle2, 
   AlertCircle, 
+  AlertTriangle,
   Lock,
   Layers,
   ArrowRight,
@@ -99,7 +102,9 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
   const modalRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
-  const { projectStatuses, projectPriorities, projectTypes } = useVariables();
+  const { projectStatuses, projectPriorities, projectTypes, projectDeadline } = useVariables();
+  const appTimezone = useAppTimezone();
+  const isDark = useIsDarkTheme();
   const { backdropProps, requestClose } = useDismissOnOutsideClick({
     isOpen: Boolean(isOpen && project),
     mode: 'dismiss',
@@ -300,8 +305,9 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                   : undefined;
                 return comp ? (
                   <span
+                    style={getCompanyBadgeColors(comp, isDark ? 'dark' : 'light')}
                     title={`Firma prowadząca: ${comp.name}`}
-                    className="font-mono text-xs font-bold px-2 py-1 rounded-md bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                    className="font-mono text-xs font-bold px-2 py-1 rounded-md border"
                   >
                     {comp.letter} · {comp.name}
                   </span>
@@ -399,18 +405,57 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
 
           {/* 1. KEY METRICS CARDS */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1">
-              <span className="text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1">
-                <Calendar className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" aria-hidden="true" />
-                <span>Termin realizacji</span>
-              </span>
-              <span className="font-mono font-bold text-sm text-slate-900 dark:text-white block">
-                {project.dueDate}
-              </span>
-              <span className="text-[10px] text-slate-600 dark:text-slate-400">
-                Rozpoczęcie: {project.startDate} ({project.durationDays} dni)
-              </span>
-            </div>
+            {(() => {
+              const deadlineEval = evaluateProjectDeadline(project.dueDate, projectDeadline, {
+                isClosed: statusMeta.isClosed,
+                isArchived: project.isArchived,
+                timezone: appTimezone,
+              });
+              return (
+                <div
+                  className={`p-3 rounded-xl border space-y-1 ${
+                    deadlineEval.isRed
+                      ? 'bg-rose-50/70 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800'
+                      : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-800'
+                  }`}
+                >
+                  <span className="text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1">
+                    {deadlineEval.isRed ? (
+                      <AlertTriangle className="w-3.5 h-3.5 text-rose-700 dark:text-rose-400" aria-hidden="true" />
+                    ) : (
+                      <Calendar className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" aria-hidden="true" />
+                    )}
+                    <span>Termin realizacji</span>
+                  </span>
+                  <div className="flex flex-wrap items-baseline gap-1.5">
+                    <span
+                      className={`font-mono font-bold text-sm ${
+                        deadlineEval.isRed
+                          ? 'text-rose-700 dark:text-rose-400'
+                          : 'text-slate-900 dark:text-white'
+                      }`}
+                    >
+                      {project.dueDate}
+                    </span>
+                    {deadlineEval.showCounter && deadlineEval.text && (
+                      <span
+                        data-testid="project-deadline-counter"
+                        className={`text-[11px] font-semibold ${
+                          deadlineEval.isRed
+                            ? 'text-rose-700 dark:text-rose-400'
+                            : 'text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        ({deadlineEval.text})
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-slate-600 dark:text-slate-400 block">
+                    Rozpoczęcie: {project.startDate} ({project.durationDays} dni)
+                  </span>
+                </div>
+              );
+            })()}
 
             <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1">
               <span className="text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1">

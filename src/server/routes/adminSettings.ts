@@ -137,6 +137,9 @@ export function registerAdminSettingsRoutes(
           });
           stateStore.bumpStateRevision();
           await stateStore.saveStateAtomicAsync();
+        } else if (changedFields.includes('reminders.timezone')) {
+          stateStore.bumpStateRevision();
+          await stateStore.saveStateAtomicAsync();
         }
       }
 
@@ -449,6 +452,7 @@ export function registerAdminSettingsRoutes(
         'projectPriorities',
         'projectTypes',
         'deadlineWarningDays',
+        'projectDeadline',
       ] as const) {
         if (
           validation.patch[key] !== undefined &&

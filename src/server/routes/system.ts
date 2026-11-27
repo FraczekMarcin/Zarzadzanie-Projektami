@@ -83,6 +83,9 @@ export function registerSystemRoutes(
       progressWeighting: settingsService
         ? settingsService.getEffectiveProgressWeighting()
         : DEFAULT_PROGRESS_WEIGHTING,
+      appTimezone: settingsService
+        ? settingsService.getEffectiveReminderSettings().timezone
+        : 'Europe/Warsaw',
     };
     return res.json({ initialized: true, state: sanitized });
   });

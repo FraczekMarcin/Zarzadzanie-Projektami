@@ -2,6 +2,11 @@ import express from 'express';
 import crypto from 'crypto';
 import type { Company, ProjectNumberingScope } from '../../types/index.js';
 import { filterCompaniesForUser, hasForbiddenKeys } from '../../utils/access.js';
+import {
+  getDefaultCompanyColor,
+  isValidCompanyColor,
+  normalizeCompanyColor,
+} from '../../utils/colorContrast.js';
 import { getClientIp } from '../security.js';
 import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
@@ -61,6 +66,7 @@ export function sanitizeImportedCompanies(rawCompanies: unknown): Company[] {
       typeof (item as any).vatExemptionBasis === 'string'
         ? (item as any).vatExemptionBasis.trim().slice(0, COMPANY_VAT_BASIS_MAX_LENGTH)
         : '';
+    const normalizedColor = normalizeCompanyColor((item as any).color);
 
     usedLetters.add(rawLetter);
     usedIds.add(rawId);
@@ -69,6 +75,7 @@ export function sanitizeImportedCompanies(rawCompanies: unknown): Company[] {
       id: rawId,
       name: rawName,
       letter: rawLetter,
+      ...(normalizedColor ? { color: normalizedColor } : {}),
       ...(rawNip ? { nip: rawNip } : {}),
       ...(rawAddress ? { address: rawAddress } : {}),
       isActive,
@@ -238,10 +245,22 @@ export function registerCompanyRoutes(
         });
       }
 
+      let color = getDefaultCompanyColor(letter);
+      if (body.color !== undefined && body.color !== null && body.color !== '') {
+        if (typeof body.color !== 'string' || !isValidCompanyColor(body.color)) {
+          return res.status(400).json({
+            error: 'Kolor firmy musi być zapisany w formacie heksadecymalnym #RRGGBB (np. #1D4ED8).',
+            field: 'color',
+          });
+        }
+        color = normalizeCompanyColor(body.color) || color;
+      }
+
       const newCompany: Company = {
         id: crypto.randomUUID(),
         name,
         letter,
+        color,
         ...(nip ? { nip } : {}),
         ...(address ? { address } : {}),
         isActive: body.isActive !== undefined ? body.isActive : true,
@@ -406,6 +425,19 @@ export function registerCompanyRoutes(
           }
         } else {
           return res.status(400).json({ error: 'Podstawa zwolnienia z VAT musi być ciągiem znaków.' });
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(body, 'color')) {
+        if (body.color === null || body.color === '') {
+          company.color = getDefaultCompanyColor(company.letter);
+        } else if (typeof body.color === 'string' && isValidCompanyColor(body.color)) {
+          company.color = normalizeCompanyColor(body.color);
+        } else {
+          return res.status(400).json({
+            error: 'Kolor firmy musi być zapisany w formacie heksadecymalnym #RRGGBB (np. #1D4ED8).',
+            field: 'color',
+          });
         }
       }
 

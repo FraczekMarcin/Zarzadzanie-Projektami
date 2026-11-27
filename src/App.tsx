@@ -58,7 +58,10 @@ import { CURRENT_APP_VERSION, GITHUB_REPO_URL } from './data/dockerConfig';
 import { isDemoProject } from './utils/demoData';
 import { sortTasksByPriorityAndDueDate } from './utils/taskSorting';
 import { canViewFinance } from './utils/access';
-import { getProjectDisplayName } from './utils/projectMeta';
+import { getProjectDisplayName, isProjectStatusClosed } from './utils/projectMeta';
+import { getCompanyBadgeColors, useIsDarkTheme } from './utils/colorContrast';
+import { evaluateProjectDeadline } from './utils/deadlines';
+import { useAppTimezone, useVariables } from './hooks/useVariables';
 import {
   computeProgressMap,
   computeProjectProgress,
@@ -230,6 +233,9 @@ export default function App() {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('theme');
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => getThemePreference());
+  const isDarkTheme = useIsDarkTheme();
+  const { projectStatuses, projectDeadline } = useVariables();
+  const appTimezone = useAppTimezone();
   const [serverBackupStatus, setServerBackupStatus] = useState<{
     active: boolean;
     lastBackup: { filename: string; timestamp: string; ageHours: number; size: number } | null;
@@ -1407,8 +1413,9 @@ export default function App() {
                   : undefined;
                 return activeComp ? (
                   <span
+                    style={getCompanyBadgeColors(activeComp, isDarkTheme ? 'dark' : 'light')}
                     title={activeComp.name}
-                    className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                    className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded border"
                   >
                     {activeComp.letter}
                   </span>
@@ -1417,7 +1424,42 @@ export default function App() {
               <span aria-hidden="true">·</span>
               <span>Czas trwania: <strong className="text-slate-800 dark:text-slate-200 font-mono">{activeProject.durationDays || 30} dni</strong></span>
               <span aria-hidden="true">·</span>
-              <span>Termin: <strong className="text-slate-700 dark:text-slate-300 font-mono">{activeProject.dueDate}</strong></span>
+              {(() => {
+                const headerDeadline = evaluateProjectDeadline(activeProject.dueDate, projectDeadline, {
+                  isClosed: isProjectStatusClosed(activeProject.status, projectStatuses),
+                  isArchived: activeProject.isArchived,
+                  timezone: appTimezone,
+                });
+                return (
+                  <span className="inline-flex items-center gap-1">
+                    <span>Termin:</span>
+                    <strong
+                      className={`font-mono inline-flex items-center gap-1 ${
+                        headerDeadline.isRed
+                          ? 'text-rose-700 dark:text-rose-400'
+                          : 'text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      {headerDeadline.isRed && (
+                        <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden="true" />
+                      )}
+                      <span>{activeProject.dueDate}</span>
+                    </strong>
+                    {headerDeadline.showCounter && headerDeadline.text && (
+                      <span
+                        data-testid="project-deadline-counter"
+                        className={
+                          headerDeadline.isRed
+                            ? 'text-rose-700 dark:text-rose-400 font-semibold'
+                            : 'text-slate-600 dark:text-slate-400'
+                        }
+                      >
+                        ({headerDeadline.text})
+                      </span>
+                    )}
+                  </span>
+                );
+              })()}
               <span aria-hidden="true">·</span>
               <span>Postęp: <strong className="text-slate-700 dark:text-slate-300 font-mono">{activeProject.progress}%</strong></span>
             </div>

@@ -13,6 +13,7 @@ import type { FinancePatchSaveResult } from '../hooks/useServerSync';
 import type { FormSubmitResult } from '../hooks/useFormSubmit';
 import { registerClientIfNew } from '../utils/variableSettings';
 import { isProjectStatusClosed } from '../utils/projectMeta';
+import { getCompanyBadgeColors, useIsDarkTheme } from '../utils/colorContrast';
 import { useVariables } from '../hooks/useVariables';
 import { copyToClipboard } from '../utils/clipboard';
 import { useFocusTrap } from '../utils/useFocusTrap';
@@ -150,6 +151,7 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
     clients: availableClients,
     projectStatuses,
   } = useVariables();
+  const isDark = useIsDarkTheme();
   const projectCompany = project.companyId
     ? companies.find((c) => c.id === project.companyId)
     : undefined;
@@ -1745,8 +1747,12 @@ export const ProjectFinancialsModal: React.FC<ProjectFinancialsModalProps> = ({
                 </span>
                 {projectCompany && (
                   <span
+                    style={getCompanyBadgeColors(
+                      projectCompany,
+                      isDark ? 'dark' : 'light'
+                    )}
                     title={`Firma prowadząca: ${projectCompany.name}`}
-                    className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                    className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded border"
                   >
                     {projectCompany.letter}
                   </span>

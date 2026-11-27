@@ -4,6 +4,7 @@ import { encryptSecret, decryptUserSecrets } from './secretBox.js';
 import { TrustedDeviceRecord } from './trustedDevices.js';
 import { normalizeVariablesState, ServerVariablesState } from './variablesSchema.js';
 import { migrateLegacyTemplate } from './templateValidation.js';
+import { normalizeCompanyColor } from './colorContrast.js';
 import { logger } from '../server/logger.js';
 
 import type { Company, ProjectNumberingSettings, ProjectTemplate, Tender } from '../types/index.js';
@@ -92,6 +93,14 @@ export function normalizeStateStructure(raw?: any): AppState {
       }
     } else if (c.vatExemptionBasis !== undefined) {
       delete c.vatExemptionBasis;
+    }
+    if (c.color !== undefined) {
+      const normalizedColor = normalizeCompanyColor(c.color);
+      if (normalizedColor) {
+        c.color = normalizedColor;
+      } else {
+        delete c.color;
+      }
     }
   }
   for (const t of state.tasks) {

@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { isApproachingOfficialDeadline, getBusinessDaysRemaining } from '../utils/businessDays';
 import { getTodayIso } from '../utils/today';
+import { getCompanyBadgeColors, useIsDarkTheme } from '../utils/colorContrast';
 import { ProjectNameLabel } from './ProjectNameLabel';
 
 interface TaskListViewProps {
@@ -48,6 +49,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
   onDeleteTask,
   onUpdateStatus,
 }) => {
+  const isDark = useIsDarkTheme();
   const [searchQuery, setSearchQuery] = useState('');
   const [viewFilter, setViewFilter] = useState<'active' | 'completed' | 'all'>('active');
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('all');
@@ -457,8 +459,9 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                               : undefined;
                             return comp ? (
                               <span
+                                style={getCompanyBadgeColors(comp, isDark ? 'dark' : 'light')}
                                 title={comp.name}
-                                className="font-mono text-[10px] font-bold px-1 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                                className="font-mono text-[10px] font-bold px-1 rounded border"
                               >
                                 {comp.letter}
                               </span>

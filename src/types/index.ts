@@ -105,11 +105,18 @@ export interface Company {
   id: string;
   name: string;
   letter: string;
+  color?: string;
   nip?: string;
   address?: string;
   isActive: boolean;
   vatPayer: boolean;
   vatExemptionBasis?: string;
+}
+
+export interface ProjectDeadlineSettings {
+  warnDays: number;
+  criticalDays: number;
+  blinkEnabled: boolean;
 }
 
 export interface ProjectNumberingSettings {

@@ -1,10 +1,16 @@
 import type {
+  ProjectDeadlineSettings,
   ProjectPriorityOption,
   ProjectStatusOption,
   ProjectSubtypeOption,
   ProjectTypeOption,
 } from '../types/index.js';
 import { hasForbiddenKeys } from './access.js';
+import {
+  DEFAULT_PROJECT_DEADLINE_SETTINGS,
+  PROJECT_DEADLINE_LIMITS,
+  normalizeProjectDeadlineSettings,
+} from './deadlines.js';
 import {
   DEFAULT_PROJECT_PRIORITIES,
   DEFAULT_PROJECT_STATUSES,
@@ -24,7 +30,13 @@ import {
   normalizeProjectTypes,
 } from './projectMeta.js';
 
-export { DEFAULT_PROJECT_PRIORITIES, DEFAULT_PROJECT_STATUSES, DEFAULT_PROJECT_TYPES };
+export {
+  DEFAULT_PROJECT_DEADLINE_SETTINGS,
+  DEFAULT_PROJECT_PRIORITIES,
+  DEFAULT_PROJECT_STATUSES,
+  DEFAULT_PROJECT_TYPES,
+  PROJECT_DEADLINE_LIMITS,
+};
 
 export interface ClientRecord {
   id: string;
@@ -68,6 +80,7 @@ export interface ServerVariablesState {
   projectPriorities: ProjectPriorityOption[];
   projectTypes: ProjectTypeOption[];
   deadlineWarningDays: number;
+  projectDeadline: ProjectDeadlineSettings;
   initialized: boolean;
 }
 
@@ -169,6 +182,8 @@ export const VARIABLES_LIMITS = {
   projectTypeIdMax: PROJECT_TYPE_ID_MAX,
   deadlineWarningDaysMin: 0,
   deadlineWarningDaysMax: 30,
+  projectDeadlineDaysMin: PROJECT_DEADLINE_LIMITS.minDays,
+  projectDeadlineDaysMax: PROJECT_DEADLINE_LIMITS.maxDays,
 } as const;
 
 const VALID_TASK_TYPE_COLORS = new Set<TaskTypeColor>([
@@ -194,6 +209,7 @@ export function createDefaultVariablesState(): ServerVariablesState {
       subtypes: pt.subtypes.map((sub) => ({ ...sub })),
     })),
     deadlineWarningDays: DEFAULT_DEADLINE_WARNING_DAYS,
+    projectDeadline: { ...DEFAULT_PROJECT_DEADLINE_SETTINGS },
     initialized: false,
   };
 }
@@ -252,6 +268,8 @@ export function normalizeVariablesState(raw: any): ServerVariablesState {
       ? raw.deadlineWarningDays
       : DEFAULT_DEADLINE_WARNING_DAYS;
 
+  const projectDeadline = normalizeProjectDeadlineSettings(raw.projectDeadline);
+
   const initialized = typeof raw.initialized === 'boolean' ? raw.initialized : false;
 
   return {
@@ -262,6 +280,7 @@ export function normalizeVariablesState(raw: any): ServerVariablesState {
     projectPriorities,
     projectTypes,
     deadlineWarningDays,
+    projectDeadline,
     initialized,
   };
 }
@@ -291,6 +310,7 @@ export function validateVariablesUpdate(body: any): VariablesValidationResult {
   const hasProjectPriorities = body.projectPriorities !== undefined;
   const hasProjectTypes = body.projectTypes !== undefined;
   const hasDeadlineDays = body.deadlineWarningDays !== undefined;
+  const hasProjectDeadline = body.projectDeadline !== undefined;
 
   if (
     !hasVatRates &&
@@ -299,7 +319,8 @@ export function validateVariablesUpdate(body: any): VariablesValidationResult {
     !hasProjectStatuses &&
     !hasProjectPriorities &&
     !hasProjectTypes &&
-    !hasDeadlineDays
+    !hasDeadlineDays &&
+    !hasProjectDeadline
   ) {
     return {
       ok: false,
@@ -996,6 +1017,58 @@ export function validateVariablesUpdate(body: any): VariablesValidationResult {
       );
     } else {
       patch.deadlineWarningDays = days;
+    }
+  }
+
+  // 8. Walidacja progów ostrzeżeń i mrugania terminów projektów
+  if (hasProjectDeadline) {
+    const pd = body.projectDeadline;
+    if (!pd || typeof pd !== 'object' || Array.isArray(pd) || hasForbiddenKeys(pd)) {
+      errors.push('Pole projectDeadline musi być obiektem.');
+    } else {
+      const warnDays = pd.warnDays;
+      const criticalDays = pd.criticalDays;
+      const blinkEnabled = pd.blinkEnabled;
+
+      let pdValid = true;
+      if (
+        typeof warnDays !== 'number' ||
+        !Number.isInteger(warnDays) ||
+        warnDays < VARIABLES_LIMITS.projectDeadlineDaysMin ||
+        warnDays > VARIABLES_LIMITS.projectDeadlineDaysMax
+      ) {
+        errors.push(
+          `Próg ostrzeżenia terminu projektu (warnDays) musi być liczbą całkowitą z zakresu ${VARIABLES_LIMITS.projectDeadlineDaysMin}–${VARIABLES_LIMITS.projectDeadlineDaysMax}.`
+        );
+        pdValid = false;
+      }
+      if (
+        typeof criticalDays !== 'number' ||
+        !Number.isInteger(criticalDays) ||
+        criticalDays < VARIABLES_LIMITS.projectDeadlineDaysMin ||
+        criticalDays > VARIABLES_LIMITS.projectDeadlineDaysMax
+      ) {
+        errors.push(
+          `Próg krytyczny terminu projektu (criticalDays) musi być liczbą całkowitą z zakresu ${VARIABLES_LIMITS.projectDeadlineDaysMin}–${VARIABLES_LIMITS.projectDeadlineDaysMax}.`
+        );
+        pdValid = false;
+      }
+      if (pdValid && criticalDays >= warnDays) {
+        errors.push('Próg krytyczny (criticalDays) musi być mniejszy niż próg ostrzeżenia (warnDays).');
+        pdValid = false;
+      }
+      if (typeof blinkEnabled !== 'boolean') {
+        errors.push('Pole blinkEnabled musi być wartością logiczną.');
+        pdValid = false;
+      }
+
+      if (pdValid) {
+        patch.projectDeadline = {
+          warnDays,
+          criticalDays,
+          blinkEnabled,
+        };
+      }
     }
   }
 

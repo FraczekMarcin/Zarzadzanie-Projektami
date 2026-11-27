@@ -1,6 +1,11 @@
 import React from 'react';
-import { Sun, Moon, Laptop, Check } from 'lucide-react';
+import { Sun, Moon, Laptop, Check, AlertTriangle } from 'lucide-react';
 import type { ThemeMode } from '../../utils/theme';
+import {
+  useDeadlineBlinkPreference,
+  usePrefersReducedMotion,
+} from '../../utils/deadlines';
+import { useVariables } from '../../hooks/useVariables';
 
 export interface ThemeTabProps {
   currentTheme: ThemeMode;
@@ -8,8 +13,13 @@ export interface ThemeTabProps {
 }
 
 export const ThemeTab: React.FC<ThemeTabProps> = ({ currentTheme, onSelectTheme }) => {
+  const [userBlinkEnabled, setUserBlinkEnabled] = useDeadlineBlinkPreference();
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const { projectDeadline } = useVariables();
+  const adminBlinkEnabled = projectDeadline?.blinkEnabled !== false;
+
   return (
-    <div className="space-y-4 max-w-3xl">
+    <div className="space-y-5 max-w-3xl">
       <div>
         <h4 className="font-bold text-slate-900 dark:text-white text-base">
           Motyw graficzny interfejsu
@@ -107,8 +117,44 @@ export const ThemeTab: React.FC<ThemeTabProps> = ({ currentTheme, onSelectTheme 
           )}
         </button>
       </div>
+
+      {/* Preferencja animacji ostrzeżeń terminów */}
+      <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/70 space-y-2.5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <h5 className="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4 text-rose-700 dark:text-rose-400 shrink-0" aria-hidden="true" />
+              <span>Animacje ostrzeżeń o terminach projektów</span>
+            </h5>
+            <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+              Gdy animacja jest wyłączona, pilne i przeterminowane projekty są nadal wyróżnione stałą czerwoną ramką, ikoną ostrzeżenia oraz opisem liczby dni.
+            </p>
+          </div>
+          <label className="inline-flex items-center gap-2 shrink-0 cursor-pointer select-none pt-0.5">
+            <input
+              id="pref-deadline-blink"
+              type="checkbox"
+              checked={userBlinkEnabled}
+              onChange={(e) => setUserBlinkEnabled(e.target.checked)}
+              className="rounded border-slate-300 dark:border-slate-700 text-sky-700 focus:ring-sky-600"
+            />
+            <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+              Mruganie aktywne
+            </span>
+          </label>
+        </div>
+
+        {(prefersReducedMotion || !adminBlinkEnabled) && (
+          <p className="text-[11px] text-amber-800 dark:text-amber-300 font-medium">
+            {prefersReducedMotion
+              ? 'Wykryto systemowe ustawienie ograniczenia ruchu (prefers-reduced-motion) — mruganie jest automatycznie wyłączone.'
+              : 'Administrator globalnie wyłączył mruganie ostrzeżeń terminów projektów.'}
+          </p>
+        )}
+      </div>
     </div>
   );
 };
 
 export default ThemeTab;
+

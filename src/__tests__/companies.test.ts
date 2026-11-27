@@ -206,6 +206,7 @@ describe('Integracyjne testy firm (companies) i numeracji RRRR-X_L', () => {
         id: createdCompany.id,
         name: 'Biuro Projektowe Alfa Sp. z o.o.',
         letter: 'A',
+        color: expect.stringMatching(/^#[0-9A-F]{6}$/),
         isActive: true,
       });
 
@@ -677,6 +678,7 @@ describe('Integracyjne testy firm (companies) i numeracji RRRR-X_L', () => {
       id: compZ.id,
       name: 'Pracownia Zwolniona',
       letter: 'Z',
+      color: expect.stringMatching(/^#[0-9A-F]{6}$/),
       isActive: true,
     });
 
@@ -709,5 +711,64 @@ describe('Integracyjne testy firm (companies) i numeracji RRRR-X_L', () => {
     expect(vatChangeEvent).toBeDefined();
     expect(vatChangeEvent.details.previousVatPayer).toBe(false);
     expect(vatChangeEvent.details.vatPayer).toBe(true);
+  });
+
+  it('P78: przypisuje domyślny kolor z palety, waliduje format #RRGGBB na serwerze i zapisuje kolor w POST/PATCH', async () => {
+    ctx = await startTestServer();
+    const { cookie: adminCookie } = await setupAdmin(ctx.baseUrl);
+
+    // 1. Tworzenie bez podania koloru -> domyślny z palety dla litery A (#1D4ED8)
+    const defaultRes = await fetch(`${ctx.baseUrl}/api/companies`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({ name: 'Domyślny Kolor Sp. z o.o.', letter: 'A' }),
+    });
+    expect(defaultRes.status).toBe(201);
+    const compDefault = (await defaultRes.json()).company;
+    expect(compDefault.color).toBe('#1D4ED8');
+
+    // 2. Tworzenie z niepoprawnym formatem hex -> 400
+    for (const invalidColor of ['red', '#123', '1D4ED8', '#GGGGGG', '#1234567']) {
+      const badCreate = await fetch(`${ctx.baseUrl}/api/companies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+        body: JSON.stringify({ name: 'Błędna Firma', letter: 'B', color: invalidColor }),
+      });
+      expect(badCreate.status).toBe(400);
+    }
+
+    // 3. Tworzenie z niestandardowym hexem (małe litery normalizowane do wielkich)
+    const customRes = await fetch(`${ctx.baseUrl}/api/companies`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({ name: 'Własny Kolor Sp. z o.o.', letter: 'B', color: '#0f766e' }),
+    });
+    expect(customRes.status).toBe(201);
+    const compCustom = (await customRes.json()).company;
+    expect(compCustom.color).toBe('#0F766E');
+
+    // 4. PATCH niepoprawny hex -> 400
+    const badPatch = await fetch(`${ctx.baseUrl}/api/companies/${compCustom.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({ color: 'niebieski' }),
+    });
+    expect(badPatch.status).toBe(400);
+
+    // 5. PATCH poprawny hex -> 200 i utrwalenie w /api/state
+    const goodPatch = await fetch(`${ctx.baseUrl}/api/companies/${compCustom.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({ color: '#be123c' }),
+    });
+    expect(goodPatch.status).toBe(200);
+    expect((await goodPatch.json()).company.color).toBe('#BE123C');
+
+    const stateRes = await fetch(`${ctx.baseUrl}/api/state`, {
+      headers: { Cookie: adminCookie },
+    });
+    const stateJson = await stateRes.json();
+    const saved = stateJson.state.companies.find((c: any) => c.id === compCustom.id);
+    expect(saved.color).toBe('#BE123C');
   });
 });

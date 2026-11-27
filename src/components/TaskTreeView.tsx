@@ -19,12 +19,15 @@ import {
   CornerLeftUp,
   X,
   AlertCircle,
+  AlertTriangle,
 } from 'lucide-react';
-import { useVariables } from '../hooks/useVariables';
+import { useAppTimezone, useVariables } from '../hooks/useVariables';
+import { getCompanyBadgeColors, useIsDarkTheme } from '../utils/colorContrast';
+import { evaluateProjectDeadline } from '../utils/deadlines';
 import { copyToClipboard } from '../utils/clipboard';
 import { canAccessProject } from '../utils/access';
 import { canReparent } from '../utils/taskTree';
-import { getProjectDisplayName } from '../utils/projectMeta';
+import { getProjectDisplayName, isProjectStatusClosed } from '../utils/projectMeta';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { ProjectNameLabel } from './ProjectNameLabel';
@@ -64,7 +67,9 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
   onAddTask,
   onReparentTask,
 }) => {
-  const { deadlineWarningDays: warningDays } = useVariables();
+  const { deadlineWarningDays: warningDays, projectStatuses, projectDeadline } = useVariables();
+  const appTimezone = useAppTimezone();
+  const isDark = useIsDarkTheme();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(() => {
@@ -864,8 +869,9 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
                   const comp = companies.find((c) => c.id === currentProject.companyId);
                   return comp ? (
                     <span
+                      style={getCompanyBadgeColors(comp, isDark ? 'dark' : 'light')}
                       title={`Firma prowadząca: ${comp.name}`}
-                      className="font-mono text-xs font-bold px-2 py-1 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                      className="font-mono text-xs font-bold px-2 py-1 rounded border"
                     >
                       {comp.letter}
                     </span>
@@ -915,9 +921,43 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
               <span className="text-[10px] uppercase font-semibold text-slate-600 dark:text-slate-400 block">
                 Czas trwania:
               </span>
-              <span className="font-mono text-slate-800 dark:text-slate-200">
-                {currentProject.startDate} do {currentProject.dueDate} ({currentProject.durationDays || 30} dni)
-              </span>
+              {(() => {
+                const projDeadlineEval = evaluateProjectDeadline(currentProject.dueDate, projectDeadline, {
+                  isClosed: isProjectStatusClosed(currentProject.status, projectStatuses),
+                  isArchived: currentProject.isArchived,
+                  timezone: appTimezone,
+                });
+                return (
+                  <span className="font-mono text-slate-800 dark:text-slate-200 inline-flex flex-wrap items-center gap-1">
+                    <span>{currentProject.startDate} do</span>
+                    <span
+                      className={
+                        projDeadlineEval.isRed
+                          ? 'text-rose-700 dark:text-rose-400 font-bold inline-flex items-center gap-0.5'
+                          : ''
+                      }
+                    >
+                      {projDeadlineEval.isRed && (
+                        <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden="true" />
+                      )}
+                      <span>{currentProject.dueDate}</span>
+                    </span>
+                    {projDeadlineEval.showCounter && projDeadlineEval.text && (
+                      <span
+                        data-testid="project-deadline-counter"
+                        className={`font-sans text-[11px] ${
+                          projDeadlineEval.isRed
+                            ? 'text-rose-700 dark:text-rose-400 font-semibold'
+                            : 'text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        ({projDeadlineEval.text})
+                      </span>
+                    )}
+                    <span>({currentProject.durationDays || 30} dni)</span>
+                  </span>
+                );
+              })()}
             </div>
 
             <div>

@@ -17,6 +17,7 @@ import { isApproachingOfficialDeadline, getBusinessDaysRemaining } from '../util
 import { getTodayIso } from '../utils/today';
 import { isPolishHoliday } from '../utils/polishHolidays';
 import { getProjectDisplayName } from '../utils/projectMeta';
+import { getCompanyBadgeColors, useIsDarkTheme } from '../utils/colorContrast';
 import { ProjectNameLabel } from './ProjectNameLabel';
 
 interface CalendarViewProps {
@@ -45,6 +46,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   onSelectTask,
   onOpenNewTaskWithDate,
 }) => {
+  const isDark = useIsDarkTheme();
   // Current calendar view date: start from current month
   const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
 
@@ -350,8 +352,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                                   : undefined;
                                 return comp ? (
                                   <span
+                                    style={getCompanyBadgeColors(comp, isDark ? 'dark' : 'light')}
                                     title={comp.name}
-                                    className="font-mono text-[9px] font-bold px-1 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 shrink-0"
+                                    className="font-mono text-[9px] font-bold px-1 rounded border shrink-0"
                                   >
                                     {comp.letter}
                                   </span>

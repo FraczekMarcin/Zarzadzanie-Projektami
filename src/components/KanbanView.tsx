@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { isApproachingOfficialDeadline, getBusinessDaysRemaining } from '../utils/businessDays';
 import { getTodayIso } from '../utils/today';
+import { getCompanyBadgeColors, useIsDarkTheme } from '../utils/colorContrast';
 import { ProjectNameLabel } from './ProjectNameLabel';
 
 interface KanbanViewProps {
@@ -54,6 +55,7 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
   onOpenNewTask,
   onUpdateStatus,
 }) => {
+  const isDark = useIsDarkTheme();
   // Mode: 'active' (completed tasks removed from board), 'completed' (view dedicated to done tasks), 'all_columns' (include column 5)
   const [viewTab, setViewTab] = useState<'active' | 'completed'>('active');
   const [showDoneColumnOnBoard, setShowDoneColumnOnBoard] = useState(false);
@@ -404,8 +406,9 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
                                   : undefined;
                                 return comp ? (
                                   <span
+                                    style={getCompanyBadgeColors(comp, isDark ? 'dark' : 'light')}
                                     title={comp.name}
-                                    className="font-mono text-[9px] font-bold px-1 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 shrink-0"
+                                    className="font-mono text-[9px] font-bold px-1 rounded border shrink-0"
                                   >
                                     {comp.letter}
                                   </span>

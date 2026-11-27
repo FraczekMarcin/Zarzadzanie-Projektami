@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Task, Project, User, ActivityLog, Comment, Company, ProjectNumberingSettings } from '../types';
 import type { NotificationToast } from './useAuthSession';
 import { attemptSilentDeviceLogin } from '../utils/deviceLoginClient';
-import { setServerVariables } from '../utils/variableSettings';
+import { setAppTimezone, setServerVariables } from '../utils/variableSettings';
 import { normalizeProgressWeighting, ProgressWeighting } from '../utils/progress';
 import { normalizeSubmitError, parseApiErrorResponse } from './useFormSubmit';
 
@@ -142,6 +142,9 @@ export function useServerSync({
         }
         if (s.variables) {
           setServerVariables(s.variables);
+        }
+        if (typeof s.appTimezone === 'string') {
+          setAppTimezone(s.appTimezone);
         }
         if (s.progressWeighting !== undefined && setProgressWeighting) {
           setProgressWeighting(normalizeProgressWeighting(s.progressWeighting));

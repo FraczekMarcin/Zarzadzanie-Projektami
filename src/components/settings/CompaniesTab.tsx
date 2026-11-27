@@ -22,6 +22,15 @@ import type {
 import { useFocusTrap } from '../../utils/useFocusTrap';
 import { useDismissOnOutsideClick } from '../../hooks/useDismissOnOutsideClick';
 import { parseApiErrorResponse, useFormSubmit } from '../../hooks/useFormSubmit';
+import {
+  COMPANY_COLOR_PALETTE,
+  getCompanyBadgeColors,
+  getDefaultCompanyColor,
+  isValidCompanyColor,
+  normalizeCompanyColor,
+  resolveCompanyColor,
+  useIsDarkTheme,
+} from '../../utils/colorContrast';
 import { FormError } from '../FormError';
 import { useSettingsTabDirty } from './SettingsDirtyContext';
 
@@ -57,8 +66,12 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
     [usedLetters]
   );
 
+  const isDark = useIsDarkTheme();
+
   const [newName, setNewName] = useState('');
   const [newLetter, setNewLetter] = useState<string>('A');
+  const [newColor, setNewColor] = useState<string>(() => getDefaultCompanyColor('A'));
+  const [newColorTouched, setNewColorTouched] = useState(false);
   const [newNip, setNewNip] = useState('');
   const [newAddress, setNewAddress] = useState('');
   const [newVatPayer, setNewVatPayer] = useState<boolean>(true);
@@ -72,10 +85,11 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
     projectNumbering?.defaultCompanyId || ''
   );
 
-  // Edycja istniejącej firmy
+  // Edycja istniejcej firmy
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editLetter, setEditLetter] = useState('');
+  const [editColor, setEditColor] = useState('');
   const [editNip, setEditNip] = useState('');
   const [editAddress, setEditAddress] = useState('');
   const [editIsActive, setEditIsActive] = useState(true);
@@ -121,9 +135,13 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
 
   useEffect(() => {
     if (availableLetters.length > 0 && !availableLetters.includes(newLetter)) {
-      setNewLetter(availableLetters[0]);
+      const next = availableLetters[0];
+      setNewLetter(next);
+      if (!newColorTouched) {
+        setNewColor(getDefaultCompanyColor(next));
+      }
     }
-  }, [availableLetters, newLetter]);
+  }, [availableLetters, newLetter, newColorTouched]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -144,6 +162,7 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
         defaultCompanyId !== serverDefaultCompanyId ||
         editingId !== null ||
         newName.trim() ||
+        newColorTouched ||
         newNip.trim() ||
         newAddress.trim() ||
         !newVatPayer ||
@@ -216,16 +235,27 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
       return;
     }
 
+    const trimmedColor = newColor.trim();
+    if (trimmedColor && !isValidCompanyColor(trimmedColor)) {
+      companySubmit.setValidationError(
+        'Kolor firmy musi być zapisany w formacie heksadecymalnym #RRGGBB (np. #1D4ED8).',
+        'color'
+      );
+      return;
+    }
+
     setSuccessMsg(null);
     await companySubmit.submit(
       async () => {
+        const letterUpper = newLetter.trim().toUpperCase();
         const res = await fetch('/api/companies', {
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name: trimmedName,
-            letter: newLetter.trim().toUpperCase(),
+            letter: letterUpper,
+            color: normalizeCompanyColor(trimmedColor) || getDefaultCompanyColor(letterUpper),
             nip: newNip.trim() || undefined,
             address: newAddress.trim() || undefined,
             isActive: true,
@@ -239,6 +269,8 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
         }
         const data = await res.json().catch(() => ({}));
         setNewName('');
+        setNewColor(getDefaultCompanyColor(letterUpper));
+        setNewColorTouched(false);
         setNewNip('');
         setNewAddress('');
         setNewVatPayer(true);
@@ -255,6 +287,7 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
     setEditingId(company.id);
     setEditName(company.name);
     setEditLetter(company.letter);
+    setEditColor(resolveCompanyColor(company));
     setEditNip(company.nip || '');
     setEditAddress(company.address || '');
     setEditIsActive(company.isActive);
@@ -301,8 +334,18 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
       return;
     }
 
+    const trimmedColor = editColor.trim();
+    if (!isValidCompanyColor(trimmedColor)) {
+      companySubmit.setValidationError(
+        'Kolor firmy musi być zapisany w formacie heksadecymalnym #RRGGBB (np. #1D4ED8).',
+        'color'
+      );
+      return;
+    }
+
     const payload: Record<string, any> = {
       name: trimmedName,
+      color: normalizeCompanyColor(trimmedColor),
       nip: editNip.trim(),
       address: editAddress.trim(),
       isActive: editIsActive,
@@ -503,7 +546,13 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
                 <select
                   id="new-company-letter"
                   value={newLetter}
-                  onChange={(e) => setNewLetter(e.target.value)}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setNewLetter(next);
+                    if (!newColorTouched) {
+                      setNewColor(getDefaultCompanyColor(next));
+                    }
+                  }}
                   className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-2 text-xs font-mono font-bold text-slate-900 dark:text-white"
                 >
                   {availableLetters.map((l) => (
@@ -616,6 +665,86 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
                   <Plus className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>Dodaj firmę</span>
                 </button>
+              </div>
+            </div>
+
+            {/* Kolor firmy (paleta 12 kolorów + hex #RRGGBB) */}
+            <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label
+                  htmlFor="new-company-color-hex"
+                  className="font-semibold text-slate-700 dark:text-slate-300 text-xs"
+                >
+                  Kolor firmy (paleta 12 kolorów lub kod #RRGGBB)
+                </label>
+                <span
+                  style={getCompanyBadgeColors(
+                    isValidCompanyColor(newColor) ? newColor : getDefaultCompanyColor(newLetter),
+                    isDark ? 'dark' : 'light'
+                  )}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded border text-xs font-semibold"
+                >
+                  <span className="font-mono font-bold">{newLetter}</span>
+                  <span>{newName.trim() || 'Podgląd plakietki'}</span>
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Paleta kolorów nowej firmy">
+                  {COMPANY_COLOR_PALETTE.map((swatch) => {
+                    const active = normalizeCompanyColor(newColor) === swatch.hex;
+                    return (
+                      <button
+                        key={swatch.hex}
+                        type="button"
+                        onClick={() => {
+                          setNewColor(swatch.hex);
+                          setNewColorTouched(true);
+                        }}
+                        aria-label={`Kolor ${swatch.name} (${swatch.hex})`}
+                        aria-pressed={active}
+                        title={`${swatch.name} (${swatch.hex})`}
+                        style={{ backgroundColor: swatch.hex }}
+                        className={`w-6 h-6 rounded-md border flex items-center justify-center transition-transform ${
+                          active
+                            ? 'ring-2 ring-sky-600 ring-offset-1 dark:ring-offset-slate-900 border-slate-900 dark:border-white scale-110'
+                            : 'border-slate-300 dark:border-slate-600'
+                        }`}
+                      >
+                        {active && (
+                          <Check
+                            className="w-3.5 h-3.5"
+                            style={{ color: getCompanyBadgeColors(swatch.hex, isDark ? 'dark' : 'light').color }}
+                            aria-hidden="true"
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center gap-1.5 ml-auto">
+                  <input
+                    type="color"
+                    aria-label="Wybierz własny kolor nowej firmy"
+                    value={isValidCompanyColor(newColor) ? newColor : getDefaultCompanyColor(newLetter)}
+                    onChange={(e) => {
+                      setNewColor(e.target.value.toUpperCase());
+                      setNewColorTouched(true);
+                    }}
+                    className="w-7 h-7 rounded border border-slate-300 dark:border-slate-700 bg-transparent cursor-pointer p-0"
+                  />
+                  <input
+                    id="new-company-color-hex"
+                    type="text"
+                    maxLength={7}
+                    value={newColor}
+                    onChange={(e) => {
+                      setNewColor(e.target.value);
+                      setNewColorTouched(true);
+                    }}
+                    placeholder="#1D4ED8"
+                    className="w-24 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-mono uppercase text-slate-900 dark:text-white"
+                  />
+                </div>
               </div>
             </div>
 
@@ -818,6 +947,76 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
                         )}
                       </div>
 
+                      <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <label
+                            htmlFor={`edit-color-${company.id}`}
+                            className="font-semibold text-slate-700 dark:text-slate-300 text-xs"
+                          >
+                            Kolor firmy (#RRGGBB)
+                          </label>
+                          <span
+                            style={getCompanyBadgeColors(
+                              isValidCompanyColor(editColor) ? editColor : resolveCompanyColor(company),
+                              isDark ? 'dark' : 'light'
+                            )}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded border text-xs font-semibold"
+                          >
+                            <span className="font-mono font-bold">{editLetter}</span>
+                            <span>{editName.trim() || company.name}</span>
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={`Paleta kolorów firmy ${company.name}`}>
+                            {COMPANY_COLOR_PALETTE.map((swatch) => {
+                              const active = normalizeCompanyColor(editColor) === swatch.hex;
+                              return (
+                                <button
+                                  key={swatch.hex}
+                                  type="button"
+                                  onClick={() => setEditColor(swatch.hex)}
+                                  aria-label={`Kolor ${swatch.name} (${swatch.hex})`}
+                                  aria-pressed={active}
+                                  title={`${swatch.name} (${swatch.hex})`}
+                                  style={{ backgroundColor: swatch.hex }}
+                                  className={`w-6 h-6 rounded-md border flex items-center justify-center transition-transform ${
+                                    active
+                                      ? 'ring-2 ring-sky-600 ring-offset-1 dark:ring-offset-slate-900 border-slate-900 dark:border-white scale-110'
+                                      : 'border-slate-300 dark:border-slate-600'
+                                  }`}
+                                >
+                                  {active && (
+                                    <Check
+                                      className="w-3.5 h-3.5"
+                                      style={{ color: getCompanyBadgeColors(swatch.hex, isDark ? 'dark' : 'light').color }}
+                                      aria-hidden="true"
+                                    />
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div className="flex items-center gap-1.5 ml-auto">
+                            <input
+                              type="color"
+                              aria-label={`Wybierz własny kolor firmy ${company.name}`}
+                              value={isValidCompanyColor(editColor) ? editColor : resolveCompanyColor(company)}
+                              onChange={(e) => setEditColor(e.target.value.toUpperCase())}
+                              className="w-7 h-7 rounded border border-slate-300 dark:border-slate-700 bg-transparent cursor-pointer p-0"
+                            />
+                            <input
+                              id={`edit-color-${company.id}`}
+                              type="text"
+                              maxLength={7}
+                              value={editColor}
+                              onChange={(e) => setEditColor(e.target.value)}
+                              placeholder="#1D4ED8"
+                              className="w-24 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-xs font-mono uppercase text-slate-900 dark:text-white"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
                       {projCount > 0 && (
                         <p className="text-[11px] text-slate-600 dark:text-slate-400">
                           Litery firmy nie można zmienić, ponieważ posiada przypisane projekty ({projCount}).
@@ -847,7 +1046,11 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
                   ) : (
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex items-start gap-3 min-w-0">
-                        <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg font-mono text-sm font-bold bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-800 shrink-0">
+                        <span
+                          style={getCompanyBadgeColors(company, isDark ? 'dark' : 'light')}
+                          title={`Kolor firmy: ${resolveCompanyColor(company)}`}
+                          className="inline-flex items-center justify-center w-8 h-8 rounded-lg font-mono text-sm font-bold border shrink-0"
+                        >
                           {company.letter}
                         </span>
                         <div className="min-w-0 space-y-0.5">

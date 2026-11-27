@@ -9,6 +9,7 @@ import { normalizeStateStructure } from '../utils/stateStore.js';
 import {
   DEFAULT_CLIENTS,
   DEFAULT_DEADLINE_WARNING_DAYS,
+  DEFAULT_PROJECT_DEADLINE_SETTINGS,
   DEFAULT_PROJECT_PRIORITIES,
   DEFAULT_PROJECT_STATUSES,
   DEFAULT_TASK_TYPES,
@@ -19,6 +20,7 @@ import {
   clearOphStorageOnLogout,
   getClients,
   getDeadlineWarningDays,
+  getProjectDeadlineSettings,
   getTaskTypes,
   getVatRates,
   hasLegacyLocalVariables,
@@ -167,6 +169,7 @@ describe('P54: Zmienne systemowe na serwerze, RBAC, walidacja, migracja i czyszc
     expect(legacyState.variables?.taskTypes).toEqual(DEFAULT_TASK_TYPES);
     expect(legacyState.variables?.projectStatuses).toEqual(DEFAULT_PROJECT_STATUSES);
     expect(legacyState.variables?.projectPriorities).toEqual(DEFAULT_PROJECT_PRIORITIES);
+    expect(legacyState.variables?.projectDeadline).toEqual(DEFAULT_PROJECT_DEADLINE_SETTINGS);
   });
 
   it('filterStateForUser ukrywa listę klientów dla ról innych niż admin i project_manager oraz usuwa variables dla niezalogowanych', () => {
@@ -468,6 +471,7 @@ describe('P54: Zmienne systemowe na serwerze, RBAC, walidacja, migracja i czyszc
     expect(getTaskTypes()).toHaveLength(1);
     expect(getTaskTypes()[0].name).toBe('Nadzór');
     expect(getDeadlineWarningDays()).toBe(9);
+    expect(getProjectDeadlineSettings()).toEqual(DEFAULT_PROJECT_DEADLINE_SETTINGS);
     expect(getClients()).toEqual([]);
   });
 
@@ -607,5 +611,60 @@ describe('P54: Zmienne systemowe na serwerze, RBAC, walidacja, migracja i czyszc
     const delUsedPriorityJson = await delUsedPriorityRes.json();
     expect(delUsedPriorityJson.field).toBe('projectPriorities');
     expect(delUsedPriorityJson.inUseProjects.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('P78: PUT /api/admin/variables waliduje progi ostrzeżeń i mrugania terminów projektów (projectDeadline)', async () => {
+    ctx = await startServer();
+    const { cookie: adminCookie } = await setupAdmin(ctx.baseUrl);
+
+    const expectBadVars = async (payload: unknown) => {
+      const res = await fetch(`${ctx!.baseUrl}/api/admin/variables`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+        body: JSON.stringify(payload),
+      });
+      expect(res.status).toBe(400);
+    };
+
+    // Nieprawidłowe typy i zakresy (1-365, liczby całkowite, criticalDays < warnDays, blinkEnabled boolean)
+    await expectBadVars({ projectDeadline: 'invalid' });
+    await expectBadVars({ projectDeadline: { warnDays: 0, criticalDays: 7, blinkEnabled: true } });
+    await expectBadVars({ projectDeadline: { warnDays: 366, criticalDays: 7, blinkEnabled: true } });
+    await expectBadVars({ projectDeadline: { warnDays: 30, criticalDays: 0, blinkEnabled: true } });
+    await expectBadVars({ projectDeadline: { warnDays: 30, criticalDays: 366, blinkEnabled: true } });
+    await expectBadVars({ projectDeadline: { warnDays: 10.5, criticalDays: 3, blinkEnabled: true } });
+    await expectBadVars({ projectDeadline: { warnDays: 10, criticalDays: 10, blinkEnabled: true } });
+    await expectBadVars({ projectDeadline: { warnDays: 10, criticalDays: 12, blinkEnabled: true } });
+    await expectBadVars({ projectDeadline: { warnDays: 30, criticalDays: 7, blinkEnabled: 'yes' } });
+
+    // Poprawny zapis aktualizuje stan i raportuje changedSections = ['projectDeadline']
+    const okRes = await fetch(`${ctx.baseUrl}/api/admin/variables`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        projectDeadline: { warnDays: 45, criticalDays: 10, blinkEnabled: false },
+      }),
+    });
+    expect(okRes.status).toBe(200);
+    const okJson = await okRes.json();
+    expect(okJson.changedSections).toEqual(['projectDeadline']);
+    expect(okJson.variables.projectDeadline).toEqual({
+      warnDays: 45,
+      criticalDays: 10,
+      blinkEnabled: false,
+    });
+
+    // Stan po odczycie GET /api/state zachowuje zapisane progi i udostępnia appTimezone
+    const stateRes = await fetch(`${ctx.baseUrl}/api/state`, {
+      headers: { Cookie: adminCookie },
+    });
+    expect(stateRes.status).toBe(200);
+    const stateJson = await stateRes.json();
+    expect(stateJson.state.variables.projectDeadline).toEqual({
+      warnDays: 45,
+      criticalDays: 10,
+      blinkEnabled: false,
+    });
+    expect(typeof stateJson.state.appTimezone).toBe('string');
   });
 });

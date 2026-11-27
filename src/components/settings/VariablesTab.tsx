@@ -20,6 +20,7 @@ import {
   ChevronDown,
   ChevronRight,
   Plus,
+  AlertTriangle,
 } from 'lucide-react';
 import type {
   Project,
@@ -150,6 +151,15 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
   const [warningDaysInput, setWarningDaysInput] = useState<string>(
     String(serverVars.deadlineWarningDays)
   );
+  const [projWarnDaysInput, setProjWarnDaysInput] = useState<string>(
+    String(serverVars.projectDeadline?.warnDays ?? 30)
+  );
+  const [projCriticalDaysInput, setProjCriticalDaysInput] = useState<string>(
+    String(serverVars.projectDeadline?.criticalDays ?? 7)
+  );
+  const [projBlinkEnabledInput, setProjBlinkEnabledInput] = useState<boolean>(
+    serverVars.projectDeadline?.blinkEnabled ?? true
+  );
   const [newVatRate, setNewVatRate] = useState<number>(23);
   const [newVatLabel, setNewVatLabel] = useState<string>('23% Podstawowa');
   const [newVatExempt, setNewVatExempt] = useState<boolean>(false);
@@ -211,6 +221,12 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
   }, [serverVars.deadlineWarningDays, isOpen]);
 
   useEffect(() => {
+    setProjWarnDaysInput(String(serverVars.projectDeadline?.warnDays ?? 30));
+    setProjCriticalDaysInput(String(serverVars.projectDeadline?.criticalDays ?? 7));
+    setProjBlinkEnabledInput(serverVars.projectDeadline?.blinkEnabled ?? true);
+  }, [serverVars.projectDeadline, isOpen]);
+
+  useEffect(() => {
     if (!isOpen) {
       clearError();
       setSaveSuccess(null);
@@ -228,6 +244,9 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
     isOpen &&
       isAdmin &&
       (warningDaysInput !== String(serverVars.deadlineWarningDays) ||
+        projWarnDaysInput !== String(serverVars.projectDeadline?.warnDays ?? 30) ||
+        projCriticalDaysInput !== String(serverVars.projectDeadline?.criticalDays ?? 7) ||
+        projBlinkEnabledInput !== (serverVars.projectDeadline?.blinkEnabled ?? true) ||
         newVatRate !== 23 ||
         (newVatLabel.trim() !== '' && newVatLabel !== '23% Podstawowa') ||
         newVatExempt !== false ||
@@ -320,6 +339,52 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
       return;
     }
     await persistPatch({ deadlineWarningDays: parsed }, 'Zapisano liczbę dni ostrzeżenia o terminie.');
+  };
+
+  const handleSaveProjectDeadline = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isAdmin) return;
+    setSaveSuccess(null);
+    const warnDays = Number(projWarnDaysInput.trim());
+    const criticalDays = Number(projCriticalDaysInput.trim());
+
+    if (
+      projWarnDaysInput.trim() === '' ||
+      !Number.isInteger(warnDays) ||
+      warnDays < VARIABLES_LIMITS.projectDeadlineDaysMin ||
+      warnDays > VARIABLES_LIMITS.projectDeadlineDaysMax
+    ) {
+      setValidationError(
+        `Próg ostrzeżenia terminu projektu musi być liczbą całkowitą z zakresu ${VARIABLES_LIMITS.projectDeadlineDaysMin}–${VARIABLES_LIMITS.projectDeadlineDaysMax} dni.`
+      );
+      return;
+    }
+    if (
+      projCriticalDaysInput.trim() === '' ||
+      !Number.isInteger(criticalDays) ||
+      criticalDays < VARIABLES_LIMITS.projectDeadlineDaysMin ||
+      criticalDays > VARIABLES_LIMITS.projectDeadlineDaysMax
+    ) {
+      setValidationError(
+        `Próg krytyczny terminu projektu musi być liczbą całkowitą z zakresu ${VARIABLES_LIMITS.projectDeadlineDaysMin}–${VARIABLES_LIMITS.projectDeadlineDaysMax} dni.`
+      );
+      return;
+    }
+    if (criticalDays >= warnDays) {
+      setValidationError('Próg krytyczny musi być mniejszy niż próg ostrzeżenia.');
+      return;
+    }
+
+    await persistPatch(
+      {
+        projectDeadline: {
+          warnDays,
+          criticalDays,
+          blinkEnabled: projBlinkEnabledInput,
+        },
+      },
+      'Zapisano ustawienia ostrzeżeń i mrugania terminów projektów.'
+    );
   };
 
   const handleAddVatRate = async (e: React.FormEvent) => {
@@ -1061,6 +1126,84 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
               </button>
             )}
           </div>
+        </div>
+      </form>
+
+      {/* Section: Project Deadline Warning & Blink Thresholds */}
+      <form
+        onSubmit={handleSaveProjectDeadline}
+        className="p-4 bg-rose-50/70 dark:bg-rose-950/25 border border-rose-200 dark:border-rose-900/60 rounded-xl space-y-3"
+      >
+        <div>
+          <h4 className="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-700 dark:text-rose-400" aria-hidden="true" />
+            <span>Ostrzeżenia i mruganie terminów projektów</span>
+          </h4>
+          <p className="text-slate-600 dark:text-slate-300 text-[11px] mt-0.5">
+            Dla projektów niezakończonych termin wyświetlany jest na czerwono od progu ostrzeżenia, a od progu krytycznego oraz po terminie mruga z całym wierszem lub kafelkiem (z poszanowaniem preferencji użytkownika i prefers-reduced-motion).
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-4 pt-1">
+          <div>
+            <label
+              htmlFor="settings-project-deadline-warn"
+              className="block text-[11px] font-semibold text-slate-700 dark:text-slate-200 mb-1"
+            >
+              Próg ostrzeżenia (czerwony termin, dni):
+            </label>
+            <input
+              id="settings-project-deadline-warn"
+              type="number"
+              min={VARIABLES_LIMITS.projectDeadlineDaysMin}
+              max={VARIABLES_LIMITS.projectDeadlineDaysMax}
+              disabled={!isAdmin || isSaving}
+              value={projWarnDaysInput}
+              onChange={(e) => setProjWarnDaysInput(e.target.value)}
+              className="w-24 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 text-xs text-slate-900 dark:text-white font-mono font-bold text-center disabled:opacity-60"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="settings-project-deadline-critical"
+              className="block text-[11px] font-semibold text-slate-700 dark:text-slate-200 mb-1"
+            >
+              Próg krytyczny (mruganie, dni &lt; progu ostrz.):
+            </label>
+            <input
+              id="settings-project-deadline-critical"
+              type="number"
+              min={VARIABLES_LIMITS.projectDeadlineDaysMin}
+              max={VARIABLES_LIMITS.projectDeadlineDaysMax}
+              disabled={!isAdmin || isSaving}
+              value={projCriticalDaysInput}
+              onChange={(e) => setProjCriticalDaysInput(e.target.value)}
+              className="w-24 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2.5 py-1 text-xs text-slate-900 dark:text-white font-mono font-bold text-center disabled:opacity-60"
+            />
+          </div>
+
+          <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200 cursor-pointer pb-1">
+            <input
+              id="settings-project-deadline-blink"
+              type="checkbox"
+              disabled={!isAdmin || isSaving}
+              checked={projBlinkEnabledInput}
+              onChange={(e) => setProjBlinkEnabledInput(e.target.checked)}
+              className="rounded border-slate-300 dark:border-slate-700 text-rose-700"
+            />
+            <span>Globalnie włączone mruganie</span>
+          </label>
+
+          {isAdmin && (
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="px-3 py-1 bg-rose-700 hover:bg-rose-800 disabled:opacity-50 text-white rounded font-semibold text-xs transition-colors"
+            >
+              Zapisz progi terminów
+            </button>
+          )}
         </div>
       </form>
 
