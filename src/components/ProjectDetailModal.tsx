@@ -95,6 +95,7 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
   const [newDelUnit, setNewDelUnit] = useState<string>(DELIVERABLE_LIMITS.defaultUnit);
   const [deliverablesError, setDeliverablesError] = useState<string | null>(null);
   const [isSavingDeliverables, setIsSavingDeliverables] = useState(false);
+  const [pendingDeliverables, setPendingDeliverables] = useState<ProjectDeliverable[] | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
@@ -114,7 +115,8 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
   const priorityMeta = resolveProjectPriority(project.priority, projectPriorities);
   const typeMeta = resolveProjectType(project.typeId, projectTypes);
   const subtypeMeta = resolveProjectSubtype(project.typeId, project.subtypeId, projectTypes);
-  const deliverables = Array.isArray(project.deliverables) ? project.deliverables : [];
+  const serverDeliverables = Array.isArray(project.deliverables) ? project.deliverables : [];
+  const deliverables = pendingDeliverables ?? serverDeliverables;
   const deliverablesSummary = getDeliverablesSummary(deliverables);
 
   const projectTasks = tasks.filter((t) => t.projectId === project.id);
@@ -150,20 +152,25 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
   const persistDeliverables = async (nextList: ProjectDeliverable[]) => {
     if (!onUpdateDeliverables || isSavingDeliverables) return;
     setDeliverablesError(null);
+    setPendingDeliverables(nextList);
     setIsSavingDeliverables(true);
     try {
       const res = await onUpdateDeliverables(project, nextList);
       if (res && typeof res === 'object' && 'ok' in res && !res.ok) {
+        setPendingDeliverables(null);
         setDeliverablesError(res.error || 'Nie udało się zapisać elementów do odbioru.');
+      } else {
+        setPendingDeliverables(null);
       }
     } catch (err: any) {
+      setPendingDeliverables(null);
       setDeliverablesError(err?.message || 'Nie udało się zapisać elementów do odbioru.');
     } finally {
       setIsSavingDeliverables(false);
     }
   };
 
-  const handleToggleDeliverable = async (itemId: string) => {
+  const handleToggleDeliverable = (itemId: string) => {
     const nextList = deliverables.map((d) =>
       d.id === itemId
         ? {
@@ -175,7 +182,7 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
           }
         : d
     );
-    await persistDeliverables(nextList);
+    void persistDeliverables(nextList);
   };
 
   const handleMoveDeliverable = async (index: number, delta: -1 | 1) => {

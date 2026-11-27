@@ -78,6 +78,7 @@ test.describe.serial('P77: Rodzaje projektów, nazwa skrócona (podpowiedź na f
   let baseUrl = '';
   let devUserId = '';
   let project1Key = '';
+  let project1Id = '';
 
   const FULL_NAME_1 = 'Budowa kompleksu biurowego przy ulicy Żwirki i Wigury';
   const SHORT_NAME_1 = 'Żwirki Biurowiec';
@@ -217,6 +218,7 @@ test.describe.serial('P77: Rodzaje projektów, nazwa skrócona (podpowiedź na f
     expect(createRes1.status()).toBe(201);
     const created1 = (await createRes1.json()).project;
     project1Key = created1.key;
+    project1Id = created1.id;
     expect(created1.shortName).toBe(SHORT_NAME_1);
     expect(created1.typeId).toBe('projekt_budowlany');
     expect(created1.subtypeId).toBe('architektura');
@@ -322,7 +324,7 @@ test.describe.serial('P77: Rodzaje projektów, nazwa skrócona (podpowiedź na f
     await firstCb.check();
     expect((await patchPromise1).status()).toBe(200);
     await expect(detailDialog.getByText('Wykonano 1 z 2')).toBeVisible();
-    await expect(detailDialog.getByText(/Administrator Pracowni/)).toBeVisible();
+    await expect(detailDialog.getByText(/Wykonano:.*Administrator Pracowni/)).toBeVisible();
 
     await detailDialog.getByRole('button', { name: 'Zamknij szczegóły projektu' }).click();
     await expect(page.getByText('Wykonano 1 z 2').first()).toBeVisible();
@@ -361,6 +363,20 @@ test.describe.serial('P77: Rodzaje projektów, nazwa skrócona (podpowiedź na f
   }) => {
     await loginThroughUi(page, baseUrl, ADMIN_EMAIL, ADMIN_PASS);
 
+    // Szablon z projektu wymaga co najmniej jednego zadania — dodaj zadanie do Projektu 1
+    const addTaskRes = await page.request.post(`${baseUrl}/api/tasks`, {
+      data: {
+        projectId: project1Id,
+        title: 'Koordynacja międzybranżowa',
+        startDate: '2026-10-01',
+        endDate: '2026-10-05',
+        durationDays: 5,
+      },
+    });
+    expect(addTaskRes.status()).toBe(201);
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Ustawienia systemu' })).toBeVisible();
+
     // Utwórz szablon z projektu 1 (powinien przejąć typeId='projekt_budowlany' i 2 elementy)
     await page.getByRole('button', { name: 'Ustawienia systemu' }).click();
     const settingsDialog = page.getByRole('dialog', { name: /Ustawienia Pracowni/i });
@@ -382,7 +398,10 @@ test.describe.serial('P77: Rodzaje projektów, nazwa skrócona (podpowiedź na f
     await expect(fromProjDialog).toBeHidden();
 
     // Otwórz edytor szablonu i dodaj domyślny element do odbioru
-    await settingsDialog.getByRole('button', { name: 'Edytuj', exact: true }).first().click();
+    const createdTplCard = settingsDialog
+      .locator('div.p-4.rounded-xl', { hasText: 'Szablon P77 z Projektu' })
+      .first();
+    await createdTplCard.getByRole('button', { name: 'Edytuj', exact: true }).click();
     const editorDialog = page.getByRole('dialog', {
       name: /Edytor szablonu: Szablon P77 z Projektu/i,
     });
