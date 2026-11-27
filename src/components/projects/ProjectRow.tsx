@@ -6,12 +6,13 @@ import {
   resolveProjectSubtype,
   resolveProjectType,
 } from '../../utils/projectMeta';
-import { getCompanyBadgeColors, useIsDarkTheme } from '../../utils/colorContrast';
+import { getCompanyBadgeColors } from '../../utils/colorContrast';
+import { useIsDarkTheme } from '../../hooks/useIsDarkTheme';
+import { evaluateProjectDeadline } from '../../utils/deadlines';
 import {
-  evaluateProjectDeadline,
   useDeadlineBlinkPreference,
   usePrefersReducedMotion,
-} from '../../utils/deadlines';
+} from '../../hooks/useDeadlines';
 import { useAppTimezone, useVariables } from '../../hooks/useVariables';
 import { AlertTriangle, Archive } from 'lucide-react';
 import { useProjectNameTooltip } from '../ProjectNameLabel';

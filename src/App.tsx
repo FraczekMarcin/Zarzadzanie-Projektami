@@ -59,7 +59,8 @@ import { isDemoProject } from './utils/demoData';
 import { sortTasksByPriorityAndDueDate } from './utils/taskSorting';
 import { canViewFinance } from './utils/access';
 import { getProjectDisplayName, isProjectStatusClosed } from './utils/projectMeta';
-import { getCompanyBadgeColors, useIsDarkTheme } from './utils/colorContrast';
+import { getCompanyBadgeColors } from './utils/colorContrast';
+import { useIsDarkTheme } from './hooks/useIsDarkTheme';
 import { evaluateProjectDeadline } from './utils/deadlines';
 import { useAppTimezone, useVariables } from './hooks/useVariables';
 import {

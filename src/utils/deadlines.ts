@@ -1,5 +1,3 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
-
 // TODO: Uzupełnić obsługę po doprecyzowaniu uciętego wymagania:
 // "po terminie projektu podana liczba dni do tego terminu z możliwości robienia..."
 
@@ -293,31 +291,4 @@ export function subscribeDeadlineBlinkPref(listener: () => void): () => void {
     blinkPrefListeners.delete(listener);
     window.removeEventListener('storage', onStorage);
   };
-}
-
-export function useDeadlineBlinkPreference(): [boolean, (enabled: boolean) => void] {
-  const enabled = useSyncExternalStore(
-    subscribeDeadlineBlinkPref,
-    loadDeadlineBlinkPref,
-    () => true
-  );
-  return [enabled, saveDeadlineBlinkPref];
-}
-
-export function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState<boolean>(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return false;
-    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  });
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return;
-    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-    setReduced(mq.matches);
-    const handler = (e: MediaQueryListEvent) => setReduced(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
-
-  return reduced;
 }

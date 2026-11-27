@@ -61,9 +61,37 @@ jobs:
 
       - name: Weryfikacja uruchomienia i test dymny kontenera (GET /api/health, GET /server.js oraz Docker HEALTHCHECK)
         run: |
+          dump_container_diagnostics() {
+            echo "--- docker ps -a ---"
+            docker ps -a --filter name=zp || true
+            echo "--- Stan i licznik restartów kontenera zp ---"
+            docker inspect -f 'Status={{.State.Status}} Running={{.State.Running}} Restarting={{.State.Restarting}} RestartCount={{.RestartCount}} ExitCode={{.State.ExitCode}} Health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' zp || true
+            echo "--- docker logs zp ---"
+            docker logs zp || true
+            echo "--- .State.Health.Log ---"
+            docker inspect -f '{{range .State.Health.Log}}Start={{.Start}} End={{.End}} ExitCode={{.ExitCode}} Output={{.Output}}{{printf "\n"}}{{end}}' zp || true
+          }
+
+          check_not_crashing_or_looping() {
+            CONTAINER_STATE=$(docker inspect -f '{{.State.Status}}' zp 2>/dev/null || echo "missing")
+            RESTART_COUNT=$(docker inspect -f '{{.RestartCount}}' zp 2>/dev/null || echo "0")
+            if [ "$RESTART_COUNT" -gt 0 ] 2>/dev/null; then
+              echo "Błąd: Kontener zp restartuje się w pętli (RestartCount=$RESTART_COUNT, status=$CONTAINER_STATE)."
+              dump_container_diagnostics
+              exit 1
+            fi
+            if [ "$CONTAINER_STATE" != "running" ]; then
+              echo "Błąd: Kontener zp nie jest uruchomiony (aktualny status: $CONTAINER_STATE)."
+              dump_container_diagnostics
+              exit 1
+            fi
+          }
+
           echo "Oczekiwanie na uruchomienie aplikacji (do 30 s)..."
           SUCCESS=0
+          STATUS=""
           for i in {1..30}; do
+            check_not_crashing_or_looping
             STATUS=$(curl -s -o /tmp/health.json -w "%{http_code}" http://127.0.0.1:3000/api/health || true)
             if [ "$STATUS" = "200" ]; then
               SUCCESS=1
@@ -74,12 +102,14 @@ jobs:
 
           if [ "$SUCCESS" -ne 1 ]; then
             echo "Błąd: Serwer nie odpowiedział statusem 200 na /api/health w ciągu 30 s (ostatni status: $STATUS)."
+            dump_container_diagnostics
             exit 1
           fi
 
           if ! grep -q '"status":"ok"' /tmp/health.json; then
             echo "Błąd: Odpowiedź /api/health nie zawiera '\"status\":\"ok\"':"
-            cat /tmp/health.json
+            cat /tmp/health.json || true
+            dump_container_diagnostics
             exit 1
           fi
           echo "Endpoint /api/health zwrócił status 200 oraz '\"status\":\"ok\"'."
@@ -87,6 +117,7 @@ jobs:
           CTYPE=$(curl -s -I http://127.0.0.1:3000/server.js | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type" {print $2}')
           if [[ "$CTYPE" != *"text/html"* ]]; then
             echo "Błąd: GET /server.js zwrócił Content-Type: '$CTYPE', oczekiwano 'text/html'."
+            dump_container_diagnostics
             exit 1
           fi
           echo "Endpoint /server.js poprawnie zwrócił fallback HTML (Content-Type: $CTYPE) bez wycieku kodu źródłowego."
@@ -94,19 +125,22 @@ jobs:
           echo "Oczekiwanie na status healthy kontenera Docker (do 90 s)..."
           HEALTH_STATUS=""
           for i in {1..45}; do
+            check_not_crashing_or_looping
             HEALTH_STATUS=$(docker inspect -f '{{.State.Health.Status}}' zp 2>/dev/null || echo "unknown")
             if [ "$HEALTH_STATUS" = "healthy" ]; then
               break
+            fi
+            if [ "$HEALTH_STATUS" = "unhealthy" ]; then
+              echo "Błąd: Kontener zp zgłosił status 'unhealthy'."
+              dump_container_diagnostics
+              exit 1
             fi
             sleep 2
           done
 
           if [ "$HEALTH_STATUS" != "healthy" ]; then
             echo "Błąd: Kontener zp nie osiągnął statusu 'healthy' w ciągu 90 s (aktualny status: $HEALTH_STATUS)."
-            echo "--- docker logs zp ---"
-            docker logs zp || true
-            echo "--- .State.Health.Log ---"
-            docker inspect -f '{{range .State.Health.Log}}Start={{.Start}} End={{.End}} ExitCode={{.ExitCode}} Output={{.Output}}{{printf "\n"}}{{end}}' zp || true
+            dump_container_diagnostics
             exit 1
           fi
           echo "Kontener zp osiągnął status 'healthy'."

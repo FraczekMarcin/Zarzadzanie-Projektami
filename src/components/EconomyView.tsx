@@ -16,7 +16,8 @@ import { canEditFinance } from '../utils/access';
 import { isPaymentOverdue } from '../utils/finance';
 import { calcGrossFromNet } from '../utils/money';
 import { getTodayIso } from '../utils/today';
-import { getCompanyBadgeColors, useIsDarkTheme } from '../utils/colorContrast';
+import { getCompanyBadgeColors } from '../utils/colorContrast';
+import { useIsDarkTheme } from '../hooks/useIsDarkTheme';
 import {
   evaluateProjectDeadline,
   getTodayIsoInTimezone,

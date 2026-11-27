@@ -23,7 +23,8 @@ import {
 } from 'lucide-react';
 import { isApproachingOfficialDeadline, getBusinessDaysRemaining } from '../utils/businessDays';
 import { getTodayIso } from '../utils/today';
-import { getCompanyBadgeColors, useIsDarkTheme } from '../utils/colorContrast';
+import { getCompanyBadgeColors } from '../utils/colorContrast';
+import { useIsDarkTheme } from '../hooks/useIsDarkTheme';
 import { ProjectNameLabel } from './ProjectNameLabel';
 
 interface TaskListViewProps {

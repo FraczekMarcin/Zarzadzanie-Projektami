@@ -17,7 +17,8 @@ import { isApproachingOfficialDeadline, getBusinessDaysRemaining } from '../util
 import { getTodayIso } from '../utils/today';
 import { isPolishHoliday } from '../utils/polishHolidays';
 import { getProjectDisplayName } from '../utils/projectMeta';
-import { getCompanyBadgeColors, useIsDarkTheme } from '../utils/colorContrast';
+import { getCompanyBadgeColors } from '../utils/colorContrast';
+import { useIsDarkTheme } from '../hooks/useIsDarkTheme';
 import { ProjectNameLabel } from './ProjectNameLabel';
 
 interface CalendarViewProps {

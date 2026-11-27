@@ -29,8 +29,8 @@ import {
   isValidCompanyColor,
   normalizeCompanyColor,
   resolveCompanyColor,
-  useIsDarkTheme,
 } from '../../utils/colorContrast';
+import { useIsDarkTheme } from '../../hooks/useIsDarkTheme';
 import { FormError } from '../FormError';
 import { useSettingsTabDirty } from './SettingsDirtyContext';
 

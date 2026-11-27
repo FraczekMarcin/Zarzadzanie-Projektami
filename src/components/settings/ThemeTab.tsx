@@ -4,7 +4,7 @@ import type { ThemeMode } from '../../utils/theme';
 import {
   useDeadlineBlinkPreference,
   usePrefersReducedMotion,
-} from '../../utils/deadlines';
+} from '../../hooks/useDeadlines';
 import { useVariables } from '../../hooks/useVariables';
 
 export interface ThemeTabProps {

@@ -23,7 +23,8 @@ import { isApproachingOfficialDeadline, getBusinessDaysRemaining } from '../util
 import { getTodayIso, parseIsoDate } from '../utils/today';
 import { isPolishHoliday } from '../utils/polishHolidays';
 import { getProjectDisplayName, hasDistinctShortName } from '../utils/projectMeta';
-import { getCompanyBadgeColors, useIsDarkTheme } from '../utils/colorContrast';
+import { getCompanyBadgeColors } from '../utils/colorContrast';
+import { useIsDarkTheme } from '../hooks/useIsDarkTheme';
 import { ProjectNameLabel } from './ProjectNameLabel';
 
 interface GanttChartProps {
