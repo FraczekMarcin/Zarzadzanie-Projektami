@@ -63,6 +63,7 @@ import { useVariables } from '../../hooks/useVariables';
 import { useFormSubmit } from '../../hooks/useFormSubmit';
 import { FormError } from '../FormError';
 import { useSettingsTabDirty } from './SettingsDirtyContext';
+import { can } from '../../utils/permissions';
 
 export interface VariablesTabProps {
   isOpen: boolean;
@@ -78,7 +79,8 @@ export const VariablesTab: React.FC<VariablesTabProps> = ({
   const reportTabDirty = useSettingsTabDirty();
   const serverVars = useVariables();
   const isAdmin = currentUser?.role === 'admin';
-  const canViewClients = currentUser?.role === 'admin' || currentUser?.role === 'project_manager';
+  const canViewClients =
+    can(currentUser, 'finance.view') || can(currentUser, 'clients.edit');
 
   const vatRates = serverVars.vatRates;
   const clients = serverVars.clients;

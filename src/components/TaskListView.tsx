@@ -26,12 +26,14 @@ import { getTodayIso } from '../utils/today';
 import { getCompanyBadgeColors } from '../utils/colorContrast';
 import { useIsDarkTheme } from '../hooks/useIsDarkTheme';
 import { ProjectNameLabel } from './ProjectNameLabel';
+import { can, canUserUseCompanyPermission } from '../utils/permissions';
 
 interface TaskListViewProps {
   tasks: Task[];
   projects: Project[];
   companies?: Company[];
   users: User[];
+  currentUser?: User | null;
   selectedProjectId: string | null;
   onSelectTask: (task: Task) => void;
   onOpenNewTask: () => void;
@@ -44,6 +46,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
   projects,
   companies = [],
   users,
+  currentUser,
   selectedProjectId,
   onSelectTask,
   onOpenNewTask,
@@ -57,6 +60,21 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
   const [sortBy, setSortBy] = useState<'dueDate' | 'priority' | 'progress' | 'code' | 'durationDays'>('priority');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  const canCreateTask = useMemo(() => {
+    if (!currentUser) return true;
+    const selectedProj = selectedProjectId
+      ? projects.find((p) => p.id === selectedProjectId)
+      : undefined;
+    if (selectedProj) {
+      return can(currentUser, 'tasks.edit', selectedProj);
+    }
+    return (
+      can(currentUser, 'tasks.edit') ||
+      canUserUseCompanyPermission(currentUser, 'tasks.edit') ||
+      projects.some((p) => can(currentUser, 'tasks.edit', p))
+    );
+  }, [currentUser, projects, selectedProjectId]);
 
   // Counts
   const projectTasks = useMemo(() => {
@@ -284,8 +302,17 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
 
           <button
             type="button"
-            onClick={onOpenNewTask}
-            className="flex items-center gap-1.5 bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 text-white text-xs font-medium px-3.5 py-1.5 rounded transition-colors shadow-xs"
+            disabled={!canCreateTask}
+            title={
+              !canCreateTask
+                ? 'Brak uprawnienia: tasks.edit. Poproś administratora.'
+                : undefined
+            }
+            onClick={() => {
+              if (!canCreateTask) return;
+              onOpenNewTask();
+            }}
+            className="flex items-center gap-1.5 bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white disabled:text-slate-600 dark:disabled:text-slate-400 disabled:cursor-not-allowed text-xs font-medium px-3.5 py-1.5 rounded transition-colors shadow-xs"
           >
             <Plus className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Nowe zadanie</span>
@@ -531,50 +558,70 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                     </td>
 
                     <td className="py-2.5 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
-                        {task.status === 'done' ? (
-                          <button
-                            type="button"
-                            onClick={() => onUpdateStatus(task.id, 'in_progress')}
-                            className="p-1 text-sky-700 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40 rounded transition-colors"
-                            title="Przywróć zadanie do aktywnych"
-                            aria-label={`Przywróć zadanie ${task.code} do aktywnych`}
-                          >
-                            <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => onUpdateStatus(task.id, 'done')}
-                            className="p-1 text-slate-600 dark:text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400 rounded transition-colors"
-                            title="Oznacz jako ukończone"
-                            aria-label={`Oznacz zadanie ${task.code} jako ukończone`}
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
-                          </button>
-                        )}
+                      {(() => {
+                        const canEditRowTask = currentUser
+                          ? can(currentUser, 'tasks.edit', { type: 'task', task, project })
+                          : true;
+                        const missingTaskPermMsg = 'Brak uprawnienia: tasks.edit. Poproś administratora.';
+                        return (
+                          <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+                            {task.status === 'done' ? (
+                              <button
+                                type="button"
+                                disabled={!canEditRowTask}
+                                onClick={() => {
+                                  if (!canEditRowTask) return;
+                                  onUpdateStatus(task.id, 'in_progress');
+                                }}
+                                className="p-1 text-sky-700 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40 disabled:opacity-40 disabled:cursor-not-allowed rounded transition-colors"
+                                title={canEditRowTask ? 'Przywróć zadanie do aktywnych' : missingTaskPermMsg}
+                                aria-label={`Przywróć zadanie ${task.code} do aktywnych`}
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={!canEditRowTask}
+                                onClick={() => {
+                                  if (!canEditRowTask) return;
+                                  onUpdateStatus(task.id, 'done');
+                                }}
+                                className="p-1 text-slate-600 dark:text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed rounded transition-colors"
+                                title={canEditRowTask ? 'Oznacz jako ukończone' : missingTaskPermMsg}
+                                aria-label={`Oznacz zadanie ${task.code} jako ukończone`}
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
+                              </button>
+                            )}
 
-                        <a
-                          href={gCalUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="p-1 text-slate-600 dark:text-slate-400 hover:text-sky-700 dark:hover:text-sky-400 rounded transition-colors"
-                          title="Eksportuj do Google Calendar"
-                          aria-label={`Eksportuj zadanie ${task.code} do Google Calendar`}
-                        >
-                          <Calendar className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400" aria-hidden="true" />
-                        </a>
+                            <a
+                              href={gCalUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-1 text-slate-600 dark:text-slate-400 hover:text-sky-700 dark:hover:text-sky-400 rounded transition-colors"
+                              title="Eksportuj do Google Calendar"
+                              aria-label={`Eksportuj zadanie ${task.code} do Google Calendar`}
+                            >
+                              <Calendar className="w-3.5 h-3.5 text-sky-700 dark:text-sky-400" aria-hidden="true" />
+                            </a>
 
-                        <button
-                          type="button"
-                          onClick={() => onDeleteTask(task.id)}
-                          className="p-1 text-slate-600 dark:text-slate-400 hover:text-rose-700 dark:hover:text-rose-400 rounded transition-colors"
-                          title="Usuń zadanie"
-                          aria-label={`Usuń zadanie ${task.code}`}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                        </button>
-                      </div>
+                            <button
+                              type="button"
+                              disabled={!canEditRowTask}
+                              onClick={() => {
+                                if (!canEditRowTask) return;
+                                onDeleteTask(task.id);
+                              }}
+                              className="p-1 text-slate-600 dark:text-slate-400 hover:text-rose-700 dark:hover:text-rose-400 disabled:opacity-40 disabled:cursor-not-allowed rounded transition-colors"
+                              title={canEditRowTask ? 'Usuń zadanie' : missingTaskPermMsg}
+                              aria-label={`Usuń zadanie ${task.code}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                            </button>
+                          </div>
+                        );
+                      })()}
                     </td>
                   </tr>
                 );

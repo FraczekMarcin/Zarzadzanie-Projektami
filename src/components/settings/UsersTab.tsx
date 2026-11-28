@@ -39,6 +39,7 @@ export interface UsersTabProps {
     newPass: string,
     currentPass?: string
   ) => Promise<FormSubmitResult | boolean | void> | void;
+  onOpenUserPermissions?: (userId: string) => void;
 }
 
 export const UsersTab: React.FC<UsersTabProps> = ({
@@ -53,6 +54,7 @@ export const UsersTab: React.FC<UsersTabProps> = ({
   onUserUpdated,
   onRefreshUsers,
   onUpdateUserPassword,
+  onOpenUserPermissions,
 }) => {
   const reportTabDirty = useSettingsTabDirty();
   const [settingsCurrentPassword, setSettingsCurrentPassword] = useState('');
@@ -540,6 +542,16 @@ export const UsersTab: React.FC<UsersTabProps> = ({
                 )}
                 {currentUser?.role === 'admin' && (
                   <>
+                    {onOpenUserPermissions && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenUserPermissions(u.id)}
+                        className="px-2 py-1 text-[11px] font-semibold text-indigo-700 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 rounded transition-colors"
+                        title="Edytuj rolę, grupy, firmy oraz indywidualne uprawnienia użytkownika"
+                      >
+                        Uprawnienia
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() =>

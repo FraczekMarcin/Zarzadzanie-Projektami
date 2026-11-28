@@ -26,12 +26,14 @@ import { getTodayIso } from '../utils/today';
 import { getCompanyBadgeColors } from '../utils/colorContrast';
 import { useIsDarkTheme } from '../hooks/useIsDarkTheme';
 import { ProjectNameLabel } from './ProjectNameLabel';
+import { can, canUserUseCompanyPermission } from '../utils/permissions';
 
 interface KanbanViewProps {
   tasks: Task[];
   projects: Project[];
   companies?: Company[];
   users: User[];
+  currentUser?: User | null;
   selectedProjectId: string | null;
   onSelectTask: (task: Task) => void;
   onOpenNewTask: () => void;
@@ -51,12 +53,27 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
   projects,
   companies = [],
   users,
+  currentUser,
   selectedProjectId,
   onSelectTask,
   onOpenNewTask,
   onUpdateStatus,
 }) => {
   const isDark = useIsDarkTheme();
+  const canCreateTask = useMemo(() => {
+    if (!currentUser) return true;
+    const selectedProj = selectedProjectId
+      ? projects.find((p) => p.id === selectedProjectId)
+      : undefined;
+    if (selectedProj) {
+      return can(currentUser, 'tasks.edit', selectedProj);
+    }
+    return (
+      can(currentUser, 'tasks.edit') ||
+      canUserUseCompanyPermission(currentUser, 'tasks.edit') ||
+      projects.some((p) => can(currentUser, 'tasks.edit', p))
+    );
+  }, [currentUser, projects, selectedProjectId]);
   // Mode: 'active' (completed tasks removed from board), 'completed' (view dedicated to done tasks), 'all_columns' (include column 5)
   const [viewTab, setViewTab] = useState<'active' | 'completed'>('active');
   const [showDoneColumnOnBoard, setShowDoneColumnOnBoard] = useState(false);
@@ -280,8 +297,17 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
 
           <button
             type="button"
-            onClick={onOpenNewTask}
-            className="flex items-center gap-1.5 bg-slate-900 dark:bg-sky-600 hover:bg-slate-800 dark:hover:bg-sky-700 text-white text-xs font-medium px-3 py-1.5 rounded transition-colors shadow-xs"
+            disabled={!canCreateTask}
+            title={
+              !canCreateTask
+                ? 'Brak uprawnienia: tasks.edit. Poproś administratora.'
+                : undefined
+            }
+            onClick={() => {
+              if (!canCreateTask) return;
+              onOpenNewTask();
+            }}
+            className="flex items-center gap-1.5 bg-slate-900 dark:bg-sky-600 hover:bg-slate-800 dark:hover:bg-sky-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white disabled:text-slate-600 dark:disabled:text-slate-400 disabled:cursor-not-allowed text-xs font-medium px-3 py-1.5 rounded transition-colors shadow-xs"
           >
             <Plus className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Nowe zadanie</span>
@@ -313,9 +339,17 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
                   {col.id === 'to_do' && (
                     <button
                       type="button"
-                      onClick={onOpenNewTask}
-                      className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white p-0.5 rounded transition-colors"
-                      title="Dodaj zadanie"
+                      disabled={!canCreateTask}
+                      onClick={() => {
+                        if (!canCreateTask) return;
+                        onOpenNewTask();
+                      }}
+                      className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white disabled:opacity-40 disabled:cursor-not-allowed p-0.5 rounded transition-colors"
+                      title={
+                        canCreateTask
+                          ? 'Dodaj zadanie'
+                          : 'Brak uprawnienia: tasks.edit. Poproś administratora.'
+                      }
                       aria-label="Dodaj nowe zadanie"
                     >
                       <Plus className="w-4 h-4" aria-hidden="true" />

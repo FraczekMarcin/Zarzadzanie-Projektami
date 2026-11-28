@@ -41,6 +41,7 @@ export interface CompaniesTabProps {
   currentUser: User | null;
   companies: Company[];
   projects: Project[];
+  users?: User[];
   projectNumbering: ProjectNumberingSettings;
   onRefreshState?: () => Promise<void> | void;
 }
@@ -50,11 +51,22 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
   currentUser,
   companies,
   projects,
+  users = [],
   projectNumbering,
   onRefreshState,
 }) => {
   const reportTabDirty = useSettingsTabDirty();
   const isAdmin = currentUser?.role === 'admin';
+  const memberCountByCompany = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const u of users) {
+      if (!u || u.isApproved === false || !Array.isArray(u.companyIds)) continue;
+      for (const cid of u.companyIds) {
+        map.set(cid, (map.get(cid) || 0) + 1);
+      }
+    }
+    return map;
+  }, [users]);
 
   // Formularz nowej firmy
   const usedLetters = useMemo(
@@ -1083,6 +1095,9 @@ export const CompaniesTab: React.FC<CompaniesTabProps> = ({
                             )}
                             <span className="font-mono text-[11px] text-slate-600 dark:text-slate-400">
                               Projekty: {projCount}
+                            </span>
+                            <span className="font-mono text-[11px] text-slate-600 dark:text-slate-400">
+                              Członkowie: {memberCountByCompany.get(company.id) || 0}
                             </span>
                           </div>
                           {(company.nip || company.address || (company.vatPayer === false && company.vatExemptionBasis)) && (

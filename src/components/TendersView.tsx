@@ -15,6 +15,7 @@ import { ProjectNameLabel } from './ProjectNameLabel';
 import { getTodayIso } from '../utils/today';
 import {
   buildTenderQueryParams,
+  canEditTender,
   exportTendersCsv,
   formatTenderPercent,
   formatTenderPln,
@@ -397,14 +398,28 @@ export const TendersView: React.FC<TendersViewProps> = ({
             <span>{isExportingCsv ? 'Eksportowanie...' : 'Eksport CSV'}</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => setFormState({ isOpen: true, editingTender: null })}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-sky-700 dark:bg-sky-700 hover:bg-sky-800 dark:hover:bg-sky-600 text-white text-xs font-semibold transition-colors whitespace-nowrap"
-          >
-            <Plus className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Dodaj przetarg</span>
-          </button>
+          {(() => {
+            const canCreateTender = canEditTender(currentUser);
+            return (
+              <button
+                type="button"
+                disabled={!canCreateTender}
+                title={
+                  !canCreateTender
+                    ? 'Brak uprawnienia: tenders.edit. Poproś administratora.'
+                    : undefined
+                }
+                onClick={() => {
+                  if (!canCreateTender) return;
+                  setFormState({ isOpen: true, editingTender: null });
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-sky-700 dark:bg-sky-700 hover:bg-sky-800 dark:hover:bg-sky-600 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white disabled:text-slate-600 dark:disabled:text-slate-400 disabled:cursor-not-allowed text-xs font-semibold transition-colors whitespace-nowrap"
+              >
+                <Plus className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Dodaj przetarg</span>
+              </button>
+            );
+          })()}
         </div>
       </div>
 

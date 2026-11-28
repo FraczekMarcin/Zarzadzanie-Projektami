@@ -1,6 +1,7 @@
 import React from 'react';
 import { Project, User } from '../../types';
 import { canViewFinance } from '../../utils/access';
+import { can } from '../../utils/permissions';
 import { Archive, ArchiveRestore, Download, Edit3, Eye, Receipt, Trash2 } from 'lucide-react';
 
 export interface ProjectActionsProps {
@@ -31,7 +32,9 @@ export const ProjectActions: React.FC<ProjectActionsProps> = ({
   onDelete,
 }) => {
   const canViewProjectFinance = canViewFinance(currentUser, project);
-  const isAdmin = currentUser.role === 'admin';
+  const canEditProject = can(currentUser, 'projects.edit', project);
+  const canArchiveProject = can(currentUser, 'projects.archive', project);
+  const canDeleteProject = Boolean(onDelete && can(currentUser, 'projects.delete', project));
   const iconButtonPadding = variant === 'row' ? 'p-1.5' : 'p-1';
 
   return (
@@ -60,9 +63,17 @@ export const ProjectActions: React.FC<ProjectActionsProps> = ({
 
       <button
         type="button"
-        onClick={() => onEdit(project)}
-        className={`${iconButtonPadding} text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors`}
-        title="Edytuj projekt i dane Zamawiającego"
+        disabled={!canEditProject}
+        onClick={() => {
+          if (!canEditProject) return;
+          onEdit(project);
+        }}
+        className={`${iconButtonPadding} text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed rounded transition-colors`}
+        title={
+          canEditProject
+            ? 'Edytuj projekt i dane Zamawiającego'
+            : 'Brak uprawnienia: projects.edit. Poproś administratora.'
+        }
         aria-label={`Edytuj projekt ${project.key}`}
       >
         <Edit3 className="w-3.5 h-3.5" aria-hidden="true" />
@@ -78,13 +89,21 @@ export const ProjectActions: React.FC<ProjectActionsProps> = ({
         <Download className="w-3.5 h-3.5" aria-hidden="true" />
       </button>
 
-      {project.isArchived && isAdmin ? (
+      {project.isArchived ? (
         <div className="flex items-center gap-1">
           <button
             type="button"
-            onClick={() => onRestore(project)}
-            className="px-2 py-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/60 rounded flex items-center gap-1 transition-colors border border-emerald-200 dark:border-emerald-800 whitespace-nowrap shrink-0"
-            title="Przywróć projekt z archiwum do bieżącej pracy"
+            disabled={!canArchiveProject}
+            onClick={() => {
+              if (!canArchiveProject) return;
+              onRestore(project);
+            }}
+            className="px-2 py-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/60 disabled:opacity-40 disabled:cursor-not-allowed rounded flex items-center gap-1 transition-colors border border-emerald-200 dark:border-emerald-800 whitespace-nowrap shrink-0"
+            title={
+              canArchiveProject
+                ? 'Przywróć projekt z archiwum do bieżącej pracy'
+                : 'Brak uprawnienia: projects.archive. Poproś administratora.'
+            }
             aria-label={`Przywróć projekt ${project.key}`}
           >
             <ArchiveRestore className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
@@ -93,9 +112,17 @@ export const ProjectActions: React.FC<ProjectActionsProps> = ({
           {onDelete && (
             <button
               type="button"
-              onClick={() => onDelete(project)}
-              className="px-2 py-1 text-[11px] font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60 rounded flex items-center gap-1 transition-colors border border-rose-200 dark:border-rose-800 whitespace-nowrap shrink-0"
-              title="Całkowicie usuń projekt z bazy danych"
+              disabled={!canDeleteProject}
+              onClick={() => {
+                if (!canDeleteProject) return;
+                onDelete(project);
+              }}
+              className="px-2 py-1 text-[11px] font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60 disabled:opacity-40 disabled:cursor-not-allowed rounded flex items-center gap-1 transition-colors border border-rose-200 dark:border-rose-800 whitespace-nowrap shrink-0"
+              title={
+                canDeleteProject
+                  ? 'Całkowicie usuń projekt z bazy danych'
+                  : 'Brak uprawnienia: projects.delete. Poproś administratora.'
+              }
               aria-label={`Usuń projekt ${project.key} z bazy`}
             >
               <Trash2 className="w-3.5 h-3.5 text-rose-700 dark:text-rose-400" aria-hidden="true" />
@@ -105,24 +132,38 @@ export const ProjectActions: React.FC<ProjectActionsProps> = ({
         </div>
       ) : (
         <>
-          {isAdmin && (
-            <button
-              type="button"
-              onClick={() => onArchive(project)}
-              className={`${iconButtonPadding} text-slate-600 dark:text-slate-400 hover:text-purple-700 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/40 rounded transition-colors`}
-              title="Przenieś projekt do archiwum (Tylko Administrator)"
-              aria-label={`Przenieś projekt ${project.key} do archiwum`}
-            >
-              <Archive className="w-3.5 h-3.5 text-purple-700 dark:text-purple-400" aria-hidden="true" />
-            </button>
-          )}
+          <button
+            type="button"
+            disabled={!canArchiveProject}
+            onClick={() => {
+              if (!canArchiveProject) return;
+              onArchive(project);
+            }}
+            className={`${iconButtonPadding} text-slate-600 dark:text-slate-400 hover:text-purple-700 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/40 disabled:opacity-40 disabled:cursor-not-allowed rounded transition-colors`}
+            title={
+              canArchiveProject
+                ? 'Przenieś projekt do archiwum'
+                : 'Brak uprawnienia: projects.archive. Poproś administratora.'
+            }
+            aria-label={`Przenieś projekt ${project.key} do archiwum`}
+          >
+            <Archive className="w-3.5 h-3.5 text-purple-700 dark:text-purple-400" aria-hidden="true" />
+          </button>
 
           {onDelete && (
             <button
               type="button"
-              onClick={() => onDelete(project)}
-              className={`${iconButtonPadding} text-slate-600 dark:text-slate-400 hover:text-rose-700 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded transition-colors`}
-              title="Usuń projekt"
+              disabled={!canDeleteProject}
+              onClick={() => {
+                if (!canDeleteProject) return;
+                onDelete(project);
+              }}
+              className={`${iconButtonPadding} text-slate-600 dark:text-slate-400 hover:text-rose-700 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 disabled:opacity-40 disabled:cursor-not-allowed rounded transition-colors`}
+              title={
+                canDeleteProject
+                  ? 'Usuń projekt'
+                  : 'Brak uprawnienia: projects.delete. Poproś administratora.'
+              }
               aria-label={`Usuń projekt ${project.key}`}
             >
               <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />

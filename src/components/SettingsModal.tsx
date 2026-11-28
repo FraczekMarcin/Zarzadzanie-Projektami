@@ -15,17 +15,20 @@ import {
   Bell,
   Building2,
   Layers,
+  ShieldCheck,
 } from 'lucide-react';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { ThemeMode, getThemePreference, setThemePreference } from '../utils/theme';
 import { CURRENT_APP_VERSION } from '../data/dockerConfig';
 import { getAutoBackupConfig, saveAutoBackupConfig } from '../utils/autoBackup';
 import { User, Project, Task, Company, ProjectNumberingSettings } from '../types';
+import { can } from '../utils/permissions';
 import { copyToClipboard } from '../utils/clipboard';
 import { useVariables } from '../hooks/useVariables';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { DiscardChangesModal } from './DiscardChangesModal';
 import { SettingsDirtyProvider, useSettingsAnyDirty } from './settings/SettingsDirtyContext';
+import type { PermissionsSubtab } from './settings/PermissionsTab';
 
 const ThemeTab = lazy(() =>
   import('./settings/ThemeTab').then((m) => ({ default: m.ThemeTab }))
@@ -66,6 +69,9 @@ const CompaniesTab = lazy(() =>
 const ProjectTemplatesTab = lazy(() =>
   import('./settings/ProjectTemplatesTab').then((m) => ({ default: m.ProjectTemplatesTab }))
 );
+const PermissionsTab = lazy(() =>
+  import('./settings/PermissionsTab').then((m) => ({ default: m.PermissionsTab }))
+);
 
 export type SettingsTab =
   | 'theme'
@@ -73,6 +79,7 @@ export type SettingsTab =
   | 'companies'
   | 'templates'
   | 'users'
+  | 'permissions'
   | 'security'
   | 'smtp'
   | 'notifications'
@@ -165,6 +172,8 @@ const SettingsModalContent: React.FC<SettingsModalProps> = ({
   useFocusTrap({ isOpen, onClose: requestClose, containerRef: modalRef });
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+  const [permissionsSubtab, setPermissionsSubtab] = useState<PermissionsSubtab>('roles');
+  const [permissionsTargetUserId, setPermissionsTargetUserId] = useState<string | null>(null);
   const [currentTheme, setCurrentTheme] = useState<ThemeMode>('system');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [backupEnabled, setBackupEnabled] = useState(false);
@@ -174,6 +183,10 @@ const SettingsModalContent: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab);
+    }
+    if (!isOpen) {
+      setPermissionsTargetUserId(null);
+      setPermissionsSubtab('roles');
     }
   }, [initialTab, isOpen]);
 
@@ -341,8 +354,8 @@ const SettingsModalContent: React.FC<SettingsModalProps> = ({
                 </button>
               )}
 
-              {/* Project Templates Tab (Admin only) */}
-              {currentUser?.role === 'admin' && (
+              {/* Project Templates Tab (templates.manage) */}
+              {can(currentUser, 'templates.manage') && (
                 <button
                   type="button"
                   role="tab"
@@ -387,6 +400,29 @@ const SettingsModalContent: React.FC<SettingsModalProps> = ({
                   </span>
                 )}
               </button>
+
+              {/* Permissions Tab (Admin only) */}
+              {currentUser?.role === 'admin' && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === 'permissions'}
+                  onClick={() => {
+                    setPermissionsTargetUserId(null);
+                    setActiveTab('permissions');
+                  }}
+                  className={`w-full px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-colors ${
+                    activeTab === 'permissions'
+                      ? 'bg-sky-700 text-white shadow-xs'
+                      : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <ShieldCheck className={`w-4 h-4 shrink-0 ${activeTab === 'permissions' ? 'text-white' : 'text-indigo-700 dark:text-indigo-400'}`} aria-hidden="true" />
+                    <span>Uprawnienia</span>
+                  </div>
+                </button>
+              )}
 
               {/* Security Log Tab (Admin only) */}
               {currentUser?.role === 'admin' && (
@@ -592,12 +628,13 @@ const SettingsModalContent: React.FC<SettingsModalProps> = ({
                   currentUser={currentUser}
                   companies={companies}
                   projects={projects}
+                  users={users}
                   projectNumbering={projectNumbering}
                   onRefreshState={onRefreshState}
                 />
               )}
 
-              {activeTab === 'templates' && currentUser?.role === 'admin' && (
+              {activeTab === 'templates' && can(currentUser, 'templates.manage') && (
                 <ProjectTemplatesTab
                   isOpen={isOpen}
                   currentUser={currentUser}
@@ -620,6 +657,23 @@ const SettingsModalContent: React.FC<SettingsModalProps> = ({
                   onUserUpdated={onUserUpdated}
                   onRefreshUsers={onRefreshUsers}
                   onUpdateUserPassword={onUpdateUserPassword}
+                  onOpenUserPermissions={(userId) => {
+                    setPermissionsSubtab('users');
+                    setPermissionsTargetUserId(userId);
+                    setActiveTab('permissions');
+                  }}
+                />
+              )}
+
+              {activeTab === 'permissions' && currentUser?.role === 'admin' && (
+                <PermissionsTab
+                  isOpen={isOpen}
+                  currentUser={currentUser}
+                  initialSubtab={permissionsSubtab}
+                  initialTargetUserId={permissionsTargetUserId}
+                  onConsumeTargetUser={() => setPermissionsTargetUserId(null)}
+                  onRefreshState={onRefreshState}
+                  onRefreshUsers={onRefreshUsers}
                 />
               )}
 

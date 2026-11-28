@@ -12,6 +12,7 @@ import {
   Clock,
 } from 'lucide-react';
 import type { TrashEntrySummary, User } from '../types';
+import { can, canUserUseCompanyPermission } from '../utils/permissions';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 
@@ -247,8 +248,10 @@ export const TrashView: React.FC<TrashViewProps> = ({
             {isLoading ? 'Ładowanie kosza...' : 'Kosz jest pusty'}
           </h3>
           <p className="text-xs text-slate-600 dark:text-slate-400 max-w-md mx-auto">
-            {currentUser?.role === 'viewer'
-              ? 'Rola viewer (tylko do odczytu) nie ma dostępu do zawartości kosza ani jego przywracania.'
+            {currentUser?.role === 'viewer' &&
+            !can(currentUser, 'trash.manage') &&
+            !canUserUseCompanyPermission(currentUser, 'trash.manage')
+              ? 'Brak uprawnienia: trash.manage. Poproś administratora.'
               : `Brak usuniętych zadań ani projektów możliwych do przywrócenia. Usunięte elementy są przechowywane przez ${retentionDays} dni.`}
           </p>
         </div>

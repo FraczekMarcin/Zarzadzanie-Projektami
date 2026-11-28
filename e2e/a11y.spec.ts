@@ -48,6 +48,7 @@ const SETTINGS_TABS: Array<{ key: string; name: string }> = [
   { key: 'settings-templates', name: 'Szablony projektów' },
   { key: 'settings-companies', name: 'Firmy' },
   { key: 'settings-users', name: 'Użytkownicy & Zgody' },
+  { key: 'settings-permissions', name: 'Uprawnienia' },
   { key: 'settings-security', name: 'Dziennik bezpieczeństwa' },
   { key: 'settings-smtp', name: 'Poczta (SMTP)' },
   { key: 'settings-notifications', name: 'Powiadomienia' },
@@ -616,6 +617,10 @@ test.describe.serial('Audyt dostępności WCAG 2.0/2.1 (A/AA) w trybie jasnym i 
         if (tabSpec.key === 'settings-templates') {
           await expect(settingsDialog.getByText('Ładowanie szablonów...')).toHaveCount(0);
           await expect(settingsDialog.getByRole('button', { name: 'Utwórz z projektu' })).toBeVisible();
+        }
+        if (tabSpec.key === 'settings-permissions') {
+          await expect(settingsDialog.getByText('Ładowanie konfiguracji uprawnień...')).toHaveCount(0);
+          await expect(settingsDialog.getByRole('button', { name: 'Zapisz uprawnienia ról' })).toBeVisible();
         }
         await scanView(page, scanResults, tabSpec.key, `Ustawienia: ${tabSpec.name}`, theme);
 

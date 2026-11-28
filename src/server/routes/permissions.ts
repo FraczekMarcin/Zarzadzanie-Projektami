@@ -16,7 +16,7 @@ import {
   sanitizeStringIdArray,
   validateStrictPermissionList,
 } from '../../utils/permissions.js';
-import { getClientIp } from '../security.js';
+import { getClientIp, verifyAndMigratePassword } from '../security.js';
 import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore, sanitizeUser } from '../state.js';
 import { SessionStore } from '../sessions.js';
 import { logger } from '../logger.js';
@@ -94,7 +94,7 @@ export function registerPermissionRoutes(
         return res.status(400).json({ error: 'Nieprawidłowy format danych konfiguracji uprawnień.' });
       }
 
-      const allowedTopKeys = new Set(['rolePermissions', 'companyMemberPermissions']);
+      const allowedTopKeys = new Set(['rolePermissions', 'companyMemberPermissions', 'currentPassword']);
       for (const key of Object.keys(body)) {
         if (!allowedTopKeys.has(key)) {
           return res.status(400).json({ error: `Nieznane pole w żądaniu: "${key}".` });
@@ -145,6 +145,22 @@ export function registerPermissionRoutes(
           }
           nextRolePermissions[roleKey] = validation.permissions;
           changedRoles.push(roleKey);
+        }
+
+        const currentPassword =
+          typeof body.currentPassword === 'string' ? body.currentPassword : '';
+        if (!currentPassword) {
+          return res.status(400).json({
+            error: 'Wymagane podanie aktualnego hasła administratora w celu potwierdzenia zmian uprawnień ról.',
+            field: 'currentPassword',
+          });
+        }
+        const passwordOk = await verifyAndMigratePassword(caller, currentPassword, stateStore);
+        if (!passwordOk) {
+          return res.status(401).json({
+            error: 'Nieprawidłowe aktualne hasło administratora.',
+            field: 'currentPassword',
+          });
         }
       }
 

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { Project, ProjectTemplate, ProjectTemplateSummary, Task, User } from '../../types';
 import { MAX_CUSTOM_TEMPLATES } from '../../utils/templateValidation';
 import { resolveProjectType } from '../../utils/projectMeta';
+import { can } from '../../utils/permissions';
 import { useVariables } from '../../hooks/useVariables';
 import {
   clearLegacyLocalCustomTemplates,
@@ -45,7 +46,7 @@ export const ProjectTemplatesTab: React.FC<ProjectTemplatesTabProps> = ({
   tasks,
   onRefreshState,
 }) => {
-  const isAdmin = currentUser?.role === 'admin';
+  const canManageTemplates = can(currentUser, 'templates.manage');
   const { projectTypes } = useVariables();
 
   const [templates, setTemplates] = useState<ProjectTemplateSummary[]>([]);
@@ -77,7 +78,7 @@ export const ProjectTemplatesTab: React.FC<ProjectTemplatesTabProps> = ({
   }, []);
 
   const loadTemplates = useCallback(async () => {
-    if (!isAdmin) return;
+    if (!canManageTemplates) return;
     setIsLoading(true);
     try {
       const list = await fetchTemplatesList();
@@ -87,21 +88,21 @@ export const ProjectTemplatesTab: React.FC<ProjectTemplatesTabProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [isAdmin, showError]);
+  }, [canManageTemplates, showError]);
 
   useEffect(() => {
-    if (!isOpen || !isAdmin) return;
+    if (!isOpen || !canManageTemplates) return;
     setStatusMsg(null);
     setConfirmDeleteId(null);
     setLegacyTemplates(getLegacyLocalCustomTemplates());
     void loadTemplates();
-  }, [isOpen, isAdmin, loadTemplates]);
+  }, [isOpen, canManageTemplates, loadTemplates]);
 
-  if (!isAdmin) {
+  if (!canManageTemplates) {
     return (
       <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 flex items-center gap-2">
         <Lock className="w-4 h-4 shrink-0" aria-hidden="true" />
-        <span>Zarządzanie szablonami projektów jest dostępne wyłącznie dla Administratora.</span>
+        <span>Brak uprawnienia: templates.manage. Poproś administratora.</span>
       </div>
     );
   }

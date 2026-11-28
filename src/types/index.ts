@@ -69,6 +69,7 @@ export interface User {
   permissionGrants?: Permission[];
   permissionDenials?: Permission[];
   effectivePermissions?: Permission[];
+  companyMemberPermissions?: Permission[];
 }
 
 export interface QuotationItem {

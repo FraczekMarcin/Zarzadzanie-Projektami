@@ -5,6 +5,7 @@ import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { useFormSubmit, type FormSubmitResult } from '../hooks/useFormSubmit';
 import { FormError } from './FormError';
 import { FIELD_LIMITS } from '../utils/access';
+import { can } from '../utils/permissions';
 import { getProjectDisplayName } from '../utils/projectMeta';
 import { generateGoogleCalendarUrl, downloadIcsFile } from '../utils/calendar';
 import { ProjectNameLabel } from './ProjectNameLabel';
@@ -110,7 +111,14 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
   const baseId = useId();
   const titleId = `${baseId}-title`;
 
-  const isReadOnly = currentUser?.role === 'viewer' || !onUpdateTaskFields;
+  const taskProject =
+    task && Array.isArray(projects)
+      ? projects.find((p) => p.id === task.projectId)
+      : undefined;
+  const canEditThisTask = Boolean(
+    task && can(currentUser, 'tasks.edit', { type: 'task', task, project: taskProject })
+  );
+  const isReadOnly = !canEditThisTask || !onUpdateTaskFields;
 
   useEffect(() => {
     if (!task) return;
@@ -313,8 +321,17 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={handleEditButtonClick}
-              className="flex items-center gap-1 text-xs text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors font-medium"
+              disabled={!canEditThisTask}
+              title={
+                !canEditThisTask
+                  ? 'Brak uprawnienia: tasks.edit. Poproś administratora.'
+                  : undefined
+              }
+              onClick={() => {
+                if (!canEditThisTask) return;
+                handleEditButtonClick();
+              }}
+              className="flex items-center gap-1 text-xs text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
             >
               <Edit3 className="w-3.5 h-3.5 text-slate-600 dark:text-slate-300" aria-hidden="true" />
               <span>Edytuj</span>

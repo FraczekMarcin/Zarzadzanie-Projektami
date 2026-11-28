@@ -586,12 +586,14 @@ describe('P79 System uprawnień — testy jednostkowe i integracyjne', () => {
     await readUntilContains('event: permissions');
     sseAbort.abort();
 
-    // /api/auth/me zwraca zaktualizowane companyIds i effectivePermissions natychmiast
+    // /api/auth/me zwraca zaktualizowane companyIds, effectivePermissions i companyMemberPermissions natychmiast
     const devMe = await (await fetch(`${baseUrl}/api/auth/me`, { headers: { Cookie: devCookie } })).json();
     expect(devMe.companyIds).toEqual([compAId]);
     expect(devMe.effectivePermissions).toContain('templates.manage');
     expect(devMe.effectivePermissions).toContain('clients.edit');
     expect(devMe.user.effectivePermissions).toContain('templates.manage');
+    expect(Array.isArray(devMe.companyMemberPermissions)).toBe(true);
+    expect(devMe.companyMemberPermissions).toContain('projects.edit');
 
     // Deweloper może teraz tworzyć szablony dzięki grupie (bez ponownego logowania)
     const tplCreate = await fetch(`${baseUrl}/api/templates`, {
@@ -682,11 +684,32 @@ describe('P79 System uprawnień — testy jednostkowe i integracyjne', () => {
     ).json();
     expect(permAfterPostState.permissionConfig.permissionGroups.some((g: any) => g.id === groupId)).toBe(true);
 
+    // Potwierdzenie hasła wymagane przy zapisie uprawnień ról (400 brak hasła, 401 błędne hasło)
+    const missingPwAttempt = await fetch(`${baseUrl}/api/admin/permissions`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({ rolePermissions: { viewer: ['projects.view'] } }),
+    });
+    expect(missingPwAttempt.status).toBe(400);
+
+    const wrongPwAttempt = await fetch(`${baseUrl}/api/admin/permissions`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        rolePermissions: { viewer: ['projects.view'] },
+        currentPassword: 'WrongPassword999!',
+      }),
+    });
+    expect(wrongPwAttempt.status).toBe(401);
+
     // Ochrona ostatniego administratora (409) oraz nieedytowalność roli admin (400)
     const adminEditAttempt = await fetch(`${baseUrl}/api/admin/permissions`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
-      body: JSON.stringify({ rolePermissions: { admin: ['projects.view'] } }),
+      body: JSON.stringify({
+        rolePermissions: { admin: ['projects.view'] },
+        currentPassword: 'SuperPassword123!',
+      }),
     });
     expect(adminEditAttempt.status).toBe(400);
 
@@ -709,7 +732,10 @@ describe('P79 System uprawnień — testy jednostkowe i integracyjne', () => {
         await fetch(`${baseUrl}/api/admin/permissions`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
-          body: JSON.stringify({ rolePermissions: { developer: ['unknown.perm'] } }),
+          body: JSON.stringify({
+            rolePermissions: { developer: ['unknown.perm'] },
+            currentPassword: 'SuperPassword123!',
+          }),
         })
       ).status
     ).toBe(400);
@@ -753,7 +779,10 @@ describe('P79 System uprawnień — testy jednostkowe i integracyjne', () => {
             Cookie: adminCookie,
             Origin: 'https://evil.example.com',
           },
-          body: JSON.stringify({ rolePermissions: { viewer: [] } }),
+          body: JSON.stringify({
+            rolePermissions: { viewer: [] },
+            currentPassword: 'SuperPassword123!',
+          }),
         })
       ).status
     ).toBe(403);

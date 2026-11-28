@@ -20,12 +20,14 @@ import { getProjectDisplayName } from '../utils/projectMeta';
 import { getCompanyBadgeColors } from '../utils/colorContrast';
 import { useIsDarkTheme } from '../hooks/useIsDarkTheme';
 import { ProjectNameLabel } from './ProjectNameLabel';
+import { can, canUserUseCompanyPermission } from '../utils/permissions';
 
 interface CalendarViewProps {
   tasks: Task[];
   projects: Project[];
   companies?: Company[];
   users: User[];
+  currentUser?: User | null;
   selectedProjectId: string | null;
   onSelectTask: (task: Task) => void;
   onOpenNewTaskWithDate: (dateStr: string) => void;
@@ -43,6 +45,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   projects,
   companies = [],
   users,
+  currentUser,
   selectedProjectId,
   onSelectTask,
   onOpenNewTaskWithDate,
@@ -54,6 +57,18 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   const activeProject = useMemo(() => {
     return projects.find((p) => p.id === selectedProjectId);
   }, [projects, selectedProjectId]);
+
+  const canCreateTask = useMemo(() => {
+    if (!currentUser) return true;
+    if (activeProject) {
+      return can(currentUser, 'tasks.edit', activeProject);
+    }
+    return (
+      can(currentUser, 'tasks.edit') ||
+      canUserUseCompanyPermission(currentUser, 'tasks.edit') ||
+      projects.some((p) => can(currentUser, 'tasks.edit', p))
+    );
+  }, [currentUser, activeProject, projects]);
 
   const filteredTasks = useMemo(() => {
     return tasks.filter((t) => {
@@ -231,7 +246,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           return (
             <div
               key={day.dateStr}
-              onClick={() => onOpenNewTaskWithDate(day.dateStr)}
+              onClick={() => {
+                if (!canCreateTask) return;
+                onOpenNewTaskWithDate(day.dateStr);
+              }}
               className={`min-h-[110px] p-2 relative group flex flex-col justify-between transition-colors ${
                 !day.isCurrentMonth
                   ? 'bg-slate-50/60 dark:bg-slate-950/60 text-slate-600 dark:text-slate-400'
@@ -266,12 +284,18 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
                 <button
                   type="button"
+                  disabled={!canCreateTask}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (!canCreateTask) return;
                     onOpenNewTaskWithDate(day.dateStr);
                   }}
-                  className="opacity-0 group-hover:opacity-100 focus:opacity-100 focus-within:opacity-100 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white p-0.5 rounded transition-opacity"
-                  title={`Dodaj zadanie na dzień ${day.dateStr}`}
+                  className="opacity-0 group-hover:opacity-100 focus:opacity-100 focus-within:opacity-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white p-0.5 rounded transition-opacity"
+                  title={
+                    canCreateTask
+                      ? `Dodaj zadanie na dzień ${day.dateStr}`
+                      : 'Brak uprawnienia: tasks.edit. Poproś administratora.'
+                  }
                   aria-label={`Dodaj zadanie na dzień ${day.dateStr}`}
                 >
                   <Plus className="w-3.5 h-3.5" aria-hidden="true" />

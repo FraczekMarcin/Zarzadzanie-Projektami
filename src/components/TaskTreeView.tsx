@@ -27,6 +27,7 @@ import { useIsDarkTheme } from '../hooks/useIsDarkTheme';
 import { evaluateProjectDeadline } from '../utils/deadlines';
 import { copyToClipboard } from '../utils/clipboard';
 import { canAccessProject } from '../utils/access';
+import { can } from '../utils/permissions';
 import { canReparent } from '../utils/taskTree';
 import { getProjectDisplayName, isProjectStatusClosed } from '../utils/projectMeta';
 import { useFocusTrap } from '../utils/useFocusTrap';
@@ -120,11 +121,8 @@ export const TaskTreeView: React.FC<TaskTreeViewProps> = ({
   const canMoveTask = (task: Task): boolean => {
     if (!onReparentTask) return false;
     if (!currentUser) return true;
-    if (currentUser.role === 'viewer') return false;
-    if (currentUser.role === 'admin' || currentUser.role === 'project_manager') return true;
     const proj = projectById.get(task.projectId);
-    if (proj && canAccessProject(currentUser, proj)) return true;
-    return task.assigneeId === currentUser.id || task.reporterId === currentUser.id;
+    return can(currentUser, 'tasks.edit', { type: 'task', task, project: proj });
   };
 
   const hasAnyMovableTask = useMemo(

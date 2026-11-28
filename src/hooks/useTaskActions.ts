@@ -10,6 +10,7 @@ import {
   type ProgressWeighting,
 } from '../utils/progress';
 import { canAccessProject, generateTaskCode } from '../utils/access';
+import { can } from '../utils/permissions';
 import { canReparent, reconcileParentCompletionOnReparent } from '../utils/taskTree';
 import {
   normalizeSubmitError,
@@ -776,7 +777,10 @@ export function useTaskActions({
     const currentList = tasksRef.current;
     const task = currentList.find((t) => t.id === taskId);
     if (!task) return;
-    if (!currentUser || currentUser.role === 'viewer') return;
+    const targetProject = projects.find((p) => p.id === task.projectId);
+    if (!currentUser || !can(currentUser, 'tasks.edit', { type: 'task', task, project: targetProject })) {
+      return;
+    }
 
     const queued = taskPatchDebounceTimers.current.get(taskId);
     if (queued) {
@@ -841,24 +845,11 @@ export function useTaskActions({
       return { ok: false, error: 'Nie znaleziono zadania do przeniesienia.' };
     }
 
-    if (!currentUser || currentUser.role === 'viewer') {
-      const msg = 'Rola viewer posiada dostęp wyłącznie do odczytu.';
+    const targetProject = projects.find((p) => p.id === task.projectId);
+    if (!currentUser || !can(currentUser, 'tasks.edit', { type: 'task', task, project: targetProject })) {
+      const msg = 'Brak uprawnienia: tasks.edit. Poproś administratora.';
       setNotificationToast({ message: msg, type: 'error' });
       return { ok: false, error: msg };
-    }
-
-    const isAdminOrManager = currentUser.role === 'admin' || currentUser.role === 'project_manager';
-    if (!isAdminOrManager) {
-      const targetProject = projects.find((p) => p.id === task.projectId);
-      const isMember = targetProject ? canAccessProject(currentUser, targetProject) : false;
-      const isAssigneeOrReporter =
-        (task.assigneeId && task.assigneeId === currentUser.id) ||
-        (task.reporterId && task.reporterId === currentUser.id);
-      if (!isMember && !isAssigneeOrReporter) {
-        const msg = 'Brak uprawnień do przenoszenia zadania w tym projekcie.';
-        setNotificationToast({ message: msg, type: 'error' });
-        return { ok: false, error: msg };
-      }
     }
 
     const oldParentId =

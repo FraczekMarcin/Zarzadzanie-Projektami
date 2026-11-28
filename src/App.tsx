@@ -58,6 +58,7 @@ import { CURRENT_APP_VERSION, GITHUB_REPO_URL } from './data/dockerConfig';
 import { isDemoProject } from './utils/demoData';
 import { sortTasksByPriorityAndDueDate } from './utils/taskSorting';
 import { canViewFinance } from './utils/access';
+import { can, canUserUseCompanyPermission } from './utils/permissions';
 import { getProjectDisplayName, isProjectStatusClosed } from './utils/projectMeta';
 import { getCompanyBadgeColors } from './utils/colorContrast';
 import { useIsDarkTheme } from './hooks/useIsDarkTheme';
@@ -311,13 +312,34 @@ export default function App() {
   });
 
   const canViewEconomy = useMemo(
-    () => projects.some((p) => canViewFinance(currentUser, p)),
+    () =>
+      can(currentUser, 'economy.view') ||
+      canUserUseCompanyPermission(currentUser, 'economy.view') ||
+      projects.some((p) => can(currentUser, 'economy.view', p) || canViewFinance(currentUser, p)),
     [projects, currentUser]
   );
 
   const canViewTenders = useMemo(
     () => canAccessTenders(currentUser),
     [currentUser]
+  );
+
+  const canViewTrash = useMemo(() => {
+    if (!currentUser || !currentUser.role) return false;
+    if (can(currentUser, 'trash.manage') || canUserUseCompanyPermission(currentUser, 'trash.manage')) {
+      return true;
+    }
+    const denials = new Set(currentUser.permissionDenials || []);
+    if (denials.has('trash.manage')) return false;
+    return currentUser.role !== 'viewer';
+  }, [currentUser]);
+
+  const canCreateAnyTask = useMemo(
+    () =>
+      can(currentUser, 'tasks.edit') ||
+      canUserUseCompanyPermission(currentUser, 'tasks.edit') ||
+      projects.some((p) => can(currentUser, 'tasks.edit', p)),
+    [currentUser, projects]
   );
 
   // Natychmiastowe ładowanie domyślnego widoku po zalogowaniu oraz doładowanie pozostałych w bezczynności
@@ -332,7 +354,9 @@ export default function App() {
       preloadView('projects');
       preloadView('calendar');
       preloadView('tree');
-      preloadView('trash');
+      if (canViewTrash) {
+        preloadView('trash');
+      }
       if (canViewEconomy) {
         preloadView('economy');
       }
@@ -638,7 +662,10 @@ export default function App() {
     if (hasLoadedState && activeView === 'tenders' && !canViewTenders) {
       setActiveView('gantt');
     }
-  }, [hasLoadedState, activeView, canViewEconomy, canViewTenders]);
+    if (hasLoadedState && activeView === 'trash' && !canViewTrash) {
+      setActiveView('gantt');
+    }
+  }, [hasLoadedState, activeView, canViewEconomy, canViewTenders, canViewTrash]);
 
   useDeepLink({
     isAuthenticated,
@@ -656,7 +683,7 @@ export default function App() {
         setActiveView('economy');
       } else {
         setNotificationToast({
-          message: 'Brak uprawnień do widoku Ekonomia lub brak projektów z dostępem do finansów.',
+          message: 'Brak uprawnienia: economy.view. Poproś administratora.',
           type: 'error',
         });
       }
@@ -666,7 +693,7 @@ export default function App() {
         setActiveView('tenders');
       } else {
         setNotificationToast({
-          message: 'Dostęp do przetargów wymaga roli administratora lub kierownika projektu.',
+          message: 'Brak uprawnienia: tenders.view. Poproś administratora.',
           type: 'error',
         });
       }
@@ -910,6 +937,21 @@ export default function App() {
 
   // Open modal handlers
   const handleOpenNewTask = (dateStr?: string, parentTaskId?: string, projectId?: string) => {
+    const targetProject = projectId
+      ? projects.find((p) => p.id === projectId)
+      : selectedProjectId
+        ? projects.find((p) => p.id === selectedProjectId)
+        : null;
+    const allowed = targetProject
+      ? can(currentUser, 'tasks.edit', targetProject)
+      : canCreateAnyTask;
+    if (!allowed) {
+      setNotificationToast({
+        message: 'Brak uprawnienia: tasks.edit. Poproś administratora.',
+        type: 'error',
+      });
+      return;
+    }
     setEditingTask(null);
     setDefaultTaskDate(dateStr);
     setDefaultParentId(parentTaskId);
@@ -1171,21 +1213,23 @@ export default function App() {
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={() => setActiveView('trash')}
-            onMouseEnter={() => preloadView('trash')}
-            onFocus={() => preloadView('trash')}
-            aria-current={activeView === 'trash' ? 'page' : undefined}
-            className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
-              activeView === 'trash'
-                ? 'text-sky-700 dark:text-sky-400 border-b-2 border-sky-700 dark:border-sky-400 font-bold'
-                : 'hover:text-slate-900 dark:hover:text-slate-200'
-            }`}
-          >
-            <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Kosz</span>
-          </button>
+          {canViewTrash && (
+            <button
+              type="button"
+              onClick={() => setActiveView('trash')}
+              onMouseEnter={() => preloadView('trash')}
+              onFocus={() => preloadView('trash')}
+              aria-current={activeView === 'trash' ? 'page' : undefined}
+              className={`flex items-center gap-1.5 transition-colors whitespace-nowrap py-1 ${
+                activeView === 'trash'
+                  ? 'text-sky-700 dark:text-sky-400 border-b-2 border-sky-700 dark:border-sky-400 font-bold'
+                  : 'hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Kosz</span>
+            </button>
+          )}
         </nav>
 
         {/* Zone 3: Primary Actions & User Auth */}
@@ -1601,22 +1645,30 @@ export default function App() {
                 Przetargi
               </button>
             )}
-            <button
-              type="button"
-              aria-pressed={activeView === 'trash'}
-              onClick={() => setActiveView('trash')}
-              onMouseEnter={() => preloadView('trash')}
-              onFocus={() => preloadView('trash')}
-              className={`px-2 py-1 text-[11px] font-medium rounded ${
-                activeView === 'trash' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
-              }`}
-            >
-              Kosz
-            </button>
+            {canViewTrash && (
+              <button
+                type="button"
+                aria-pressed={activeView === 'trash'}
+                onClick={() => setActiveView('trash')}
+                onMouseEnter={() => preloadView('trash')}
+                onFocus={() => preloadView('trash')}
+                className={`px-2 py-1 text-[11px] font-medium rounded ${
+                  activeView === 'trash' ? 'bg-white dark:bg-slate-700 shadow-xs font-bold text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-400'
+                }`}
+              >
+                Kosz
+              </button>
+            )}
           </div>
 
           <button
             type="button"
+            disabled={!canCreateAnyTask}
+            title={
+              !canCreateAnyTask
+                ? 'Brak uprawnienia: tasks.edit. Poproś administratora.'
+                : undefined
+            }
             onClick={() => handleOpenNewTask()}
             onMouseEnter={() => {
               loadTaskModal().catch(() => {});
@@ -1624,7 +1676,7 @@ export default function App() {
             onFocus={() => {
               loadTaskModal().catch(() => {});
             }}
-            className="flex items-center gap-1 bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 text-white text-xs font-medium px-3.5 py-1.5 rounded transition-colors shadow-xs"
+            className="flex items-center gap-1 bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white disabled:text-slate-600 dark:disabled:text-slate-400 disabled:cursor-not-allowed text-xs font-medium px-3.5 py-1.5 rounded transition-colors shadow-xs"
           >
             <Plus className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Nowe zadanie</span>
@@ -1682,6 +1734,7 @@ export default function App() {
               projects={projectsWithProgress}
               companies={companies}
               users={users}
+              currentUser={currentUser}
               selectedProjectId={selectedProjectId}
               onSelectTask={handleSelectTask}
               onOpenNewTask={() => handleOpenNewTask()}
@@ -1694,6 +1747,7 @@ export default function App() {
               projects={projectsWithProgress}
               companies={companies}
               users={users}
+              currentUser={currentUser}
               selectedProjectId={selectedProjectId}
               onSelectTask={handleSelectTask}
               onOpenNewTaskWithDate={(dateStr) => handleOpenNewTask(dateStr)}
@@ -1706,6 +1760,7 @@ export default function App() {
               projects={projectsWithProgress}
               companies={companies}
               users={users}
+              currentUser={currentUser}
               selectedProjectId={selectedProjectId}
               onSelectTask={handleSelectTask}
               onOpenNewTask={() => handleOpenNewTask()}
@@ -1736,6 +1791,7 @@ export default function App() {
               projects={projectsWithProgress}
               companies={companies}
               users={users}
+              currentUser={currentUser}
               selectedProjectId={selectedProjectId}
               onSelectTask={handleSelectTask}
               onOpenNewTask={() => handleOpenNewTask()}
@@ -1810,7 +1866,7 @@ export default function App() {
             />
           )}
 
-          {activeView === 'trash' && (
+          {activeView === 'trash' && canViewTrash && (
             <TrashView
               currentUser={currentUser}
               onRestored={() => fetchFreshState(false)}
@@ -1920,12 +1976,12 @@ export default function App() {
             activityLogs={activityLogs}
             onOpenTemplateManager={() => {
               setIsUserModalOpen(false);
-              if (currentUser?.role === 'admin') {
+              if (can(currentUser, 'templates.manage')) {
                 setSettingsTab('templates');
                 setIsSettingsModalOpen(true);
               } else {
                 setNotificationToast({
-                  message: 'Zarządzanie szablonami projektów jest dostępne wyłącznie dla Administratora w Ustawieniach.',
+                  message: 'Brak uprawnienia: templates.manage. Poproś administratora.',
                   type: 'info',
                 });
               }

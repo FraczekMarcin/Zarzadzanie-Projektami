@@ -365,6 +365,7 @@ export interface PermissionUserLike {
   permissionGrants?: Permission[];
   permissionDenials?: Permission[];
   effectivePermissions?: Permission[];
+  companyMemberPermissions?: Permission[];
 }
 
 export type PermissionResource =
@@ -428,15 +429,28 @@ export type PermissionCheckContext =
   | null
   | undefined;
 
-export function resolvePermissionConfig(context?: PermissionCheckContext): PermissionConfig {
-  if (!context) return createDefaultPermissionConfig();
+export function resolvePermissionConfig(
+  context?: PermissionCheckContext,
+  user?: PermissionUserLike | null
+): PermissionConfig {
+  if (!context) {
+    const defaults = createDefaultPermissionConfig();
+    if (user && Array.isArray(user.companyMemberPermissions)) {
+      defaults.companyMemberPermissions = sanitizePermissionArray(user.companyMemberPermissions);
+    }
+    return defaults;
+  }
   if ('permissionConfig' in context) {
     return normalizePermissionConfig(context.permissionConfig);
   }
   if ('rolePermissions' in context) {
     return normalizePermissionConfig(context);
   }
-  return createDefaultPermissionConfig();
+  const defaults = createDefaultPermissionConfig();
+  if (user && Array.isArray(user.companyMemberPermissions)) {
+    defaults.companyMemberPermissions = sanitizePermissionArray(user.companyMemberPermissions);
+  }
+  return defaults;
 }
 
 function addCompanyId(target: Set<string>, raw: unknown): void {
@@ -631,7 +645,7 @@ export function getEffectivePermissions(
   if (!user || !user.role) return [];
   if (user.role === 'admin') return [...ALL_PERMISSIONS];
 
-  const config = resolvePermissionConfig(context);
+  const config = resolvePermissionConfig(context, user);
   const result = new Set<Permission>(getEffectiveGlobalPermissions(user, config));
 
   if (resource) {
@@ -669,7 +683,7 @@ export function canUserUseCompanyPermission(
   if (denials.has(permission)) return false;
   const userCompanies = sanitizeStringIdArray(user.companyIds);
   if (userCompanies.length === 0) return false;
-  const config = resolvePermissionConfig(context);
+  const config = resolvePermissionConfig(context, user);
   return config.companyMemberPermissions.includes(permission);
 }
 
@@ -691,7 +705,7 @@ export function can(
   if (!PERMISSION_SET.has(permission)) return false;
   if (user.role === 'admin') return true;
 
-  const config = resolvePermissionConfig(context);
+  const config = resolvePermissionConfig(context, user);
   const { fromRole, fromGroup, fromGrant, denied } = getPermissionFlags(
     user,
     permission,

@@ -1,7 +1,8 @@
 import React, { useState, useRef, useId } from 'react';
 import { Project, ProjectDeliverable, Task, User, Priority, Company } from '../types';
 import { copyToClipboard } from '../utils/clipboard';
-import { FIELD_LIMITS } from '../utils/access';
+import { FIELD_LIMITS, canViewFinance } from '../utils/access';
+import { can } from '../utils/permissions';
 import { computeProjectFinance } from '../utils/finance';
 import { formatMoney } from '../utils/money';
 import {
@@ -144,15 +145,11 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
   const balanceNet = finance.profitNet;
   const marginPercent = finance.marginPercent;
 
-  const isAdmin = currentUser?.role === 'admin';
+  const canEditProject = can(currentUser, 'projects.edit', project);
+  const canArchiveProject = can(currentUser, 'projects.archive', project);
+  const canViewProjectFinance = canViewFinance(currentUser, project);
   const canEditProjectDeliverables = Boolean(
-    onUpdateDeliverables &&
-      currentUser &&
-      currentUser.role !== 'viewer' &&
-      (currentUser.role === 'admin' ||
-        currentUser.role === 'project_manager' ||
-        project.ownerId === currentUser.id ||
-        (project.memberIds || []).includes(currentUser.id))
+    onUpdateDeliverables && can(currentUser, 'projects.edit', project)
   );
 
   const persistDeliverables = async (nextList: ProjectDeliverable[]) => {
@@ -834,32 +831,40 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
         {/* Footer Actions */}
         <div className="p-4 px-6 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={handleArchiveClick}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors shadow-2xs ${
-                  project.isArchived
-                    ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border-sky-300 dark:border-sky-800 hover:bg-sky-100'
-                    : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-800 hover:bg-amber-100'
-                }`}
-                title={project.isArchived ? 'Przywróć projekt do aktywnych' : 'Przenieś projekt do archiwum (tylko Administrator)'}
-              >
-                {project.isArchived ? (
-                  <>
-                    <RotateCcw className="w-3.5 h-3.5 text-sky-600" />
-                    <span>Przywróć z archiwum</span>
-                  </>
-                ) : (
-                  <>
-                    <Archive className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Zarchiwizuj projekt (Admin)</span>
-                  </>
-                )}
-              </button>
-            )}
+            <button
+              type="button"
+              disabled={!canArchiveProject}
+              onClick={() => {
+                if (!canArchiveProject) return;
+                handleArchiveClick();
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed ${
+                project.isArchived
+                  ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border-sky-300 dark:border-sky-800 hover:bg-sky-100'
+                  : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-800 hover:bg-amber-100'
+              }`}
+              title={
+                !canArchiveProject
+                  ? 'Brak uprawnienia: projects.archive. Poproś administratora.'
+                  : project.isArchived
+                    ? 'Przywróć projekt do aktywnych'
+                    : 'Przenieś projekt do archiwum'
+              }
+            >
+              {project.isArchived ? (
+                <>
+                  <RotateCcw className="w-3.5 h-3.5 text-sky-600" />
+                  <span>Przywróć z archiwum</span>
+                </>
+              ) : (
+                <>
+                  <Archive className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Zarchiwizuj projekt</span>
+                </>
+              )}
+            </button>
 
-            {onOpenFinancials && (
+            {onOpenFinancials && canViewProjectFinance && (
               <button
                 type="button"
                 onClick={() => {
@@ -878,11 +883,18 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
             {onEditProject && (
               <button
                 type="button"
+                disabled={!canEditProject}
+                title={
+                  !canEditProject
+                    ? 'Brak uprawnienia: projects.edit. Poproś administratora.'
+                    : undefined
+                }
                 onClick={() => {
+                  if (!canEditProject) return;
                   onClose();
                   onEditProject(project);
                 }}
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white font-semibold text-xs shadow-xs transition-colors"
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white disabled:text-slate-600 dark:disabled:text-slate-400 disabled:cursor-not-allowed font-semibold text-xs shadow-xs transition-colors"
               >
                 <Edit3 className="w-3.5 h-3.5" />
                 <span>Edytuj dane projektu</span>

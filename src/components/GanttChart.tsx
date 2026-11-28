@@ -26,12 +26,14 @@ import { getProjectDisplayName, hasDistinctShortName } from '../utils/projectMet
 import { getCompanyBadgeColors } from '../utils/colorContrast';
 import { useIsDarkTheme } from '../hooks/useIsDarkTheme';
 import { ProjectNameLabel } from './ProjectNameLabel';
+import { can, canUserUseCompanyPermission } from '../utils/permissions';
 
 interface GanttChartProps {
   tasks: Task[];
   projects: Project[];
   companies?: Company[];
   users: User[];
+  currentUser?: User | null;
   selectedProjectId: string | null;
   onSelectTask: (task: Task) => void;
   onOpenNewTask: () => void;
@@ -42,6 +44,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   projects,
   companies = [],
   users,
+  currentUser,
   selectedProjectId,
   onSelectTask,
   onOpenNewTask,
@@ -49,6 +52,21 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   const isDark = useIsDarkTheme();
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
   const [zoomLevel, setZoomLevel] = useState<'days' | 'weeks'>('days');
+
+  const canCreateTask = useMemo(() => {
+    if (!currentUser) return true;
+    const selectedProj = selectedProjectId
+      ? projects.find((p) => p.id === selectedProjectId)
+      : undefined;
+    if (selectedProj) {
+      return can(currentUser, 'tasks.edit', selectedProj);
+    }
+    return (
+      can(currentUser, 'tasks.edit') ||
+      canUserUseCompanyPermission(currentUser, 'tasks.edit') ||
+      projects.some((p) => can(currentUser, 'tasks.edit', p))
+    );
+  }, [currentUser, projects, selectedProjectId]);
 
   // Filter tasks based on selected project and priority
   const filteredTasks = useMemo(() => {
@@ -251,8 +269,17 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
           <button
             type="button"
-            onClick={onOpenNewTask}
-            className="flex items-center gap-1.5 bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 text-white text-xs font-medium px-3 py-1.5 rounded transition-colors shrink-0"
+            disabled={!canCreateTask}
+            title={
+              !canCreateTask
+                ? 'Brak uprawnienia: tasks.edit. Poproś administratora.'
+                : undefined
+            }
+            onClick={() => {
+              if (!canCreateTask) return;
+              onOpenNewTask();
+            }}
+            className="flex items-center gap-1.5 bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white disabled:text-slate-600 dark:disabled:text-slate-400 disabled:cursor-not-allowed text-xs font-medium px-3 py-1.5 rounded transition-colors shrink-0"
           >
             <Plus className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Nowe zadanie</span>

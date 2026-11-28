@@ -5,6 +5,7 @@ import { useDismissOnOutsideClick } from '../hooks/useDismissOnOutsideClick';
 import { useFocusTrap } from '../utils/useFocusTrap';
 import {
   canDeleteTender,
+  canEditTender,
   formatTenderPercent,
   formatTenderPln,
   formatTenderPricePerUnit,
@@ -15,6 +16,7 @@ import {
   TENDER_STATUS_LABELS,
   TenderDetail,
 } from '../utils/tenderUi';
+import { can, canUserUseCompanyPermission } from '../utils/permissions';
 import {
   AlertTriangle,
   Ban,
@@ -125,17 +127,26 @@ export const TenderDetailModal: React.FC<TenderDetailModalProps> = ({
 
   if (!activeDialog || !tender) return null;
 
+  const allowEdit = canEditTender(currentUser, tender);
   const allowDelete = canDeleteTender(currentUser, tender);
+  const canCreateProjectFromTender =
+    can(currentUser, 'projects.create') ||
+    canUserUseCompanyPermission(currentUser, 'projects.create');
+  const canCopyToProject = Boolean(tender.wonByUs && allowEdit && canCreateProjectFromTender);
   const safeUrl =
     tender.url && tender.url.trim() && isValidTenderHttpUrl(tender.url)
       ? tender.url.trim()
       : null;
 
-  const copyDisabledReason = tender.wonByUs
-    ? undefined
-    : tender.status !== 'resolved'
-      ? 'Kopiowanie do projektu jest dostępne po oznaczeniu statusu przetargu jako „Rozstrzygnięty”.'
-      : 'Przycisk jest aktywny wyłącznie wtedy, gdy nasza oferta została wskazana jako zwycięzca przetargu.';
+  const copyDisabledReason = !allowEdit
+    ? 'Brak uprawnienia: tenders.edit. Poproś administratora.'
+    : !canCreateProjectFromTender
+      ? 'Brak uprawnienia: projects.create. Poproś administratora.'
+      : tender.wonByUs
+        ? undefined
+        : tender.status !== 'resolved'
+          ? 'Kopiowanie do projektu jest dostępne po oznaczeniu statusu przetargu jako „Rozstrzygnięty”.'
+          : 'Przycisk jest aktywny wyłącznie wtedy, gdy nasza oferta została wskazana jako zwycięzca przetargu.';
 
   const handleConfirmDelete = async () => {
     setIsDeleting(true);
@@ -498,8 +509,17 @@ export const TenderDetailModal: React.FC<TenderDetailModalProps> = ({
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => onEdit(tender)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-700 font-semibold text-xs transition-colors"
+                disabled={!allowEdit}
+                title={
+                  !allowEdit
+                    ? 'Brak uprawnienia: tenders.edit. Poproś administratora.'
+                    : undefined
+                }
+                onClick={() => {
+                  if (!allowEdit) return;
+                  onEdit(tender);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-xs transition-colors"
               >
                 <Edit3 className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>Edytuj</span>
@@ -531,9 +551,12 @@ export const TenderDetailModal: React.FC<TenderDetailModalProps> = ({
 
               <button
                 type="button"
-                disabled={!tender.wonByUs}
+                disabled={!canCopyToProject}
                 title={copyDisabledReason}
-                onClick={() => onCopyToProject(tender)}
+                onClick={() => {
+                  if (!canCopyToProject) return;
+                  onCopyToProject(tender);
+                }}
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-sky-700 hover:bg-sky-800 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white disabled:text-slate-600 dark:disabled:text-slate-400 font-semibold text-xs transition-colors disabled:cursor-not-allowed"
               >
                 <FolderPlus className="w-3.5 h-3.5" aria-hidden="true" />
@@ -542,7 +565,7 @@ export const TenderDetailModal: React.FC<TenderDetailModalProps> = ({
             </div>
           </div>
 
-          {!tender.wonByUs && copyDisabledReason && (
+          {!canCopyToProject && copyDisabledReason && (
             <p className="text-[11px] text-slate-600 dark:text-slate-400 text-right">
               {copyDisabledReason}
             </p>

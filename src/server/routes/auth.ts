@@ -29,7 +29,7 @@ import { SettingsService } from '../settings.js';
 import { MailerService } from '../mailer.js';
 import { TrustedDevicesService } from '../trustedDevices.js';
 import { hasForbiddenKeys } from '../../utils/access.js';
-import { getEffectivePermissions } from '../../utils/permissions.js';
+import { getEffectivePermissions, normalizePermissionConfig } from '../../utils/permissions.js';
 import { validatePassword } from '../../utils/passwordPolicy.js';
 import { logger } from '../logger.js';
 
@@ -555,9 +555,20 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
         }
       }
 
+      const appStateLogin = stateStore.ensureStateStructure();
+      const permCfgLogin = normalizePermissionConfig(appStateLogin.permissionConfig);
+      const loginCompanyIds = Array.isArray(user?.companyIds) ? [...user.companyIds] : [];
+      const loginEffectivePermissions = getEffectivePermissions(user, permCfgLogin);
+      const loginCompanyMemberPermissions = [...permCfgLogin.companyMemberPermissions];
+
       res.json({
         success: true,
-        user: sanitizeUser(user),
+        user: {
+          ...sanitizeUser(user),
+          companyIds: loginCompanyIds,
+          effectivePermissions: loginEffectivePermissions,
+          companyMemberPermissions: loginCompanyMemberPermissions,
+        },
         trustDevice: trustDeviceStatus,
         ...(isCrossSiteHttpsRequest(req) ? { sessionToken: rawToken } : {}),
       });
@@ -640,9 +651,20 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
         details: { label: result.device?.label, grace: Boolean(result.graceUsed) },
       }).catch(() => {});
 
+      const appStateDev = stateStore.ensureStateStructure();
+      const permCfgDev = normalizePermissionConfig(appStateDev.permissionConfig);
+      const devCompanyIds = Array.isArray(user?.companyIds) ? [...user.companyIds] : [];
+      const devEffectivePermissions = getEffectivePermissions(user, permCfgDev);
+      const devCompanyMemberPermissions = [...permCfgDev.companyMemberPermissions];
+
       return res.json({
         success: true,
-        user: sanitizeUser(user),
+        user: {
+          ...sanitizeUser(user),
+          companyIds: devCompanyIds,
+          effectivePermissions: devEffectivePermissions,
+          companyMemberPermissions: devCompanyMemberPermissions,
+        },
         ...(isCrossSiteHttpsRequest(req) ? { sessionToken: rawSessionToken } : {}),
       });
     } catch (err: any) {
@@ -696,18 +718,22 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
   // GET /api/auth/me
   app.get('/api/auth/me', requireAuth, (req, res) => {
     const appState = stateStore.ensureStateStructure();
+    const permConfig = normalizePermissionConfig(appState.permissionConfig);
     const user = (req as any).user;
-    const effectivePermissions = getEffectivePermissions(user, appState.permissionConfig);
+    const effectivePermissions = getEffectivePermissions(user, permConfig);
     const companyIds = Array.isArray(user?.companyIds) ? [...user.companyIds] : [];
+    const companyMemberPermissions = [...permConfig.companyMemberPermissions];
     res.json({
       authenticated: true,
       user: {
         ...sanitizeUser(user),
         companyIds,
         effectivePermissions,
+        companyMemberPermissions,
       },
       companyIds,
       effectivePermissions,
+      companyMemberPermissions,
     });
   });
 
@@ -1033,9 +1059,16 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
         details: { name: adminUser.name },
       }).catch(() => {});
 
+      const appStateSetup = stateStore.ensureStateStructure();
+      const permCfgSetup = normalizePermissionConfig(appStateSetup.permissionConfig);
       res.json({
         success: true,
-        user: sanitizeUser(adminUser),
+        user: {
+          ...sanitizeUser(adminUser),
+          companyIds: [],
+          effectivePermissions: getEffectivePermissions(adminUser, permCfgSetup),
+          companyMemberPermissions: [...permCfgSetup.companyMemberPermissions],
+        },
         ...(isCrossSiteHttpsRequest(req) ? { sessionToken: rawToken } : {}),
       });
     } catch (err: any) {

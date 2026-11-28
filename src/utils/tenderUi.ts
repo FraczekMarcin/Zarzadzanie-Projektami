@@ -13,6 +13,11 @@ import type {
   TenderSummary,
 } from './tenders.js';
 import { formatMoney, formatQuantity, roundMoney } from './money.js';
+import {
+  can,
+  canUserUseCompanyPermission,
+  PermissionUserLike,
+} from './permissions.js';
 
 export type {
   ComputedBidder,
@@ -70,18 +75,35 @@ export const TENDER_PRICE_BASIS_LABELS: Record<TenderPriceBasis, string> = {
 export const COMMON_SCOPE_UNITS = ['km', 'm', 'm2', 'm3', 'ha', 'szt.', 'kpl.'] as const;
 
 export function canAccessTenders(
-  user: Pick<User, 'role'> | null | undefined
+  user: PermissionUserLike | null | undefined
 ): boolean {
-  return Boolean(user && (user.role === 'admin' || user.role === 'project_manager'));
+  return Boolean(
+    user &&
+      (can(user, 'tenders.view') || canUserUseCompanyPermission(user, 'tenders.view'))
+  );
+}
+
+export function canEditTender(
+  user: PermissionUserLike | null | undefined,
+  tender?: { createdBy?: string; companyId?: string } | null
+): boolean {
+  if (!user) return false;
+  if (!tender) {
+    return Boolean(
+      can(user, 'tenders.edit') || canUserUseCompanyPermission(user, 'tenders.edit')
+    );
+  }
+  return can(user, 'tenders.edit', { type: 'tender', tender });
 }
 
 export function canDeleteTender(
-  user: Pick<User, 'id' | 'role'> | null | undefined,
-  tender: { createdBy?: string } | null | undefined
+  user: (PermissionUserLike & { id?: string }) | null | undefined,
+  tender: { createdBy?: string; companyId?: string } | null | undefined
 ): boolean {
   if (!user || !tender) return false;
+  if (!can(user, 'tenders.edit', { type: 'tender', tender })) return false;
   if (user.role === 'admin') return true;
-  return Boolean(tender.createdBy && tender.createdBy === user.id);
+  return Boolean(tender.createdBy && user.id && tender.createdBy === user.id);
 }
 
 export function formatTenderPln(

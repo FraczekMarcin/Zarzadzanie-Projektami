@@ -26,6 +26,7 @@ import {
 import { ProjectDetailModal } from './ProjectDetailModal';
 import { ProjectNameLabel } from './ProjectNameLabel';
 import { FIELD_LIMITS, canEditFinance, canViewFinance } from '../utils/access';
+import { can, canUserUseCompanyPermission } from '../utils/permissions';
 import { calcGrossFromNet, formatMoney } from '../utils/money';
 import { getTodayIso } from '../utils/today';
 import { getTodayIsoInTimezone } from '../utils/deadlines';
@@ -452,9 +453,19 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     onClose: requestCloseProjectForm,
   });
 
+  const canCreateProject =
+    can(currentUser, 'projects.create') ||
+    canUserUseCompanyPermission(currentUser, 'projects.create');
+
   useEffect(() => {
     if (!isModalOpen && !isTemplateManagerOpen) return;
-    if (currentUser.role === 'viewer') return;
+    if (
+      currentUser.role === 'viewer' &&
+      !canCreateProject &&
+      !can(currentUser, 'projects.edit')
+    ) {
+      return;
+    }
     let cancelled = false;
     fetchTemplatesList()
       .then((list) => {
@@ -468,19 +479,19 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [isModalOpen, isTemplateManagerOpen, currentUser.role]);
+  }, [isModalOpen, isTemplateManagerOpen, currentUser, canCreateProject]);
 
   const activeCompanies = useMemo(
     () => companies.filter((c) => c.isActive).sort((a, b) => a.letter.localeCompare(b.letter)),
     [companies]
   );
 
-  const isAdminOrPm = currentUser.role === 'admin' || currentUser.role === 'project_manager';
+  const isAdminOrPm =
+    can(currentUser, 'projects.edit') ||
+    canUserUseCompanyPermission(currentUser, 'projects.edit');
   const canEditSelectedProjectCompany = editingProject
-    ? currentUser.role === 'admin' ||
-      canEditFinance(currentUser, editingProject) ||
-      (Boolean(editingProject.ownerId) && editingProject.ownerId === currentUser.id)
-    : true;
+    ? can(currentUser, 'projects.edit', editingProject)
+    : canCreateProject;
 
   const autoPreviewInfo = useMemo(() => {
     if (editingProject || activeCompanies.length === 0) {
@@ -737,7 +748,7 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
     }
     setSelectedTemplateDetail(null);
     setSelectedTemplateTaskKeys(new Set());
-    if (currentUser.role !== 'viewer') {
+    if (currentUser.role !== 'viewer' || canCreateProject) {
       setIsLoadingTemplateDetail(true);
       fetchTemplateById(templateId)
         .then((full) => {
@@ -1396,8 +1407,8 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
   const showClientColumn = useMemo(
     () =>
-      currentUser.role === 'admin' ||
-      currentUser.role === 'project_manager' ||
+      can(currentUser, 'finance.view') ||
+      canUserUseCompanyPermission(currentUser, 'finance.view') ||
       displayedProjects.some((p) => canViewFinance(currentUser, p)),
     [currentUser, displayedProjects]
   );
@@ -1481,8 +1492,17 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
 
           <button
             type="button"
-            onClick={() => openCreateModal()}
-            className="flex items-center gap-1.5 bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 text-white text-xs font-semibold px-4 py-2 rounded transition-colors shadow-xs"
+            disabled={!canCreateProject}
+            title={
+              !canCreateProject
+                ? 'Brak uprawnienia: projects.create. Poproś administratora.'
+                : undefined
+            }
+            onClick={() => {
+              if (!canCreateProject) return;
+              openCreateModal();
+            }}
+            className="flex items-center gap-1.5 bg-slate-900 dark:bg-sky-700 hover:bg-slate-800 dark:hover:bg-sky-600 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white disabled:text-slate-600 dark:disabled:text-slate-400 disabled:cursor-not-allowed text-xs font-semibold px-4 py-2 rounded transition-colors shadow-xs"
           >
             <FolderPlus className="w-4 h-4" aria-hidden="true" />
             <span>Zarejestruj nowy projekt</span>
@@ -2032,10 +2052,10 @@ export const ProjectsOverview: React.FC<ProjectsOverviewProps> = ({
             setViewingProject(null);
             setFinancialsProject(p);
           }}
-          onArchiveProject={currentUser.role === 'admin' ? (p) => {
+          onArchiveProject={(p) => {
             setViewingProject(null);
             handleRequestArchive(p);
-          } : undefined}
+          }}
         />
       )}
 
