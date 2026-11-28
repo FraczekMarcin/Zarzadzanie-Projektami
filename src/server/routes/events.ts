@@ -14,6 +14,7 @@ interface SseClient {
 
 export interface EventRoutesHandle {
   closeAll: () => void;
+  notifyPermissionsChanged: (options?: { userIds?: string[] | null }) => void;
 }
 
 export function registerEventRoutes(
@@ -215,6 +216,32 @@ export function registerEventRoutes(
     res.on('error', cleanup);
   });
 
+  const notifyPermissionsChanged = (options?: { userIds?: string[] | null }) => {
+    const targetIds =
+      Array.isArray(options?.userIds) && options.userIds.length > 0
+        ? new Set(options.userIds)
+        : null;
+    const targets: SseClient[] = targetIds
+      ? Array.from(targetIds).flatMap((uid) => Array.from(clientsByUser.get(uid) || []))
+      : Array.from(clientsByUser.values()).flatMap((set) => Array.from(set));
+
+    const ts = new Date().toISOString();
+    for (const client of targets) {
+      if (!isClientActiveAndValid(client)) {
+        client.close();
+        continue;
+      }
+      const payload = `event: permissions\ndata: ${JSON.stringify({ ts, userId: client.userId })}\n\n`;
+      try {
+        if (!client.res.writableEnded) {
+          client.res.write(payload);
+        }
+      } catch {
+        client.close();
+      }
+    }
+  };
+
   const closeAll = () => {
     unsubscribeRevision();
     unsubscribeRevocations();
@@ -226,5 +253,5 @@ export function registerEventRoutes(
     clientsByTokenHash.clear();
   };
 
-  return { closeAll };
+  return { closeAll, notifyPermissionsChanged };
 }

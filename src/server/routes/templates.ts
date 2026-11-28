@@ -2,7 +2,8 @@ import express from 'express';
 import crypto from 'crypto';
 import type { Project, ProjectTemplate, Task } from '../../types/index.js';
 import { DEFAULT_PROJECT_TEMPLATES } from '../../data/defaultTemplates.js';
-import { canWrite, hasForbiddenKeys } from '../../utils/access.js';
+import { hasForbiddenKeys } from '../../utils/access.js';
+import { can, canUserUseCompanyPermission } from '../../utils/permissions.js';
 import { normalizeProjectTypes } from '../../utils/projectMeta.js';
 import {
   MAX_CUSTOM_TEMPLATES,
@@ -62,14 +63,19 @@ export function registerTemplateRoutes(
     DEFAULT_PROJECT_TEMPLATES.map((tpl) => [tpl.id, tpl])
   );
 
-  // GET /api/templates — metadane szablonów dla zalogowanych użytkowników mogących tworzyć projekty
+  // GET /api/templates — metadane szablonów dla zalogowanych użytkowników mogących tworzyć projekty lub zarządzać szablonami
   app.get('/api/templates', requireAuth, (req, res) => {
     const caller = (req as any).user;
-    if (!canWrite(caller)) {
-      return res.status(403).json({ error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' });
+    const appState = stateStore.ensureStateStructure();
+    const permConfig = appState.permissionConfig;
+    const canReadTemplates =
+      can(caller, 'templates.manage', undefined, permConfig) ||
+      can(caller, 'projects.create', undefined, permConfig) ||
+      canUserUseCompanyPermission(caller, 'projects.create', permConfig);
+    if (!canReadTemplates) {
+      return res.status(403).json({ error: 'Brak uprawnień do odczytu szablonów projektów.' });
     }
 
-    const appState = stateStore.ensureStateStructure();
     const customTemplates: ProjectTemplate[] = Array.isArray(appState.projectTemplates)
       ? appState.projectTemplates
       : [];
@@ -89,8 +95,14 @@ export function registerTemplateRoutes(
   // GET /api/templates/:id — pełny szablon wraz z listą zadań
   app.get('/api/templates/:id', requireAuth, (req, res) => {
     const caller = (req as any).user;
-    if (!canWrite(caller)) {
-      return res.status(403).json({ error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' });
+    const appState = stateStore.ensureStateStructure();
+    const permConfig = appState.permissionConfig;
+    const canReadTemplates =
+      can(caller, 'templates.manage', undefined, permConfig) ||
+      can(caller, 'projects.create', undefined, permConfig) ||
+      canUserUseCompanyPermission(caller, 'projects.create', permConfig);
+    if (!canReadTemplates) {
+      return res.status(403).json({ error: 'Brak uprawnień do odczytu szablonów projektów.' });
     }
 
     const builtIn = builtInById.get(req.params.id);
@@ -98,7 +110,6 @@ export function registerTemplateRoutes(
       return res.json({ template: cloneTemplate({ ...builtIn, builtIn: true, isCustom: false }) });
     }
 
-    const appState = stateStore.ensureStateStructure();
     const customTemplates: ProjectTemplate[] = Array.isArray(appState.projectTemplates)
       ? appState.projectTemplates
       : [];
@@ -116,16 +127,16 @@ export function registerTemplateRoutes(
   app.post('/api/templates', requireAuth, async (req, res) => {
     try {
       const caller = (req as any).user;
-      if (caller.role !== 'admin') {
+      const appState = stateStore.ensureStateStructure();
+      if (!can(caller, 'templates.manage', undefined, appState.permissionConfig)) {
         return res.status(403).json({
-          error: 'Tworzenie szablonów projektów jest dozwolone wyłącznie dla Administratora.',
+          error: 'Brak uprawnień do zarządzania szablonami projektów.',
         });
       }
       if (hasForbiddenKeys(req.body)) {
         return res.status(400).json({ error: 'Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).' });
       }
 
-      const appState = stateStore.ensureStateStructure();
       const customTemplates: ProjectTemplate[] = Array.isArray(appState.projectTemplates)
         ? appState.projectTemplates
         : [];
@@ -193,16 +204,16 @@ export function registerTemplateRoutes(
   app.post('/api/templates/from-project/:projectId', requireAuth, async (req, res) => {
     try {
       const caller = (req as any).user;
-      if (caller.role !== 'admin') {
+      const appState = stateStore.ensureStateStructure();
+      if (!can(caller, 'templates.manage', undefined, appState.permissionConfig)) {
         return res.status(403).json({
-          error: 'Tworzenie szablonów z projektów jest dozwolone wyłącznie dla Administratora.',
+          error: 'Brak uprawnień do zarządzania szablonami projektów.',
         });
       }
       if (hasForbiddenKeys(req.body)) {
         return res.status(400).json({ error: 'Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).' });
       }
 
-      const appState = stateStore.ensureStateStructure();
       const customTemplates: ProjectTemplate[] = Array.isArray(appState.projectTemplates)
         ? appState.projectTemplates
         : [];
@@ -282,16 +293,16 @@ export function registerTemplateRoutes(
   app.post('/api/templates/:id/duplicate', requireAuth, async (req, res) => {
     try {
       const caller = (req as any).user;
-      if (caller.role !== 'admin') {
+      const appState = stateStore.ensureStateStructure();
+      if (!can(caller, 'templates.manage', undefined, appState.permissionConfig)) {
         return res.status(403).json({
-          error: 'Duplikowanie szablonów projektów jest dozwolone wyłącznie dla Administratora.',
+          error: 'Brak uprawnień do zarządzania szablonami projektów.',
         });
       }
       if (hasForbiddenKeys(req.body)) {
         return res.status(400).json({ error: 'Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).' });
       }
 
-      const appState = stateStore.ensureStateStructure();
       const customTemplates: ProjectTemplate[] = Array.isArray(appState.projectTemplates)
         ? appState.projectTemplates
         : [];
@@ -365,9 +376,10 @@ export function registerTemplateRoutes(
   app.put('/api/templates/:id', requireAuth, async (req, res) => {
     try {
       const caller = (req as any).user;
-      if (caller.role !== 'admin') {
+      const appState = stateStore.ensureStateStructure();
+      if (!can(caller, 'templates.manage', undefined, appState.permissionConfig)) {
         return res.status(403).json({
-          error: 'Edycja szablonów projektów jest dozwolona wyłącznie dla Administratora.',
+          error: 'Brak uprawnień do zarządzania szablonami projektów.',
         });
       }
       if (builtInById.has(req.params.id)) {
@@ -379,7 +391,6 @@ export function registerTemplateRoutes(
         return res.status(400).json({ error: 'Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).' });
       }
 
-      const appState = stateStore.ensureStateStructure();
       const customTemplates: ProjectTemplate[] = Array.isArray(appState.projectTemplates)
         ? appState.projectTemplates
         : [];
@@ -465,9 +476,10 @@ export function registerTemplateRoutes(
   app.delete('/api/templates/:id', requireAuth, async (req, res) => {
     try {
       const caller = (req as any).user;
-      if (caller.role !== 'admin') {
+      const appState = stateStore.ensureStateStructure();
+      if (!can(caller, 'templates.manage', undefined, appState.permissionConfig)) {
         return res.status(403).json({
-          error: 'Usuwanie szablonów projektów jest dozwolone wyłącznie dla Administratora.',
+          error: 'Brak uprawnień do zarządzania szablonami projektów.',
         });
       }
       if (builtInById.has(req.params.id)) {
@@ -476,7 +488,6 @@ export function registerTemplateRoutes(
         });
       }
 
-      const appState = stateStore.ensureStateStructure();
       const customTemplates: ProjectTemplate[] = Array.isArray(appState.projectTemplates)
         ? appState.projectTemplates
         : [];

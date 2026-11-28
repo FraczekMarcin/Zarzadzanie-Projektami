@@ -2,6 +2,7 @@ import express from 'express';
 import crypto from 'crypto';
 import { buildIcs, IcsProject, IcsTask } from '../../utils/icsBuilder.js';
 import { canAccessProject } from '../../utils/access.js';
+import { can } from '../../utils/permissions.js';
 import { ServerConfig } from '../config.js';
 import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
@@ -183,16 +184,17 @@ export function registerCalendarRoutes(
 
     const allProjects = appState?.projects || [];
     const allTasks = appState?.tasks || [];
+    const permConfig = appState?.permissionConfig;
 
     const projectsMap = new Map<string, IcsProject>();
     let visibleTasks: any[];
-    if (user.role === 'admin' || user.role === 'project_manager') {
+    if (can(user, 'projects.view', undefined, permConfig)) {
       visibleTasks = allTasks;
       for (const p of allProjects) {
         if (p && p.id) projectsMap.set(p.id, p);
       }
     } else {
-      const accessibleProjects = allProjects.filter((p: any) => canAccessProject(user, p));
+      const accessibleProjects = allProjects.filter((p: any) => canAccessProject(user, p, permConfig));
       const accessibleProjectIds = new Set(accessibleProjects.map((p: any) => p.id));
       for (const p of accessibleProjects) {
         if (p && p.id) projectsMap.set(p.id, p);
@@ -228,12 +230,13 @@ export function registerCalendarRoutes(
 
     const allProjects = appState?.projects || [];
     const allTasks = appState?.tasks || [];
+    const permConfig = appState?.permissionConfig;
 
     let userTasks = allTasks.filter((t: any) => t.assigneeId === userId || (!t.assigneeId && authUser.id === userId));
     const projectsMap = new Map<string, IcsProject>();
 
-    if (authUser.role !== 'admin' && authUser.role !== 'project_manager') {
-      const accessibleProjects = allProjects.filter((p: any) => canAccessProject(authUser, p));
+    if (!can(authUser, 'projects.view', undefined, permConfig)) {
+      const accessibleProjects = allProjects.filter((p: any) => canAccessProject(authUser, p, permConfig));
       const accessibleProjectIds = new Set(accessibleProjects.map((p: any) => p.id));
       for (const p of accessibleProjects) {
         if (p && p.id) projectsMap.set(p.id, p);

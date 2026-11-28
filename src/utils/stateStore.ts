@@ -7,7 +7,19 @@ import { migrateLegacyTemplate } from './templateValidation.js';
 import { normalizeCompanyColor } from './colorContrast.js';
 import { logger } from '../server/logger.js';
 
-import type { Company, ProjectNumberingSettings, ProjectTemplate, Tender } from '../types/index.js';
+import {
+  normalizePermissionConfig,
+  sanitizePermissionArray,
+  sanitizeStringIdArray,
+} from './permissions.js';
+
+import type {
+  Company,
+  PermissionConfig,
+  ProjectNumberingSettings,
+  ProjectTemplate,
+  Tender,
+} from '../types/index.js';
 
 export interface AppState {
   initialized?: boolean;
@@ -18,6 +30,7 @@ export interface AppState {
   projectTemplates?: ProjectTemplate[];
   companies?: Company[];
   projectNumbering?: ProjectNumberingSettings;
+  permissionConfig?: PermissionConfig;
   users: any[];
   comments: any[];
   activityLogs: any[];
@@ -78,6 +91,35 @@ export function normalizeStateStructure(raw?: any): AppState {
   if (!Array.isArray(state.trash)) state.trash = [];
   if (!Array.isArray(state.trustedDevices)) state.trustedDevices = [];
   state.variables = normalizeVariablesState(state.variables);
+  state.permissionConfig = normalizePermissionConfig(state.permissionConfig);
+
+  const validGroupIds = new Set(state.permissionConfig.permissionGroups.map((g) => g.id));
+  const validCompanyIds = new Set(
+    state.companies.filter((c: any) => c && typeof c.id === 'string').map((c: any) => c.id)
+  );
+  for (const u of state.users) {
+    if (!u || typeof u !== 'object') continue;
+    if (u.groupIds !== undefined) {
+      const cleaned = sanitizeStringIdArray(u.groupIds).filter((gid) => validGroupIds.has(gid));
+      if (cleaned.length > 0) u.groupIds = cleaned;
+      else delete u.groupIds;
+    }
+    if (u.companyIds !== undefined) {
+      const cleaned = sanitizeStringIdArray(u.companyIds).filter((cid) => validCompanyIds.has(cid));
+      if (cleaned.length > 0) u.companyIds = cleaned;
+      else delete u.companyIds;
+    }
+    if (u.permissionGrants !== undefined) {
+      const cleaned = sanitizePermissionArray(u.permissionGrants);
+      if (cleaned.length > 0) u.permissionGrants = cleaned;
+      else delete u.permissionGrants;
+    }
+    if (u.permissionDenials !== undefined) {
+      const cleaned = sanitizePermissionArray(u.permissionDenials);
+      if (cleaned.length > 0) u.permissionDenials = cleaned;
+      else delete u.permissionDenials;
+    }
+  }
 
   for (const c of state.companies) {
     if (!c || typeof c !== 'object') continue;

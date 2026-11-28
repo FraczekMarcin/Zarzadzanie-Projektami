@@ -95,11 +95,16 @@ export function registerCompanyRoutes(
   const { requireAuth, requireAdmin } = sessionStore;
   const { securityLogger } = stateStore;
 
-  // GET /api/companies — widoczne dla wszystkich zalogowanych (nip i address tylko dla admin i project_manager; vatPayer także dla właścicieli projektów)
+  // GET /api/companies — widoczne dla wszystkich zalogowanych (nip, address, vatPayer wg uprawnień i własności projektów)
   app.get('/api/companies', requireAuth, (req, res) => {
     const appState = stateStore.ensureStateStructure();
     const caller = (req as any).user;
-    const companies = filterCompaniesForUser(appState.companies || [], caller, appState.projects || []);
+    const companies = filterCompaniesForUser(
+      appState.companies || [],
+      caller,
+      appState.projects || [],
+      appState.permissionConfig
+    );
     const projectNumbering = appState.projectNumbering || { scope: 'year' as ProjectNumberingScope };
 
     return res.json({

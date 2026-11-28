@@ -1,6 +1,7 @@
 import express from 'express';
 import crypto from 'crypto';
 import { canAccessProject, canWrite, hasForbiddenKeys } from '../../utils/access.js';
+import { can, sanitizePermissionArray } from '../../utils/permissions.js';
 import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
 import { logger } from '../logger.js';
@@ -16,9 +17,10 @@ export function registerCommentRoutes(
   app.post('/api/comments', requireAuth, async (req, res) => {
     try {
       const appState = stateStore.ensureStateStructure();
+      const permConfig = appState.permissionConfig;
       const caller = (req as any).user;
-      if (!canWrite(caller)) {
-        return res.status(403).json({ error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' });
+      if (!canWrite(caller, permConfig)) {
+        return res.status(403).json({ error: 'Brak uprawnień do dodawania komentarzy.' });
       }
       if (hasForbiddenKeys(req.body)) {
         return res.status(400).json({ error: 'Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).' });
@@ -39,14 +41,9 @@ export function registerCommentRoutes(
         return res.status(404).json({ error: `Zadanie o ID "${taskId}" nie istnieje.` });
       }
 
-      const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
-      if (!isAdminOrManager) {
-        const targetProject = (appState.projects || []).find((p: any) => p.id === task.projectId);
-        const isMember = targetProject && Array.isArray(targetProject.memberIds) && targetProject.memberIds.includes(caller.id);
-        const isAssigneeOrReporter = (task.assigneeId && task.assigneeId === caller.id) || (task.reporterId && task.reporterId === caller.id);
-        if (!isMember && !isAssigneeOrReporter) {
-          return res.status(403).json({ error: 'Brak uprawnień do komentowania zadania w tym projekcie.' });
-        }
+      const targetProject = (appState.projects || []).find((p: any) => p.id === task.projectId);
+      if (!can(caller, 'tasks.edit', { type: 'task', task, project: targetProject || null }, permConfig)) {
+        return res.status(403).json({ error: 'Brak uprawnień do komentowania zadania w tym projekcie.' });
       }
 
       const newComment = {
@@ -75,15 +72,21 @@ export function registerCommentRoutes(
   app.delete('/api/comments/:id', requireAuth, async (req, res) => {
     try {
       const appState = stateStore.ensureStateStructure();
+      const permConfig = appState.permissionConfig;
       const caller = (req as any).user;
-      if (!canWrite(caller)) {
-        return res.status(403).json({ error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' });
+      if (!canWrite(caller, permConfig)) {
+        return res.status(403).json({ error: 'Brak uprawnień do usuwania komentarzy.' });
       }
       const { id } = req.params;
 
       const comment = (appState.comments || []).find((c: any) => c.id === id);
       if (!comment) {
         return res.status(404).json({ error: `Komentarz o ID "${id}" nie istnieje.` });
+      }
+
+      const denials = new Set(sanitizePermissionArray(caller?.permissionDenials));
+      if (caller.role !== 'admin' && denials.has('tasks.edit')) {
+        return res.status(403).json({ error: 'Brak uprawnień do usuwania komentarzy.' });
       }
 
       const isAuthor = comment.userId === caller.id;
@@ -112,9 +115,10 @@ export function registerCommentRoutes(
   app.post('/api/activity', requireAuth, async (req, res) => {
     try {
       const appState = stateStore.ensureStateStructure();
+      const permConfig = appState.permissionConfig;
       const caller = (req as any).user;
-      if (!canWrite(caller)) {
-        return res.status(403).json({ error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' });
+      if (!canWrite(caller, permConfig)) {
+        return res.status(403).json({ error: 'Brak uprawnień do rejestracji aktywności.' });
       }
       if (hasForbiddenKeys(req.body)) {
         return res.status(400).json({ error: 'Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).' });
@@ -131,7 +135,7 @@ export function registerCommentRoutes(
         return res.status(404).json({ error: `Projekt o ID "${projectId}" nie istnieje.` });
       }
 
-      if (!canAccessProject(caller, project)) {
+      if (!canAccessProject(caller, project, permConfig)) {
         return res.status(403).json({ error: 'Brak uprawnień do rejestracji aktywności w tym projekcie.' });
       }
 

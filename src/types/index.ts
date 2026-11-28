@@ -12,6 +12,40 @@ export type TaskStatus = 'to_do' | 'in_progress' | 'review' | 'done' | 'blocked'
 
 export type UserRole = 'admin' | 'project_manager' | 'developer' | 'tester' | 'viewer';
 
+export type Permission =
+  | 'projects.view'
+  | 'projects.create'
+  | 'projects.edit'
+  | 'projects.delete'
+  | 'projects.archive'
+  | 'tasks.edit'
+  | 'finance.view'
+  | 'finance.edit'
+  | 'economy.view'
+  | 'tenders.view'
+  | 'tenders.edit'
+  | 'contractors.view'
+  | 'contractors.edit'
+  | 'clients.edit'
+  | 'templates.manage'
+  | 'trash.manage'
+  | 'reports.view';
+
+export interface PermissionGroup {
+  id: string;
+  name: string;
+  description: string;
+  permissions: Permission[];
+}
+
+export type RolePermissionsMap = Record<UserRole, Permission[]>;
+
+export interface PermissionConfig {
+  rolePermissions: RolePermissionsMap;
+  permissionGroups: PermissionGroup[];
+  companyMemberPermissions: Permission[];
+}
+
 export interface User {
   id: string;
   name: string;
@@ -30,6 +64,11 @@ export interface User {
   emailReminders?: boolean; // Domyślnie true (undefined traktowane jako true)
   weeklySummary?: boolean; // Domyślnie true dla admin i project_manager
   registeredAt?: string;
+  groupIds?: string[];
+  companyIds?: string[];
+  permissionGrants?: Permission[];
+  permissionDenials?: Permission[];
+  effectivePermissions?: Permission[];
 }
 
 export interface QuotationItem {

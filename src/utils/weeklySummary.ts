@@ -1,5 +1,6 @@
-import type { Project, ProjectStatusOption, Task, User } from '../types/index.js';
+import type { PermissionConfig, Project, ProjectStatusOption, Task, User } from '../types/index.js';
 import { PRIORITY_LABELS, STATUS_LABELS } from './labels.js';
+import { can } from './permissions.js';
 import { getProjectDisplayName, isProjectStatusClosed } from './projectMeta.js';
 import { escapeHtml, isValidIanaTimezone, localDateString } from './reminders.js';
 
@@ -446,7 +447,8 @@ export function buildWeeklySummary(
   users: User[],
   now: Date | number,
   settings: WeeklySummarySettings,
-  projectStatuses?: ProjectStatusOption[] | null
+  projectStatuses?: ProjectStatusOption[] | null,
+  permissionConfig?: PermissionConfig | null
 ): UserWeeklySummary[] {
   const norm = normalizeWeeklySettings(settings);
   const todayStr = localDateString(now, norm.timezone);
@@ -467,7 +469,8 @@ export function buildWeeklySummary(
     if (u.isApproved === false) continue;
     if (u.weeklySummary === false) continue;
 
-    const roleOk = u.role === 'project_manager' || (norm.includeAdmins && u.role === 'admin');
+    const hasReportsPerm = can(u, 'reports.view', undefined, permissionConfig);
+    const roleOk = u.role === 'admin' ? norm.includeAdmins && hasReportsPerm : hasReportsPerm;
     if (!roleOk) continue;
 
     const cleanEmail = typeof u.email === 'string' ? u.email.trim() : '';

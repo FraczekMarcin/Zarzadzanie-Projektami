@@ -557,12 +557,23 @@ export function registerUserRoutes(app: express.Express, deps: UserRoutesDeps): 
       const caller = (req as any).user;
       const { userId } = req.params;
 
+      const users = stateStore.getUsers() || [];
+      const deletedUser = users.find((u) => u.id === userId);
+      if (deletedUser && deletedUser.role === 'admin' && deletedUser.isApproved !== false) {
+        const remainingApprovedAdmins = users.filter(
+          (u) => u.id !== userId && u.role === 'admin' && u.isApproved !== false
+        ).length;
+        if (remainingApprovedAdmins < 1) {
+          return res.status(409).json({
+            error: 'Nie można usunąć ostatniego zatwierdzonego administratora w systemie.',
+          });
+        }
+      }
+
       if (caller.id === userId) {
         return res.status(400).json({ error: 'Nie możesz usunąć aktualnie zalogowanego konta Administratora' });
       }
 
-      const users = stateStore.getUsers() || [];
-      const deletedUser = users.find((u) => u.id === userId);
       const nextUsers = users.filter((u) => u.id !== userId);
       stateStore.setUsers(nextUsers);
       stateStore.setAppState({

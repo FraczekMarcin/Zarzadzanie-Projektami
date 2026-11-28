@@ -441,6 +441,16 @@ export default function App() {
     setComments,
     setSelectedProjectId,
     setNotificationToast,
+    onPermissionsRefresh: async () => {
+      try {
+        const res = await fetch('/api/auth/me', { credentials: 'same-origin' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data?.authenticated && data.user) {
+          setCurrentUser(data.user);
+        }
+      } catch {}
+    },
   });
 
   // Periodic Auto-Backup Engine

@@ -1,5 +1,6 @@
 import express from 'express';
 import { filterProjectForUser, hasForbiddenKeys } from '../../utils/access.js';
+import { can, canUserUseCompanyPermission } from '../../utils/permissions.js';
 import {
   buildProjectFromTender,
   computeTenderSummary,
@@ -24,10 +25,6 @@ import { getClientIp, SecurityContext } from '../security.js';
 import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
 import { SessionStore } from '../sessions.js';
 import { logger } from '../logger.js';
-
-function isTenderRoleAuthorized(user: { role?: string } | null | undefined): boolean {
-  return Boolean(user && (user.role === 'admin' || user.role === 'project_manager'));
-}
 
 function parseOptionalPriceFilter(raw: unknown, fieldName: string): { ok: true; value?: number } | { ok: false; error: string } {
   if (raw === undefined || raw === null) return { ok: true };
@@ -81,14 +78,20 @@ export function registerTenderRoutes(
   app.get('/api/tenders', requireAuth, (req, res) => {
     try {
       const caller = (req as any).user;
-      if (!isTenderRoleAuthorized(caller)) {
+      const appState = stateStore.ensureStateStructure();
+      const permConfig = appState.permissionConfig;
+      const hasGlobalView = can(caller, 'tenders.view', undefined, permConfig);
+      const hasCompanyView = canUserUseCompanyPermission(caller, 'tenders.view', permConfig);
+      if (!hasGlobalView && !hasCompanyView) {
         return res.status(403).json({
-          error: 'Dostęp do przetargów wymaga roli administratora lub kierownika projektu.',
+          error: 'Brak uprawnień do przeglądania przetargów.',
         });
       }
 
-      const appState = stateStore.ensureStateStructure();
-      const tenders: Tender[] = Array.isArray(appState.tenders) ? appState.tenders : [];
+      const rawTenders: Tender[] = Array.isArray(appState.tenders) ? appState.tenders : [];
+      const tenders: Tender[] = hasGlobalView
+        ? rawTenders
+        : rawTenders.filter((t) => can(caller, 'tenders.view', { type: 'tender', tender: t }, permConfig));
 
       const q = typeof req.query.q === 'string' ? req.query.q : undefined;
       const authority = typeof req.query.authority === 'string' ? req.query.authority : undefined;
@@ -180,17 +183,25 @@ export function registerTenderRoutes(
   app.get('/api/tenders/:id', requireAuth, (req, res) => {
     try {
       const caller = (req as any).user;
-      if (!isTenderRoleAuthorized(caller)) {
+      const appState = stateStore.ensureStateStructure();
+      const permConfig = appState.permissionConfig;
+      const hasGlobalView = can(caller, 'tenders.view', undefined, permConfig);
+      const hasCompanyView = canUserUseCompanyPermission(caller, 'tenders.view', permConfig);
+      if (!hasGlobalView && !hasCompanyView) {
         return res.status(403).json({
-          error: 'Dostęp do przetargów wymaga roli administratora lub kierownika projektu.',
+          error: 'Brak uprawnień do przeglądania przetargów.',
         });
       }
 
-      const appState = stateStore.ensureStateStructure();
       const tenders: Tender[] = Array.isArray(appState.tenders) ? appState.tenders : [];
       const tender = tenders.find((t) => t && t.id === req.params.id);
       if (!tender) {
         return res.status(404).json({ error: `Przetarg o ID "${req.params.id}" nie został znaleziony.` });
+      }
+      if (!can(caller, 'tenders.view', { type: 'tender', tender }, permConfig)) {
+        return res.status(403).json({
+          error: 'Brak uprawnień do podglądu tego przetargu.',
+        });
       }
 
       return res.json({ tender: toTenderDetail(tender) });
@@ -204,9 +215,13 @@ export function registerTenderRoutes(
   app.post('/api/tenders', requireAuth, async (req, res) => {
     try {
       const caller = (req as any).user;
-      if (!isTenderRoleAuthorized(caller)) {
+      const appState = stateStore.ensureStateStructure();
+      const permConfig = appState.permissionConfig;
+      const hasGlobalEdit = can(caller, 'tenders.edit', undefined, permConfig);
+      const hasCompanyEdit = canUserUseCompanyPermission(caller, 'tenders.edit', permConfig);
+      if (!hasGlobalEdit && !hasCompanyEdit) {
         return res.status(403).json({
-          error: 'Tworzenie przetargów wymaga roli administratora lub kierownika projektu.',
+          error: 'Brak uprawnień do tworzenia przetargów.',
         });
       }
       if (!checkWriteRateLimit(caller, res)) {
@@ -216,7 +231,6 @@ export function registerTenderRoutes(
         return res.status(400).json({ error: 'Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).' });
       }
 
-      const appState = stateStore.ensureStateStructure();
       const tenders: Tender[] = Array.isArray(appState.tenders) ? appState.tenders : [];
       if (tenders.length >= MAX_TENDERS) {
         return res.status(400).json({
@@ -234,6 +248,12 @@ export function registerTenderRoutes(
         return res.status(400).json({
           error: validation.error || 'Nieprawidłowe dane przetargu.',
           ...(validation.field ? { field: validation.field } : {}),
+        });
+      }
+
+      if (!can(caller, 'tenders.edit', { type: 'tender', tender: validation.tender }, permConfig)) {
+        return res.status(403).json({
+          error: 'Brak uprawnień do utworzenia przetargu dla wybranych firm.',
         });
       }
 
@@ -270,9 +290,13 @@ export function registerTenderRoutes(
   app.patch('/api/tenders/:id', requireAuth, async (req, res) => {
     try {
       const caller = (req as any).user;
-      if (!isTenderRoleAuthorized(caller)) {
+      const appState = stateStore.ensureStateStructure();
+      const permConfig = appState.permissionConfig;
+      const hasGlobalEdit = can(caller, 'tenders.edit', undefined, permConfig);
+      const hasCompanyEdit = canUserUseCompanyPermission(caller, 'tenders.edit', permConfig);
+      if (!hasGlobalEdit && !hasCompanyEdit) {
         return res.status(403).json({
-          error: 'Edycja przetargów wymaga roli administratora lub kierownika projektu.',
+          error: 'Brak uprawnień do edycji przetargów.',
         });
       }
       if (!checkWriteRateLimit(caller, res)) {
@@ -282,7 +306,6 @@ export function registerTenderRoutes(
         return res.status(400).json({ error: 'Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).' });
       }
 
-      const appState = stateStore.ensureStateStructure();
       const tenders: Tender[] = Array.isArray(appState.tenders) ? appState.tenders : [];
       const index = tenders.findIndex((t) => t && t.id === req.params.id);
       if (index === -1) {
@@ -290,6 +313,11 @@ export function registerTenderRoutes(
       }
 
       const existing = tenders[index];
+      if (!can(caller, 'tenders.edit', { type: 'tender', tender: existing }, permConfig)) {
+        return res.status(403).json({
+          error: 'Brak uprawnień do edycji tego przetargu.',
+        });
+      }
       const patch = req.body || {};
 
       const rawIfMatch =
@@ -357,9 +385,13 @@ export function registerTenderRoutes(
   app.delete('/api/tenders/:id', requireAuth, async (req, res) => {
     try {
       const caller = (req as any).user;
-      if (!isTenderRoleAuthorized(caller)) {
+      const appState = stateStore.ensureStateStructure();
+      const permConfig = appState.permissionConfig;
+      const hasGlobalEdit = can(caller, 'tenders.edit', undefined, permConfig);
+      const hasCompanyEdit = canUserUseCompanyPermission(caller, 'tenders.edit', permConfig);
+      if (!hasGlobalEdit && !hasCompanyEdit) {
         return res.status(403).json({
-          error: 'Usuwanie przetargów wymaga roli administratora lub kierownika projektu.',
+          error: 'Brak uprawnień do usuwania przetargów.',
         });
       }
       if (!checkWriteRateLimit(caller, res)) {
@@ -369,7 +401,6 @@ export function registerTenderRoutes(
         return res.status(400).json({ error: 'Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).' });
       }
 
-      const appState = stateStore.ensureStateStructure();
       const tenders: Tender[] = Array.isArray(appState.tenders) ? appState.tenders : [];
       const index = tenders.findIndex((t) => t && t.id === req.params.id);
       if (index === -1) {
@@ -377,6 +408,11 @@ export function registerTenderRoutes(
       }
 
       const tender = tenders[index];
+      if (!can(caller, 'tenders.edit', { type: 'tender', tender }, permConfig)) {
+        return res.status(403).json({
+          error: 'Brak uprawnień do usunięcia tego przetargu.',
+        });
+      }
       if (caller.role !== 'admin' && tender.createdBy !== caller.id) {
         return res.status(403).json({
           error: 'Usunięcie przetargu jest dozwolone wyłącznie dla administratora lub autora przetargu.',
@@ -421,9 +457,17 @@ export function registerTenderRoutes(
   app.post('/api/tenders/:id/create-project', requireAuth, async (req, res) => {
     try {
       const caller = (req as any).user;
-      if (!isTenderRoleAuthorized(caller)) {
+      const bootAppState = stateStore.ensureStateStructure();
+      const permConfig = bootAppState.permissionConfig;
+      const hasPotentialTenderEdit =
+        can(caller, 'tenders.edit', undefined, permConfig) ||
+        canUserUseCompanyPermission(caller, 'tenders.edit', permConfig);
+      const hasPotentialProjectCreate =
+        can(caller, 'projects.create', undefined, permConfig) ||
+        canUserUseCompanyPermission(caller, 'projects.create', permConfig);
+      if (!hasPotentialTenderEdit || !hasPotentialProjectCreate) {
         return res.status(403).json({
-          error: 'Utworzenie projektu z przetargu wymaga roli administratora lub kierownika projektu.',
+          error: 'Brak uprawnień do utworzenia projektu z przetargu.',
         });
       }
       if (!checkWriteRateLimit(caller, res)) {
@@ -435,10 +479,14 @@ export function registerTenderRoutes(
 
       const outcome = await withCreateProjectLock(async () => {
         const appState = stateStore.ensureStateStructure();
+        const lockPermConfig = appState.permissionConfig;
         const tenders: Tender[] = Array.isArray(appState.tenders) ? appState.tenders : [];
         const tender = tenders.find((t) => t && t.id === req.params.id);
         if (!tender) {
           return { status: 404, payload: { error: `Przetarg o ID "${req.params.id}" nie został znaleziony.` } };
+        }
+        if (!can(caller, 'tenders.edit', { type: 'tender', tender }, lockPermConfig)) {
+          return { status: 403, payload: { error: 'Brak uprawnień do edycji tego przetargu.' } };
         }
 
         const rawBody = req.body || {};
@@ -489,6 +537,20 @@ export function registerTenderRoutes(
               error: buildResult.error,
               ...(buildResult.extra || {}),
             },
+          };
+        }
+
+        if (
+          !can(
+            caller,
+            'projects.create',
+            buildResult.project.companyId ? { companyId: buildResult.project.companyId } : undefined,
+            lockPermConfig
+          )
+        ) {
+          return {
+            status: 403,
+            payload: { error: 'Brak uprawnień do utworzenia projektu dla firmy wybranej w przetargu.' },
           };
         }
 
@@ -599,7 +661,7 @@ export function registerTenderRoutes(
           status: 201,
           payload: {
             success: true,
-            project: filterProjectForUser(buildResult.project, caller),
+            project: filterProjectForUser(buildResult.project, caller, lockPermConfig),
             tender: toTenderDetail(tender),
             ...(resolvedTemplate ? { tasks: instantiatedTasks } : {}),
             message: successMessage,

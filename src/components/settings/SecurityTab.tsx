@@ -17,6 +17,7 @@ const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   user_deleted: 'Usunięcie użytkownika',
   user_approved: 'Zatwierdzenie użytkownika',
   user_role_changed: 'Zmiana roli użytkownika',
+  permission_changed: 'Zmiana uprawnień użytkowników lub grup',
   session_revoked: 'Unieważnienie sesji',
   registration: 'Wniosek rejestracyjny',
   setup_admin: 'Inicjalizacja administratora',

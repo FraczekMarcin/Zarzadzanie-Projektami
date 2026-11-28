@@ -54,10 +54,22 @@ export function sanitizeUser(u: any) {
     twoFactorBackupCodes,
     pending2FA,
     calendarTokenHash,
+    groupIds,
+    companyIds,
+    permissionGrants,
+    permissionDenials,
     ...rest
   } = u;
   return {
     ...rest,
+    ...(Array.isArray(groupIds) && groupIds.length > 0 ? { groupIds: [...groupIds] } : {}),
+    ...(Array.isArray(companyIds) && companyIds.length > 0 ? { companyIds: [...companyIds] } : {}),
+    ...(Array.isArray(permissionGrants) && permissionGrants.length > 0
+      ? { permissionGrants: [...permissionGrants] }
+      : {}),
+    ...(Array.isArray(permissionDenials) && permissionDenials.length > 0
+      ? { permissionDenials: [...permissionDenials] }
+      : {}),
     hasPassword: Boolean(passwordHash || password),
     twoFactorEnabled: Boolean(u.twoFactorEnabled),
     backupCodesCount: Array.isArray(twoFactorBackupCodes) ? twoFactorBackupCodes.length : 0,

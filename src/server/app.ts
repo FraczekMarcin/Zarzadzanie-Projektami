@@ -25,6 +25,7 @@ import { createSettingsService } from './settings.js';
 import { createTrustedDevicesService } from './trustedDevices.js';
 import { createMailer } from './mailer.js';
 import { registerAdminSettingsRoutes } from './routes/adminSettings.js';
+import { registerPermissionRoutes } from './routes/permissions.js';
 import { createTrashCleanupService } from './trash.js';
 import { registerTrashRoutes } from './routes/trash.js';
 import { createReminderService } from './reminders.js';
@@ -210,6 +211,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<CreateA
       weeklySummaryService,
     });
     eventsHandle = registerEventRoutes(app, { stateStore, sessionStore });
+    registerPermissionRoutes(app, {
+      stateStore,
+      sessionStore,
+      notifyPermissionsChanged: (opts) => eventsHandle?.notifyPermissionsChanged(opts),
+    });
 
     // 404 handler dla nieznanych tras /api (dla każdej metody HTTP)
     app.use('/api', (_req, res) => {

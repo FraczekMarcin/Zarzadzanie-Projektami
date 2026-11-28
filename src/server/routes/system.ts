@@ -138,6 +138,7 @@ export function registerSystemRoutes(
 
       const {
         serverSettings: _ignoredServerSettings,
+        permissionConfig: _ignoredPermissionConfig,
         trash: _ignoredTrash,
         tenders: _ignoredTenders,
         projectTemplates: _ignoredProjectTemplates,
@@ -173,6 +174,7 @@ export function registerSystemRoutes(
         companies: preservedCompanies,
         projectNumbering: nextProjectNumbering,
         serverSettings: appState.serverSettings,
+        permissionConfig: appState.permissionConfig,
         trash: Array.isArray(appState.trash) ? appState.trash : [],
         tenders: Array.isArray(appState.tenders) ? appState.tenders : [],
         projectTemplates: Array.isArray(appState.projectTemplates) ? appState.projectTemplates : [],

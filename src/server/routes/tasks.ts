@@ -1,12 +1,12 @@
 import express from 'express';
 import crypto from 'crypto';
 import {
-  canAccessProject,
   canWrite,
   hasForbiddenKeys,
   pickAllowedTaskFields,
   buildNewTaskRecord,
 } from '../../utils/access.js';
+import { can, canUserUseCompanyPermission, hasMatchingCompanyMembership, sanitizePermissionArray } from '../../utils/permissions.js';
 import { canReparent, reconcileParentCompletionOnReparent } from '../../utils/taskTree.js';
 import {
   hasDirectSubtasks,
@@ -30,9 +30,10 @@ export function registerTaskRoutes(
   app.post('/api/tasks', requireAuth, async (req, res) => {
     try {
       const appState = stateStore.ensureStateStructure();
+      const permConfig = appState.permissionConfig;
       const caller = (req as any).user;
-      if (!canWrite(caller)) {
-        return res.status(403).json({ error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' });
+      if (!canWrite(caller, permConfig)) {
+        return res.status(403).json({ error: 'Brak uprawnień do tworzenia zadań.' });
       }
       if (hasForbiddenKeys(req.body)) {
         return res.status(400).json({ error: 'Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).' });
@@ -48,17 +49,13 @@ export function registerTaskRoutes(
         return res.status(404).json({ error: `Projekt o ID "${body.projectId}" nie istnieje.` });
       }
 
-      const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
-      if (!isAdminOrManager) {
-        const isMember = canAccessProject(caller, targetProject);
-        if (!isMember) {
-          return res.status(403).json({ error: 'Brak uprawnień: użytkownik nie jest członkiem tego projektu.' });
-        }
+      if (!can(caller, 'tasks.edit', targetProject, permConfig)) {
+        return res.status(403).json({ error: 'Brak uprawnień do tworzenia zadań w tym projekcie.' });
       }
 
       let allowed: Record<string, any>;
       try {
-        allowed = pickAllowedTaskFields(body, caller);
+        allowed = pickAllowedTaskFields(body, caller, { permissionConfig: permConfig });
       } catch (err: any) {
         return res.status(400).json({ error: err.message });
       }
@@ -120,10 +117,11 @@ export function registerTaskRoutes(
   app.patch('/api/tasks/:id', requireAuth, async (req, res) => {
     try {
       const appState = stateStore.ensureStateStructure();
+      const permConfig = appState.permissionConfig;
       const { id } = req.params;
       const caller = (req as any).user;
-      if (!canWrite(caller)) {
-        return res.status(403).json({ error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' });
+      if (!canWrite(caller, permConfig)) {
+        return res.status(403).json({ error: 'Brak uprawnień do edycji zadań.' });
       }
       if (hasForbiddenKeys(req.body)) {
         return res.status(400).json({ error: 'Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).' });
@@ -135,19 +133,15 @@ export function registerTaskRoutes(
         return res.status(404).json({ error: `Zadanie o ID "${id}" nie zostało znalezione.` });
       }
 
-      const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
-      if (!isAdminOrManager) {
-        const targetProject = (appState.projects || []).find((p: any) => p.id === task.projectId);
-        const isMember = targetProject && canAccessProject(caller, targetProject);
-        const isAssigneeOrReporter = (task.assigneeId && task.assigneeId === caller.id) || (task.reporterId && task.reporterId === caller.id);
-        if (!isMember && !isAssigneeOrReporter) {
-          return res.status(403).json({ error: 'Brak uprawnień do edycji zadania w tym projekcie.' });
-        }
+      const targetProject = (appState.projects || []).find((p: any) => p.id === task.projectId);
+      if (!can(caller, 'tasks.edit', { type: 'task', task, project: targetProject || null }, permConfig)) {
+        return res.status(403).json({ error: 'Brak uprawnień do edycji zadania w tym projekcie.' });
       }
 
+      const hasGlobalTasksEdit = can(caller, 'tasks.edit', undefined, permConfig);
       if (patch.projectId !== undefined && patch.projectId !== task.projectId) {
-        if (!isAdminOrManager) {
-          return res.status(403).json({ error: 'Zmiana projektu zadania jest dozwolona wyłącznie dla roli administratora lub kierownika projektu.' });
+        if (!hasGlobalTasksEdit) {
+          return res.status(403).json({ error: 'Zmiana projektu zadania wymaga globalnego uprawnienia edycji zadań.' });
         }
         const destProject = (appState.projects || []).find((p: any) => p.id === patch.projectId);
         if (!destProject) {
@@ -170,7 +164,7 @@ export function registerTaskRoutes(
 
       let allowedUpdates: Record<string, any>;
       try {
-        allowedUpdates = pickAllowedTaskFields(patch, caller);
+        allowedUpdates = pickAllowedTaskFields(patch, caller, { permissionConfig: permConfig });
       } catch (err: any) {
         return res.status(400).json({ error: err.message });
       }
@@ -343,10 +337,11 @@ export function registerTaskRoutes(
   app.delete('/api/tasks/:id', requireAuth, async (req, res) => {
     try {
       const appState = stateStore.ensureStateStructure();
+      const permConfig = appState.permissionConfig;
       const { id } = req.params;
       const caller = (req as any).user;
-      if (!canWrite(caller)) {
-        return res.status(403).json({ error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' });
+      if (!canWrite(caller, permConfig)) {
+        return res.status(403).json({ error: 'Brak uprawnień do usuwania zadań.' });
       }
 
       const task = (appState.tasks || []).find((t: any) => t.id === id);
@@ -354,10 +349,22 @@ export function registerTaskRoutes(
         return res.status(404).json({ error: `Zadanie o ID "${id}" nie istnieje.` });
       }
 
-      const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
-      if (!isAdminOrManager) {
-        const isOwn = (task.assigneeId && task.assigneeId === caller.id) ||
-                      (task.reporterId && task.reporterId === caller.id);
+      const targetProject = (appState.projects || []).find((p: any) => p.id === task.projectId);
+      const denials = new Set(sanitizePermissionArray(caller?.permissionDenials));
+      if (caller.role !== 'admin' && denials.has('tasks.edit')) {
+        return res.status(403).json({ error: 'Brak uprawnień do usuwania zadań.' });
+      }
+
+      const hasGlobalOrCompanyDelete =
+        can(caller, 'tasks.edit', undefined, permConfig) ||
+        (canUserUseCompanyPermission(caller, 'tasks.edit', permConfig) &&
+          hasMatchingCompanyMembership(caller, targetProject || null));
+
+      if (!hasGlobalOrCompanyDelete) {
+        const isOwn =
+          caller.role !== 'viewer' &&
+          ((task.assigneeId && task.assigneeId === caller.id) ||
+            (task.reporterId && task.reporterId === caller.id));
         if (!isOwn) {
           return res.status(403).json({
             error: `Brak uprawnień do usunięcia cudzego zadania: "${task.title || task.code || task.id}".`,

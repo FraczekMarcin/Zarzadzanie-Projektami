@@ -6,6 +6,7 @@ import type {
   TrashTaskPayload,
 } from '../types/index.js';
 import { canAccessProject, canWrite } from '../utils/access.js';
+import { can, sanitizePermissionArray } from '../utils/permissions.js';
 import { getProjectDisplayName } from '../utils/projectMeta.js';
 import { logger } from './logger.js';
 import type { StateStore } from './state.js';
@@ -234,7 +235,7 @@ export function moveProjectToTrash(
   return { trashEntry: entry };
 }
 
-function findProjectForTrashEntry(appState: any, projectId: string): any | null {
+export function findProjectForTrashEntry(appState: any, projectId: string): any | null {
   const active = (appState.projects || []).find((p: any) => p && p.id === projectId);
   if (active) return active;
 
@@ -250,14 +251,28 @@ function findProjectForTrashEntry(appState: any, projectId: string): any | null 
 export function canSeeTrashEntry(
   appState: any,
   entry: TrashEntry,
-  user: { id: string; role?: string } | null | undefined
+  user: {
+    id: string;
+    role?: string;
+    groupIds?: string[];
+    companyIds?: string[];
+    permissionGrants?: any[];
+    permissionDenials?: any[];
+    effectivePermissions?: any[];
+  } | null | undefined
 ): boolean {
   if (!user || !user.role || !entry) return false;
-  if (user.role === 'viewer') return false;
-  if (user.role === 'admin' || user.role === 'project_manager') return true;
-
+  const permConfig = appState?.permissionConfig;
   const project = findProjectForTrashEntry(appState, entry.projectId);
-  const hasProjectAccess = project ? canAccessProject(user, project) : false;
+  const companyCtx = project?.companyId ? { companyId: project.companyId } : undefined;
+  if (can(user, 'trash.manage', companyCtx, permConfig)) {
+    return true;
+  }
+  if (user.role === 'viewer') return false;
+  const denials = new Set(sanitizePermissionArray(user.permissionDenials));
+  if (denials.has('trash.manage')) return false;
+
+  const hasProjectAccess = project ? canAccessProject(user, project, permConfig) : false;
 
   if (entry.type === 'project') {
     return hasProjectAccess && entry.deletedBy === user.id;
@@ -281,21 +296,45 @@ export function canSeeTrashEntry(
 export function canRestoreTrashEntry(
   appState: any,
   entry: TrashEntry,
-  user: { id: string; role?: string } | null | undefined
+  user: {
+    id: string;
+    role?: string;
+    groupIds?: string[];
+    companyIds?: string[];
+    permissionGrants?: any[];
+    permissionDenials?: any[];
+    effectivePermissions?: any[];
+  } | null | undefined
 ): boolean {
-  if (!canWrite(user) || !entry) return false;
-  if (user!.role === 'admin' || user!.role === 'project_manager') return true;
+  const permConfig = appState?.permissionConfig;
+  if (!canWrite(user, permConfig) || !entry) return false;
+  const project = findProjectForTrashEntry(appState, entry.projectId);
+  const companyCtx = project?.companyId ? { companyId: project.companyId } : undefined;
+  if (can(user, 'trash.manage', companyCtx, permConfig)) {
+    return true;
+  }
+  if (user!.role === 'viewer') return false;
+  const denials = new Set(sanitizePermissionArray(user?.permissionDenials));
+  if (denials.has('trash.manage')) return false;
   return canSeeTrashEntry(appState, entry, user) && entry.deletedBy === user!.id;
 }
 
 export function listTrashForUser(
   appState: any,
-  user: { id: string; role?: string } | null | undefined,
+  user: {
+    id: string;
+    role?: string;
+    groupIds?: string[];
+    companyIds?: string[];
+    permissionGrants?: any[];
+    permissionDenials?: any[];
+    effectivePermissions?: any[];
+  } | null | undefined,
   nowMs: number = Date.now()
 ): TrashEntrySummary[] {
-  if (!user || user.role === 'viewer') return [];
+  if (!user) return [];
   const entries: TrashEntry[] = Array.isArray(appState?.trash) ? appState.trash : [];
-  const isAdminOrManager = user.role === 'admin' || user.role === 'project_manager';
+  const permConfig = appState?.permissionConfig;
 
   const result: TrashEntrySummary[] = [];
   for (const entry of entries) {
@@ -308,6 +347,12 @@ export function listTrashForUser(
       : 0;
 
     const proj = findProjectForTrashEntry(appState, entry.projectId);
+    const canPurge = can(
+      user,
+      'trash.manage',
+      proj?.companyId ? { companyId: proj.companyId } : undefined,
+      permConfig
+    );
 
     if (entry.type === 'project') {
       const payload = entry.payload as TrashProjectPayload;
@@ -327,7 +372,7 @@ export function listTrashForUser(
         taskCount: Array.isArray(payload?.tasks) ? payload.tasks.length : 0,
         commentCount: Array.isArray(payload?.comments) ? payload.comments.length : 0,
         canRestore: canRestoreTrashEntry(appState, entry, user),
-        canPurge: isAdminOrManager,
+        canPurge,
       });
     } else {
       const payload = entry.payload as TrashTaskPayload;
@@ -347,7 +392,7 @@ export function listTrashForUser(
         taskCount: 1,
         commentCount: Array.isArray(payload?.comments) ? payload.comments.length : 0,
         canRestore: canRestoreTrashEntry(appState, entry, user),
-        canPurge: isAdminOrManager,
+        canPurge,
       });
     }
   }
@@ -387,8 +432,8 @@ export function restoreTrashEntry(
   if (!Array.isArray(appState.comments)) appState.comments = [];
   if (!Array.isArray(appState.activityLogs)) appState.activityLogs = [];
 
-  if (!canWrite(caller)) {
-    return { ok: false, status: 403, error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' };
+  if (!canWrite(caller, appState?.permissionConfig)) {
+    return { ok: false, status: 403, error: 'Brak uprawnień do przywracania elementów z kosza.' };
   }
 
   const entryIndex = appState.trash.findIndex((e: TrashEntry) => e && e.id === trashId);

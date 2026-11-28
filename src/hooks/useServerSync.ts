@@ -42,6 +42,7 @@ interface UseServerSyncParams {
   setComments: React.Dispatch<React.SetStateAction<Comment[]>>;
   setSelectedProjectId: React.Dispatch<React.SetStateAction<string | null>>;
   setNotificationToast: React.Dispatch<React.SetStateAction<NotificationToast | null>>;
+  onPermissionsRefresh?: () => Promise<void> | void;
 }
 
 export function useServerSync({
@@ -59,6 +60,7 @@ export function useServerSync({
   setComments,
   setSelectedProjectId,
   setNotificationToast,
+  onPermissionsRefresh,
 }: UseServerSyncParams) {
   // Rewizja stanu na serwerze i referencje dla współbieżnej synchronizacji
   const [stateRevision, setStateRevision] = useState<number>(0);
@@ -67,6 +69,8 @@ export function useServerSync({
   stateRevisionRef.current = stateRevision;
 
   const eventSourceRef = useRef<EventSource | null>(null);
+  const onPermissionsRefreshRef = useRef(onPermissionsRefresh);
+  onPermissionsRefreshRef.current = onPermissionsRefresh;
 
   const applyRevision = (rev: number) => {
     setStateRevision(rev);
@@ -291,7 +295,16 @@ export function useServerSync({
 
         if (incomingRevision !== null && incomingRevision > stateRevisionRef.current) {
           void fetchFreshState(stateRevisionRef.current > 0);
+          void onPermissionsRefreshRef.current?.();
         }
+      });
+
+      es.addEventListener('permissions', () => {
+        if (disposed) return;
+        consecutiveErrors = 0;
+        stopFallbackPolling();
+        void onPermissionsRefreshRef.current?.();
+        void fetchFreshState(false);
       });
 
       es.onerror = () => {

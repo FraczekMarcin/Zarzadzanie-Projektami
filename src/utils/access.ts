@@ -1,8 +1,18 @@
-import type { User, Project, Task, Comment, ActivityLog } from '../types';
+import type { PermissionConfig, Project, Task, Comment, ActivityLog, User } from '../types/index.js';
+import {
+  ALL_PERMISSIONS,
+  can,
+  canUserUseCompanyPermission,
+  createDefaultPermissionConfig,
+  getEffectiveGlobalPermissions,
+  PermissionCheckContext,
+  PermissionResource,
+  sanitizePermissionArray,
+} from './permissions.js';
 
 /**
  * Lista pól projektu o charakterze finansowym oraz danych klienta / zamawiającego,
- * które są usuwane z odpowiedzi dla ról innych niż admin i project_manager.
+ * które są usuwane z odpowiedzi dla użytkowników bez uprawnienia `finance.view`.
  */
 export const FINANCIAL_AND_CLIENT_FIELDS: readonly string[] = [
   'budget',
@@ -21,43 +31,57 @@ export const FINANCIAL_AND_CLIENT_FIELDS: readonly string[] = [
   'clientAddress',
 ] as const;
 
+const WRITE_PERMISSIONS = [
+  'projects.create',
+  'projects.edit',
+  'projects.delete',
+  'projects.archive',
+  'tasks.edit',
+  'finance.edit',
+  'tenders.edit',
+  'contractors.edit',
+  'clients.edit',
+  'templates.manage',
+  'trash.manage',
+] as const;
+
 /**
  * Sprawdza, czy użytkownik może edytować finanse i dane zamawiającego w projekcie.
- * - admin: zawsze true
- * - viewer: zawsze false
- * - właściciel projektu (project.ownerId === user.id): true niezależnie od roli (poza viewer)
- * - projekty bez przypisanego ownerId: true dla project_manager (kompatybilność wsteczna)
- * - kierownik niebędący właścicielem projektu z ustawionym ownerId: false
  */
 export function canEditFinance(
-  user: { id: string; role?: string } | null | undefined,
-  project: { ownerId?: string } | null | undefined
+  user: {
+    id: string;
+    role?: string;
+    groupIds?: string[];
+    companyIds?: string[];
+    permissionGrants?: any[];
+    permissionDenials?: any[];
+    effectivePermissions?: any[];
+  } | null | undefined,
+  project: { id?: string; ownerId?: string; memberIds?: string[]; companyId?: string } | null | undefined,
+  context?: PermissionCheckContext
 ): boolean {
-  if (!user || !user.role) return false;
-  if (user.role === 'admin') return true;
-  if (user.role === 'viewer') return false;
-  if (project?.ownerId) {
-    return project.ownerId === user.id;
-  }
-  return user.role === 'project_manager';
+  return can(user, 'finance.edit', project || null, context);
 }
 
 /**
  * Sprawdza, czy użytkownik może przeglądać finanse projektu (menu Ekonomia i podgląd kosztorysu).
- * - admin oraz project_manager: zawsze true
- * - viewer: zawsze false
- * - właściciel projektu (ownerId === user.id): true niezależnie od roli (poza viewer)
- * - pozostałe role bez własności projektu: false
  */
 export function canViewFinance(
-  user: { id: string; role?: string } | null | undefined,
-  project: { ownerId?: string } | null | undefined
+  user: {
+    id: string;
+    role?: string;
+    groupIds?: string[];
+    companyIds?: string[];
+    permissionGrants?: any[];
+    permissionDenials?: any[];
+    effectivePermissions?: any[];
+  } | null | undefined,
+  project: { id?: string; ownerId?: string; memberIds?: string[]; companyId?: string } | null | undefined,
+  context?: PermissionCheckContext
 ): boolean {
   if (!user || !user.role || !project) return false;
-  if (user.role === 'viewer') return false;
-  if (user.role === 'admin' || user.role === 'project_manager') return true;
-  if (project.ownerId && project.ownerId === user.id) return true;
-  return false;
+  return can(user, 'finance.view', project, context);
 }
 
 /**
@@ -99,30 +123,59 @@ export function hasForbiddenKeys(obj: unknown): boolean {
 }
 
 /**
- * Sprawdza, czy użytkownik ma uprawnienia do zapisu (rola 'viewer' jest wyłącznie do odczytu).
+ * Sprawdza, czy użytkownik ma uprawnienia do zapisu.
  */
-export function canWrite(user: { role?: string } | null | undefined): boolean {
+export function canWrite(
+  user: {
+    id?: string;
+    role?: string;
+    groupIds?: string[];
+    companyIds?: string[];
+    permissionGrants?: any[];
+    permissionDenials?: any[];
+    effectivePermissions?: any[];
+  } | null | undefined,
+  context?: PermissionCheckContext
+): boolean {
   if (!user || !user.role) return false;
-  return user.role !== 'viewer';
+  if (user.role === 'admin') return true;
+  const globalPerms = new Set(getEffectiveGlobalPermissions(user, context));
+  for (const perm of WRITE_PERMISSIONS) {
+    if (globalPerms.has(perm)) return true;
+    if (canUserUseCompanyPermission(user, perm, context)) return true;
+  }
+  if (user.role !== 'viewer') {
+    const denials = new Set(sanitizePermissionArray(user.permissionDenials));
+    const hasUnblockedOwnWork =
+      !denials.has('tasks.edit') || !denials.has('projects.edit') || !denials.has('finance.edit');
+    if (hasUnblockedOwnWork && (!context || globalPerms.size > 0 || user.role === 'developer' || user.role === 'tester' || user.role === 'project_manager')) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
- * Sprawdza, czy użytkownik ma dostęp do danego projektu.
- * Role 'admin' i 'project_manager' mają dostęp do wszystkich projektów.
- * Pozostałe role mają dostęp tylko wtedy, gdy ich id znajduje się w project.memberIds.
+ * Sprawdza, czy użytkownik ma dostęp do podglądu danego projektu.
  */
 export function canAccessProject(
-  user: { id: string; role?: string } | null | undefined,
-  project: { id: string; memberIds?: string[]; ownerId?: string } | null | undefined
+  user: {
+    id: string;
+    role?: string;
+    groupIds?: string[];
+    companyIds?: string[];
+    permissionGrants?: any[];
+    permissionDenials?: any[];
+    effectivePermissions?: any[];
+  } | null | undefined,
+  project: { id: string; memberIds?: string[]; ownerId?: string; companyId?: string } | null | undefined,
+  context?: PermissionCheckContext
 ): boolean {
   if (!user || !project) return false;
-  if (user.role === 'admin' || user.role === 'project_manager') {
-    return true;
+  if (!user.role) {
+    return Array.isArray(project.memberIds) && project.memberIds.includes(user.id);
   }
-  if (project.ownerId && project.ownerId === user.id) {
-    return true;
-  }
-  return Array.isArray(project.memberIds) && project.memberIds.includes(user.id);
+  return can(user, 'projects.view', project, context);
 }
 
 /**
@@ -131,10 +184,19 @@ export function canAccessProject(
  */
 export function filterProjectForUser<T extends Record<string, any>>(
   project: T,
-  user: { id: string; role?: string } | null | undefined
+  user: {
+    id: string;
+    role?: string;
+    groupIds?: string[];
+    companyIds?: string[];
+    permissionGrants?: any[];
+    permissionDenials?: any[];
+    effectivePermissions?: any[];
+  } | null | undefined,
+  context?: PermissionCheckContext
 ): T {
   if (!project) return project;
-  if (canViewFinance(user, project)) {
+  if (canViewFinance(user, project as any, context)) {
     return { ...project };
   }
 
@@ -158,30 +220,32 @@ export function filterProjectForUser<T extends Record<string, any>>(
 }
 
 /**
- * Filtruje cały stan aplikacji pod kątem uprawnień użytkownika:
- * - Admin i Project Manager widzą wszystko.
- * - Pozostałe role widzą tylko projekty z memberIds (z usuniętymi polami finansowymi i danymi klienta),
- *   oraz zadania z tych projektów lub przypisane do nich / zgłoszone przez nich,
- *   a także powiązane komentarze i logi aktywności.
- */
-/**
  * Filtruje pojedynczą firmę pod kątem uprawnień użytkownika:
- * - admin i project_manager widzą wszystkie pola (w tym nip, address, vatPayer, vatExemptionBasis).
- * - właściciele projektów przypisanych do firmy (poza viewer) widzą także vatPayer i vatExemptionBasis.
- * - pozostali zalogowani widzą tylko pola jawne (id, name, letter, isActive).
+ * - użytkownicy z globalnym `finance.view` widzą wszystkie pola (w tym nip, address, vatPayer, vatExemptionBasis).
+ * - właściciele projektów przypisanych do firmy (poza viewer) oraz przypisani członkowie firmy z `finance.view`
+ *   widzą także vatPayer i vatExemptionBasis.
+ * - pozostali zalogowani widzą tylko pola jawne (id, name, letter, color, isActive).
  */
 export function filterCompanyForUser<T extends Record<string, any>>(
   company: T,
   user: { id: string; role?: string } | null | undefined,
-  ownedCompanyIds?: Set<string>
+  ownedCompanyIds?: Set<string>,
+  memberFinanceCompanyIds?: Set<string>,
+  hasGlobalFinanceView?: boolean
 ): T {
   if (!company || typeof company !== 'object') return company;
-  const isAdminOrManager = user && (user.role === 'admin' || user.role === 'project_manager');
-  if (isAdminOrManager) {
+  const fullAccess =
+    hasGlobalFinanceView !== undefined
+      ? hasGlobalFinanceView
+      : Boolean(user && (user.role === 'admin' || user.role === 'project_manager'));
+  if (fullAccess) {
     return { ...company };
   }
   const { nip: _nip, address: _address, vatPayer, vatExemptionBasis, ...publicFields } = company;
-  if (user && user.role !== 'viewer' && ownedCompanyIds?.has(company.id)) {
+  const hasCompanyFinance =
+    memberFinanceCompanyIds?.has(company.id) ||
+    Boolean(user && user.role !== 'viewer' && ownedCompanyIds?.has(company.id));
+  if (hasCompanyFinance) {
     return {
       ...publicFields,
       vatPayer,
@@ -193,28 +257,59 @@ export function filterCompanyForUser<T extends Record<string, any>>(
 
 export function filterCompaniesForUser<T extends Record<string, any>>(
   companies: T[] | null | undefined,
-  user: { id: string; role?: string } | null | undefined,
-  projects?: Array<{ companyId?: string; ownerId?: string }> | null
+  user: {
+    id: string;
+    role?: string;
+    groupIds?: string[];
+    companyIds?: string[];
+    permissionGrants?: any[];
+    permissionDenials?: any[];
+    effectivePermissions?: any[];
+  } | null | undefined,
+  projects?: Array<{ companyId?: string; ownerId?: string }> | null,
+  context?: PermissionCheckContext
 ): T[] {
   if (!user || !Array.isArray(companies)) return [];
+  const hasGlobalFinanceView = can(user, 'finance.view', undefined, context);
   const ownedCompanyIds = new Set<string>();
-  if (Array.isArray(projects) && user.role !== 'viewer') {
+  const denials = new Set(sanitizePermissionArray(user.permissionDenials));
+
+  if (Array.isArray(projects) && user.role !== 'viewer' && !denials.has('finance.view')) {
     for (const p of projects) {
       if (p && p.companyId && p.ownerId === user.id) {
         ownedCompanyIds.add(p.companyId);
       }
     }
   }
-  return companies.map((c) => filterCompanyForUser(c, user, ownedCompanyIds));
+
+  const memberFinanceCompanyIds = new Set<string>();
+  for (const c of companies) {
+    if (c && typeof c.id === 'string' && can(user, 'finance.view', { companyId: c.id }, context)) {
+      memberFinanceCompanyIds.add(c.id);
+    }
+  }
+
+  return companies.map((c) =>
+    filterCompanyForUser(c, user, ownedCompanyIds, memberFinanceCompanyIds, hasGlobalFinanceView)
+  );
 }
 
 export function filterStateForUser(
   state: any,
-  user: { id: string; role?: string } | null | undefined
+  user: {
+    id: string;
+    role?: string;
+    groupIds?: string[];
+    companyIds?: string[];
+    permissionGrants?: any[];
+    permissionDenials?: any[];
+    effectivePermissions?: any[];
+  } | null | undefined
 ): any {
   if (!state) return state;
   const {
     serverSettings: _serverSettings,
+    permissionConfig: rawPermissionConfig,
     trash: _trash,
     tenders: _tenders,
     projectTemplates: _projectTemplates,
@@ -241,31 +336,44 @@ export function filterStateForUser(
     };
   }
 
-  const isAdminOrManager = user.role === 'admin' || user.role === 'project_manager';
-  if (isAdminOrManager) {
-    return {
-      ...safeState,
-      companies: Array.isArray(safeState.companies) ? safeState.companies.map((c: any) => ({ ...c })) : [],
-    };
-  }
+  const permContext: PermissionCheckContext | undefined = rawPermissionConfig
+    ? { permissionConfig: rawPermissionConfig }
+    : undefined;
 
-  // Dla ról innych niż admin i project_manager usuń listę klientów z variables
+  const hasGlobalProjectsView = can(user, 'projects.view', undefined, permContext);
+  const hasGlobalFinanceView = can(user, 'finance.view', undefined, permContext);
+  const canSeeClientsCatalog =
+    hasGlobalFinanceView || can(user, 'clients.edit', undefined, permContext);
+
+  // Usuń listę klientów z variables, jeśli użytkownik nie ma uprawnień do bazy klientów / finansów globalnie
   let filteredVariables = safeState.variables;
-  if (safeState.variables && typeof safeState.variables === 'object') {
+  if (safeState.variables && typeof safeState.variables === 'object' && !canSeeClientsCatalog) {
     const { clients: _ignoredClients, ...restVariables } = safeState.variables;
     filteredVariables = restVariables;
   }
 
-  // 1. Dostępne projekty
   const allProjects = Array.isArray(safeState.projects) ? safeState.projects : [];
+  const allTasks = Array.isArray(safeState.tasks) ? safeState.tasks : [];
+  const allComments = Array.isArray(safeState.comments) ? safeState.comments : [];
+  const allLogs = Array.isArray(safeState.activityLogs) ? safeState.activityLogs : [];
+
+  if (hasGlobalProjectsView && hasGlobalFinanceView) {
+    return {
+      ...safeState,
+      ...(filteredVariables !== undefined ? { variables: filteredVariables } : {}),
+      companies: filterCompaniesForUser(safeState.companies, user, allProjects, permContext),
+      projects: allProjects.map((p: any) => filterProjectForUser(p, user, permContext)),
+    };
+  }
+
+  // 1. Dostępne projekty
   const accessibleProjects = allProjects
-    .filter((p: any) => canAccessProject(user, p))
-    .map((p: any) => filterProjectForUser(p, user));
+    .filter((p: any) => canAccessProject(user, p, permContext))
+    .map((p: any) => filterProjectForUser(p, user, permContext));
 
   const allowedProjectIds = new Set(accessibleProjects.map((p: any) => p.id));
 
   // 2. Dostępne zadania: z dostępnych projektów LUB przypisane / zgłoszone przez użytkownika
-  const allTasks = Array.isArray(safeState.tasks) ? safeState.tasks : [];
   const filteredTasks = allTasks.filter((t: any) => {
     if (!t) return false;
     return (
@@ -278,14 +386,12 @@ export function filterStateForUser(
   const allowedTaskIds = new Set(filteredTasks.map((t: any) => t.id));
 
   // 3. Komentarze: tylko do dostępnych zadań
-  const allComments = Array.isArray(safeState.comments) ? safeState.comments : [];
   const filteredComments = allComments.filter((c: any) => {
     if (!c) return false;
     return c.taskId && allowedTaskIds.has(c.taskId);
   });
 
   // 4. Logi aktywności: powiązane z dostępnymi projektami lub zadaniami, albo wykonane przez usera
-  const allLogs = Array.isArray(safeState.activityLogs) ? safeState.activityLogs : [];
   const filteredLogs = allLogs.filter((log: any) => {
     if (!log) return false;
     if (log.projectId && allowedProjectIds.has(log.projectId)) return true;
@@ -297,7 +403,7 @@ export function filterStateForUser(
   return {
     ...safeState,
     ...(filteredVariables !== undefined ? { variables: filteredVariables } : {}),
-    companies: filterCompaniesForUser(safeState.companies, user, allProjects),
+    companies: filterCompaniesForUser(safeState.companies, user, allProjects, permContext),
     projects: accessibleProjects,
     tasks: filteredTasks,
     comments: filteredComments,
@@ -308,7 +414,7 @@ export function filterStateForUser(
 /**
  * Whitelist edytowalnych pól zadania (Task).
  * Pola `id`, `revision`, `createdAt`, `reporterId` nigdy nie są edytowalne.
- * Zmiana `projectId` zadania dozwolona wyłącznie dla admin / project_manager.
+ * Zmiana `projectId` zadania dozwolona wyłącznie dla użytkowników z globalnym `tasks.edit`.
  * Odrzuca klucze prototype (__proto__, constructor, prototype).
  */
 export const FIELD_LIMITS = {
@@ -329,6 +435,7 @@ export const FIELD_LIMITS = {
 export interface FieldSanitizeOptions {
   /** Jeśli true, rzuca błąd zamiast przycinać wartości ponad limit (dla zwracania 400). Domyślnie false (przycina). */
   rejectOnOverflow?: boolean;
+  permissionConfig?: PermissionConfig | null;
 }
 
 /**
@@ -382,14 +489,18 @@ export function sanitizeFieldValue(
 
 /**
  * Whitelist edytowalnych pól zadania (Task).
- * Pola `id`, `revision`, `createdAt`, `reporterId` nigdy nie są edytowalne.
- * Zmiana `projectId` zadania dozwolona wyłącznie dla admin / project_manager.
- * Odrzuca klucze prototype (__proto__, constructor, prototype).
- * Przycina lub odrzuca (gdy options.rejectOnOverflow=true) wartości tekstowe ponad limity.
  */
 export function pickAllowedTaskFields(
   body: any,
-  user: { id: string; role?: string } | null | undefined,
+  user: {
+    id: string;
+    role?: string;
+    groupIds?: string[];
+    companyIds?: string[];
+    permissionGrants?: any[];
+    permissionDenials?: any[];
+    effectivePermissions?: any[];
+  } | null | undefined,
   options?: FieldSanitizeOptions
 ): Record<string, any> {
   if (!body || typeof body !== 'object') return {};
@@ -397,7 +508,7 @@ export function pickAllowedTaskFields(
     throw new Error('Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).');
   }
 
-  const isAdminOrManager = user && (user.role === 'admin' || user.role === 'project_manager');
+  const canMoveProject = can(user, 'tasks.edit', undefined, options?.permissionConfig);
 
   // Whitelist bazowych pól zadania edytowalnych przez uprawnionych członków
   const standardFields = new Set([
@@ -426,7 +537,6 @@ export function pickAllowedTaskFields(
   const result: Record<string, any> = {};
 
   for (const key of Object.keys(body)) {
-    // Pola absolutnie niemodyfikowalne: id, revision, createdAt, reporterId, updatedAt, expectedRevision
     if (
       key === 'id' ||
       key === 'revision' ||
@@ -439,8 +549,7 @@ export function pickAllowedTaskFields(
     }
 
     if (key === 'projectId') {
-      // Zmiana projectId tylko dla admin/project_manager
-      if (isAdminOrManager) {
+      if (canMoveProject) {
         result.projectId = body.projectId;
       }
       continue;
@@ -455,21 +564,23 @@ export function pickAllowedTaskFields(
 }
 
 export interface ProjectFieldPickOptions extends FieldSanitizeOptions {
-  project?: { ownerId?: string } | null;
+  project?: { id?: string; ownerId?: string; memberIds?: string[]; companyId?: string } | null;
 }
 
 /**
  * Whitelist edytowalnych pól projektu (Project).
- * Pola `id`, `revision`, `createdAt` nigdy nie są edytowalne.
- * Zmiana `memberIds` oraz `key` projektu tylko dla admin / project_manager.
- * Pola finansowe, `companyId` i dane klienta (budget, costs, client*) edytowalne dla uprawnionych wg `canEditFinance`.
- * Zmiana `ownerId`: admin lub obecny właściciel projektu (dla projektów bez ownerId również project_manager).
- * Odrzuca klucze prototype (__proto__, constructor, prototype).
- * Przycina lub odrzuca (gdy options.rejectOnOverflow=true) wartości tekstowe ponad limity.
  */
 export function pickAllowedProjectFields(
   body: any,
-  user: { id: string; role?: string } | null | undefined,
+  user: {
+    id: string;
+    role?: string;
+    groupIds?: string[];
+    companyIds?: string[];
+    permissionGrants?: any[];
+    permissionDenials?: any[];
+    effectivePermissions?: any[];
+  } | null | undefined,
   options?: ProjectFieldPickOptions
 ): Record<string, any> {
   if (!body || typeof body !== 'object') return {};
@@ -477,16 +588,21 @@ export function pickAllowedProjectFields(
     throw new Error('Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).');
   }
 
+  const permConfig = options?.permissionConfig;
   const isAdmin = Boolean(user && user.role === 'admin');
-  const isAdminOrManager = Boolean(user && (user.role === 'admin' || user.role === 'project_manager'));
-  const canManageFinance = canEditFinance(user, options?.project);
+  const canManageGlobalProject = can(user, 'projects.edit', undefined, permConfig);
+  const canArchive = can(user, 'projects.archive', options?.project || null, permConfig);
+  const canManageFinance = canEditFinance(user, options?.project, permConfig);
+
+  const denials = new Set(sanitizePermissionArray(user?.permissionDenials));
+  const isEditDenied = !isAdmin && denials.has('projects.edit');
   const canChangeOwner = Boolean(
     user &&
-      user.role !== 'viewer' &&
+      !isEditDenied &&
       (isAdmin ||
         (options?.project?.ownerId
-          ? options.project.ownerId === user.id
-          : user.role === 'project_manager'))
+          ? user.role !== 'viewer' && options.project.ownerId === user.id
+          : canManageGlobalProject))
   );
 
   // Bazowe pola edytowalne dla każdego uprawnionego do edycji projektu
@@ -508,14 +624,18 @@ export function pickAllowedProjectFields(
     'diskPath',
   ]);
 
-  // Pola zastrzeżone wyłącznie dla admin / project_manager
-  const strictAdminManagerFields = new Set([
+  // Pola globalnej edycji projektu
+  const globalProjectFields = new Set([
     'key',
     'memberIds',
+    'isDemo',
+  ]);
+
+  // Pola archiwizacji projektu
+  const archiveFields = new Set([
     'isArchived',
     'archivedAt',
     'archivedBy',
-    'isDemo',
   ]);
 
   // Pola finansowe, firma oraz dane klienta
@@ -555,7 +675,12 @@ export function pickAllowedProjectFields(
       continue;
     }
 
-    if (isAdminOrManager && strictAdminManagerFields.has(key)) {
+    if (canManageGlobalProject && globalProjectFields.has(key)) {
+      result[key] = sanitizeFieldValue(key, body[key], options);
+      continue;
+    }
+
+    if (canArchive && archiveFields.has(key)) {
       result[key] = sanitizeFieldValue(key, body[key], options);
       continue;
     }

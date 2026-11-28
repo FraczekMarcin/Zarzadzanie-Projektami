@@ -29,6 +29,7 @@ import { SettingsService } from '../settings.js';
 import { MailerService } from '../mailer.js';
 import { TrustedDevicesService } from '../trustedDevices.js';
 import { hasForbiddenKeys } from '../../utils/access.js';
+import { getEffectivePermissions } from '../../utils/permissions.js';
 import { validatePassword } from '../../utils/passwordPolicy.js';
 import { logger } from '../logger.js';
 
@@ -694,8 +695,20 @@ export function registerAuthRoutes(app: express.Express, deps: AuthRoutesDeps): 
 
   // GET /api/auth/me
   app.get('/api/auth/me', requireAuth, (req, res) => {
+    const appState = stateStore.ensureStateStructure();
     const user = (req as any).user;
-    res.json({ authenticated: true, user: sanitizeUser(user) });
+    const effectivePermissions = getEffectivePermissions(user, appState.permissionConfig);
+    const companyIds = Array.isArray(user?.companyIds) ? [...user.companyIds] : [];
+    res.json({
+      authenticated: true,
+      user: {
+        ...sanitizeUser(user),
+        companyIds,
+        effectivePermissions,
+      },
+      companyIds,
+      effectivePermissions,
+    });
   });
 
   // GET /api/auth/devices

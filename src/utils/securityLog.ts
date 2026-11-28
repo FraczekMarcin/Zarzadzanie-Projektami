@@ -52,7 +52,8 @@ export type SecurityEventType =
   | 'tender_project_created'
   | 'template_created'
   | 'template_updated'
-  | 'template_deleted';
+  | 'template_deleted'
+  | 'permission_changed';
 
 export type LoginFailureReason =
   | 'bad_password'
@@ -214,6 +215,7 @@ export const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   template_created: 'Utworzenie szablonu projektu',
   template_updated: 'Aktualizacja szablonu projektu',
   template_deleted: 'Usunięcie szablonu projektu',
+  permission_changed: 'Zmiana uprawnień lub dostępu',
 };
 
 /**

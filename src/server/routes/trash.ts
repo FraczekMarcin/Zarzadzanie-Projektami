@@ -3,11 +3,17 @@ import {
   reconcileLeafTasksConsistency,
   recomputeProjectProgress,
 } from '../../utils/progress.js';
+import { can, canUserUseCompanyPermission } from '../../utils/permissions.js';
 import { getClientIp } from '../security.js';
 import { SessionStore } from '../sessions.js';
 import { SettingsService } from '../settings.js';
 import { DISK_FULL_ERROR_MESSAGE, isDiskFullError, StateStore } from '../state.js';
-import { listTrashForUser, purgeExpiredTrash, restoreTrashEntry } from '../trash.js';
+import {
+  findProjectForTrashEntry,
+  listTrashForUser,
+  purgeExpiredTrash,
+  restoreTrashEntry,
+} from '../trash.js';
 import { logger } from '../logger.js';
 
 export function registerTrashRoutes(
@@ -88,14 +94,18 @@ export function registerTrashRoutes(
     }
   });
 
-  // DELETE /api/trash/:id — trwałe usunięcie pojedynczego wpisu z kosza (admin lub project_manager)
+  // DELETE /api/trash/:id — trwałe usunięcie pojedynczego wpisu z kosza (uprawnienie trash.manage)
   app.delete('/api/trash/:id', requireAuth, async (req, res) => {
     try {
       const appState = stateStore.ensureStateStructure();
+      const permConfig = appState.permissionConfig;
       const caller = (req as any).user;
-      if (caller.role !== 'admin' && caller.role !== 'project_manager') {
+      const hasPotentialPurge =
+        can(caller, 'trash.manage', undefined, permConfig) ||
+        canUserUseCompanyPermission(caller, 'trash.manage', permConfig);
+      if (!hasPotentialPurge) {
         return res.status(403).json({
-          error: 'Trwałe usuwanie elementów z kosza wymaga roli administratora lub kierownika projektu.',
+          error: 'Brak uprawnień do trwałego usuwania elementów z kosza.',
         });
       }
 
@@ -104,6 +114,14 @@ export function registerTrashRoutes(
       const index = appState.trash.findIndex((e: any) => e && e.id === id);
       if (index === -1) {
         return res.status(404).json({ error: 'Wpis w koszu nie istnieje.' });
+      }
+
+      const entry = appState.trash[index];
+      const proj = findProjectForTrashEntry(appState, entry.projectId);
+      if (!can(caller, 'trash.manage', proj?.companyId ? { companyId: proj.companyId } : undefined, permConfig)) {
+        return res.status(403).json({
+          error: 'Brak uprawnień do trwałego usunięcia tego wpisu z kosza.',
+        });
       }
 
       appState.trash.splice(index, 1);

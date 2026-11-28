@@ -2,6 +2,7 @@ import express from 'express';
 import crypto from 'crypto';
 import {
   FIELD_LIMITS,
+  FINANCIAL_AND_CLIENT_FIELDS,
   filterProjectForUser,
   canWrite,
   canEditFinance,
@@ -9,6 +10,11 @@ import {
   hasForbiddenKeys,
   pickAllowedProjectFields,
 } from '../../utils/access.js';
+import {
+  can,
+  canUserUseCompanyPermission,
+  sanitizePermissionArray,
+} from '../../utils/permissions.js';
 import { validateProjectFinanceFields } from '../../utils/financeValidation.js';
 import {
   getNextProjectCode,
@@ -205,9 +211,13 @@ export function registerProjectRoutes(
   app.post('/api/projects', requireAuth, async (req, res) => {
     try {
       const appState = stateStore.ensureStateStructure();
+      const permConfig = appState.permissionConfig;
       const caller = (req as any).user;
-      if (!canWrite(caller)) {
-        return res.status(403).json({ error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' });
+      const hasPotentialCreate =
+        can(caller, 'projects.create', undefined, permConfig) ||
+        canUserUseCompanyPermission(caller, 'projects.create', permConfig);
+      if (!hasPotentialCreate) {
+        return res.status(403).json({ error: 'Brak uprawnień do tworzenia projektów.' });
       }
       if (hasForbiddenKeys(req.body)) {
         return res.status(400).json({ error: 'Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).' });
@@ -220,7 +230,7 @@ export function registerProjectRoutes(
 
       let allowed: Record<string, any>;
       try {
-        allowed = pickAllowedProjectFields(body, caller);
+        allowed = pickAllowedProjectFields(body, caller, { permissionConfig: permConfig });
       } catch (err: any) {
         return res.status(400).json({ error: err.message });
       }
@@ -260,6 +270,10 @@ export function registerProjectRoutes(
         }
       } else if (activeCompanies.length > 0) {
         return res.status(400).json({ error: 'Wybór aktywnej firmy jest wymagany.' });
+      }
+
+      if (!can(caller, 'projects.create', selectedCompany ? { companyId: selectedCompany.id } : undefined, permConfig)) {
+        return res.status(403).json({ error: 'Brak uprawnień do tworzenia projektów dla tej firmy.' });
       }
 
       const configuredStatuses = normalizeProjectStatuses(appState.variables?.projectStatuses);
@@ -345,8 +359,8 @@ export function registerProjectRoutes(
         });
       }
 
-      const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
-      if (isAdminOrManager && typeof allowed.ownerId === 'string') {
+      const canManageGlobalProject = can(caller, 'projects.edit', undefined, permConfig);
+      if (canManageGlobalProject && typeof allowed.ownerId === 'string') {
         const trimmedOwner = allowed.ownerId.trim();
         allowed.ownerId = trimmedOwner || undefined;
       } else {
@@ -354,7 +368,7 @@ export function registerProjectRoutes(
       }
 
       let members: string[];
-      if (isAdminOrManager && Array.isArray(allowed.memberIds)) {
+      if (canManageGlobalProject && Array.isArray(allowed.memberIds)) {
         members = Array.from(new Set(allowed.memberIds));
       } else {
         members = [caller.id];
@@ -368,7 +382,7 @@ export function registerProjectRoutes(
 
       let key: string;
       const customKeyRaw =
-        isAdminOrManager && typeof allowed.key === 'string' ? allowed.key.trim() : '';
+        canManageGlobalProject && typeof allowed.key === 'string' ? allowed.key.trim() : '';
 
       if (customKeyRaw) {
         const normalizedKey = customKeyRaw.toUpperCase().slice(0, FIELD_LIMITS.key);
@@ -627,7 +641,7 @@ export function registerProjectRoutes(
 
       res.status(201).json({
         success: true,
-        project: filterProjectForUser(newProject, caller),
+        project: filterProjectForUser(newProject, caller, permConfig),
         ...(resolvedTemplate ? { tasks: instantiatedTasks } : {}),
         revision: newRev,
       });
@@ -644,9 +658,10 @@ export function registerProjectRoutes(
   app.patch('/api/projects/:id', requireAuth, async (req, res) => {
     try {
       const appState = stateStore.ensureStateStructure();
+      const permConfig = appState.permissionConfig;
       const caller = (req as any).user;
-      if (!canWrite(caller)) {
-        return res.status(403).json({ error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' });
+      if (!canWrite(caller, permConfig)) {
+        return res.status(403).json({ error: 'Brak uprawnień do modyfikacji projektów.' });
       }
       if (hasForbiddenKeys(req.body)) {
         return res.status(400).json({ error: 'Niedozwolony klucz w żądaniu (__proto__, constructor, prototype).' });
@@ -659,38 +674,60 @@ export function registerProjectRoutes(
         return res.status(404).json({ error: `Projekt o ID "${id}" nie został znaleziony.` });
       }
 
-      const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
-      const isProjectOwner =
-        Boolean(project.ownerId) && project.ownerId === caller.id && caller.role !== 'viewer';
-      if (!isAdminOrManager && !isProjectOwner) {
-        const isMember = Array.isArray(project.memberIds) && project.memberIds.includes(caller.id);
-        if (!isMember) {
-          return res.status(403).json({ error: 'Brak uprawnień do edycji tego projektu.' });
-        }
+      const patchKeys = Object.keys(patch).filter((k) => k !== 'expectedRevision');
+      const hasArchiveFields =
+        patch.isArchived !== undefined ||
+        patch.archivedAt !== undefined ||
+        patch.archivedBy !== undefined;
+      const isArchiveOnlyPatch =
+        hasArchiveFields &&
+        patchKeys.length > 0 &&
+        patchKeys.every((k) => k === 'isArchived' || k === 'archivedAt' || k === 'archivedBy');
+      const isFinanceOnlyPatch =
+        hasFinanceOrClientFields(patch) &&
+        patchKeys.length > 0 &&
+        patchKeys.every(
+          (k) => FINANCIAL_AND_CLIENT_FIELDS.includes(k) || k.toLowerCase().startsWith('client')
+        );
+
+      const canEditThisProject = can(caller, 'projects.edit', project, permConfig);
+      const canArchiveThisProject = can(caller, 'projects.archive', project, permConfig);
+      const canEditThisFinance = canEditFinance(caller, project, permConfig);
+
+      if (!isArchiveOnlyPatch && !isFinanceOnlyPatch && !canEditThisProject) {
+        return res.status(403).json({ error: 'Brak uprawnień do edycji tego projektu.' });
       }
 
-      if (!isAdminOrManager && (patch.memberIds !== undefined || patch.key !== undefined)) {
+      if (hasArchiveFields && !canArchiveThisProject) {
+        return res.status(403).json({ error: 'Brak uprawnień do archiwizacji tego projektu.' });
+      }
+
+      const canManageGlobalProject = can(caller, 'projects.edit', undefined, permConfig);
+      if (!canManageGlobalProject && (patch.memberIds !== undefined || patch.key !== undefined)) {
         return res.status(403).json({
-          error: 'Zmiana memberIds oraz key projektu jest dozwolona wyłącznie dla roli administratora lub kierownika projektu.',
+          error: 'Zmiana memberIds oraz key projektu jest dozwolona wyłącznie dla użytkowników z globalnym prawem edycji projektów.',
         });
       }
 
       const hasCompanyIdPatch = Object.prototype.hasOwnProperty.call(patch, 'companyId');
-      const canChangeCompany = caller.role === 'admin' || canEditFinance(caller, project);
+      const canChangeCompany = caller.role === 'admin' || canEditThisFinance;
 
       if (hasCompanyIdPatch && !canChangeCompany) {
         return res.status(403).json({
-          error: 'Zmiana firmy projektu jest dozwolona wyłącznie dla administratora lub właściciela projektu.',
+          error: 'Zmiana firmy projektu jest dozwolona wyłącznie dla administratora lub użytkownika z prawem edycji finansów.',
         });
       }
 
       const hasOwnerIdPatch =
         Object.prototype.hasOwnProperty.call(patch, 'ownerId') && patch.ownerId !== undefined;
+      const denials = new Set(sanitizePermissionArray(caller?.permissionDenials));
+      const isEditDenied = caller.role !== 'admin' && denials.has('projects.edit');
       const canChangeOwner =
         caller.role === 'admin' ||
-        (project.ownerId
-          ? project.ownerId === caller.id && caller.role !== 'viewer'
-          : caller.role === 'project_manager');
+        (!isEditDenied &&
+          (project.ownerId
+            ? project.ownerId === caller.id && caller.role !== 'viewer'
+            : canManageGlobalProject));
 
       if (hasOwnerIdPatch && !canChangeOwner) {
         return res.status(403).json({
@@ -698,9 +735,9 @@ export function registerProjectRoutes(
         });
       }
 
-      if (hasFinanceOrClientFields(patch) && !canEditFinance(caller, project)) {
+      if (hasFinanceOrClientFields(patch) && !canEditThisFinance) {
         return res.status(403).json({
-          error: 'Edycja finansów: administrator i właściciel projektu',
+          error: 'Brak uprawnień do edycji finansów i danych klienta tego projektu.',
         });
       }
 
@@ -711,7 +748,7 @@ export function registerProjectRoutes(
         if (cleanMatch !== '*' && cleanMatch !== currentRev) {
           return res.status(409).json({
             error: 'Konflikt wersji projektu (został zmodyfikowany przez innego użytkownika).',
-            currentProject: filterProjectForUser(project, caller),
+            currentProject: filterProjectForUser(project, caller, permConfig),
             revision: appState.revision,
           });
         }
@@ -719,7 +756,10 @@ export function registerProjectRoutes(
 
       let allowedUpdates: Record<string, any>;
       try {
-        allowedUpdates = pickAllowedProjectFields(patch, caller, { project });
+        allowedUpdates = pickAllowedProjectFields(patch, caller, {
+          project,
+          permissionConfig: permConfig,
+        });
       } catch (err: any) {
         return res.status(400).json({ error: err.message });
       }
@@ -1024,7 +1064,7 @@ export function registerProjectRoutes(
 
       res.json({
         success: true,
-        project: filterProjectForUser(project, caller),
+        project: filterProjectForUser(project, caller, permConfig),
         revision: newRev,
       });
     } catch (err: any) {
@@ -1040,18 +1080,17 @@ export function registerProjectRoutes(
   app.delete('/api/projects/:id', requireAuth, async (req, res) => {
     try {
       const appState = stateStore.ensureStateStructure();
+      const permConfig = appState.permissionConfig;
       const caller = (req as any).user;
-      if (!canWrite(caller)) {
-        return res.status(403).json({ error: 'Rola viewer posiada dostęp wyłącznie do odczytu.' });
-      }
-      const { id } = req.params;
-
-      const isAdminOrManager = caller.role === 'admin' || caller.role === 'project_manager';
-      if (!isAdminOrManager) {
+      const hasPotentialDelete =
+        can(caller, 'projects.delete', undefined, permConfig) ||
+        canUserUseCompanyPermission(caller, 'projects.delete', permConfig);
+      if (!hasPotentialDelete) {
         return res.status(403).json({
-          error: 'Usuwanie projektów wymaga roli administratora lub kierownika projektu.',
+          error: 'Brak uprawnień do usuwania projektów.',
         });
       }
+      const { id } = req.params;
 
       const projectIndex = (appState.projects || []).findIndex((p: any) => p.id === id);
       if (projectIndex === -1) {
@@ -1059,6 +1098,11 @@ export function registerProjectRoutes(
       }
 
       const project = appState.projects[projectIndex];
+      if (!can(caller, 'projects.delete', project, permConfig)) {
+        return res.status(403).json({
+          error: 'Brak uprawnień do usunięcia tego projektu.',
+        });
+      }
       const retentionDays = settingsService.getEffectiveTrashRetentionDays();
       const { trashEntry } = moveProjectToTrash(appState, project, caller, retentionDays, Date.now());
 
